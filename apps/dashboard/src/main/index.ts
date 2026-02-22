@@ -60,7 +60,9 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
   })
 
   watcher.on('add', async (filePath) => {
+    console.log('[main] file added:', filePath)
     const place = await parsePlaceFile(filePath)
+    console.log('[main] parsed:', place)
     if (place) {
       places.set(filePath, place)
       if (initialScanDone && !mainWindow.isDestroyed()) {
@@ -94,6 +96,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
 
   watcher.on('ready', () => {
     initialScanDone = true
+    console.log('[main] watcher ready, places found:', places.size)
     const allPlaces = Array.from(places.values())
     for (const sender of pendingInitialSenders) {
       if (!sender.isDestroyed()) {
@@ -104,6 +107,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.on('places:request-initial', (event) => {
+    console.log('[main] places:request-initial received, scanDone:', initialScanDone, 'places:', places.size)
     if (initialScanDone) {
       event.sender.send('places:initial', Array.from(places.values()))
     } else {

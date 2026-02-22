@@ -38,16 +38,23 @@ export default function MapView(): React.JSX.Element {
 
   useEffect(() => {
     window.api.places.onInitial((initialPlaces) => {
+      console.log('[places:initial]', initialPlaces)
       const m = new Map<string, PlaceRecord>()
       initialPlaces.forEach((p) => m.set(p.filePath, p))
       setPlaces(m)
     })
-    window.api.places.onUpdated(applyUpdate as (u: unknown) => void)
+    window.api.places.onUpdated((u) => {
+      console.log('[places:updated]', u)
+      applyUpdate(u as PlaceUpdate)
+    })
+    console.log('[MapView] requesting initial places')
     window.api.places.requestInitial()
     return () => {
       window.api.places.removeListeners()
     }
   }, [applyUpdate])
+
+  console.log(1111, places)
 
   return (
     <MapGL

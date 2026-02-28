@@ -1,34 +1,33 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import chokidar from "chokidar";
-import { BrowserWindow, app, ipcMain, session, shell } from "electron";
-import matter from "gray-matter";
-import icon from "../../resources/icon.png?asset";
+import { existsSync, mkdirSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { electronApp, is, optimizer } from "@electron-toolkit/utils"
+import chokidar from "chokidar"
+import { BrowserWindow, app, ipcMain, session, shell } from "electron"
+import matter from "gray-matter"
+import icon from "../../resources/icon.png?asset"
 
 type PlaceRecord = {
-  id: string;
-  lat: number;
-  lng: number;
-  title: string;
-  status: string;
-  type: string;
-  category?: string;
-  tags?: string[];
-  filePath: string;
-};
+  id: string
+  lat: number
+  lng: number
+  title: string
+  status: string
+  type: string
+  category?: string
+  tags?: string[]
+  filePath: string
+}
 
 async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   try {
-    const raw = await readFile(filePath, "utf-8");
-    const { data, content } = matter(raw);
-    if (typeof data.lat !== "number" || typeof data.lng !== "number")
-      return null;
-    if (data.type === "collection") return null;
-    const titleMatch = content.match(/^#\s+(.+)$/m);
-    const title = titleMatch ? titleMatch[1].trim() : (data.id ?? filePath);
+    const raw = await readFile(filePath, "utf-8")
+    const { data, content } = matter(raw)
+    if (typeof data.lat !== "number" || typeof data.lng !== "number") return null
+    if (data.type === "collection") return null
+    const titleMatch = content.match(/^#\s+(.+)$/m)
+    const title = titleMatch ? titleMatch[1].trim() : (data.id ?? filePath)
     return {
       id: data.id ?? "",
       lat: data.lat,
@@ -38,98 +37,98 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
       type: data.type ?? "place",
       category: data.category,
       tags: data.tags,
-      filePath,
-    };
+      filePath
+    }
   } catch {
-    return null;
+    return null
   }
 }
 
 function setupPlacesWatcher(mainWindow: BrowserWindow): void {
-  const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
+  const MAPOS_DIR = join(homedir(), "Documents", "MapOS")
   if (!existsSync(MAPOS_DIR)) {
-    mkdirSync(MAPOS_DIR, { recursive: true });
+    mkdirSync(MAPOS_DIR, { recursive: true })
   }
 
-  const places = new Map<string, PlaceRecord>();
-  let initialScanDone = false;
-  let pendingInitialSenders: Electron.WebContents[] = [];
+  const places = new Map<string, PlaceRecord>()
+  let initialScanDone = false
+  let pendingInitialSenders: Electron.WebContents[] = []
 
   const watcher = chokidar.watch(`${MAPOS_DIR}/**/*.md`, {
     ignoreInitial: false,
     awaitWriteFinish: { stabilityThreshold: 300 },
-    ignored: /(^|[/\\])(\.|node_modules)/,
-  });
+    ignored: /(^|[/\\])(\.|node_modules)/
+  })
 
   watcher.on("add", async (filePath) => {
-    console.log("[main] file added:", filePath);
-    const place = await parsePlaceFile(filePath);
-    console.log("[main] parsed:", place);
+    console.log("[main] file added:", filePath)
+    const place = await parsePlaceFile(filePath)
+    console.log("[main] parsed:", place)
     if (place) {
-      places.set(filePath, place);
+      places.set(filePath, place)
       if (initialScanDone && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("places:updated", { event: "add", place });
+        mainWindow.webContents.send("places:updated", { event: "add", place })
       }
     }
-  });
+  })
 
   watcher.on("change", async (filePath) => {
-    const place = await parsePlaceFile(filePath);
+    const place = await parsePlaceFile(filePath)
     if (place) {
-      places.set(filePath, place);
+      places.set(filePath, place)
     } else {
-      places.delete(filePath);
+      places.delete(filePath)
     }
     if (initialScanDone && !mainWindow.isDestroyed()) {
       if (place) {
         mainWindow.webContents.send("places:updated", {
           event: "change",
-          place,
-        });
+          place
+        })
       } else {
         mainWindow.webContents.send("places:updated", {
           event: "unlink",
-          filePath,
-        });
+          filePath
+        })
       }
     }
-  });
+  })
 
   watcher.on("unlink", (filePath) => {
-    places.delete(filePath);
+    places.delete(filePath)
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", {
         event: "unlink",
-        filePath,
-      });
+        filePath
+      })
     }
-  });
+  })
 
   watcher.on("ready", () => {
-    initialScanDone = true;
-    console.log("[main] watcher ready, places found:", places.size);
-    const allPlaces = Array.from(places.values());
+    initialScanDone = true
+    console.log("[main] watcher ready, places found:", places.size)
+    const allPlaces = Array.from(places.values())
     for (const sender of pendingInitialSenders) {
       if (!sender.isDestroyed()) {
-        sender.send("places:initial", allPlaces);
+        sender.send("places:initial", allPlaces)
       }
     }
-    pendingInitialSenders = [];
-  });
+    pendingInitialSenders = []
+  })
 
   ipcMain.on("places:request-initial", (event) => {
     console.log(
       "[main] places:request-initial received, scanDone:",
       initialScanDone,
       "places:",
-      places.size,
-    );
+      places.size
+    )
     if (initialScanDone) {
-      event.sender.send("places:initial", Array.from(places.values()));
+      event.sender.send("places:initial", Array.from(places.values()))
     } else {
-      pendingInitialSenders.push(event.sender);
+      pendingInitialSenders.push(event.sender)
     }
-  });
+  })
 }
 
 function createWindow(): BrowserWindow {
@@ -141,37 +140,37 @@ function createWindow(): BrowserWindow {
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
-    },
-  });
+      sandbox: false
+    }
+  })
 
   mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
-    if (is.dev) mainWindow.webContents.openDevTools();
-  });
+    mainWindow.show()
+    if (is.dev) mainWindow.webContents.openDevTools()
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
-    return { action: "deny" };
-  });
+    shell.openExternal(details.url)
+    return { action: "deny" }
+  })
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
   }
 
-  return mainWindow;
+  return mainWindow
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId("com.electron");
+  electronApp.setAppUserModelId("com.electron")
 
   app.on("browser-window-created", (_, window) => {
-    optimizer.watchWindowShortcuts(window);
-  });
+    optimizer.watchWindowShortcuts(window)
+  })
 
-  ipcMain.on("ping", () => console.log("pong"));
+  ipcMain.on("ping", () => console.log("pong"))
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -185,23 +184,23 @@ app.whenReady().then(() => {
             "img-src 'self' data: blob: https://tiles.openfreemap.org https://*.openfreemap.org",
             "connect-src 'self' https://tiles.openfreemap.org https://*.openfreemap.org",
             "worker-src 'self' blob:",
-            "font-src 'self' data:",
-          ].join("; "),
-        ],
-      },
-    });
-  });
+            "font-src 'self' data:"
+          ].join("; ")
+        ]
+      }
+    })
+  })
 
-  const mainWindow = createWindow();
-  setupPlacesWatcher(mainWindow);
+  const mainWindow = createWindow()
+  setupPlacesWatcher(mainWindow)
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    app.quit();
+    app.quit()
   }
-});
+})

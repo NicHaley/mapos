@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import MapGL, { Marker } from 'react-map-gl/maplibre'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { useCallback, useEffect, useState } from "react"
+import MapGL, { Marker } from "react-map-gl/maplibre"
+import "maplibre-gl/dist/maplibre-gl.css"
 
 type PlaceRecord = {
   id: string
@@ -15,13 +15,13 @@ type PlaceRecord = {
 }
 
 type PlaceUpdate =
-  | { event: 'add' | 'change'; place: PlaceRecord }
-  | { event: 'unlink'; filePath: string }
+  | { event: "add" | "change"; place: PlaceRecord }
+  | { event: "unlink"; filePath: string }
 
 const STATUS_COLORS: Record<string, string> = {
-  'want-to-go': '#3b82f6',
-  visited: '#22c55e',
-  maybe: '#f59e0b'
+  "want-to-go": "#3b82f6",
+  visited: "#22c55e",
+  maybe: "#f59e0b"
 }
 
 export default function MapView(): React.JSX.Element {
@@ -30,7 +30,7 @@ export default function MapView(): React.JSX.Element {
   const applyUpdate = useCallback((update: PlaceUpdate) => {
     setPlaces((prev) => {
       const next = new Map(prev)
-      if (update.event === 'unlink') next.delete(update.filePath)
+      if (update.event === "unlink") next.delete(update.filePath)
       else next.set(update.place.filePath, update.place)
       return next
     })
@@ -38,28 +38,26 @@ export default function MapView(): React.JSX.Element {
 
   useEffect(() => {
     window.api.places.onInitial((initialPlaces) => {
-      console.log('[places:initial]', initialPlaces)
+      console.log("[places:initial]", initialPlaces)
       const m = new Map<string, PlaceRecord>()
       initialPlaces.forEach((p) => m.set(p.filePath, p))
       setPlaces(m)
     })
     window.api.places.onUpdated((u) => {
-      console.log('[places:updated]', u)
+      console.log("[places:updated]", u)
       applyUpdate(u as PlaceUpdate)
     })
-    console.log('[MapView] requesting initial places')
+    console.log("[MapView] requesting initial places")
     window.api.places.requestInitial()
     return () => {
       window.api.places.removeListeners()
     }
   }, [applyUpdate])
 
-  console.log(1111, places)
-
   return (
     <MapGL
       initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-      style={{ width: '100vw', height: '100vh' }}
+      style={{ width: "100vw", height: "100vh" }}
       mapStyle="https://tiles.openfreemap.org/styles/liberty"
     >
       {Array.from(places.values()).map((place) => (
@@ -69,11 +67,11 @@ export default function MapView(): React.JSX.Element {
             style={{
               width: 12,
               height: 12,
-              borderRadius: '50%',
-              backgroundColor: STATUS_COLORS[place.status] ?? '#6b7280',
-              border: '2px solid white',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-              cursor: 'pointer'
+              borderRadius: "50%",
+              backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
+              border: "2px solid white",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              cursor: "pointer"
             }}
           />
         </Marker>

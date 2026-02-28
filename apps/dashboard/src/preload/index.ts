@@ -1,17 +1,16 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { electronAPI } from "@electron-toolkit/preload"
+import { contextBridge, ipcRenderer } from "electron"
 
 // Custom APIs for renderer
 const api = {
   places: {
-    requestInitial: () => ipcRenderer.send('places:request-initial'),
+    requestInitial: () => ipcRenderer.send("places:request-initial"),
     onInitial: (cb: (places: unknown[]) => void) =>
-      ipcRenderer.on('places:initial', (_e, p) => cb(p)),
-    onUpdated: (cb: (u: unknown) => void) =>
-      ipcRenderer.on('places:updated', (_e, u) => cb(u)),
+      ipcRenderer.on("places:initial", (_e, p) => cb(p)),
+    onUpdated: (cb: (u: unknown) => void) => ipcRenderer.on("places:updated", (_e, u) => cb(u)),
     removeListeners: () => {
-      ipcRenderer.removeAllListeners('places:initial')
-      ipcRenderer.removeAllListeners('places:updated')
+      ipcRenderer.removeAllListeners("places:initial")
+      ipcRenderer.removeAllListeners("places:updated")
     }
   }
 }
@@ -21,8 +20,8 @@ const api = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld("electron", electronAPI)
+    contextBridge.exposeInMainWorld("api", api)
   } catch (error) {
     console.error(error)
   }

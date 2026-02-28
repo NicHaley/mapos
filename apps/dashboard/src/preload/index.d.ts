@@ -1,4 +1,4 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
+import type { ElectronAPI } from "@electron-toolkit/preload"
 
 type PlaceRecord = {
   id: string
@@ -13,8 +13,8 @@ type PlaceRecord = {
 }
 
 type PlaceUpdate =
-  | { event: 'add' | 'change'; place: PlaceRecord }
-  | { event: 'unlink'; filePath: string }
+  | { event: "add" | "change"; place: PlaceRecord }
+  | { event: "unlink"; filePath: string }
 
 declare global {
   interface Window {

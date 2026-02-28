@@ -1,4 +1,4 @@
-import MapView from './components/MapView'
+import MapView from "./components/MapView"
 
 function App(): React.JSX.Element {
   return <MapView />

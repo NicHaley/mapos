@@ -1,60 +1,60 @@
-import { useCallback, useEffect, useState } from "react"
-import MapGL, { Marker } from "react-map-gl/maplibre"
-import "maplibre-gl/dist/maplibre-gl.css"
+import { useCallback, useEffect, useState } from "react";
+import "maplibre-gl/dist/maplibre-gl.css";
+import MapGL, { Marker } from "react-map-gl/maplibre";
 
 type PlaceRecord = {
-  id: string
-  lat: number
-  lng: number
-  title: string
-  status: string
-  type: string
-  category?: string
-  tags?: string[]
-  filePath: string
-}
+  id: string;
+  lat: number;
+  lng: number;
+  title: string;
+  status: string;
+  type: string;
+  category?: string;
+  tags?: string[];
+  filePath: string;
+};
 
 type PlaceUpdate =
   | { event: "add" | "change"; place: PlaceRecord }
-  | { event: "unlink"; filePath: string }
+  | { event: "unlink"; filePath: string };
 
 const STATUS_COLORS: Record<string, string> = {
   "want-to-go": "#3b82f6",
   visited: "#22c55e",
   maybe: "#f59e0b"
-}
+};
 
 export default function MapView(): React.JSX.Element {
-  const [places, setPlaces] = useState<Map<string, PlaceRecord>>(new Map())
+  const [places, setPlaces] = useState<Map<string, PlaceRecord>>(new Map());
 
   const applyUpdate = useCallback((update: PlaceUpdate) => {
     setPlaces((prev) => {
-      const next = new Map(prev)
-      if (update.event === "unlink") next.delete(update.filePath)
-      else next.set(update.place.filePath, update.place)
-      return next
-    })
-  }, [])
+      const next = new Map(prev);
+      if (update.event === "unlink") next.delete(update.filePath);
+      else next.set(update.place.filePath, update.place);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     window.api.places.onInitial((initialPlaces) => {
-      console.log("[places:initial]", initialPlaces)
-      const m = new Map<string, PlaceRecord>()
+      console.log("[places:initial]", initialPlaces);
+      const m = new Map<string, PlaceRecord>();
       for (const p of initialPlaces) {
-        m.set(p.filePath, p)
+        m.set(p.filePath, p);
       }
-      setPlaces(m)
-    })
+      setPlaces(m);
+    });
     window.api.places.onUpdated((u) => {
-      console.log("[places:updated]", u)
-      applyUpdate(u as PlaceUpdate)
-    })
-    console.log("[MapView] requesting initial places")
-    window.api.places.requestInitial()
+      console.log("[places:updated]", u);
+      applyUpdate(u as PlaceUpdate);
+    });
+    console.log("[MapView] requesting initial places");
+    window.api.places.requestInitial();
     return () => {
-      window.api.places.removeListeners()
-    }
-  }, [applyUpdate])
+      window.api.places.removeListeners();
+    };
+  }, [applyUpdate]);
 
   return (
     <MapGL
@@ -79,5 +79,5 @@ export default function MapView(): React.JSX.Element {
         </Marker>
       ))}
     </MapGL>
-  )
+  );
 }

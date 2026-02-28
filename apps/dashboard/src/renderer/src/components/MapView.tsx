@@ -40,7 +40,9 @@ export default function MapView(): React.JSX.Element {
     window.api.places.onInitial((initialPlaces) => {
       console.log("[places:initial]", initialPlaces)
       const m = new Map<string, PlaceRecord>()
-      initialPlaces.forEach((p) => m.set(p.filePath, p))
+      for (const p of initialPlaces) {
+        m.set(p.filePath, p)
+      }
       setPlaces(m)
     })
     window.api.places.onUpdated((u) => {

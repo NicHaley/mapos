@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync } from "fs"
-import { homedir } from "os"
-import { join } from "path"
+import { existsSync, mkdirSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { electronApp, is, optimizer } from "@electron-toolkit/utils"
 import chokidar from "chokidar"
 import { BrowserWindow, app, ipcMain, session, shell } from "electron"
-import { readFile } from "fs/promises"
 import matter from "gray-matter"
 import icon from "../../resources/icon.png?asset"
 
@@ -81,9 +81,15 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
     }
     if (initialScanDone && !mainWindow.isDestroyed()) {
       if (place) {
-        mainWindow.webContents.send("places:updated", { event: "change", place })
+        mainWindow.webContents.send("places:updated", {
+          event: "change",
+          place
+        })
       } else {
-        mainWindow.webContents.send("places:updated", { event: "unlink", filePath })
+        mainWindow.webContents.send("places:updated", {
+          event: "unlink",
+          filePath
+        })
       }
     }
   })
@@ -91,7 +97,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
   watcher.on("unlink", (filePath) => {
     places.delete(filePath)
     if (initialScanDone && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("places:updated", { event: "unlink", filePath })
+      mainWindow.webContents.send("places:updated", {
+        event: "unlink",
+        filePath
+      })
     }
   })
 
@@ -145,8 +154,8 @@ function createWindow(): BrowserWindow {
     return { action: "deny" }
   })
 
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"])
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
   }

@@ -59,7 +59,7 @@ export default function MapView(): React.JSX.Element {
   return (
     <MapGL
       initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-      style={{ width: "100vw", height: "100vh" }}
+      style={{ width: "100%", height: "100%" }}
       mapStyle="https://tiles.openfreemap.org/styles/liberty"
     >
       {Array.from(places.values()).map((place) => (

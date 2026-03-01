@@ -26,6 +26,15 @@ declare global {
         onUpdated: (cb: (update: PlaceUpdate) => void) => void;
         removeListeners: () => void;
       };
+      chat: {
+        send: (message: string) => void;
+        abort: () => void;
+        reset: () => void;
+        onChunk: (cb: (text: string) => void) => void;
+        onDone: (cb: () => void) => void;
+        onError: (cb: (msg: string) => void) => void;
+        removeListeners: () => void;
+      };
     };
   }
 }

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
@@ -131,6 +132,144 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
   });
 }
 
+const MAPOS_SYSTEM_PROMPT = `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, photos, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
+
+MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth. All user data lives under ~/Documents/MapOS/ with this structure:
+- places/want-to-go/    — saved places the user wants to visit
+- places/visited/       — places the user has been
+- places/collections/   — named lists (trips, projects, themes)
+- notes/field-notes/    — notes created while at a location
+- notes/area-research/  — research about a place or area
+- media/imports/        — JSON sidecars for external photo library photos
+- media/local/          — photos stored inside MapOS
+- layers/               — saved map layer configurations (JSON)
+- analysis/             — saved spatial query results (JSON/GeoJSON)
+
+Place files use Markdown with YAML frontmatter. Required frontmatter: id (kebab-slug), lat, lng, type (place|note|collection-entry), status (want-to-go|visited|maybe). Optional: category, tags, source_url, created, visited_on, rating, collection.
+
+Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.`;
+
+const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
+
+const ALLOWED_TOOLS = [
+  "Bash",
+  "Read",
+  "Write",
+  "Edit",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "WebFetch",
+  "mcp__mapbox__*"
+] as const;
+
+function setupChat(mainWindow: BrowserWindow): void {
+  const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
+  const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
+  let currentQuery: { close: () => void } | null = null;
+
+  ipcMain.on("chat:send", async (_event, message: string) => {
+    if (currentQuery) {
+      currentQuery.close();
+      currentQuery = null;
+    }
+
+    conversationHistory.push({ role: "user", content: message });
+
+    const prompt =
+      conversationHistory.length === 1
+        ? message
+        : conversationHistory
+            .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+            .join("\n\n");
+
+    const abortController = new AbortController();
+
+    try {
+      const q = query({
+        prompt,
+        options: {
+          abortController,
+          cwd: MAPOS_DIR,
+          systemPrompt: MAPOS_SYSTEM_PROMPT,
+          allowedTools: [...ALLOWED_TOOLS],
+          tools: [...ALLOWED_TOOLS],
+          includePartialMessages: true,
+          // Add mapbox MCP server config for mcp__mapbox__* tools, e.g.:
+          // mcpServers: { mapbox: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-mapbox"] } },
+          env: {
+            ...process.env,
+            ANTHROPIC_API_KEY: apiKey
+          }
+        }
+      });
+
+      currentQuery = q;
+
+      let fullText = "";
+
+      for await (const msg of q) {
+        if (mainWindow.isDestroyed()) break;
+
+        if (msg.type === "stream_event") {
+          const event = (
+            msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
+          ).event;
+          if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
+            const text = event.delta.text ?? "";
+            fullText += text;
+            mainWindow.webContents.send("chat:chunk", text);
+          }
+        } else if (msg.type === "assistant") {
+          const content = (
+            msg as { message?: { content?: Array<{ type?: string; text?: string }> } }
+          ).message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === "text" && typeof block.text === "string") {
+                fullText += block.text;
+              }
+            }
+          }
+        } else if (msg.type === "result" && (msg as { subtype?: string }).subtype === "success") {
+          conversationHistory.push({ role: "assistant", content: fullText });
+          if (!mainWindow.isDestroyed()) mainWindow.webContents.send("chat:done");
+          break;
+        } else if (msg.type === "result" && (msg as { subtype?: string }).subtype !== "success") {
+          const errMsg = (msg as { errors?: string[] }).errors?.join("; ") ?? "Unknown error";
+          if (!mainWindow.isDestroyed()) mainWindow.webContents.send("chat:error", errMsg);
+          break;
+        } else if (
+          (msg as { type?: string }).type === "assistant" &&
+          (msg as { error?: string }).error
+        ) {
+          if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("chat:error", (msg as { error: string }).error);
+          }
+          break;
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("chat:error", msg);
+    } finally {
+      currentQuery = null;
+    }
+  });
+
+  ipcMain.on("chat:abort", () => {
+    if (currentQuery) {
+      currentQuery.close();
+      currentQuery = null;
+    }
+  });
+
+  ipcMain.on("chat:reset", () => {
+    conversationHistory.length = 0;
+  });
+}
+
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 900,
@@ -193,6 +332,7 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow();
   setupPlacesWatcher(mainWindow);
+  setupChat(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -12,6 +12,21 @@ const api = {
       ipcRenderer.removeAllListeners("places:initial");
       ipcRenderer.removeAllListeners("places:updated");
     }
+  },
+  chat: {
+    send: (message: string) => ipcRenderer.send("chat:send", message),
+    abort: () => ipcRenderer.send("chat:abort"),
+    reset: () => ipcRenderer.send("chat:reset"),
+    onChunk: (cb: (text: string) => void) =>
+      ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
+    onDone: (cb: () => void) => ipcRenderer.on("chat:done", cb),
+    onError: (cb: (msg: string) => void) =>
+      ipcRenderer.on("chat:error", (_e, m) => cb(m)),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("chat:chunk");
+      ipcRenderer.removeAllListeners("chat:done");
+      ipcRenderer.removeAllListeners("chat:error");
+    }
   }
 };
 

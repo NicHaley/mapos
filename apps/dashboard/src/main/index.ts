@@ -165,6 +165,7 @@ const ALLOWED_TOOLS = [
 
 function setupChat(mainWindow: BrowserWindow): void {
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
+  const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
 
@@ -195,8 +196,15 @@ function setupChat(mainWindow: BrowserWindow): void {
           allowedTools: [...ALLOWED_TOOLS],
           tools: [...ALLOWED_TOOLS],
           includePartialMessages: true,
-          // Add mapbox MCP server config for mcp__mapbox__* tools, e.g.:
-          // mcpServers: { mapbox: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-mapbox"] } },
+          mcpServers: {
+            mapbox: {
+              command: "npx",
+              args: ["-y", "@mapbox/mcp-server"],
+              env: {
+                MAPBOX_ACCESS_TOKEN: mapboxAccessToken
+              }
+            }
+          },
           env: {
             ...process.env,
             ANTHROPIC_API_KEY: apiKey

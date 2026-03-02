@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import MapGL, { Marker } from "react-map-gl/maplibre";
+import MapGL, { Layer, Marker, Source } from "react-map-gl/maplibre";
 
 type PlaceRecord = {
   id: string;
@@ -24,8 +24,39 @@ const STATUS_COLORS: Record<string, string> = {
   maybe: "#f59e0b"
 };
 
+type OverlayPoint = {
+  id: string;
+  lat: number;
+  lng: number;
+  title: string;
+};
+
+type OverlayLine = {
+  id: string;
+  coordinates: [number, number][];
+  title?: string;
+};
+
+type OverlayPolygon = {
+  id: string;
+  coordinates: [number, number][][];
+  title?: string;
+};
+
+type OverlayData = {
+  points: OverlayPoint[];
+  lines: OverlayLine[];
+  polygons: OverlayPolygon[];
+};
+
+const EMPTY_OVERLAY: OverlayData = { points: [], lines: [], polygons: [] };
+
+const POLYGON_FILTER = ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]];
+const LINESTRING_FILTER = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
+
 export default function MapView(): React.JSX.Element {
   const [places, setPlaces] = useState<Map<string, PlaceRecord>>(new Map());
+  const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
 
   const applyUpdate = useCallback((update: PlaceUpdate) => {
     setPlaces((prev) => {
@@ -49,12 +80,43 @@ export default function MapView(): React.JSX.Element {
       console.log("[places:updated]", u);
       applyUpdate(u as PlaceUpdate);
     });
+    window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
+      setOverlay({ points, lines, polygons })
+    );
+    window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
     console.log("[MapView] requesting initial places");
     window.api.places.requestInitial();
     return () => {
       window.api.places.removeListeners();
+      window.api.map.removeListeners();
     };
   }, [applyUpdate]);
+
+  const overlayGeoJSON = useMemo(() => {
+    const features: Array<{
+      type: "Feature";
+      geometry: { type: "LineString"; coordinates: [number, number][] } | { type: "Polygon"; coordinates: [number, number][][] };
+      properties?: Record<string, unknown>;
+    }> = [];
+    for (const l of overlay.lines) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: l.coordinates },
+        properties: { id: l.id, title: l.title } as Record<string, unknown>
+      });
+    }
+    for (const p of overlay.polygons) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "Polygon", coordinates: p.coordinates },
+        properties: { id: p.id, title: p.title } as Record<string, unknown>
+      });
+    }
+    if (features.length === 0) return null;
+    return { type: "FeatureCollection" as const, features };
+  }, [overlay.lines, overlay.polygons]);
+
+  const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
   return (
     <MapGL
@@ -78,6 +140,48 @@ export default function MapView(): React.JSX.Element {
           />
         </Marker>
       ))}
+      {overlay.points.map((p) => (
+        <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
+          <div
+            title={p.title}
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              backgroundColor: "#8b5cf6",
+              border: "2px dashed white",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              cursor: "pointer"
+            }}
+          />
+        </Marker>
+      ))}
+      {hasOverlayGeoJSON && (
+        // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+        <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
+          <Layer
+            id="overlay-polygons"
+            type="fill"
+            // @ts-expect-error - MapLibre filter expression; types are strict
+            filter={POLYGON_FILTER}
+            paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
+          />
+          <Layer
+            id="overlay-polygon-outline"
+            type="line"
+            // @ts-expect-error - MapLibre filter expression
+            filter={POLYGON_FILTER}
+            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+          />
+          <Layer
+            id="overlay-lines"
+            type="line"
+            // @ts-expect-error - MapLibre filter expression
+            filter={LINESTRING_FILTER}
+            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+          />
+        </Source>
+      )}
     </MapGL>
   );
 }

@@ -16,6 +16,25 @@ type PlaceUpdate =
   | { event: "add" | "change"; place: PlaceRecord }
   | { event: "unlink"; filePath: string };
 
+type OverlayPoint = {
+  id: string;
+  lat: number;
+  lng: number;
+  title: string;
+};
+
+type OverlayLine = {
+  id: string;
+  coordinates: [number, number][];
+  title?: string;
+};
+
+type OverlayPolygon = {
+  id: string;
+  coordinates: [number, number][][];
+  title?: string;
+};
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -24,6 +43,11 @@ declare global {
         requestInitial: () => void;
         onInitial: (cb: (places: PlaceRecord[]) => void) => void;
         onUpdated: (cb: (update: PlaceUpdate) => void) => void;
+        removeListeners: () => void;
+      };
+      map: {
+        onOverlay: (cb: (data: { layerName: string; points: OverlayPoint[]; lines: OverlayLine[]; polygons: OverlayPolygon[] }) => void) => void;
+        onOverlayClear: (cb: () => void) => void;
         removeListeners: () => void;
       };
       chat: {

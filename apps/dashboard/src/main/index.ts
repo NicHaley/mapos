@@ -2,7 +2,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
@@ -147,7 +148,9 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 
 Place files use Markdown with YAML frontmatter. Required frontmatter: id (kebab-slug), lat, lng, type (place|note|collection-entry), status (want-to-go|visited|maybe). Optional: category, tags, source_url, created, visited_on, rating, collection.
 
-Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.`;
+Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.
+
+When you get search or geocode results from Mapbox (e.g. geocoding an address, searching for POIs), use render_overlay_on_map to display them on the map as temporary overlay. Pass points for POIs, lines for routes/boundaries, polygons for isochrones or areas. Use clear_map_overlay when starting a new search or when the user asks to clear.`;
 
 const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
 
@@ -160,14 +163,126 @@ const ALLOWED_TOOLS = [
   "Grep",
   "WebSearch",
   "WebFetch",
-  "mcp__mapbox__*"
+  "mcp__mapbox__*",
+  "mcp__mapos__render_overlay_on_map",
+  "mcp__mapos__clear_map_overlay"
 ] as const;
+
+function createMaposMcpServer(mainWindow: BrowserWindow) {
+  return createSdkMcpServer({
+    name: "mapos",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "render_overlay_on_map",
+        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas.",
+        {
+          points: z
+            .array(
+              z.object({
+                lat: z.number().describe("Latitude in decimal degrees"),
+                lng: z.number().describe("Longitude in decimal degrees"),
+                title: z.string().describe("Display name for the marker"),
+                id: z.string().optional().describe("Unique identifier for the point")
+              })
+            )
+            .optional()
+            .default([]),
+          lines: z
+            .array(
+              z.object({
+                coordinates: z
+                  .array(z.tuple([z.number(), z.number()]))
+                  .describe("Array of [longitude, latitude] pairs"),
+                title: z.string().optional(),
+                id: z.string().optional()
+              })
+            )
+            .optional()
+            .default([]),
+          polygons: z
+            .array(
+              z.object({
+                coordinates: z
+                  .array(z.array(z.tuple([z.number(), z.number()])))
+                  .describe("Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."),
+                title: z.string().optional(),
+                id: z.string().optional()
+              })
+            )
+            .optional()
+            .default([]),
+          layer_name: z.string().optional().default("search-results").describe("Name for this overlay layer")
+        },
+        async (args) => {
+          if (!mainWindow.isDestroyed()) {
+            const points = (args.points ?? []).map((p, i) => ({
+              id: p.id ?? `overlay-point-${i}`,
+              lat: p.lat,
+              lng: p.lng,
+              title: p.title
+            }));
+            const lines = (args.lines ?? []).map((l, i) => ({
+              id: l.id ?? `overlay-line-${i}`,
+              coordinates: l.coordinates,
+              title: l.title
+            }));
+            const polygons = (args.polygons ?? []).map((p, i) => ({
+              id: p.id ?? `overlay-polygon-${i}`,
+              coordinates: p.coordinates.map((ring) => {
+                if (ring.length < 2) return ring;
+                const [first, last] = [ring[0], ring[ring.length - 1]];
+                const isClosed = first[0] === last[0] && first[1] === last[1];
+                return isClosed ? ring : [...ring, ring[0]];
+              }),
+              title: p.title
+            }));
+            mainWindow.webContents.send("map:overlay", {
+              layerName: args.layer_name,
+              points,
+              lines,
+              polygons
+            });
+          }
+          const counts = {
+            points: (args.points ?? []).length,
+            lines: (args.lines ?? []).length,
+            polygons: (args.polygons ?? []).length
+          };
+          const parts = [
+            counts.points && `${counts.points} points`,
+            counts.lines && `${counts.lines} lines`,
+            counts.polygons && `${counts.polygons} polygons`
+          ].filter(Boolean);
+          return {
+            content: [{ type: "text", text: `Displayed ${parts.join(", ")} on map` }]
+          };
+        }
+      ),
+      tool(
+        "clear_map_overlay",
+        "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
+        {},
+        async () => {
+          if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("map:overlay-clear");
+          }
+          return {
+            content: [{ type: "text", text: "Overlay cleared" }]
+          };
+        }
+      )
+    ]
+  });
+}
 
 function setupChat(mainWindow: BrowserWindow): void {
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
   const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
+
+  const maposServer = createMaposMcpServer(mainWindow);
 
   ipcMain.on("chat:send", async (_event, message: string) => {
     if (currentQuery) {
@@ -203,7 +318,8 @@ function setupChat(mainWindow: BrowserWindow): void {
               env: {
                 MAPBOX_ACCESS_TOKEN: mapboxAccessToken
               }
-            }
+            },
+            mapos: maposServer
           },
           env: {
             ...process.env,

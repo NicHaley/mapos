@@ -13,6 +13,21 @@ const api = {
       ipcRenderer.removeAllListeners("places:updated");
     }
   },
+  map: {
+    onOverlay: (
+      cb: (data: {
+        layerName: string;
+        points: Array<{ id: string; lat: number; lng: number; title: string }>;
+        lines: Array<{ id: string; coordinates: [number, number][]; title?: string }>;
+        polygons: Array<{ id: string; coordinates: [number, number][][]; title?: string }>;
+      }) => void
+    ) => ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
+    onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("map:overlay");
+      ipcRenderer.removeAllListeners("map:overlay-clear");
+    }
+  },
   chat: {
     send: (message: string) => ipcRenderer.send("chat:send", message),
     abort: () => ipcRenderer.send("chat:abort"),

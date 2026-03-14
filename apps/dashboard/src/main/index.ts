@@ -3,20 +3,20 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
-import {
-  initDb,
-  indexFeature,
-  removeFeature,
-  getFeatureCount,
-  rebuildIndexFromPlaces,
-  querySpatialIndex
-} from "./db";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
+import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
+import {
+  getFeatureCount,
+  indexFeature,
+  initDb,
+  querySpatialIndex,
+  rebuildIndexFromPlaces,
+  removeFeature
+} from "./db";
 
 type PlaceRecord = {
   id: string;
@@ -241,14 +241,20 @@ function createMaposMcpServer(mainWindow: BrowserWindow, places: Map<string, Pla
               z.object({
                 coordinates: z
                   .array(z.array(z.tuple([z.number(), z.number()])))
-                  .describe("Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."),
+                  .describe(
+                    "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
+                  ),
                 title: z.string().optional(),
                 id: z.string().optional()
               })
             )
             .optional()
             .default([]),
-          layer_name: z.string().optional().default("search-results").describe("Name for this overlay layer")
+          layer_name: z
+            .string()
+            .optional()
+            .default("search-results")
+            .describe("Name for this overlay layer")
         },
         async (args) => {
           if (!mainWindow.isDestroyed()) {

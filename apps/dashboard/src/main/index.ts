@@ -4,6 +4,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import {
+  initDb,
+  indexFeature,
+  removeFeature,
+  getFeatureCount,
+  rebuildIndexFromPlaces,
+  querySpatialIndex
+} from "./db";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
@@ -46,11 +54,13 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   }
 }
 
-function setupPlacesWatcher(mainWindow: BrowserWindow): void {
+function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
   if (!existsSync(MAPOS_DIR)) {
     mkdirSync(MAPOS_DIR, { recursive: true });
   }
+
+  initDb(MAPOS_DIR);
 
   const places = new Map<string, PlaceRecord>();
   let initialScanDone = false;
@@ -68,6 +78,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
     console.log("[main] parsed:", place);
     if (place) {
       places.set(filePath, place);
+      indexFeature(place);
       if (initialScanDone && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("places:updated", { event: "add", place });
       }
@@ -78,8 +89,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
     const place = await parsePlaceFile(filePath);
     if (place) {
       places.set(filePath, place);
+      indexFeature(place);
     } else {
       places.delete(filePath);
+      removeFeature(filePath);
     }
     if (initialScanDone && !mainWindow.isDestroyed()) {
       if (place) {
@@ -98,6 +111,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
 
   watcher.on("unlink", (filePath) => {
     places.delete(filePath);
+    removeFeature(filePath);
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", {
         event: "unlink",
@@ -109,6 +123,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
   watcher.on("ready", () => {
     initialScanDone = true;
     console.log("[main] watcher ready, places found:", places.size);
+    console.log("[main] features indexed:", getFeatureCount());
     const allPlaces = Array.from(places.values());
     for (const sender of pendingInitialSenders) {
       if (!sender.isDestroyed()) {
@@ -131,6 +146,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): void {
       pendingInitialSenders.push(event.sender);
     }
   });
+
+  return places;
 }
 
 const MAPOS_SYSTEM_PROMPT = `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, photos, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
@@ -165,10 +182,13 @@ const ALLOWED_TOOLS = [
   "WebFetch",
   "mcp__mapbox__*",
   "mcp__mapos__render_overlay_on_map",
-  "mcp__mapos__clear_map_overlay"
+  "mcp__mapos__clear_map_overlay",
+  "mcp__mapos__query_spatial_index",
+  "mcp__mapos__index_file",
+  "mcp__mapos__rebuild_index"
 ] as const;
 
-function createMaposMcpServer(mainWindow: BrowserWindow) {
+function createMaposMcpServer(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>) {
   return createSdkMcpServer({
     name: "mapos",
     version: "1.0.0",
@@ -271,18 +291,69 @@ function createMaposMcpServer(mainWindow: BrowserWindow) {
             content: [{ type: "text", text: "Overlay cleared" }]
           };
         }
+      ),
+      tool(
+        "query_spatial_index",
+        "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds.",
+        {
+          bounds: z.object({
+            north: z.number(),
+            south: z.number(),
+            east: z.number(),
+            west: z.number()
+          }),
+          filters: z
+            .object({
+              status: z.string().optional(),
+              tags: z.array(z.string()).optional()
+            })
+            .optional()
+        },
+        async (args) => {
+          const results = querySpatialIndex(args.bounds, args.filters);
+          return { content: [{ type: "text", text: JSON.stringify(results) }] };
+        }
+      ),
+      tool(
+        "index_file",
+        "Re-index a specific file into the spatial index after writing it. Call this after creating or editing a place file so the map updates immediately.",
+        { path: z.string().describe("Absolute path to the place file") },
+        async (args) => {
+          const record = await parsePlaceFile(args.path);
+          if (record) {
+            indexFeature(record);
+            return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ success: false, reason: "Could not parse file" })
+              }
+            ]
+          };
+        }
+      ),
+      tool(
+        "rebuild_index",
+        "Clear and rebuild the entire spatial index by re-scanning all place files. Use if the index seems stale or corrupt.",
+        {},
+        async () => {
+          const count = rebuildIndexFromPlaces(places);
+          return { content: [{ type: "text", text: JSON.stringify({ count }) }] };
+        }
       )
     ]
   });
 }
 
-function setupChat(mainWindow: BrowserWindow): void {
+function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>): void {
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
   const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
 
-  const maposServer = createMaposMcpServer(mainWindow);
+  const maposServer = createMaposMcpServer(mainWindow, places);
 
   ipcMain.on("chat:send", async (_event, message: string) => {
     if (currentQuery) {
@@ -455,8 +526,8 @@ app.whenReady().then(() => {
   });
 
   const mainWindow = createWindow();
-  setupPlacesWatcher(mainWindow);
-  setupChat(mainWindow);
+  const places = setupPlacesWatcher(mainWindow);
+  setupChat(mainWindow, places);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

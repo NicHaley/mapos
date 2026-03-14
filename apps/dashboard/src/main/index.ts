@@ -133,6 +133,22 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     pendingInitialSenders = [];
   });
 
+  ipcMain.handle("places:query-bounds", (_event, bounds) => {
+    return querySpatialIndex(bounds).map((r) => {
+      const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+      return {
+        id: r.id,
+        lat: geo.coordinates[1],
+        lng: geo.coordinates[0],
+        title: r.title ?? r.id,
+        status: r.status ?? "",
+        type: "place",
+        tags: r.tags ?? undefined,
+        filePath: r.file_path
+      };
+    });
+  });
+
   ipcMain.on("places:request-initial", (event) => {
     console.log(
       "[main] places:request-initial received, scanDone:",

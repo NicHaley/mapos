@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import MapGL, { Layer, Marker, Source } from "react-map-gl/maplibre";
+import MapGL, { Layer, MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 type PlaceRecord = {
   id: string;
@@ -13,10 +13,6 @@ type PlaceRecord = {
   tags?: string[];
   filePath: string;
 };
-
-type PlaceUpdate =
-  | { event: "add" | "change"; place: PlaceRecord }
-  | { event: "unlink"; filePath: string };
 
 const STATUS_COLORS: Record<string, string> = {
   "want-to-go": "#3b82f6",
@@ -55,42 +51,46 @@ const POLYGON_FILTER = ["in", ["geometry-type"], ["literal", ["Polygon", "MultiP
 const LINESTRING_FILTER = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
 
 export default function MapView(): React.JSX.Element {
-  const [places, setPlaces] = useState<Map<string, PlaceRecord>>(new Map());
+  const mapRef = useRef<MapRef>(null);
+  const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [visiblePlaces, setVisiblePlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
 
-  const applyUpdate = useCallback((update: PlaceUpdate) => {
-    setPlaces((prev) => {
-      const next = new Map(prev);
-      if (update.event === "unlink") next.delete(update.filePath);
-      else next.set(update.place.filePath, update.place);
-      return next;
+  const queryCurrentBounds = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = map.getBounds();
+    if (!b) return;
+    const results = await window.api.places.queryBounds({
+      north: b.getNorth(),
+      south: b.getSouth(),
+      east: b.getEast(),
+      west: b.getWest()
     });
+    setVisiblePlaces(results);
   }, []);
 
+  const debouncedQuery = useCallback(() => {
+    if (boundsTimer.current) clearTimeout(boundsTimer.current);
+    boundsTimer.current = setTimeout(queryCurrentBounds, 150);
+  }, [queryCurrentBounds]);
+
   useEffect(() => {
-    window.api.places.onInitial((initialPlaces) => {
-      console.log("[places:initial]", initialPlaces);
-      const m = new Map<string, PlaceRecord>();
-      for (const p of initialPlaces) {
-        m.set(p.filePath, p);
-      }
-      setPlaces(m);
-    });
-    window.api.places.onUpdated((u) => {
-      console.log("[places:updated]", u);
-      applyUpdate(u as PlaceUpdate);
-    });
+    // Initial scan complete — run first bounds query
+    window.api.places.onInitial(() => queryCurrentBounds());
+    // File changed on disk — refresh visible set
+    window.api.places.onUpdated(() => queryCurrentBounds());
     window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
       setOverlay({ points, lines, polygons })
     );
     window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
-    console.log("[MapView] requesting initial places");
     window.api.places.requestInitial();
     return () => {
       window.api.places.removeListeners();
       window.api.map.removeListeners();
+      if (boundsTimer.current) clearTimeout(boundsTimer.current);
     };
-  }, [applyUpdate]);
+  }, [queryCurrentBounds]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{
@@ -120,11 +120,13 @@ export default function MapView(): React.JSX.Element {
 
   return (
     <MapGL
+      ref={mapRef}
       initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
       style={{ width: "100%", height: "100%" }}
       mapStyle="https://tiles.openfreemap.org/styles/liberty"
+      onMove={debouncedQuery}
     >
-      {Array.from(places.values()).map((place) => (
+      {visiblePlaces.map((place) => (
         <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
           <div
             title={place.title}

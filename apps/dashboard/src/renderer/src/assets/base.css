@@ -23,13 +23,7 @@
   --ev-button-alt-hover-bg: var(--ev-c-gray-2);
 }
 
-:root {
-  --color-background: var(--ev-c-black);
-  --color-background-soft: var(--ev-c-black-soft);
-  --color-background-mute: var(--ev-c-black-mute);
-
-  --color-text: var(--ev-c-text-1);
-}
+/* Removed --color-background etc. to avoid overriding shadcn theme in main.css */
 
 *,
 *::before,
@@ -45,7 +39,7 @@ ul {
 
 body {
   min-height: 100vh;
-  color: var(--color-text);
+  color: var(--color-foreground);
   background: var(--color-background);
   line-height: 1.6;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,

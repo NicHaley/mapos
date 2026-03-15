@@ -49,6 +49,7 @@ declare global {
       places: {
         requestInitial: () => void;
         queryBounds: (bounds: { north: number; south: number; east: number; west: number }) => Promise<PlaceRecord[]>;
+        getByPath: (filePath: string) => Promise<PlaceRecord | null>;
         onInitial: (cb: (places: PlaceRecord[]) => void) => void;
         onUpdated: (cb: (update: PlaceUpdate) => void) => void;
         removeListeners: () => void;

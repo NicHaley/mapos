@@ -7,6 +7,7 @@ const api = {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
     queryBounds: (bounds: { north: number; south: number; east: number; west: number }) =>
       ipcRenderer.invoke("places:query-bounds", bounds),
+    getByPath: (filePath: string) => ipcRenderer.invoke("places:get-by-path", filePath),
     onInitial: (cb: (places: unknown[]) => void) =>
       ipcRenderer.on("places:initial", (_e, p) => cb(p)),
     onUpdated: (cb: (u: unknown) => void) => ipcRenderer.on("places:updated", (_e, u) => cb(u)),

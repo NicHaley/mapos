@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import MapGL, { Layer, MapRef, Marker, Source } from "react-map-gl/maplibre";
 
-type PlaceRecord = {
+export type PlaceRecord = {
   id: string;
   lat: number;
   lng: number;
@@ -50,8 +50,19 @@ const EMPTY_OVERLAY: OverlayData = { points: [], lines: [], polygons: [] };
 const POLYGON_FILTER = ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]];
 const LINESTRING_FILTER = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
 
-export default function MapView(): React.JSX.Element {
+export type MapViewHandle = {
+  flyTo: (lat: number, lng: number) => void;
+};
+
+const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord) => void }>(
+function MapView({ onSelectPlace }, ref) {
   const mapRef = useRef<MapRef>(null);
+
+  useImperativeHandle(ref, () => ({
+    flyTo: (lat, lng) => {
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+    },
+  }));
   const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visiblePlaces, setVisiblePlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
@@ -130,6 +141,7 @@ export default function MapView(): React.JSX.Element {
         <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
           <div
             title={place.title}
+            onClick={() => onSelectPlace?.(place)}
             style={{
               width: 12,
               height: 12,
@@ -186,4 +198,6 @@ export default function MapView(): React.JSX.Element {
       )}
     </MapGL>
   );
-}
+});
+
+export default MapView;

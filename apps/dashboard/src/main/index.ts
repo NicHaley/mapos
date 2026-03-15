@@ -165,6 +165,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle("fs:list-dir", () => readDirTree(MAPOS_DIR));
 
+  ipcMain.handle("places:get-by-path", (_event, filePath: string) => {
+    return places.get(filePath) ?? null;
+  });
+
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds).map((r) => {
       const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };

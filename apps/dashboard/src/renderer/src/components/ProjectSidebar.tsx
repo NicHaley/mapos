@@ -13,13 +13,24 @@ import {
   SidebarHeader,
   SidebarTrigger,
 } from "./ui/sidebar";
+import type { PlaceRecord } from "./MapView";
 
 function fileIcon(name: string) {
   if (name.endsWith(".md")) return <FileTextIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
   return <FileIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
 }
 
-function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
+function FileTreeNode({
+  node,
+  depth,
+  selectedFilePath,
+  onSelectPlace,
+}: {
+  node: FileNode;
+  depth: number;
+  selectedFilePath?: string;
+  onSelectPlace?: (place: PlaceRecord) => void;
+}) {
   const [open, setOpen] = useState(depth === 0);
 
   if (node.type === "directory") {
@@ -42,7 +53,7 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
         {open && node.children && (
           <div>
             {node.children.map((child) => (
-              <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+              <FileTreeNode key={child.path} node={child} depth={depth + 1} selectedFilePath={selectedFilePath} onSelectPlace={onSelectPlace} />
             ))}
           </div>
         )}
@@ -50,10 +61,21 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
     );
   }
 
+  const isActive = node.path === selectedFilePath;
+
   return (
     <button
-      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
+        isActive
+          ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+          : "text-sidebar-foreground"
+      )}
       style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
+      onClick={async () => {
+        const place = await window.api.places.getByPath(node.path);
+        if (place) onSelectPlace?.(place);
+      }}
     >
       {fileIcon(node.name)}
       <span className="truncate">{node.name}</span>
@@ -61,7 +83,13 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
   );
 }
 
-export function ProjectSidebar(): React.JSX.Element {
+export function ProjectSidebar({
+  selectedFilePath,
+  onSelectPlace,
+}: {
+  selectedFilePath?: string;
+  onSelectPlace?: (place: PlaceRecord) => void;
+}): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
 
   async function load() {
@@ -85,7 +113,7 @@ export function ProjectSidebar(): React.JSX.Element {
       </SidebarHeader>
       <SidebarContent className="px-1 py-2">
         {tree.map((node) => (
-          <FileTreeNode key={node.path} node={node} depth={0} />
+          <FileTreeNode key={node.path} node={node} depth={0} selectedFilePath={selectedFilePath} onSelectPlace={onSelectPlace} />
         ))}
       </SidebarContent>
     </Sidebar>

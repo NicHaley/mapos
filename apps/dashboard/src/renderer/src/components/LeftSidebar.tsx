@@ -1,25 +1,21 @@
+import { BookmarkIcon, FolderIcon, MapIcon, SearchIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarGroup,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarTrigger,
+  SidebarTrigger
 } from "./ui/sidebar";
-import { FolderIcon, MapIcon, BookmarkIcon, SearchIcon } from "lucide-react";
 
-const navItems = [
-  { icon: MapIcon, label: "Map" },
-  { icon: SearchIcon, label: "Explore" },
-  { icon: BookmarkIcon, label: "Collections" },
-  { icon: FolderIcon, label: "Browse" },
-];
+const navItems = [{ icon: FolderIcon, label: "Browse" }];
 
 export function LeftSidebar(): React.JSX.Element {
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" variant="floating">
       <SidebarHeader className="flex-row items-center gap-2 px-3 py-3">
         <SidebarTrigger />
         <span className="text-xs font-semibold tracking-widest text-muted-foreground uppercase group-data-[collapsible=icon]:hidden">
@@ -27,16 +23,18 @@ export function LeftSidebar(): React.JSX.Element {
         </span>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu>
-          {navItems.map(({ icon: Icon, label }) => (
-            <SidebarMenuItem key={label}>
-              <SidebarMenuButton tooltip={label}>
-                <Icon />
-                <span>{label}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        <SidebarGroup>
+          <SidebarMenu>
+            {navItems.map(({ icon: Icon, label }) => (
+              <SidebarMenuItem key={label}>
+                <SidebarMenuButton tooltip={label}>
+                  <Icon />
+                  <span>{label}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

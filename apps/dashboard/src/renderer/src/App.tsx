@@ -1,30 +1,37 @@
-import Chat from "./components/Chat";
-import MapView from "./components/MapView";
-import { AppSidebar } from "./components/AppSidebar";
+import { ChatSidebar } from "./components/ChatSidebar";
+import { ChatToggle } from "./components/ChatToggle";
 import { LeftSidebar } from "./components/LeftSidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
+import MapView from "./components/MapView";
+import { SidebarProvider } from "./components/ui/sidebar";
 
 function App(): React.JSX.Element {
   return (
-    <SidebarProvider name="sidebar-left" defaultOpen={true}>
-      <LeftSidebar />
+    <>
+      {/* Map: full viewport base layer */}
+      <div className="fixed inset-0 z-0">
+        <MapView />
+      </div>
+
+      {/* Left sidebar overlay */}
+      <SidebarProvider
+        name="sidebar-left"
+        defaultOpen={true}
+        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+      >
+        <LeftSidebar />
+      </SidebarProvider>
+
+      {/* Right sidebar overlay */}
       <SidebarProvider
         name="sidebar-right"
         defaultOpen={true}
+        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
         style={{ "--sidebar-width": "360px" } as React.CSSProperties}
-        className="flex-1 min-w-0"
       >
-        <SidebarInset className="relative overflow-hidden">
-          <MapView />
-          <div className="absolute top-2 right-2 z-10">
-            <SidebarTrigger className="rotate-180" />
-          </div>
-        </SidebarInset>
-        <AppSidebar>
-          <Chat />
-        </AppSidebar>
+        <ChatSidebar />
+        <ChatToggle />
       </SidebarProvider>
-    </SidebarProvider>
+    </>
   );
 }
 

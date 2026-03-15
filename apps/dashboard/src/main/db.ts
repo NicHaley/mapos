@@ -133,6 +133,20 @@ export function indexFeature(record: PlaceRecord): void {
     .run(row.rowid, record.lat, record.lat, record.lng, record.lng);
 }
 
+/** Remove features whose file_path is not in the places Map (e.g. deleted while app was closed). Returns count removed. */
+export function reconcileIndexWithPlaces(places: Map<string, PlaceRecord>): number {
+  const db = getDb();
+  const rows = db.select({ file_path: features.file_path }).from(features).all();
+  let count = 0;
+  for (const r of rows) {
+    if (!places.has(r.file_path)) {
+      removeFeature(r.file_path);
+      count++;
+    }
+  }
+  return count;
+}
+
 export function removeFeature(filePath: string): void {
   const db = getDb();
   const sqlite = getSqlite();

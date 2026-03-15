@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
@@ -15,6 +15,7 @@ import {
   initDb,
   querySpatialIndex,
   rebuildIndexFromPlaces,
+  reconcileIndexWithPlaces,
   removeFeature
 } from "./db";
 
@@ -68,7 +69,12 @@ function readDirTree(dirPath: string): FileNode[] {
       .map((entry) => {
         const fullPath = join(dirPath, entry.name);
         if (entry.isDirectory()) {
-          return { name: entry.name, path: fullPath, type: "directory" as const, children: readDirTree(fullPath) };
+          return {
+            name: entry.name,
+            path: fullPath,
+            type: "directory" as const,
+            children: readDirTree(fullPath)
+          };
         }
         return { name: entry.name, path: fullPath, type: "file" as const };
       })
@@ -152,6 +158,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   watcher.on("ready", () => {
     initialScanDone = true;
+    const reconciled = reconcileIndexWithPlaces(places);
+    if (reconciled > 0) console.log("[main] reconciled index, removed stale features:", reconciled);
     console.log("[main] watcher ready, places found:", places.size);
     console.log("[main] features indexed:", getFeatureCount());
     const allPlaces = Array.from(places.values());
@@ -170,7 +178,9 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   });
 
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
-    return querySpatialIndex(bounds).map((r) => {
+    return querySpatialIndex(bounds)
+      .filter((r) => r.file_path.startsWith(MAPOS_DIR))
+      .map((r) => {
       const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
       return {
         id: r.id,
@@ -240,7 +250,11 @@ const ALLOWED_TOOLS = [
   "mcp__mapos__rebuild_index"
 ] as const;
 
-function createMaposMcpServer(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>) {
+function createMaposMcpServer(
+  mainWindow: BrowserWindow,
+  places: Map<string, PlaceRecord>,
+  maposDir: string
+) {
   return createSdkMcpServer({
     name: "mapos",
     version: "1.0.0",
@@ -375,8 +389,24 @@ function createMaposMcpServer(mainWindow: BrowserWindow, places: Map<string, Pla
       tool(
         "index_file",
         "Re-index a specific file into the spatial index after writing it. Call this after creating or editing a place file so the map updates immediately.",
-        { path: z.string().describe("Absolute path to the place file") },
+        { path: z.string().describe("Absolute path to the place file (must be under the MapOS vault)") },
         async (args) => {
+          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
+          const underVault =
+            args.path === maposDir || args.path.startsWith(vaultPrefix);
+          if (!underVault) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    success: false,
+                    reason: `Path must be under vault (${maposDir})`
+                  })
+                }
+              ]
+            };
+          }
           const record = await parsePlaceFile(args.path);
           if (record) {
             indexFeature(record);
@@ -411,7 +441,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
   const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
 
-  const maposServer = createMaposMcpServer(mainWindow, places);
+  const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR);
 
   ipcMain.on("chat:send", async (_event, message: string) => {
     if (currentQuery) {

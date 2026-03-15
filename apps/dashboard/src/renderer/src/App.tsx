@@ -1,6 +1,7 @@
 import { ChatSidebar } from "./components/ChatSidebar";
 import { ChatToggle } from "./components/ChatToggle";
-import { LeftSidebar } from "./components/LeftSidebar";
+import { ProjectSidebar } from "./components/ProjectSidebar";
+import { ProjectToggle } from "./components/ProjectToggle";
 import MapView from "./components/MapView";
 import { SidebarProvider } from "./components/ui/sidebar";
 
@@ -18,7 +19,8 @@ function App(): React.JSX.Element {
         defaultOpen={true}
         className="fixed inset-0 z-10 pointer-events-none bg-transparent"
       >
-        <LeftSidebar />
+        <ProjectSidebar />
+        <ProjectToggle />
       </SidebarProvider>
 
       {/* Right sidebar overlay */}

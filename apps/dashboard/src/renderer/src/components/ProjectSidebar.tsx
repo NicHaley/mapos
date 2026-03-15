@@ -1,4 +1,4 @@
-import { BookmarkIcon, FolderIcon, MapIcon, SearchIcon } from "lucide-react";
+import { FolderIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -7,20 +7,19 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
-  SidebarTrigger
+  SidebarTrigger,
 } from "./ui/sidebar";
 
 const navItems = [{ icon: FolderIcon, label: "Browse" }];
 
-export function LeftSidebar(): React.JSX.Element {
+export function ProjectSidebar(): React.JSX.Element {
   return (
-    <Sidebar collapsible="icon" variant="floating">
-      <SidebarHeader className="flex-row items-center gap-2 px-3 py-3">
-        <SidebarTrigger />
-        <span className="text-xs font-semibold tracking-widest text-muted-foreground uppercase group-data-[collapsible=icon]:hidden">
+    <Sidebar collapsible="offcanvas" variant="floating">
+      <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
+        <span className="text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase">
           MapOS
         </span>
+        <SidebarTrigger />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -36,7 +35,6 @@ export function LeftSidebar(): React.JSX.Element {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarRail />
     </Sidebar>
   );
 }

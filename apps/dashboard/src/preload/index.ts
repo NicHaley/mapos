@@ -30,6 +30,11 @@ const api = {
       ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },
+  fs: {
+    listDir: () => ipcRenderer.invoke("fs:list-dir"),
+    onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
+    removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
+  },
   chat: {
     send: (message: string) => ipcRenderer.send("chat:send", message),
     abort: () => ipcRenderer.send("chat:abort"),

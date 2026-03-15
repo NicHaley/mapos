@@ -35,6 +35,13 @@ type OverlayPolygon = {
   title?: string;
 };
 
+type FileNode = {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: FileNode[];
+};
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -49,6 +56,11 @@ declare global {
       map: {
         onOverlay: (cb: (data: { layerName: string; points: OverlayPoint[]; lines: OverlayLine[]; polygons: OverlayPolygon[] }) => void) => void;
         onOverlayClear: (cb: () => void) => void;
+        removeListeners: () => void;
+      };
+      fs: {
+        listDir: () => Promise<FileNode[]>;
+        onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };
       chat: {

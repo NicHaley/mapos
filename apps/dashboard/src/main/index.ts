@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +54,33 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   }
 }
 
+type FileNode = {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: FileNode[];
+};
+
+function readDirTree(dirPath: string): FileNode[] {
+  try {
+    return readdirSync(dirPath, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith("."))
+      .map((entry) => {
+        const fullPath = join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          return { name: entry.name, path: fullPath, type: "directory" as const, children: readDirTree(fullPath) };
+        }
+        return { name: entry.name, path: fullPath, type: "file" as const };
+      })
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  } catch {
+    return [];
+  }
+}
+
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
   if (!existsSync(MAPOS_DIR)) {
@@ -83,6 +110,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         mainWindow.webContents.send("places:updated", { event: "add", place });
       }
     }
+    if (initialScanDone) notifyFsChanged();
   });
 
   watcher.on("change", async (filePath) => {
@@ -113,12 +141,14 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     places.delete(filePath);
     removeFeature(filePath);
     if (initialScanDone && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("places:updated", {
-        event: "unlink",
-        filePath
-      });
+      mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
+      notifyFsChanged();
     }
   });
+
+  const notifyFsChanged = () => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("fs:changed");
+  };
 
   watcher.on("ready", () => {
     initialScanDone = true;
@@ -132,6 +162,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
     pendingInitialSenders = [];
   });
+
+  ipcMain.handle("fs:list-dir", () => readDirTree(MAPOS_DIR));
 
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds).map((r) => {

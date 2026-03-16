@@ -5,31 +5,23 @@ import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
-  ConversationScrollButton,
+  ConversationScrollButton
 } from "./ai-elements/conversation";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "./ai-elements/message";
+import { Message, MessageContent, MessageResponse } from "./ai-elements/message";
 import {
   PromptInput,
   PromptInputFooter,
   PromptInputSubmit,
-  PromptInputTextarea,
+  PromptInputTextarea
 } from "./ai-elements/prompt-input";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "./ai-elements/reasoning";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "./ai-elements/reasoning";
 import { Button } from "./ui/button";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarTrigger,
+  SidebarTrigger
 } from "./ui/sidebar";
 
 type ChatMessage = {
@@ -59,7 +51,7 @@ export function ChatSidebar(): React.JSX.Element {
           if (content) {
             setMessages((prev) => [
               ...prev,
-              { role: "assistant", content, thinking: thinking || undefined },
+              { role: "assistant", content, thinking: thinking || undefined }
             ]);
           }
           return "";
@@ -101,11 +93,7 @@ export function ChatSidebar(): React.JSX.Element {
     setLoading(false);
   }
 
-  const chatStatus: ChatStatus = loading
-    ? streamingContent
-      ? "streaming"
-      : "submitted"
-    : "idle";
+  const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "idle";
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -182,10 +170,7 @@ export function ChatSidebar(): React.JSX.Element {
 
       <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
         <PromptInput onSubmit={handleSubmit}>
-          <PromptInputTextarea
-            placeholder="Message MapOS..."
-            disabled={loading}
-          />
+          <PromptInputTextarea placeholder="Message MapOS..." disabled={loading} />
           <PromptInputFooter>
             <div />
             <PromptInputSubmit status={chatStatus} onStop={handleStop} />

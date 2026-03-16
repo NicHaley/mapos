@@ -48,6 +48,7 @@ export function ChatSidebar(): React.JSX.Element {
     };
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: <need to scroll to bottom of chat>
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);

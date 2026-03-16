@@ -1,17 +1,17 @@
-import { useEffect } from "react";
-import { MapPinIcon, XIcon } from "lucide-react";
 import { cn } from "@renderer/lib/utils";
+import { MapPinIcon, XIcon } from "lucide-react";
+import { useEffect } from "react";
 import type { PlaceRecord } from "./MapView";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   "want-to-go": { label: "Want to go", className: "text-blue-500" },
   visited: { label: "Visited", className: "text-green-500" },
-  maybe: { label: "Maybe", className: "text-amber-500" },
+  maybe: { label: "Maybe", className: "text-amber-500" }
 };
 
 export function PlaceCard({
   place,
-  onClose,
+  onClose
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -29,10 +29,10 @@ export function PlaceCard({
 
   return (
     <div
-      className="fixed z-20 pointer-events-auto top-4"
+      className="fixed z-20 pointer-events-auto top-2"
       style={{ left: "calc(16rem + 0.75rem)", width: 272 }}
     >
-      <div className="rounded-xl border border-sidebar-border bg-sidebar/95 backdrop-blur-sm shadow-lg overflow-hidden">
+      <div className="rounded-lg border border-sidebar-border bg-sidebar/95 backdrop-blur-sm shadow-lg overflow-hidden">
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3">
           <div className="flex-1 min-w-0">
@@ -87,7 +87,10 @@ export function PlaceCard({
               {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
             </span>
           </div>
-          <span className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]" title={place.filePath}>
+          <span
+            className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]"
+            title={place.filePath}
+          >
             {fileName}
           </span>
         </div>

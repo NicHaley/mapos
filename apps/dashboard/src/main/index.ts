@@ -470,6 +470,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           allowedTools: [...ALLOWED_TOOLS],
           tools: [...ALLOWED_TOOLS],
           includePartialMessages: true,
+          thinking: { type: "adaptive" },
           mcpServers: {
             mapbox: {
               command: "npx",
@@ -502,6 +503,9 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
             const text = event.delta.text ?? "";
             fullText += text;
             mainWindow.webContents.send("chat:chunk", text);
+          } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+            const thinking = (event.delta as { thinking?: string }).thinking ?? "";
+            mainWindow.webContents.send("chat:thinking_chunk", thinking);
           }
         } else if (msg.type === "assistant") {
           const content = (

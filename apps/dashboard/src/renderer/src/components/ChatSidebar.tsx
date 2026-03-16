@@ -1,37 +1,69 @@
-import { ArrowUpIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { ChatStatus } from "ai";
+import { Trash2Icon } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "./ai-elements/conversation";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "./ai-elements/message";
+import {
+  PromptInput,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+} from "./ai-elements/prompt-input";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "./ai-elements/reasoning";
 import { Button } from "./ui/button";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarTrigger
+  SidebarTrigger,
 } from "./ui/sidebar";
 
-type Message = {
+type ChatMessage = {
   role: "user" | "assistant" | "error";
   content: string;
+  thinking?: string;
 };
 
 export function ChatSidebar(): React.JSX.Element {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingThinking, setStreamingThinking] = useState("");
   const [loading, setLoading] = useState(false);
-  const [input, setInput] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     window.api.chat.onChunk((text) => {
       setStreamingContent((prev) => prev + text);
     });
 
+    window.api.chat.onThinkingChunk((text) => {
+      setStreamingThinking((prev) => prev + text);
+    });
+
     window.api.chat.onDone(() => {
-      setStreamingContent((current) => {
-        if (current) {
-          setMessages((prev) => [...prev, { role: "assistant", content: current }]);
-        }
+      setStreamingContent((content) => {
+        setStreamingThinking((thinking) => {
+          if (content) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content, thinking: thinking || undefined },
+            ]);
+          }
+          return "";
+        });
         return "";
       });
       setLoading(false);
@@ -40,6 +72,7 @@ export function ChatSidebar(): React.JSX.Element {
     window.api.chat.onError((msg) => {
       setMessages((prev) => [...prev, { role: "error", content: `Error: ${msg}` }]);
       setStreamingContent("");
+      setStreamingThinking("");
       setLoading(false);
     });
 
@@ -48,33 +81,31 @@ export function ChatSidebar(): React.JSX.Element {
     };
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: <need to scroll to bottom of chat>
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
-
-  function send(): void {
-    const text = input.trim();
-    if (!text || loading) return;
+  function handleSubmit({ text }: { text: string }): void {
+    if (!text.trim() || loading) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
-    setInput("");
     setLoading(true);
     window.api.chat.send(text);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
+  function handleStop(): void {
+    window.api.chat.abort();
+    setLoading(false);
   }
 
   function clear(): void {
     window.api.chat.reset();
     setMessages([]);
     setStreamingContent("");
+    setStreamingThinking("");
     setLoading(false);
   }
+
+  const chatStatus: ChatStatus = loading
+    ? streamingContent
+      ? "streaming"
+      : "submitted"
+    : "idle";
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -96,67 +127,70 @@ export function ChatSidebar(): React.JSX.Element {
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-3">
-        {messages.length === 0 && !loading && (
-          <p className="mt-10 text-center text-xs text-sidebar-foreground/40">
-            Ask about your saved places, notes, or get help organizing your map.
-          </p>
-        )}
+      <SidebarContent className="overflow-hidden p-0">
+        <Conversation>
+          <ConversationContent>
+            {messages.length === 0 && !streamingThinking && !streamingContent && (
+              <ConversationEmptyState
+                title=""
+                description="Ask about your saved places, notes, or get help organizing your map."
+              />
+            )}
 
-        <div className="flex flex-col gap-3">
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                  msg.role === "user"
-                    ? "rounded-br-sm bg-primary text-primary-foreground"
-                    : msg.role === "error"
-                      ? "rounded-bl-sm bg-destructive/15 text-destructive"
-                      : "rounded-bl-sm bg-sidebar-accent text-sidebar-accent-foreground"
-                }`}
-              >
-                {msg.content}
-              </div>
-            </div>
-          ))}
+            {messages.map((msg, i) =>
+              msg.role === "error" ? (
+                <div
+                  key={i}
+                  className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                  {msg.content}
+                </div>
+              ) : (
+                <Message key={i} from={msg.role}>
+                  {msg.thinking && (
+                    <Reasoning>
+                      <ReasoningTrigger />
+                      <ReasoningContent>{msg.thinking}</ReasoningContent>
+                    </Reasoning>
+                  )}
+                  <MessageContent>
+                    <MessageResponse>{msg.content}</MessageResponse>
+                  </MessageContent>
+                </Message>
+              )
+            )}
 
-          {(streamingContent || loading) && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-xl rounded-bl-sm bg-sidebar-accent text-sidebar-accent-foreground px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                {streamingContent}
-                <span className="inline-block ml-px animate-blink">▌</span>
-              </div>
-            </div>
-          )}
-
-          <div ref={bottomRef} />
-        </div>
+            {(streamingThinking || streamingContent) && (
+              <Message from="assistant">
+                {streamingThinking && (
+                  <Reasoning isStreaming={!streamingContent}>
+                    <ReasoningTrigger />
+                    <ReasoningContent>{streamingThinking}</ReasoningContent>
+                  </Reasoning>
+                )}
+                {streamingContent && (
+                  <MessageContent>
+                    <MessageResponse isAnimating>{streamingContent}</MessageResponse>
+                  </MessageContent>
+                )}
+              </Message>
+            )}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
-        <div className="flex gap-2">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
+        <PromptInput onSubmit={handleSubmit}>
+          <PromptInputTextarea
             placeholder="Message MapOS..."
-            rows={1}
             disabled={loading}
-            className="flex-1 resize-none rounded-lg border border-sidebar-border bg-sidebar-accent text-sidebar-foreground placeholder:text-sidebar-foreground/40 px-3 py-2 text-sm leading-relaxed outline-none max-h-30 overflow-y-auto disabled:opacity-50"
           />
-          <Button
-            onClick={send}
-            disabled={loading || !input.trim()}
-            size="icon"
-            className="shrink-0 self-end"
-          >
-            <ArrowUpIcon />
-          </Button>
-        </div>
+          <PromptInputFooter>
+            <div />
+            <PromptInputSubmit status={chatStatus} onStop={handleStop} />
+          </PromptInputFooter>
+        </PromptInput>
       </SidebarFooter>
     </Sidebar>
   );

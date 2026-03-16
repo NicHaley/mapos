@@ -42,11 +42,14 @@ const api = {
     reset: () => ipcRenderer.send("chat:reset"),
     onChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
+    onThinkingChunk: (cb: (text: string) => void) =>
+      ipcRenderer.on("chat:thinking_chunk", (_e, t) => cb(t)),
     onDone: (cb: () => void) => ipcRenderer.on("chat:done", cb),
     onError: (cb: (msg: string) => void) =>
       ipcRenderer.on("chat:error", (_e, m) => cb(m)),
     removeListeners: () => {
       ipcRenderer.removeAllListeners("chat:chunk");
+      ipcRenderer.removeAllListeners("chat:thinking_chunk");
       ipcRenderer.removeAllListeners("chat:done");
       ipcRenderer.removeAllListeners("chat:error");
     }

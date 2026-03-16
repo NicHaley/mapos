@@ -69,6 +69,7 @@ declare global {
         abort: () => void;
         reset: () => void;
         onChunk: (cb: (text: string) => void) => void;
+        onThinkingChunk: (cb: (text: string) => void) => void;
         onDone: (cb: () => void) => void;
         onError: (cb: (msg: string) => void) => void;
         removeListeners: () => void;

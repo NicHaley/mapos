@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
-@import "./base.css";
 
 @theme {
   --radius-sm: calc(var(--radius) - 4px);

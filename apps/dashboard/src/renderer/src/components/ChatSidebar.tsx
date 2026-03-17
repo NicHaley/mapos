@@ -37,17 +37,6 @@ type ChatMessage = {
   thinking?: string;
 };
 
-function formatRelativeDate(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 export function ChatSidebar(): React.JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
@@ -219,7 +208,7 @@ export function ChatSidebar(): React.JSX.Element {
       </SidebarHeader>
 
       <SidebarContent className="overflow-hidden p-0">
-        <Conversation>
+        <Conversation className="prose prose-sm">
           <ConversationContent>
             {messages.length === 0 && !streamingThinking && !streamingContent && (
               <ConversationEmptyState

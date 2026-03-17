@@ -86,6 +86,7 @@ declare global {
         loadHistory: () => Promise<PersistedMessage[]>;
         listConversations: () => Promise<ConversationMeta[]>;
         switchConversation: (id: string) => Promise<PersistedMessage[]>;
+        deleteConversation: (id: string) => Promise<void>;
         onChunk: (cb: (text: string) => void) => void;
         onThinkingChunk: (cb: (text: string) => void) => void;
         onDone: (cb: () => void) => void;

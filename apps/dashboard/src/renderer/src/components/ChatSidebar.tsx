@@ -1,5 +1,5 @@
 import type { ChatStatus } from "ai";
-import { SquarePenIcon, Trash2Icon } from "lucide-react";
+import { EllipsisIcon, SquarePenIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Conversation,
@@ -16,6 +16,12 @@ import {
 } from "./ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "./ai-elements/reasoning";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "./ui/dropdown-menu";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "./ui/select";
 import {
   Sidebar,
@@ -152,6 +158,20 @@ export function ChatSidebar(): React.JSX.Element {
     setCurrentConvId(null);
   }
 
+  async function deleteConversation(): Promise<void> {
+    if (!currentConvId) return;
+    await window.api.chat.deleteConversation(currentConvId);
+    const updated = await window.api.chat.listConversations();
+    const sorted = updated.slice().reverse();
+    setConversations(sorted);
+    if (sorted.length > 0) {
+      await switchConversation(sorted[0].id);
+    } else {
+      clear();
+      setCurrentConvId(null);
+    }
+  }
+
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "idle";
 
   return (
@@ -176,6 +196,16 @@ export function ChatSidebar(): React.JSX.Element {
           </SelectContent>
         </Select>
         <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+              <EllipsisIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end">
+              <DropdownMenuItem variant="destructive" onClick={deleteConversation}>
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -183,9 +213,6 @@ export function ChatSidebar(): React.JSX.Element {
             title="New conversation"
           >
             <SquarePenIcon />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={clear} title="Clear conversation">
-            <Trash2Icon />
           </Button>
           <SidebarTrigger className="rotate-180" />
         </div>

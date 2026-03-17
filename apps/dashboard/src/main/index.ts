@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync
 } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -760,6 +761,23 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     conversationHistory.length = 0;
     currentConversation = null;
   });
+
+  ipcMain.handle("chat:delete-conversation", (_event, id: string) => {
+    try {
+      const convFile = join(CONVERSATIONS_DIR, `${id}.jsonl`);
+      if (existsSync(convFile)) {
+        rmSync(convFile);
+      }
+      const entries = readConversationIndex().filter((e) => e.id !== id);
+      compactIndex(entries);
+      if (currentConversation?.id === id) {
+        currentConversation = null;
+        conversationHistory.length = 0;
+      }
+    } catch (err) {
+      console.error("[main] failed to delete conversation:", err);
+    }
+  });
 }
 
 function createWindow(): BrowserWindow {
@@ -771,8 +789,8 @@ function createWindow(): BrowserWindow {
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
-      devTools: false
+      sandbox: false
+      // devTools: false
     }
   });
 

@@ -1,7 +1,6 @@
 import type { ChatStatus } from "ai";
-import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { SquarePenIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { cn } from "@renderer/lib/utils";
 import {
   Conversation,
   ConversationContent,
@@ -17,9 +16,7 @@ import {
 } from "./ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "./ai-elements/reasoning";
 import { Button } from "./ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { ScrollArea } from "./ui/scroll-area";
-import { Separator } from "./ui/separator";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "./ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -52,7 +49,6 @@ export function ChatSidebar(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
-  const [selectorOpen, setSelectorOpen] = useState(false);
 
   useEffect(() => {
     window.api.chat.loadHistory().then((history) => {
@@ -149,73 +145,47 @@ export function ChatSidebar(): React.JSX.Element {
     setStreamingContent("");
     setStreamingThinking("");
     setLoading(false);
-    setSelectorOpen(false);
   }
 
   function handleNewConversation(): void {
     clear();
     setCurrentConvId(null);
-    setSelectorOpen(false);
   }
 
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "idle";
 
-  const currentPreview = currentConvId
-    ? (conversations.find((c) => c.id === currentConvId)?.preview || "Chat")
-    : "New Chat";
-
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
       <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
-        <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase hover:text-sidebar-foreground max-w-[160px]"
-            >
-              <ChevronDownIcon className="size-3 shrink-0" />
-              <span className="truncate">{currentPreview}</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72 p-1">
-            <ScrollArea className="max-h-80">
-              <button
-                onClick={handleNewConversation}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
-              >
-                <PlusIcon className="size-3.5" /> New conversation
-              </button>
-              {conversations.length > 0 && <Separator className="my-1" />}
+        <Select value={currentConvId ?? ""} onValueChange={(id) => switchConversation(id)}>
+          <SelectTrigger className="min-w-0 max-w-[160px]">
+            <span className="truncate text-sm">
+              {currentConvId
+                ? conversations.find((c) => c.id === currentConvId)?.preview || "Chat"
+                : "New Chat"}
+            </span>
+          </SelectTrigger>
+          <SelectContent className="max-w-[220px] w-full" align="start">
+            <SelectGroup>
               {conversations.map((conv) => (
-                <button
-                  key={conv.id}
-                  onClick={() => switchConversation(conv.id)}
-                  className={cn(
-                    "flex w-full flex-col rounded px-2 py-1.5 text-left hover:bg-accent",
-                    conv.id === currentConvId && "bg-accent"
-                  )}
-                >
-                  <span className="truncate text-sm">
-                    {conv.preview || "Empty conversation"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeDate(conv.updated_at)}
-                  </span>
-                </button>
+                <SelectItem key={conv.id} value={conv.id} className="max-w-xs">
+                  <span className="truncate">{conv.preview || "Empty conversation"}</span>
+                </SelectItem>
               ))}
-            </ScrollArea>
-          </PopoverContent>
-        </Popover>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
-            size="icon"
-            className="size-7 text-sidebar-foreground/50 hover:text-sidebar-foreground"
-            onClick={clear}
-            title="Clear conversation"
+            size="icon-sm"
+            onClick={handleNewConversation}
+            title="New conversation"
           >
-            <Trash2Icon className="size-3.5" />
+            <SquarePenIcon />
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={clear} title="Clear conversation">
+            <Trash2Icon />
           </Button>
           <SidebarTrigger className="rotate-180" />
         </div>

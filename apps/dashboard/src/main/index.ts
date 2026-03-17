@@ -1,4 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync
+} from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
@@ -181,18 +188,18 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     return querySpatialIndex(bounds)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
-      const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
-      return {
-        id: r.id,
-        lat: geo.coordinates[1],
-        lng: geo.coordinates[0],
-        title: r.title ?? r.id,
-        status: r.status ?? "",
-        type: "place",
-        tags: r.tags ?? undefined,
-        filePath: r.file_path
-      };
-    });
+        const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+        return {
+          id: r.id,
+          lat: geo.coordinates[1],
+          lng: geo.coordinates[0],
+          title: r.title ?? r.id,
+          status: r.status ?? "",
+          type: "place",
+          tags: r.tags ?? undefined,
+          filePath: r.file_path
+        };
+      });
   });
 
   ipcMain.on("places:request-initial", (event) => {
@@ -389,11 +396,14 @@ function createMaposMcpServer(
       tool(
         "index_file",
         "Re-index a specific file into the spatial index after writing it. Call this after creating or editing a place file so the map updates immediately.",
-        { path: z.string().describe("Absolute path to the place file (must be under the MapOS vault)") },
+        {
+          path: z
+            .string()
+            .describe("Absolute path to the place file (must be under the MapOS vault)")
+        },
         async (args) => {
           const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault =
-            args.path === maposDir || args.path.startsWith(vaultPrefix);
+          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
           if (!underVault) {
             return {
               content: [
@@ -483,7 +493,9 @@ function readConversationIndex(): ConversationMeta[] {
       try {
         const entry = JSON.parse(line) as ConversationMeta;
         map.set(entry.id, entry);
-      } catch { /* skip malformed lines */ }
+      } catch {
+        /* skip malformed lines */
+      }
     }
     return Array.from(map.values()).sort((a, b) => a.created_at.localeCompare(b.created_at));
   } catch {
@@ -493,7 +505,11 @@ function readConversationIndex(): ConversationMeta[] {
 
 function compactIndex(entries: ConversationMeta[]): void {
   try {
-    writeFileSync(CONVERSATIONS_INDEX, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+    writeFileSync(
+      CONVERSATIONS_INDEX,
+      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+      "utf-8"
+    );
   } catch (err) {
     console.error("[main] failed to compact index:", err);
   }
@@ -525,7 +541,11 @@ function loadMostRecentConversation(): ActiveConversation | null {
       .split("\n")
       .filter(Boolean);
     const messages = lines.flatMap((line) => {
-      try { return [JSON.parse(line) as PersistedMessage]; } catch { return []; }
+      try {
+        return [JSON.parse(line) as PersistedMessage];
+      } catch {
+        return [];
+      }
     });
     return { id: latest.id, messages };
   } catch {
@@ -535,7 +555,11 @@ function loadMostRecentConversation(): ActiveConversation | null {
 
 function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
   try {
-    appendFileSync(join(CONVERSATIONS_DIR, `${conv.id}.jsonl`), JSON.stringify(msg) + "\n", "utf-8");
+    appendFileSync(
+      join(CONVERSATIONS_DIR, `${conv.id}.jsonl`),
+      JSON.stringify(msg) + "\n",
+      "utf-8"
+    );
     appendToIndex(conv);
   } catch (err) {
     console.error("[main] failed to append message:", err);
@@ -555,7 +579,12 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     for (const msg of currentConversation.messages) {
       conversationHistory.push({ role: msg.role, content: msg.content });
     }
-    console.log("[main] loaded conversation:", currentConversation.id, "messages:", currentConversation.messages.length);
+    console.log(
+      "[main] loaded conversation:",
+      currentConversation.id,
+      "messages:",
+      currentConversation.messages.length
+    );
   }
 
   const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR);
@@ -578,7 +607,11 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
       currentConversation = { id: newConversationId(), messages: [] };
     }
 
-    const userMsg: PersistedMessage = { role: "user", content: message, timestamp: new Date().toISOString() };
+    const userMsg: PersistedMessage = {
+      role: "user",
+      content: message,
+      timestamp: new Date().toISOString()
+    };
     currentConversation.messages.push(userMsg);
     appendMessage(currentConversation, userMsg);
 
@@ -637,7 +670,10 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
             const text = event.delta.text ?? "";
             fullText += text;
             mainWindow.webContents.send("chat:chunk", text);
-          } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+          } else if (
+            event?.type === "content_block_delta" &&
+            event.delta?.type === "thinking_delta"
+          ) {
             const thinking = (event.delta as { thinking?: string }).thinking ?? "";
             fullThinking += thinking;
             mainWindow.webContents.send("chat:thinking_chunk", thinking);
@@ -712,7 +748,8 @@ function createWindow(): BrowserWindow {
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false
+      sandbox: false,
+      devTools: false
     }
   });
 

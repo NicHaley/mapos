@@ -41,6 +41,8 @@ const api = {
     abort: () => ipcRenderer.send("chat:abort"),
     reset: () => ipcRenderer.send("chat:reset"),
     loadHistory: () => ipcRenderer.invoke("chat:load-history"),
+    listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
+    switchConversation: (id: string) => ipcRenderer.invoke("chat:switch-conversation", id),
     onChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
     onThinkingChunk: (cb: (text: string) => void) =>

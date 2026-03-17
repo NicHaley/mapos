@@ -49,6 +49,14 @@ type PersistedMessage = {
   timestamp: string;
 };
 
+type ConversationMeta = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  messageCount: number;
+  preview: string;
+};
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -76,6 +84,8 @@ declare global {
         abort: () => void;
         reset: () => void;
         loadHistory: () => Promise<PersistedMessage[]>;
+        listConversations: () => Promise<ConversationMeta[]>;
+        switchConversation: (id: string) => Promise<PersistedMessage[]>;
         onChunk: (cb: (text: string) => void) => void;
         onThinkingChunk: (cb: (text: string) => void) => void;
         onDone: (cb: () => void) => void;

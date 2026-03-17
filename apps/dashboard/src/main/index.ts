@@ -597,6 +597,29 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     return readConversationIndex();
   });
 
+  ipcMain.handle("chat:switch-conversation", (_event, id: string) => {
+    try {
+      const lines = readFileSync(join(CONVERSATIONS_DIR, `${id}.jsonl`), "utf-8")
+        .split("\n")
+        .filter(Boolean);
+      const messages = lines.flatMap((line) => {
+        try {
+          return [JSON.parse(line) as PersistedMessage];
+        } catch {
+          return [];
+        }
+      });
+      currentConversation = { id, messages };
+      conversationHistory.length = 0;
+      for (const msg of messages) {
+        conversationHistory.push({ role: msg.role, content: msg.content });
+      }
+      return messages;
+    } catch {
+      return [];
+    }
+  });
+
   ipcMain.on("chat:send", async (_event, message: string) => {
     if (currentQuery) {
       currentQuery.close();

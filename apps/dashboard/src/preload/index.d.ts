@@ -42,6 +42,13 @@ type FileNode = {
   children?: FileNode[];
 };
 
+type PersistedMessage = {
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  timestamp: string;
+};
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -68,6 +75,7 @@ declare global {
         send: (message: string) => void;
         abort: () => void;
         reset: () => void;
+        loadHistory: () => Promise<PersistedMessage[]>;
         onChunk: (cb: (text: string) => void) => void;
         onThinkingChunk: (cb: (text: string) => void) => void;
         onDone: (cb: () => void) => void;

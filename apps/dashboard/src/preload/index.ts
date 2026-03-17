@@ -40,6 +40,7 @@ const api = {
     send: (message: string) => ipcRenderer.send("chat:send", message),
     abort: () => ipcRenderer.send("chat:abort"),
     reset: () => ipcRenderer.send("chat:reset"),
+    loadHistory: () => ipcRenderer.invoke("chat:load-history"),
     onChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
     onThinkingChunk: (cb: (text: string) => void) =>

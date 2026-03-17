@@ -37,6 +37,20 @@ export function ChatSidebar(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    window.api.chat.loadHistory().then((history) => {
+      if (history.length > 0) {
+        setMessages(
+          history.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+            thinking: msg.thinking
+          }))
+        );
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     window.api.chat.onChunk((text) => {
       setStreamingContent((prev) => prev + text);
     });

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
@@ -435,19 +435,152 @@ function createMaposMcpServer(
   });
 }
 
+type PersistedMessage = {
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  timestamp: string;
+};
+
+type ActiveConversation = {
+  id: string;
+  messages: PersistedMessage[];
+};
+
+function newConversationId(): string {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${ts}-${rand}`;
+}
+
+const CONVERSATIONS_DIR = join(MAPOS_DIR, ".mapos", "conversations");
+const CONVERSATIONS_INDEX = join(CONVERSATIONS_DIR, "index.jsonl");
+
+type ConversationMeta = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  messageCount: number;
+  preview: string;
+};
+
+function convToMeta(conv: ActiveConversation): ConversationMeta {
+  const firstUser = conv.messages.find((m) => m.role === "user");
+  return {
+    id: conv.id,
+    created_at: conv.messages[0]?.timestamp ?? new Date().toISOString(),
+    updated_at: conv.messages[conv.messages.length - 1]?.timestamp ?? new Date().toISOString(),
+    messageCount: conv.messages.length,
+    preview: (firstUser?.content ?? "").slice(0, 100)
+  };
+}
+
+function readConversationIndex(): ConversationMeta[] {
+  try {
+    const lines = readFileSync(CONVERSATIONS_INDEX, "utf-8").split("\n").filter(Boolean);
+    const map = new Map<string, ConversationMeta>();
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as ConversationMeta;
+        map.set(entry.id, entry);
+      } catch { /* skip malformed lines */ }
+    }
+    return Array.from(map.values()).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  } catch {
+    return [];
+  }
+}
+
+function compactIndex(entries: ConversationMeta[]): void {
+  try {
+    writeFileSync(CONVERSATIONS_INDEX, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+  } catch (err) {
+    console.error("[main] failed to compact index:", err);
+  }
+}
+
+function appendToIndex(conv: ActiveConversation): void {
+  try {
+    appendFileSync(CONVERSATIONS_INDEX, JSON.stringify(convToMeta(conv)) + "\n", "utf-8");
+  } catch (err) {
+    console.error("[main] failed to append to index:", err);
+  }
+}
+
+function initConversationsDir(): void {
+  if (!existsSync(CONVERSATIONS_DIR)) {
+    mkdirSync(CONVERSATIONS_DIR, { recursive: true });
+  }
+  // Compact index on startup to deduplicate accumulated entries
+  const entries = readConversationIndex();
+  if (entries.length > 0) compactIndex(entries);
+}
+
+function loadMostRecentConversation(): ActiveConversation | null {
+  try {
+    const entries = readConversationIndex();
+    if (entries.length === 0) return null;
+    const latest = entries[entries.length - 1];
+    const lines = readFileSync(join(CONVERSATIONS_DIR, `${latest.id}.jsonl`), "utf-8")
+      .split("\n")
+      .filter(Boolean);
+    const messages = lines.flatMap((line) => {
+      try { return [JSON.parse(line) as PersistedMessage]; } catch { return []; }
+    });
+    return { id: latest.id, messages };
+  } catch {
+    return null;
+  }
+}
+
+function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
+  try {
+    appendFileSync(join(CONVERSATIONS_DIR, `${conv.id}.jsonl`), JSON.stringify(msg) + "\n", "utf-8");
+    appendToIndex(conv);
+  } catch (err) {
+    console.error("[main] failed to append message:", err);
+  }
+}
+
 function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>): void {
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
   const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
 
+  initConversationsDir();
+
+  let currentConversation: ActiveConversation | null = loadMostRecentConversation();
+  if (currentConversation) {
+    for (const msg of currentConversation.messages) {
+      conversationHistory.push({ role: msg.role, content: msg.content });
+    }
+    console.log("[main] loaded conversation:", currentConversation.id, "messages:", currentConversation.messages.length);
+  }
+
   const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR);
+
+  ipcMain.handle("chat:load-history", () => {
+    return currentConversation?.messages ?? [];
+  });
+
+  ipcMain.handle("chat:list-conversations", () => {
+    return readConversationIndex();
+  });
 
   ipcMain.on("chat:send", async (_event, message: string) => {
     if (currentQuery) {
       currentQuery.close();
       currentQuery = null;
     }
+
+    if (!currentConversation) {
+      currentConversation = { id: newConversationId(), messages: [] };
+    }
+
+    const userMsg: PersistedMessage = { role: "user", content: message, timestamp: new Date().toISOString() };
+    currentConversation.messages.push(userMsg);
+    appendMessage(currentConversation, userMsg);
 
     conversationHistory.push({ role: "user", content: message });
 
@@ -491,6 +624,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
       currentQuery = q;
 
       let fullText = "";
+      let fullThinking = "";
 
       for await (const msg of q) {
         if (mainWindow.isDestroyed()) break;
@@ -505,6 +639,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
             mainWindow.webContents.send("chat:chunk", text);
           } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
             const thinking = (event.delta as { thinking?: string }).thinking ?? "";
+            fullThinking += thinking;
             mainWindow.webContents.send("chat:thinking_chunk", thinking);
           }
         } else if (msg.type === "assistant") {
@@ -520,6 +655,16 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           }
         } else if (msg.type === "result" && (msg as { subtype?: string }).subtype === "success") {
           conversationHistory.push({ role: "assistant", content: fullText });
+          if (currentConversation) {
+            const assistantMsg: PersistedMessage = {
+              role: "assistant",
+              content: fullText,
+              thinking: fullThinking || undefined,
+              timestamp: new Date().toISOString()
+            };
+            currentConversation.messages.push(assistantMsg);
+            appendMessage(currentConversation, assistantMsg);
+          }
           if (!mainWindow.isDestroyed()) mainWindow.webContents.send("chat:done");
           break;
         } else if (msg.type === "result" && (msg as { subtype?: string }).subtype !== "success") {
@@ -554,6 +699,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
   ipcMain.on("chat:reset", () => {
     conversationHistory.length = 0;
+    currentConversation = null;
   });
 }
 

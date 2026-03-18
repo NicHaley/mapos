@@ -1,3 +1,4 @@
+import type { ConversationMeta } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { EllipsisIcon, SquarePenIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -161,7 +162,7 @@ export function ChatSidebar(): React.JSX.Element {
     }
   }
 
-  const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "idle";
+  const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -178,9 +179,14 @@ export function ChatSidebar(): React.JSX.Element {
             <SelectGroup>
               {conversations.map((conv) => (
                 <SelectItem key={conv.id} value={conv.id} className="max-w-xs">
-                  <span className="truncate">{conv.preview || "Empty conversation"}</span>
+                  <span className="truncate">{conv.preview}</span>
                 </SelectItem>
               ))}
+              {conversations.length === 0 && (
+                <div className="flex items-center justify-center py-2">
+                  <span className="text-muted-foreground text-sm">No conversations</span>
+                </div>
+              )}
             </SelectGroup>
           </SelectContent>
         </Select>

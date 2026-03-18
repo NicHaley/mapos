@@ -1,3 +1,4 @@
+import type { FileNode } from "@shared/types";
 import { cn } from "@renderer/lib/utils";
 import { ChevronRightIcon, FileIcon, FileTextIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { useEffect, useState } from "react";

@@ -1,61 +1,14 @@
 import type { ElectronAPI } from "@electron-toolkit/preload";
-
-type PlaceRecord = {
-  id: string;
-  lat: number;
-  lng: number;
-  title: string;
-  status: string;
-  type: string;
-  category?: string;
-  tags?: string[];
-  filePath: string;
-};
-
-type PlaceUpdate =
-  | { event: "add" | "change"; place: PlaceRecord }
-  | { event: "unlink"; filePath: string };
-
-type OverlayPoint = {
-  id: string;
-  lat: number;
-  lng: number;
-  title: string;
-};
-
-type OverlayLine = {
-  id: string;
-  coordinates: [number, number][];
-  title?: string;
-};
-
-type OverlayPolygon = {
-  id: string;
-  coordinates: [number, number][][];
-  title?: string;
-};
-
-type FileNode = {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  children?: FileNode[];
-};
-
-type PersistedMessage = {
-  role: "user" | "assistant";
-  content: string;
-  thinking?: string;
-  timestamp: string;
-};
-
-type ConversationMeta = {
-  id: string;
-  created_at: string;
-  updated_at: string;
-  messageCount: number;
-  preview: string;
-};
+import type {
+  ConversationMeta,
+  FileNode,
+  OverlayLine,
+  OverlayPoint,
+  OverlayPolygon,
+  PersistedMessage,
+  PlaceRecord,
+  PlaceUpdate
+} from "../shared/types";
 
 declare global {
   interface Window {

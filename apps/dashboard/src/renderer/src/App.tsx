@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { ChatToggle } from "./components/ChatToggle";
 import { ProjectSidebar } from "./components/ProjectSidebar";
-import { ProjectToggle } from "./components/ProjectToggle";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
 import { PlaceCard } from "./components/PlaceCard";
 import { SidebarProvider } from "./components/ui/sidebar";
+import { Button } from "./components/ui/button";
+import { PanelLeftIcon } from "lucide-react";
 
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
@@ -20,41 +21,65 @@ function App(): React.JSX.Element {
 
   return (
     <>
-      {/* Map: full viewport base layer */}
+      {/* Map: full viewport, goes under the top bar */}
       <div className="fixed inset-0 z-0">
         <MapView ref={mapRef} onSelectPlace={setSelectedPlace} />
       </div>
 
-      {/* Place detail card */}
-      {selectedPlace && (
-        <PlaceCard
-          place={selectedPlace}
-          onClose={() => setSelectedPlace(null)}
-          sidebarOpen={projectSidebarOpen}
-        />
-      )}
-
-      {/* Left sidebar overlay */}
-      <SidebarProvider
-        name="sidebar-left"
-        open={projectSidebarOpen}
-        onOpenChange={setProjectSidebarOpen}
-        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+      {/* Top bar */}
+      <div
+        className="fixed top-0 inset-x-0 h-10 z-30 flex items-center pl-20 bg-sidebar/60 backdrop-blur-md border-b border-sidebar-border"
+        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <ProjectSidebar selectedFilePath={selectedPlace?.filePath} onSelectPlace={setSelectedPlace} />
-        <ProjectToggle />
-      </SidebarProvider>
+        {!projectSidebarOpen && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setProjectSidebarOpen(true)}
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          >
+            <PanelLeftIcon className="size-4" />
+          </Button>
+        )}
+      </div>
 
-      {/* Right sidebar overlay */}
-      <SidebarProvider
-        name="sidebar-right"
-        defaultOpen={true}
-        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
-        style={{ "--sidebar-width": "360px" } as React.CSSProperties}
+      {/* Content wrapper: top-10 offset + transform creates a new containing block
+          so all fixed children are relative to this wrapper, not the viewport */}
+      <div
+        className="fixed top-10 inset-x-0 bottom-0 pointer-events-none"
+        style={{ transform: "translateZ(0)" }}
       >
-        <ChatSidebar />
-        <ChatToggle />
-      </SidebarProvider>
+        {/* Place detail card */}
+        {selectedPlace && (
+          <PlaceCard
+            place={selectedPlace}
+            onClose={() => setSelectedPlace(null)}
+            sidebarOpen={projectSidebarOpen}
+          />
+        )}
+
+        {/* Left sidebar overlay */}
+        <SidebarProvider
+          name="sidebar-left"
+          open={projectSidebarOpen}
+          onOpenChange={setProjectSidebarOpen}
+          className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+        >
+          <ProjectSidebar selectedFilePath={selectedPlace?.filePath} onSelectPlace={setSelectedPlace} />
+        </SidebarProvider>
+
+        {/* Right sidebar overlay */}
+        <SidebarProvider
+          name="sidebar-right"
+          defaultOpen={true}
+          className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+          style={{ "--sidebar-width": "360px" } as React.CSSProperties}
+        >
+          <ChatSidebar />
+          <ChatToggle />
+        </SidebarProvider>
+      </div>
     </>
   );
 }

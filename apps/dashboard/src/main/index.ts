@@ -786,6 +786,7 @@ function createWindow(): BrowserWindow {
     height: 670,
     show: false,
     titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 12, y: 12 },
     autoHideMenuBar: true,
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {

@@ -32,7 +32,7 @@ export function PlaceCard({
   return (
     <div
       className="fixed z-20 pointer-events-auto top-2 transition-[left] duration-200 ease-linear"
-      style={{ left: sidebarOpen ? "calc(16rem + 0.75rem)" : "0.75rem", width: 272 }}
+      style={{ left: sidebarOpen ? "calc(16rem + 0.25rem)" : "0.75rem", width: 272 }}
     >
       <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden">
         {/* Header */}
@@ -48,6 +48,7 @@ export function PlaceCard({
           <button
             onClick={onClose}
             className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
+            type="button"
           >
             <XIcon className="size-3.5" />
           </button>

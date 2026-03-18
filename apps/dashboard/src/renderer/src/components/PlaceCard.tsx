@@ -11,10 +11,12 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 
 export function PlaceCard({
   place,
-  onClose
+  onClose,
+  sidebarOpen = true
 }: {
   place: PlaceRecord;
   onClose: () => void;
+  sidebarOpen?: boolean;
 }): React.JSX.Element {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -29,8 +31,8 @@ export function PlaceCard({
 
   return (
     <div
-      className="fixed z-20 pointer-events-auto top-2"
-      style={{ left: "calc(16rem + 0.75rem)", width: 272 }}
+      className="fixed z-20 pointer-events-auto top-2 transition-[left] duration-200 ease-linear"
+      style={{ left: sidebarOpen ? "calc(16rem + 0.75rem)" : "0.75rem", width: 272 }}
     >
       <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden">
         {/* Header */}

@@ -9,6 +9,7 @@ import { SidebarProvider } from "./components/ui/sidebar";
 
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
+  const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
   const mapRef = useRef<MapViewHandle>(null);
 
   useEffect(() => {
@@ -26,13 +27,18 @@ function App(): React.JSX.Element {
 
       {/* Place detail card */}
       {selectedPlace && (
-        <PlaceCard place={selectedPlace} onClose={() => setSelectedPlace(null)} />
+        <PlaceCard
+          place={selectedPlace}
+          onClose={() => setSelectedPlace(null)}
+          sidebarOpen={projectSidebarOpen}
+        />
       )}
 
       {/* Left sidebar overlay */}
       <SidebarProvider
         name="sidebar-left"
-        defaultOpen={true}
+        open={projectSidebarOpen}
+        onOpenChange={setProjectSidebarOpen}
         className="fixed inset-0 z-10 pointer-events-none bg-transparent"
       >
         <ProjectSidebar selectedFilePath={selectedPlace?.filePath} onSelectPlace={setSelectedPlace} />

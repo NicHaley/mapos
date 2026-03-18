@@ -167,7 +167,7 @@ export function ChatSidebar(): React.JSX.Element {
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
       <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
-        <Select value={currentConvId ?? ""} onValueChange={(id) => switchConversation(id)}>
+        <Select value={currentConvId ?? ""} onValueChange={(id) => id && switchConversation(id)}>
           <SelectTrigger className="min-w-0 max-w-[160px]">
             <span className="truncate text-sm">
               {currentConvId

@@ -32,7 +32,7 @@ export function PlaceCard({
       className="fixed z-20 pointer-events-auto top-2"
       style={{ left: "calc(16rem + 0.75rem)", width: 272 }}
     >
-      <div className="rounded-lg border border-sidebar-border bg-sidebar/95 backdrop-blur-sm shadow-lg overflow-hidden">
+      <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden">
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3">
           <div className="flex-1 min-w-0">

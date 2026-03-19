@@ -1,12 +1,12 @@
+import { PanelLeftIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { ChatToggle } from "./components/ChatToggle";
-import { ProjectSidebar } from "./components/ProjectSidebar";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
 import { PlaceCard } from "./components/PlaceCard";
-import { SidebarProvider } from "./components/ui/sidebar";
+import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
-import { PanelLeftIcon } from "lucide-react";
+import { SidebarProvider } from "./components/ui/sidebar";
 
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
@@ -28,7 +28,7 @@ function App(): React.JSX.Element {
 
       {/* Top bar */}
       <div
-        className="fixed top-0 inset-x-0 h-10 z-30 flex items-center pl-20 bg-sidebar/60 backdrop-blur-md border-b border-sidebar-border"
+        className="fixed top-0 inset-x-0 h-10 z-30 flex items-center pl-20 text-sidebar-foreground bg-sidebar/60 backdrop-blur-md border-b border-sidebar-border"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         {!projectSidebarOpen && (
@@ -66,7 +66,10 @@ function App(): React.JSX.Element {
           onOpenChange={setProjectSidebarOpen}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
         >
-          <ProjectSidebar selectedFilePath={selectedPlace?.filePath} onSelectPlace={setSelectedPlace} />
+          <ProjectSidebar
+            selectedFilePath={selectedPlace?.filePath}
+            onSelectPlace={setSelectedPlace}
+          />
         </SidebarProvider>
 
         {/* Right sidebar overlay */}

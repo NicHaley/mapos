@@ -255,8 +255,25 @@ const ALLOWED_TOOLS = [
   "mcp__mapos__clear_map_overlay",
   "mcp__mapos__query_spatial_index",
   "mcp__mapos__index_file",
-  "mcp__mapos__rebuild_index"
+  "mcp__mapos__rebuild_index",
+  "mcp__mapos__get_viewport",
+  "mcp__mapos__pan_to"
 ] as const;
+
+type ViewportState = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+  centerLat: number;
+  centerLng: number;
+  zoom: number;
+};
+
+let lastViewport: ViewportState | null = null;
+ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
+  lastViewport = data;
+});
 
 function createMaposMcpServer(
   mainWindow: BrowserWindow,
@@ -441,6 +458,32 @@ function createMaposMcpServer(
           const count = rebuildIndexFromPlaces(places);
           return { content: [{ type: "text", text: JSON.stringify({ count }) }] };
         }
+      ),
+      tool(
+        "get_viewport",
+        "Returns the current map viewport: bounding box, center coordinates, and zoom level.",
+        {},
+        async () => {
+          if (!lastViewport) {
+            return { content: [{ type: "text", text: JSON.stringify({ error: "Viewport not yet available" }) }] };
+          }
+          return { content: [{ type: "text", text: JSON.stringify(lastViewport) }] };
+        }
+      ),
+      tool(
+        "pan_to",
+        "Move the map camera to a location. Use after rendering search results or creating a new place.",
+        {
+          lat: z.number().describe("Latitude"),
+          lng: z.number().describe("Longitude"),
+          zoom: z.number().optional().describe("Zoom level 0-20, default 14")
+        },
+        async (args) => {
+          if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("map:pan-to", { lat: args.lat, lng: args.lng, zoom: args.zoom });
+          }
+          return { content: [{ type: "text", text: `Map panning to ${args.lat}, ${args.lng}` }] };
+        }
       )
     ]
   });
@@ -456,6 +499,7 @@ type PersistedMessage = {
 type ActiveConversation = {
   id: string;
   messages: PersistedMessage[];
+  sdkSessionId?: string;
 };
 
 function newConversationId(): string {
@@ -473,6 +517,7 @@ type ConversationMeta = {
   updated_at: string;
   messageCount: number;
   preview: string;
+  sdkSessionId?: string;
 };
 
 function convToMeta(conv: ActiveConversation): ConversationMeta {
@@ -482,7 +527,8 @@ function convToMeta(conv: ActiveConversation): ConversationMeta {
     created_at: conv.messages[0]?.timestamp ?? new Date().toISOString(),
     updated_at: conv.messages[conv.messages.length - 1]?.timestamp ?? new Date().toISOString(),
     messageCount: conv.messages.length,
-    preview: (firstUser?.content ?? "").slice(0, 100)
+    preview: (firstUser?.content ?? "").slice(0, 100),
+    sdkSessionId: conv.sdkSessionId
   };
 }
 
@@ -508,7 +554,7 @@ function compactIndex(entries: ConversationMeta[]): void {
   try {
     writeFileSync(
       CONVERSATIONS_INDEX,
-      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+      `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
       "utf-8"
     );
   } catch (err) {
@@ -518,7 +564,7 @@ function compactIndex(entries: ConversationMeta[]): void {
 
 function appendToIndex(conv: ActiveConversation): void {
   try {
-    appendFileSync(CONVERSATIONS_INDEX, JSON.stringify(convToMeta(conv)) + "\n", "utf-8");
+    appendFileSync(CONVERSATIONS_INDEX, `${JSON.stringify(convToMeta(conv))}\n`, "utf-8");
   } catch (err) {
     console.error("[main] failed to append to index:", err);
   }
@@ -548,7 +594,7 @@ function loadMostRecentConversation(): ActiveConversation | null {
         return [];
       }
     });
-    return { id: latest.id, messages };
+    return { id: latest.id, messages, sdkSessionId: latest.sdkSessionId };
   } catch {
     return null;
   }
@@ -558,7 +604,7 @@ function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
   try {
     appendFileSync(
       join(CONVERSATIONS_DIR, `${conv.id}.jsonl`),
-      JSON.stringify(msg) + "\n",
+      `${JSON.stringify(msg)}\n`,
       "utf-8"
     );
     appendToIndex(conv);
@@ -570,16 +616,12 @@ function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
 function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>): void {
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
   const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
-  const conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
   let currentQuery: { close: () => void } | null = null;
 
   initConversationsDir();
 
   let currentConversation: ActiveConversation | null = loadMostRecentConversation();
   if (currentConversation) {
-    for (const msg of currentConversation.messages) {
-      conversationHistory.push({ role: msg.role, content: msg.content });
-    }
     console.log(
       "[main] loaded conversation:",
       currentConversation.id,
@@ -610,11 +652,8 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           return [];
         }
       });
-      currentConversation = { id, messages };
-      conversationHistory.length = 0;
-      for (const msg of messages) {
-        conversationHistory.push({ role: msg.role, content: msg.content });
-      }
+      const meta = readConversationIndex().find((e) => e.id === id);
+      currentConversation = { id, messages, sdkSessionId: meta?.sdkSessionId };
       return messages;
     } catch {
       return [];
@@ -639,21 +678,15 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     currentConversation.messages.push(userMsg);
     appendMessage(currentConversation, userMsg);
 
-    conversationHistory.push({ role: "user", content: message });
-
-    const prompt =
-      conversationHistory.length === 1
-        ? message
-        : conversationHistory
-            .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-            .join("\n\n");
-
     const abortController = new AbortController();
 
     try {
       const q = query({
-        prompt,
+        prompt: message,
         options: {
+          ...(currentConversation.sdkSessionId
+            ? { resume: currentConversation.sdkSessionId }
+            : {}),
           abortController,
           cwd: MAPOS_DIR,
           systemPrompt: MAPOS_SYSTEM_PROMPT,
@@ -673,7 +706,8 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           },
           env: {
             ...process.env,
-            ANTHROPIC_API_KEY: apiKey
+            ANTHROPIC_API_KEY: apiKey,
+            ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL
           }
         }
       });
@@ -713,8 +747,13 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
               }
             }
           }
+        } else if (msg.type === "system" && (msg as { subtype?: string }).subtype === "init") {
+          const initSessionId = (msg as { session_id?: string }).session_id;
+          if (initSessionId && currentConversation) {
+            currentConversation.sdkSessionId = initSessionId;
+            appendToIndex(currentConversation);
+          }
         } else if (msg.type === "result" && (msg as { subtype?: string }).subtype === "success") {
-          conversationHistory.push({ role: "assistant", content: fullText });
           if (currentConversation) {
             const assistantMsg: PersistedMessage = {
               role: "assistant",
@@ -758,7 +797,6 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
   });
 
   ipcMain.on("chat:reset", () => {
-    conversationHistory.length = 0;
     currentConversation = null;
   });
 
@@ -772,7 +810,6 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
       compactIndex(entries);
       if (currentConversation?.id === id) {
         currentConversation = null;
-        conversationHistory.length = 0;
       }
     } catch (err) {
       console.error("[main] failed to delete conversation:", err);

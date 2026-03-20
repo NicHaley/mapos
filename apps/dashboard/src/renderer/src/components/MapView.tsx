@@ -120,6 +120,15 @@ const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord)
       if (!map) return;
       const b = map.getBounds();
       if (!b) return;
+      window.api.map.sendViewport({
+        north: b.getNorth(),
+        south: b.getSouth(),
+        east: b.getEast(),
+        west: b.getWest(),
+        centerLat: map.getCenter().lat,
+        centerLng: map.getCenter().lng,
+        zoom: map.getZoom()
+      });
       const results = await window.api.places.queryBounds({
         north: b.getNorth(),
         south: b.getSouth(),
@@ -143,6 +152,9 @@ const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord)
         setOverlay({ points, lines, polygons })
       );
       window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
+      window.api.map.onPanTo(({ lat, lng, zoom }) => {
+        mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? 14, duration: 800 });
+      });
       window.api.places.requestInitial();
       return () => {
         window.api.places.removeListeners();

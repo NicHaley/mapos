@@ -26,9 +26,17 @@ const api = {
       }) => void
     ) => ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
     onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
+    sendViewport: (data: {
+      north: number; south: number; east: number; west: number;
+      centerLat: number; centerLng: number; zoom: number;
+    }) => ipcRenderer.send("map:viewport-update", data),
+    onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) =>
+      ipcRenderer.on("map:pan-to", (_e, data) => cb(data)),
     removeListeners: () => {
       ipcRenderer.removeAllListeners("map:overlay");
       ipcRenderer.removeAllListeners("map:overlay-clear");
+      ipcRenderer.removeAllListeners("map:pan-to");
+      ipcRenderer.removeAllListeners("map:viewport-update");
     }
   },
   fs: {

@@ -10,6 +10,16 @@ import type {
   PlaceUpdate
 } from "../shared/types";
 
+type ViewportState = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+  centerLat: number;
+  centerLng: number;
+  zoom: number;
+};
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -25,6 +35,8 @@ declare global {
       map: {
         onOverlay: (cb: (data: { layerName: string; points: OverlayPoint[]; lines: OverlayLine[]; polygons: OverlayPolygon[] }) => void) => void;
         onOverlayClear: (cb: () => void) => void;
+        sendViewport: (data: ViewportState) => void;
+        onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
         removeListeners: () => void;
       };
       fs: {

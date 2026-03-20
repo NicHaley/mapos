@@ -70,11 +70,11 @@ tags:
   - restaurant
   - japanese
   - toronto-trip
-category: restaurant    # restaurant | cafe | park | hotel | shop | other
+category: restaurant # restaurant | cafe | park | hotel | shop | other
 source_url: https://...
 created: 2026-02-21
-visited_on:             # ISO date when visited
-rating:                 # 1-5 once visited
+visited_on: # ISO date when visited
+rating: # 1-5 once visited
 ```
 
 Full example:

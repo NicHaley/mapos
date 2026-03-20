@@ -149,9 +149,7 @@ export function PlaceCard({
                 onClick={handleBodyClick}
                 className={cn(
                   "min-h-[2rem] rounded cursor-text",
-                  body
-                    ? "hover:bg-sidebar-accent/40 transition-colors"
-                    : "flex items-center"
+                  body ? "hover:bg-sidebar-accent/40 transition-colors" : "flex items-center"
                 )}
               >
                 {body ? (

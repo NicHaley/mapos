@@ -41,6 +41,9 @@ declare global {
       };
       fs: {
         listDir: () => Promise<FileNode[]>;
+        readFile: (filePath: string) => Promise<{ raw: string; body: string } | { error: string }>;
+        writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
+        writePlaceBody: (filePath: string, body: string) => Promise<{ success: boolean; error?: string }>;
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };

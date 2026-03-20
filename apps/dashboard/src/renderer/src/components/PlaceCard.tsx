@@ -1,7 +1,10 @@
 import { cn } from "@renderer/lib/utils";
 import { MapPinIcon, XIcon } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Streamdown } from "streamdown";
 import type { PlaceRecord } from "./MapView";
+import { ScrollArea } from "./ui/scroll-area";
+import { Skeleton } from "./ui/skeleton";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   "want-to-go": { label: "Want to go", className: "text-blue-500" },
@@ -18,13 +21,67 @@ export function PlaceCard({
   onClose: () => void;
   sidebarOpen?: boolean;
 }): React.JSX.Element {
+  const [body, setBody] = useState<string | null>(null);
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (mode === "edit") {
+          setMode("view");
+        } else {
+          onClose();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, mode]);
+
+  useEffect(() => {
+    setBody(null);
+    setMode("view");
+    setLoading(true);
+    window.api.fs.readFile(place.filePath).then((result) => {
+      if ("error" in result) {
+        setLoading(false);
+        return;
+      }
+      setBody(result.body);
+      setLoading(false);
+    });
+  }, [place.filePath]);
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    if (mode === "edit" && textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      textareaRef.current.focus();
+    }
+  }, [mode, draft]);
+
+  function handleBodyClick() {
+    if (mode === "view" && body !== null) {
+      setDraft(body);
+      setMode("edit");
+    }
+  }
+
+  async function handleBlur() {
+    if (mode !== "edit" || saving) return;
+    setSaving(true);
+    const result = await window.api.fs.writePlaceBody(place.filePath, draft);
+    if (result.success) {
+      setBody(draft.trim());
+    }
+    setSaving(false);
+    setMode("view");
+  }
 
   const status = STATUS_META[place.status];
   const fileName = place.filePath.split("/").pop() ?? place.filePath;
@@ -34,9 +91,9 @@ export function PlaceCard({
       className="fixed z-20 pointer-events-auto top-2 transition-[left] duration-200 ease-linear"
       style={{ left: sidebarOpen ? "calc(16rem + 0.25rem)" : "0.75rem", width: 272 }}
     >
-      <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden">
+      <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden flex flex-col max-h-[calc(100vh-3.5rem)]">
         {/* Header */}
-        <div className="flex items-start gap-2 px-4 pt-4 pb-3">
+        <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
               {place.category ?? place.type}
@@ -56,7 +113,7 @@ export function PlaceCard({
 
         {/* Status */}
         {status && (
-          <div className="px-4 pb-3">
+          <div className="px-4 pb-3 shrink-0">
             <span
               className={cn(
                 "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-sidebar-accent",
@@ -70,7 +127,7 @@ export function PlaceCard({
 
         {/* Tags */}
         {place.tags && place.tags.length > 0 && (
-          <div className="px-4 pb-3 flex flex-wrap gap-1">
+          <div className="px-4 pb-3 flex flex-wrap gap-1 shrink-0">
             {place.tags.map((tag) => (
               <span
                 key={tag}
@@ -82,8 +139,46 @@ export function PlaceCard({
           </div>
         )}
 
+        {/* Body content */}
+        {loading && <Skeleton className="mx-4 mb-3 h-16 rounded shrink-0" />}
+
+        {!loading && (
+          <ScrollArea className="overflow-y-auto px-4 pb-3">
+            {mode === "view" ? (
+              <div
+                onClick={handleBodyClick}
+                className={cn(
+                  "min-h-[2rem] rounded cursor-text",
+                  body
+                    ? "hover:bg-sidebar-accent/40 transition-colors"
+                    : "flex items-center"
+                )}
+              >
+                {body ? (
+                  <Streamdown className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 text-sidebar-foreground text-[13px]">
+                    {body}
+                  </Streamdown>
+                ) : (
+                  <span className="text-[12px] text-sidebar-foreground/30 italic select-none">
+                    Click to add notes…
+                  </span>
+                )}
+              </div>
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={handleBlur}
+                className="w-full min-h-[4rem] resize-none rounded border border-sidebar-border bg-sidebar font-mono text-xs text-sidebar-foreground focus:outline-none focus:ring-1 focus:ring-sidebar-ring p-2 overflow-hidden"
+                spellCheck={false}
+              />
+            )}
+          </ScrollArea>
+        )}
+
         {/* Footer: coords + file */}
-        <div className="border-t border-sidebar-border px-4 py-2.5 flex items-center justify-between gap-2">
+        <div className="border-t border-sidebar-border px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-1.5 text-[11px] text-sidebar-foreground/40">
             <MapPinIcon className="size-3 shrink-0" />
             <span>

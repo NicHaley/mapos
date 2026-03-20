@@ -185,6 +185,52 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     return places.get(filePath) ?? null;
   });
 
+  ipcMain.handle("fs:read-file", async (_event, filePath: string) => {
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+      return { error: "Path outside vault" };
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const { content } = matter(raw);
+      return { raw, body: content.trimStart() };
+    } catch (err) {
+      return { error: String(err) };
+    }
+  });
+
+  ipcMain.handle("fs:write-file", async (_event, filePath: string, content: string) => {
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+      return { success: false, error: "Path outside vault" };
+    try {
+      writeFileSync(filePath, content, "utf-8");
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // Write only the body of a place file, preserving the frontmatter exactly.
+  // Reads the current file, regex-extracts the frontmatter block, then writes
+  // frontmatter + new body — so the renderer never has to round-trip YAML.
+  ipcMain.handle("fs:write-place-body", async (_event, filePath: string, body: string) => {
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+      return { success: false, error: "Path outside vault" };
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      // Match the YAML front-matter block including the trailing newline after ---
+      const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+      const fm = fmMatch ? fmMatch[0] : "";
+      // Ensure a blank line between front matter and body (standard Obsidian format)
+      const newContent = fm + (body.trim() ? "\n" + body.trim() + "\n" : "");
+      writeFileSync(filePath, newContent, "utf-8");
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))

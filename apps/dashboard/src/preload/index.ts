@@ -41,6 +41,18 @@ const api = {
   },
   fs: {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
+    readFile: (filePath: string) =>
+      ipcRenderer.invoke("fs:read-file", filePath) as Promise<
+        { raw: string; body: string } | { error: string }
+      >,
+    writeFile: (filePath: string, content: string) =>
+      ipcRenderer.invoke("fs:write-file", filePath, content) as Promise<
+        { success: boolean; error?: string }
+      >,
+    writePlaceBody: (filePath: string, body: string) =>
+      ipcRenderer.invoke("fs:write-place-body", filePath, body) as Promise<
+        { success: boolean; error?: string }
+      >,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },

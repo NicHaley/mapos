@@ -103,7 +103,7 @@ function FileTreeNode({
       type="button"
     >
       {fileIcon(node.name)}
-      <span className="truncate">{node.name}</span>
+      <span className="truncate">{node.name.replace(/\.[^.]+$/, "")}</span>
     </button>
   );
 }

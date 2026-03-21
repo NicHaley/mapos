@@ -21,18 +21,26 @@ export function PlaceCard({
   onClose: () => void;
   sidebarOpen?: boolean;
 }): React.JSX.Element {
+  const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [body, setBody] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleMode, setTitleMode] = useState<"view" | "edit">("view");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (mode === "edit") {
           setMode("view");
+        } else if (titleMode === "edit") {
+          setTitleMode("view");
         } else {
           onClose();
         }
@@ -40,11 +48,13 @@ export function PlaceCard({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, mode]);
+  }, [onClose, mode, titleMode]);
 
   useEffect(() => {
+    setCurrentFilePath(place.filePath);
     setBody(null);
     setMode("view");
+    setTitleMode("view");
     setLoading(true);
     window.api.fs.readFile(place.filePath).then((result) => {
       if ("error" in result) {
@@ -63,7 +73,11 @@ export function PlaceCard({
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
       textareaRef.current.focus();
     }
-  }, [mode, draft]);
+  }, [mode]);
+
+  useEffect(() => {
+    if (titleMode === "edit") titleInputRef.current?.focus();
+  }, [titleMode]);
 
   function handleBodyClick() {
     if (mode === "view" && body !== null) {
@@ -75,7 +89,7 @@ export function PlaceCard({
   async function handleBlur() {
     if (mode !== "edit" || saving) return;
     setSaving(true);
-    const result = await window.api.fs.writePlaceBody(place.filePath, draft);
+    const result = await window.api.fs.writePlaceBody(currentFilePath, draft);
     if (result.success) {
       setBody(draft.trim());
     }
@@ -83,8 +97,35 @@ export function PlaceCard({
     setMode("view");
   }
 
+  function handleTitleClick() {
+    setTitleDraft(currentTitle);
+    setTitleMode("edit");
+  }
+
+  async function handleTitleBlur() {
+    const newName = titleDraft.trim();
+    if (!newName || newName === currentTitle) {
+      setTitleMode("view");
+      return;
+    }
+    const result = await window.api.fs.renameFile(currentFilePath, newName as string);
+    if (result.success) {
+      setCurrentFilePath(result.newPath);
+    }
+    setTitleMode("view");
+  }
+
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      titleInputRef.current?.blur();
+    } else if (e.key === "Escape") {
+      setTitleMode("view");
+    }
+  }
+
   const status = STATUS_META[place.status];
-  const fileName = place.filePath.split("/").pop() ?? place.filePath;
+  const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
 
   return (
     <div
@@ -98,9 +139,24 @@ export function PlaceCard({
             <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
               {place.category ?? place.type}
             </p>
-            <h2 className="text-sm font-semibold text-sidebar-foreground leading-snug">
-              {place.title}
-            </h2>
+            {titleMode === "view" ? (
+              <h2
+                onClick={handleTitleClick}
+                className="text-sm font-semibold text-sidebar-foreground leading-snug cursor-text hover:bg-sidebar-accent/40 rounded px-0.5 -mx-0.5 transition-colors"
+              >
+                {currentTitle}
+              </h2>
+            ) : (
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                className="w-full text-sm font-semibold text-sidebar-foreground bg-sidebar border border-sidebar-ring rounded px-0.5 -mx-0.5 focus:outline-none"
+                spellCheck={false}
+              />
+            )}
           </div>
           <button
             onClick={onClose}
@@ -185,7 +241,7 @@ export function PlaceCard({
           </div>
           <span
             className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]"
-            title={place.filePath}
+            title={currentFilePath}
           >
             {fileName}
           </span>

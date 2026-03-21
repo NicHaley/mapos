@@ -26,14 +26,26 @@ declare global {
     api: {
       places: {
         requestInitial: () => void;
-        queryBounds: (bounds: { north: number; south: number; east: number; west: number }) => Promise<PlaceRecord[]>;
+        queryBounds: (bounds: {
+          north: number;
+          south: number;
+          east: number;
+          west: number;
+        }) => Promise<PlaceRecord[]>;
         getByPath: (filePath: string) => Promise<PlaceRecord | null>;
         onInitial: (cb: (places: PlaceRecord[]) => void) => void;
         onUpdated: (cb: (update: PlaceUpdate) => void) => void;
         removeListeners: () => void;
       };
       map: {
-        onOverlay: (cb: (data: { layerName: string; points: OverlayPoint[]; lines: OverlayLine[]; polygons: OverlayPolygon[] }) => void) => void;
+        onOverlay: (
+          cb: (data: {
+            layerName: string;
+            points: OverlayPoint[];
+            lines: OverlayLine[];
+            polygons: OverlayPolygon[];
+          }) => void
+        ) => void;
         onOverlayClear: (cb: () => void) => void;
         sendViewport: (data: ViewportState) => void;
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
@@ -42,8 +54,18 @@ declare global {
       fs: {
         listDir: () => Promise<FileNode[]>;
         readFile: (filePath: string) => Promise<{ raw: string; body: string } | { error: string }>;
-        writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
-        writePlaceBody: (filePath: string, body: string) => Promise<{ success: boolean; error?: string }>;
+        writeFile: (
+          filePath: string,
+          content: string
+        ) => Promise<{ success: boolean; error?: string }>;
+        writePlaceBody: (
+          filePath: string,
+          body: string
+        ) => Promise<{ success: boolean; error?: string }>;
+        renameFile: (
+          oldPath: string,
+          newName: string
+        ) => Promise<{ success: true; newPath: string } | { success: false; error: string }>;
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };

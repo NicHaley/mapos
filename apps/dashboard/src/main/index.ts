@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -42,11 +43,11 @@ type PlaceRecord = {
 async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   try {
     const raw = await readFile(filePath, "utf-8");
-    const { data, content } = matter(raw);
+    const { data } = matter(raw);
     if (typeof data.lat !== "number" || typeof data.lng !== "number") return null;
     if (data.type === "collection") return null;
-    const titleMatch = content.match(/^#\s+(.+)$/m);
-    const title = titleMatch ? titleMatch[1].trim() : (data.id ?? filePath);
+    const basename = filePath.split(sep).pop() ?? filePath;
+    const title = basename.replace(/\.md$/i, "");
     return {
       id: data.id ?? "",
       lat: data.lat,
@@ -223,9 +224,33 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
       const fm = fmMatch ? fmMatch[0] : "";
       // Ensure a blank line between front matter and body (standard Obsidian format)
-      const newContent = fm + (body.trim() ? "\n" + body.trim() + "\n" : "");
+      const newContent = fm + (body.trim() ? `\n${body.trim()}\n` : "");
       writeFileSync(filePath, newContent, "utf-8");
       return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle("fs:rename-file", async (_event, oldPath: string, newName: string) => {
+    // Ensure we only get files within the vault.
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+
+    if (!oldPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+
+    const safeName = newName.replace(/[/\\]/g, "").trim();
+
+    if (!safeName) return { success: false, error: "Empty name" };
+
+    const dir = oldPath.split(sep).slice(0, -1).join(sep);
+    const finalName = safeName.endsWith(".md") ? safeName : `${safeName}.md`;
+    const newPath = join(dir, finalName);
+
+    if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+
+    try {
+      renameSync(oldPath, newPath);
+      return { success: true, newPath };
     } catch (err) {
       return { success: false, error: String(err) };
     }
@@ -511,7 +536,11 @@ function createMaposMcpServer(
         {},
         async () => {
           if (!lastViewport) {
-            return { content: [{ type: "text", text: JSON.stringify({ error: "Viewport not yet available" }) }] };
+            return {
+              content: [
+                { type: "text", text: JSON.stringify({ error: "Viewport not yet available" }) }
+              ]
+            };
           }
           return { content: [{ type: "text", text: JSON.stringify(lastViewport) }] };
         }
@@ -526,7 +555,11 @@ function createMaposMcpServer(
         },
         async (args) => {
           if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("map:pan-to", { lat: args.lat, lng: args.lng, zoom: args.zoom });
+            mainWindow.webContents.send("map:pan-to", {
+              lat: args.lat,
+              lng: args.lng,
+              zoom: args.zoom
+            });
           }
           return { content: [{ type: "text", text: `Map panning to ${args.lat}, ${args.lng}` }] };
         }
@@ -730,9 +763,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
       const q = query({
         prompt: message,
         options: {
-          ...(currentConversation.sdkSessionId
-            ? { resume: currentConversation.sdkSessionId }
-            : {}),
+          ...(currentConversation.sdkSessionId ? { resume: currentConversation.sdkSessionId } : {}),
           abortController,
           cwd: MAPOS_DIR,
           systemPrompt: MAPOS_SYSTEM_PROMPT,

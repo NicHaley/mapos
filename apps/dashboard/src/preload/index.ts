@@ -53,6 +53,10 @@ const api = {
       ipcRenderer.invoke("fs:write-place-body", filePath, body) as Promise<
         { success: boolean; error?: string }
       >,
+    renameFile: (oldPath: string, newName: string) =>
+      ipcRenderer.invoke("fs:rename-file", oldPath, newName) as Promise<
+        { success: true; newPath: string } | { success: false; error: string }
+      >,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },

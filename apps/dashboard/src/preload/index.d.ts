@@ -32,6 +32,7 @@ declare global {
           east: number;
           west: number;
         }) => Promise<PlaceRecord[]>;
+        queryFolderAll: (folderPath: string) => Promise<PlaceRecord[]>;
         queryFolderBounds: (args: {
           folderPath: string;
           bounds: { north: number; south: number; east: number; west: number };

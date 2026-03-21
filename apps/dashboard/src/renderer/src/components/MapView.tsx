@@ -125,21 +125,22 @@ const MapView = forwardRef<
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
 
-  const queryFolderInBounds = useCallback(async (folderPath: string) => {
+  const fitToFolder = useCallback(async (folderPath: string) => {
+    const places = await window.api.places.queryFolderAll(folderPath);
+    setFolderPlaces(places);
+    if (places.length === 0) return;
     const map = mapRef.current;
     if (!map) return;
-    const b = map.getBounds();
-    if (!b) return;
-    const results = await window.api.places.queryFolderBounds({
-      folderPath,
-      bounds: {
-        north: b.getNorth(),
-        south: b.getSouth(),
-        east: b.getEast(),
-        west: b.getWest()
-      }
-    });
-    setFolderPlaces(results);
+    if (places.length === 1) {
+      map.flyTo({ center: [places[0].lng, places[0].lat], zoom: 14, duration: 600 });
+    } else {
+      const lngs = places.map((p) => p.lng);
+      const lats = places.map((p) => p.lat);
+      map.fitBounds(
+        [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+        { padding: 60, duration: 600, maxZoom: 16 }
+      );
+    }
   }, []);
 
   const debouncedMove = useCallback(() => {
@@ -158,17 +159,14 @@ const MapView = forwardRef<
         centerLng: map.getCenter().lng,
         zoom: map.getZoom()
       });
-      if (selectedFolderRef.current) {
-        queryFolderInBounds(selectedFolderRef.current);
-      }
     }, 150);
-  }, [queryFolderInBounds]);
+  }, []);
 
   useEffect(() => {
-    // File changed on disk — re-query if a folder is selected
+    // File changed on disk — re-fit if a folder is selected
     window.api.places.onUpdated(() => {
       if (selectedFolderRef.current) {
-        queryFolderInBounds(selectedFolderRef.current);
+        fitToFolder(selectedFolderRef.current);
       }
     });
     window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
@@ -183,15 +181,15 @@ const MapView = forwardRef<
       window.api.map.removeListeners();
       if (boundsTimer.current) clearTimeout(boundsTimer.current);
     };
-  }, [queryFolderInBounds]);
+  }, [fitToFolder]);
 
   useEffect(() => {
     if (selectedFolder) {
-      queryFolderInBounds(selectedFolder);
+      fitToFolder(selectedFolder);
     } else {
       setFolderPlaces([]);
     }
-  }, [selectedFolder, queryFolderInBounds]);
+  }, [selectedFolder, fitToFolder]);
 
     const overlayGeoJSON = useMemo(() => {
       const features: Array<{

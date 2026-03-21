@@ -22,6 +22,7 @@ import {
   getFeatureCount,
   indexFeature,
   initDb,
+  queryFolderAll,
   querySpatialIndex,
   rebuildIndexFromPlaces,
   reconcileIndexWithPlaces,
@@ -258,6 +259,24 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds)
+      .filter((r) => r.file_path.startsWith(MAPOS_DIR))
+      .map((r) => {
+        const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+        return {
+          id: r.id,
+          lat: geo.coordinates[1],
+          lng: geo.coordinates[0],
+          title: r.title ?? r.id,
+          status: r.status ?? "",
+          type: "place",
+          tags: r.tags ?? undefined,
+          filePath: r.file_path
+        };
+      });
+  });
+
+  ipcMain.handle("places:query-folder-all", (_event, folderPath: string) => {
+    return queryFolderAll(folderPath)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
         const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };

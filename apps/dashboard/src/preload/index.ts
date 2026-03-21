@@ -7,6 +7,8 @@ const api = {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
     queryBounds: (bounds: { north: number; south: number; east: number; west: number }) =>
       ipcRenderer.invoke("places:query-bounds", bounds),
+    queryFolderAll: (folderPath: string) =>
+      ipcRenderer.invoke("places:query-folder-all", folderPath),
     queryFolderBounds: (args: {
       folderPath: string;
       bounds: { north: number; south: number; east: number; west: number };

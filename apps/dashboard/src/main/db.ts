@@ -205,6 +205,25 @@ export function querySpatialIndex(
     .map((r) => ({ ...r, tags: r.tags ? JSON.parse(r.tags) : null }));
 }
 
+export function queryFolderAll(folderPath: string): FeatureRecord[] {
+  const sqlite = getSqlite();
+  const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
+  const rows = sqlite
+    .prepare(
+      "SELECT id, file_path, geometry_type, geometry, title, status, tags FROM features WHERE file_path LIKE ?"
+    )
+    .all(`${prefix}%`) as Array<{
+    id: string;
+    file_path: string;
+    geometry_type: string;
+    geometry: string;
+    title: string | null;
+    status: string | null;
+    tags: string | null;
+  }>;
+  return rows.map((r) => ({ ...r, tags: r.tags ? JSON.parse(r.tags) : null }));
+}
+
 export function getFeatureCount(): number {
   const db = getDb();
   const [{ value }] = db.select({ value: count() }).from(features).all();

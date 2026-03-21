@@ -1,5 +1,5 @@
-import type { FileNode } from "@shared/types";
 import { cn } from "@renderer/lib/utils";
+import type { FileNode } from "@shared/types";
 import { ChevronRightIcon, FileIcon, FileTextIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PlaceRecord } from "./MapView";
@@ -15,42 +15,57 @@ function FileTreeNode({
   node,
   depth,
   selectedFilePath,
+  selectedFolderPath,
   onSelectPlace,
   onSelectFolder
 }: {
   node: FileNode;
   depth: number;
   selectedFilePath?: string;
+  selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
 
   if (node.type === "directory") {
+    const isActive = node.path === selectedFolderPath;
     return (
       <div>
-        <button
-          onClick={() => {
-            setOpen((o) => !o);
-            onSelectFolder?.(node.path);
-          }}
-          className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent"
-          style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
-          type="button"
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
-              open && "rotate-90"
-            )}
-          />
-          {open ? (
-            <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-          ) : (
-            <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+        <div
+          className={cn(
+            "flex items-center rounded text-sm",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent"
           )}
-          <span className="truncate">{node.name}</span>
-        </button>
+          style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
+        >
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="p-1 shrink-0 hover:bg-white/10 rounded"
+            type="button"
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
+                open && "rotate-90"
+              )}
+            />
+          </button>
+          <button
+            onClick={() => onSelectFolder?.(node.path)}
+            className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left"
+            type="button"
+          >
+            {open ? (
+              <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+            ) : (
+              <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+            )}
+            <span className="truncate">{node.name}</span>
+          </button>
+        </div>
         {open && node.children && (
           <div>
             {node.children.map((child) => (
@@ -59,6 +74,7 @@ function FileTreeNode({
                 node={child}
                 depth={depth + 1}
                 selectedFilePath={selectedFilePath}
+                selectedFolderPath={selectedFolderPath}
                 onSelectPlace={onSelectPlace}
                 onSelectFolder={onSelectFolder}
               />
@@ -94,10 +110,12 @@ function FileTreeNode({
 
 export function ProjectSidebar({
   selectedFilePath,
+  selectedFolderPath,
   onSelectPlace,
   onSelectFolder
 }: {
   selectedFilePath?: string;
+  selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
 }): React.JSX.Element {
@@ -129,6 +147,7 @@ export function ProjectSidebar({
             node={node}
             depth={0}
             selectedFilePath={selectedFilePath}
+            selectedFolderPath={selectedFolderPath}
             onSelectPlace={onSelectPlace}
             onSelectFolder={onSelectFolder}
           />

@@ -84,6 +84,7 @@ function App(): React.JSX.Element {
         >
           <ProjectSidebar
             selectedFilePath={selectedPlace?.filePath}
+            selectedFolderPath={selectedFolder ?? undefined}
             onSelectPlace={handleSelectPlace}
             onSelectFolder={handleSelectFolder}
           />

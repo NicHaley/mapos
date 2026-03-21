@@ -101,21 +101,50 @@ export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
 };
 
-const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord) => void }>(
-  function MapView({ onSelectPlace }, ref) {
-    const mapRef = useRef<MapRef>(null);
-    const mapStyle = useDarkMapStyle();
+const MapView = forwardRef<
+  MapViewHandle,
+  {
+    onSelectPlace?: (place: PlaceRecord) => void;
+    selectedPlace?: PlaceRecord | null;
+    selectedFolder?: string | null;
+  }
+>(function MapView({ onSelectPlace, selectedPlace, selectedFolder }, ref) {
+  const mapRef = useRef<MapRef>(null);
+  const mapStyle = useDarkMapStyle();
 
-    useImperativeHandle(ref, () => ({
-      flyTo: (lat, lng) => {
-        mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+  useImperativeHandle(ref, () => ({
+    flyTo: (lat, lng) => {
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+    }
+  }));
+
+  const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedFolderRef = useRef<string | null>(null);
+  selectedFolderRef.current = selectedFolder ?? null;
+
+  const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
+  const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
+
+  const queryFolderInBounds = useCallback(async (folderPath: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = map.getBounds();
+    if (!b) return;
+    const results = await window.api.places.queryFolderBounds({
+      folderPath,
+      bounds: {
+        north: b.getNorth(),
+        south: b.getSouth(),
+        east: b.getEast(),
+        west: b.getWest()
       }
-    }));
-    const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [visiblePlaces, setVisiblePlaces] = useState<PlaceRecord[]>([]);
-    const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
+    });
+    setFolderPlaces(results);
+  }, []);
 
-    const queryCurrentBounds = useCallback(async () => {
+  const debouncedMove = useCallback(() => {
+    if (boundsTimer.current) clearTimeout(boundsTimer.current);
+    boundsTimer.current = setTimeout(() => {
       const map = mapRef.current;
       if (!map) return;
       const b = map.getBounds();
@@ -129,39 +158,40 @@ const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord)
         centerLng: map.getCenter().lng,
         zoom: map.getZoom()
       });
-      const results = await window.api.places.queryBounds({
-        north: b.getNorth(),
-        south: b.getSouth(),
-        east: b.getEast(),
-        west: b.getWest()
-      });
-      setVisiblePlaces(results);
-    }, []);
+      if (selectedFolderRef.current) {
+        queryFolderInBounds(selectedFolderRef.current);
+      }
+    }, 150);
+  }, [queryFolderInBounds]);
 
-    const debouncedQuery = useCallback(() => {
+  useEffect(() => {
+    // File changed on disk — re-query if a folder is selected
+    window.api.places.onUpdated(() => {
+      if (selectedFolderRef.current) {
+        queryFolderInBounds(selectedFolderRef.current);
+      }
+    });
+    window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
+      setOverlay({ points, lines, polygons })
+    );
+    window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
+    window.api.map.onPanTo(({ lat, lng, zoom }) => {
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? 14, duration: 800 });
+    });
+    return () => {
+      window.api.places.removeListeners();
+      window.api.map.removeListeners();
       if (boundsTimer.current) clearTimeout(boundsTimer.current);
-      boundsTimer.current = setTimeout(queryCurrentBounds, 150);
-    }, [queryCurrentBounds]);
+    };
+  }, [queryFolderInBounds]);
 
-    useEffect(() => {
-      // Initial scan complete — run first bounds query
-      window.api.places.onInitial(() => queryCurrentBounds());
-      // File changed on disk — refresh visible set
-      window.api.places.onUpdated(() => queryCurrentBounds());
-      window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
-        setOverlay({ points, lines, polygons })
-      );
-      window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
-      window.api.map.onPanTo(({ lat, lng, zoom }) => {
-        mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? 14, duration: 800 });
-      });
-      window.api.places.requestInitial();
-      return () => {
-        window.api.places.removeListeners();
-        window.api.map.removeListeners();
-        if (boundsTimer.current) clearTimeout(boundsTimer.current);
-      };
-    }, [queryCurrentBounds]);
+  useEffect(() => {
+    if (selectedFolder) {
+      queryFolderInBounds(selectedFolder);
+    } else {
+      setFolderPlaces([]);
+    }
+  }, [selectedFolder, queryFolderInBounds]);
 
     const overlayGeoJSON = useMemo(() => {
       const features: Array<{
@@ -197,33 +227,69 @@ const MapView = forwardRef<MapViewHandle, { onSelectPlace?: (place: PlaceRecord)
         initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle as StyleSpecification}
-        onMove={debouncedQuery}
+        onMove={debouncedMove}
       >
-        {visiblePlaces.map((place) => (
-          <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
+        {selectedPlace ? (
+          <Marker
+            key={selectedPlace.filePath}
+            longitude={selectedPlace.lng}
+            latitude={selectedPlace.lat}
+            anchor="center"
+          >
             <div
               role="button"
               tabIndex={0}
-              title={place.title}
-              onClick={() => onSelectPlace?.(place)}
+              title={selectedPlace.title}
+              onClick={() => onSelectPlace?.(selectedPlace)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  onSelectPlace?.(place);
+                  onSelectPlace?.(selectedPlace);
                 }
               }}
               style={{
                 width: 12,
                 height: 12,
                 borderRadius: "50%",
-                backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
+                backgroundColor: STATUS_COLORS[selectedPlace.status] ?? "#6b7280",
                 border: "2px solid white",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                 cursor: "pointer"
               }}
             />
           </Marker>
-        ))}
+        ) : (
+          folderPlaces.map((place) => (
+            <Marker
+              key={place.filePath}
+              longitude={place.lng}
+              latitude={place.lat}
+              anchor="center"
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                title={place.title}
+                onClick={() => onSelectPlace?.(place)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectPlace?.(place);
+                  }
+                }}
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: "50%",
+                  backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
+                  border: "2px solid white",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                  cursor: "pointer"
+                }}
+              />
+            </Marker>
+          ))
+        )}
         {overlay.points.map((p) => (
           <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
             <div

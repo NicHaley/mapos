@@ -15,12 +15,14 @@ function FileTreeNode({
   node,
   depth,
   selectedFilePath,
-  onSelectPlace
+  onSelectPlace,
+  onSelectFolder
 }: {
   node: FileNode;
   depth: number;
   selectedFilePath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
+  onSelectFolder?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
 
@@ -28,7 +30,10 @@ function FileTreeNode({
     return (
       <div>
         <button
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => {
+            setOpen((o) => !o);
+            onSelectFolder?.(node.path);
+          }}
           className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent"
           style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
           type="button"
@@ -55,6 +60,7 @@ function FileTreeNode({
                 depth={depth + 1}
                 selectedFilePath={selectedFilePath}
                 onSelectPlace={onSelectPlace}
+                onSelectFolder={onSelectFolder}
               />
             ))}
           </div>
@@ -88,10 +94,12 @@ function FileTreeNode({
 
 export function ProjectSidebar({
   selectedFilePath,
-  onSelectPlace
+  onSelectPlace,
+  onSelectFolder
 }: {
   selectedFilePath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
+  onSelectFolder?: (path: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
 
@@ -122,6 +130,7 @@ export function ProjectSidebar({
             depth={0}
             selectedFilePath={selectedFilePath}
             onSelectPlace={onSelectPlace}
+            onSelectFolder={onSelectFolder}
           />
         ))}
       </SidebarContent>

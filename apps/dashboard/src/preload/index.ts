@@ -7,6 +7,10 @@ const api = {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
     queryBounds: (bounds: { north: number; south: number; east: number; west: number }) =>
       ipcRenderer.invoke("places:query-bounds", bounds),
+    queryFolderBounds: (args: {
+      folderPath: string;
+      bounds: { north: number; south: number; east: number; west: number };
+    }) => ipcRenderer.invoke("places:query-folder-bounds", args),
     getByPath: (filePath: string) => ipcRenderer.invoke("places:get-by-path", filePath),
     onInitial: (cb: (places: unknown[]) => void) =>
       ipcRenderer.on("places:initial", (_e, p) => cb(p)),

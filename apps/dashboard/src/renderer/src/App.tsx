@@ -1,5 +1,5 @@
 import { PanelLeftIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { ChatToggle } from "./components/ChatToggle";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
@@ -10,8 +10,19 @@ import { SidebarProvider } from "./components/ui/sidebar";
 
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
   const mapRef = useRef<MapViewHandle>(null);
+
+  const handleSelectPlace = useCallback((place: PlaceRecord) => {
+    setSelectedPlace(place);
+    setSelectedFolder(null);
+  }, []);
+
+  const handleSelectFolder = useCallback((folderPath: string) => {
+    setSelectedFolder(folderPath);
+    setSelectedPlace(null);
+  }, []);
 
   useEffect(() => {
     if (selectedPlace) {
@@ -23,7 +34,12 @@ function App(): React.JSX.Element {
     <>
       {/* Map: full viewport, goes under the top bar */}
       <div className="fixed inset-0 z-0">
-        <MapView ref={mapRef} onSelectPlace={setSelectedPlace} />
+        <MapView
+          ref={mapRef}
+          onSelectPlace={handleSelectPlace}
+          selectedPlace={selectedPlace}
+          selectedFolder={selectedFolder}
+        />
       </div>
 
       {/* Top bar */}
@@ -68,7 +84,8 @@ function App(): React.JSX.Element {
         >
           <ProjectSidebar
             selectedFilePath={selectedPlace?.filePath}
-            onSelectPlace={setSelectedPlace}
+            onSelectPlace={handleSelectPlace}
+            onSelectFolder={handleSelectFolder}
           />
         </SidebarProvider>
 

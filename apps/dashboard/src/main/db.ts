@@ -164,18 +164,28 @@ export function removeFeature(filePath: string): void {
 
 export function querySpatialIndex(
   bounds: Bounds,
-  filters?: { status?: string; tags?: string[] }
+  filters?: { status?: string; tags?: string[]; folderPath?: string }
 ): FeatureRecord[] {
   const sqlite = getSqlite();
-  const rows = sqlite
-    .prepare(`
+
+  let sql = `
     SELECT f.id, f.file_path, f.geometry_type, f.geometry, f.title, f.status, f.tags
     FROM features f
     JOIN features_rtree r ON r.id = f.rowid
     WHERE r.min_lat >= ? AND r.max_lat <= ?
       AND r.min_lng >= ? AND r.max_lng <= ?
-  `)
-    .all(bounds.south, bounds.north, bounds.west, bounds.east) as Array<{
+  `;
+  const params: unknown[] = [bounds.south, bounds.north, bounds.west, bounds.east];
+
+  if (filters?.folderPath) {
+    const prefix = filters.folderPath.endsWith("/")
+      ? filters.folderPath
+      : `${filters.folderPath}/`;
+    sql += " AND f.file_path LIKE ?";
+    params.push(`${prefix}%`);
+  }
+
+  const rows = sqlite.prepare(sql).all(...params) as Array<{
     id: string;
     file_path: string;
     geometry_type: string;

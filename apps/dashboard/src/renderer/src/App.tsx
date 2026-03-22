@@ -12,6 +12,7 @@ function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const mapRef = useRef<MapViewHandle>(null);
 
   const handleSelectPlace = useCallback((place: PlaceRecord) => {
@@ -39,6 +40,8 @@ function App(): React.JSX.Element {
           onSelectPlace={handleSelectPlace}
           selectedPlace={selectedPlace}
           selectedFolder={selectedFolder}
+          projectSidebarOpen={projectSidebarOpen}
+          chatSidebarOpen={chatSidebarOpen}
         />
       </div>
 
@@ -93,7 +96,8 @@ function App(): React.JSX.Element {
         {/* Right sidebar overlay */}
         <SidebarProvider
           name="sidebar-right"
-          defaultOpen={true}
+          open={chatSidebarOpen}
+          onOpenChange={setChatSidebarOpen}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
           style={{ "--sidebar-width": "360px" } as React.CSSProperties}
         >

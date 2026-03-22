@@ -77,14 +77,23 @@ export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
 };
 
+const PROJECT_SIDEBAR_WIDTH = 256; // 16rem
+const CHAT_SIDEBAR_WIDTH = 360;
+const FIT_BUFFER = 40;
+
 const MapView = forwardRef<
   MapViewHandle,
   {
     onSelectPlace?: (place: PlaceRecord) => void;
     selectedPlace?: PlaceRecord | null;
     selectedFolder?: string | null;
+    projectSidebarOpen?: boolean;
+    chatSidebarOpen?: boolean;
   }
->(function MapView({ onSelectPlace, selectedPlace, selectedFolder }, ref) {
+>(function MapView(
+  { onSelectPlace, selectedPlace, selectedFolder, projectSidebarOpen, chatSidebarOpen },
+  ref
+) {
   const mapRef = useRef<MapRef>(null);
   const mapStyle = useDarkMapStyle();
 
@@ -101,14 +110,30 @@ const MapView = forwardRef<
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
 
+  const projectSidebarOpenRef = useRef(projectSidebarOpen);
+  projectSidebarOpenRef.current = projectSidebarOpen;
+  const chatSidebarOpenRef = useRef(chatSidebarOpen);
+  chatSidebarOpenRef.current = chatSidebarOpen;
+
   const fitToFolder = useCallback(async (folderPath: string) => {
     const places = await window.api.places.queryFolderAll(folderPath);
     setFolderPlaces(places);
     if (places.length === 0) return;
     const map = mapRef.current;
     if (!map) return;
+    const paddingLeft = projectSidebarOpenRef.current
+      ? PROJECT_SIDEBAR_WIDTH + FIT_BUFFER
+      : FIT_BUFFER;
+    const paddingRight = chatSidebarOpenRef.current
+      ? CHAT_SIDEBAR_WIDTH + FIT_BUFFER
+      : FIT_BUFFER;
     if (places.length === 1) {
-      map.flyTo({ center: [places[0].lng, places[0].lat], zoom: 14, duration: 600 });
+      map.flyTo({
+        center: [places[0].lng, places[0].lat],
+        zoom: 14,
+        duration: 600,
+        padding: { left: paddingLeft, right: paddingRight, top: FIT_BUFFER, bottom: FIT_BUFFER }
+      });
     } else {
       const lngs = places.map((p) => p.lng);
       const lats = places.map((p) => p.lat);
@@ -117,7 +142,11 @@ const MapView = forwardRef<
           [Math.min(...lngs), Math.min(...lats)],
           [Math.max(...lngs), Math.max(...lats)]
         ],
-        { padding: 60, duration: 600, maxZoom: 16 }
+        {
+          padding: { left: paddingLeft, right: paddingRight, top: FIT_BUFFER, bottom: FIT_BUFFER },
+          duration: 600,
+          maxZoom: 16
+        }
       );
     }
   }, []);

@@ -23,6 +23,7 @@ function App(): React.JSX.Element {
   const handleSelectFolder = useCallback((folderPath: string) => {
     setSelectedFolder(folderPath);
     setSelectedPlace(null);
+    mapRef.current?.fitToFolder(folderPath);
   }, []);
 
   useEffect(() => {

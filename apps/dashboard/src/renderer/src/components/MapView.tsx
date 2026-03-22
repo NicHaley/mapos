@@ -75,6 +75,7 @@ const LINESTRING_FILTER = ["in", ["geometry-type"], ["literal", ["LineString", "
 
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
+  fitToFolder: (folderPath: string) => void;
 };
 
 const PROJECT_SIDEBAR_WIDTH = 256; // 16rem
@@ -96,12 +97,6 @@ const MapView = forwardRef<
 ) {
   const mapRef = useRef<MapRef>(null);
   const mapStyle = useDarkMapStyle();
-
-  useImperativeHandle(ref, () => ({
-    flyTo: (lat, lng) => {
-      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
-    }
-  }));
 
   const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedFolderRef = useRef<string | null>(null);
@@ -150,6 +145,13 @@ const MapView = forwardRef<
       );
     }
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    flyTo: (lat, lng) => {
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+    },
+    fitToFolder
+  }), [fitToFolder]);
 
   const debouncedMove = useCallback(() => {
     if (boundsTimer.current) clearTimeout(boundsTimer.current);

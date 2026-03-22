@@ -8,16 +8,10 @@ import {
   useState
 } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import MapGL, {
-  Layer,
-  type MapRef,
-  Marker,
-  Source,
-  type StyleSpecification
-} from "react-map-gl/maplibre";
+import MapGL, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
-const PROTOMAPS_STYLE = (flavor: "light" | "dark") =>
+const PROTOMAPS_STYLE = (flavor: "light" | "black") =>
   `https://api.protomaps.com/styles/v5/${flavor}/en.json?key=${PROTOMAPS_KEY}`;
 
 function useDarkMapStyle() {
@@ -30,7 +24,7 @@ function useDarkMapStyle() {
     return () => mq.removeEventListener("change", handler);
   }, [mq]);
 
-  return PROTOMAPS_STYLE(isDark ? "dark" : "light");
+  return PROTOMAPS_STYLE(isDark ? "black" : "light");
 }
 
 export type PlaceRecord = {
@@ -211,7 +205,7 @@ const MapView = forwardRef<
       ref={mapRef}
       initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
       style={{ width: "100%", height: "100%" }}
-      mapStyle={mapStyle as StyleSpecification}
+      mapStyle={mapStyle}
       onMove={debouncedMove}
     >
       {selectedPlace ? (

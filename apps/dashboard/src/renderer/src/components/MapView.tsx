@@ -11,8 +11,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import MapGL, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
-const PROTOMAPS_STYLE = (flavor: "light" | "black") =>
-  `https://api.protomaps.com/styles/v5/${flavor}/en.json?key=${PROTOMAPS_KEY}`;
 
 function useDarkMapStyle() {
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -24,7 +22,7 @@ function useDarkMapStyle() {
     return () => mq.removeEventListener("change", handler);
   }, [mq]);
 
-  return PROTOMAPS_STYLE(isDark ? "black" : "light");
+  return `https://api.protomaps.com/styles/v5/${isDark ? "black" : "light"}/en.json?key=${PROTOMAPS_KEY}`;
 }
 
 export type PlaceRecord = {

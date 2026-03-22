@@ -15,14 +15,14 @@ import MapGL, {
   Source,
   type StyleSpecification
 } from "react-map-gl/maplibre";
-import darkMatterBase from "../assets/dark-matter-style.json";
 
-const LIGHT_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
+const PROTOMAPS_STYLE = (flavor: "light" | "dark") =>
+  `https://api.protomaps.com/styles/v5/${flavor}/en.json?key=${PROTOMAPS_KEY}`;
 
 function useDarkMapStyle() {
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   const [isDark, setIsDark] = useState(mq.matches);
-  const [darkStyle, setDarkStyle] = useState<object | null>(null);
 
   useEffect(() => {
     const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
@@ -30,23 +30,7 @@ function useDarkMapStyle() {
     return () => mq.removeEventListener("change", handler);
   }, [mq]);
 
-  // Fetch the light style from the OpenFreemap API
-  // and merge it with the dark matter base style
-  useEffect(() => {
-    if (!isDark || darkStyle) return;
-    fetch(LIGHT_STYLE)
-      .then((r) => r.json())
-      .then((liberty) => {
-        setDarkStyle({
-          ...darkMatterBase,
-          sources: liberty.sources,
-          sprite: liberty.sprite,
-          glyphs: liberty.glyphs
-        });
-      });
-  }, [isDark, darkStyle]);
-
-  return isDark && darkStyle ? darkStyle : LIGHT_STYLE;
+  return PROTOMAPS_STYLE(isDark ? "dark" : "light");
 }
 
 export type PlaceRecord = {
@@ -137,7 +121,10 @@ const MapView = forwardRef<
       const lngs = places.map((p) => p.lng);
       const lats = places.map((p) => p.lat);
       map.fitBounds(
-        [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+        [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)]
+        ],
         { padding: 60, duration: 600, maxZoom: 16 }
       );
     }
@@ -191,148 +178,142 @@ const MapView = forwardRef<
     }
   }, [selectedFolder, fitToFolder]);
 
-    const overlayGeoJSON = useMemo(() => {
-      const features: Array<{
-        type: "Feature";
-        geometry:
-          | { type: "LineString"; coordinates: [number, number][] }
-          | { type: "Polygon"; coordinates: [number, number][][] };
-        properties?: Record<string, unknown>;
-      }> = [];
-      for (const l of overlay.lines) {
-        features.push({
-          type: "Feature",
-          geometry: { type: "LineString", coordinates: l.coordinates },
-          properties: { id: l.id, title: l.title } as Record<string, unknown>
-        });
-      }
-      for (const p of overlay.polygons) {
-        features.push({
-          type: "Feature",
-          geometry: { type: "Polygon", coordinates: p.coordinates },
-          properties: { id: p.id, title: p.title } as Record<string, unknown>
-        });
-      }
-      if (features.length === 0) return null;
-      return { type: "FeatureCollection" as const, features };
-    }, [overlay.lines, overlay.polygons]);
+  const overlayGeoJSON = useMemo(() => {
+    const features: Array<{
+      type: "Feature";
+      geometry:
+        | { type: "LineString"; coordinates: [number, number][] }
+        | { type: "Polygon"; coordinates: [number, number][][] };
+      properties?: Record<string, unknown>;
+    }> = [];
+    for (const l of overlay.lines) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: l.coordinates },
+        properties: { id: l.id, title: l.title } as Record<string, unknown>
+      });
+    }
+    for (const p of overlay.polygons) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "Polygon", coordinates: p.coordinates },
+        properties: { id: p.id, title: p.title } as Record<string, unknown>
+      });
+    }
+    if (features.length === 0) return null;
+    return { type: "FeatureCollection" as const, features };
+  }, [overlay.lines, overlay.polygons]);
 
-    const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
+  const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
-    return (
-      <MapGL
-        ref={mapRef}
-        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-        style={{ width: "100%", height: "100%" }}
-        mapStyle={mapStyle as StyleSpecification}
-        onMove={debouncedMove}
-      >
-        {selectedPlace ? (
-          <Marker
-            key={selectedPlace.filePath}
-            longitude={selectedPlace.lng}
-            latitude={selectedPlace.lat}
-            anchor="center"
-          >
+  return (
+    <MapGL
+      ref={mapRef}
+      initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+      style={{ width: "100%", height: "100%" }}
+      mapStyle={mapStyle as StyleSpecification}
+      onMove={debouncedMove}
+    >
+      {selectedPlace ? (
+        <Marker
+          key={selectedPlace.filePath}
+          longitude={selectedPlace.lng}
+          latitude={selectedPlace.lat}
+          anchor="center"
+        >
+          <div
+            role="button"
+            tabIndex={0}
+            title={selectedPlace.title}
+            onClick={() => onSelectPlace?.(selectedPlace)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectPlace?.(selectedPlace);
+              }
+            }}
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              backgroundColor: STATUS_COLORS[selectedPlace.status] ?? "#6b7280",
+              border: "2px solid white",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              cursor: "pointer"
+            }}
+          />
+        </Marker>
+      ) : (
+        folderPlaces.map((place) => (
+          <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
             <div
               role="button"
               tabIndex={0}
-              title={selectedPlace.title}
-              onClick={() => onSelectPlace?.(selectedPlace)}
+              title={place.title}
+              onClick={() => onSelectPlace?.(place)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  onSelectPlace?.(selectedPlace);
+                  onSelectPlace?.(place);
                 }
               }}
               style={{
                 width: 12,
                 height: 12,
                 borderRadius: "50%",
-                backgroundColor: STATUS_COLORS[selectedPlace.status] ?? "#6b7280",
+                backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
                 border: "2px solid white",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                 cursor: "pointer"
               }}
             />
           </Marker>
-        ) : (
-          folderPlaces.map((place) => (
-            <Marker
-              key={place.filePath}
-              longitude={place.lng}
-              latitude={place.lat}
-              anchor="center"
-            >
-              <div
-                role="button"
-                tabIndex={0}
-                title={place.title}
-                onClick={() => onSelectPlace?.(place)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelectPlace?.(place);
-                  }
-                }}
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
-                  border: "2px solid white",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                  cursor: "pointer"
-                }}
-              />
-            </Marker>
-          ))
-        )}
-        {overlay.points.map((p) => (
-          <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-            <div
-              title={p.title}
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: "50%",
-                backgroundColor: "#8b5cf6",
-                border: "2px dashed white",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                cursor: "pointer"
-              }}
-            />
-          </Marker>
-        ))}
-        {hasOverlayGeoJSON && (
-          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
-          <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
-            <Layer
-              id="overlay-polygons"
-              type="fill"
-              // @ts-expect-error - MapLibre filter expression; types are strict
-              filter={POLYGON_FILTER}
-              paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
-            />
-            <Layer
-              id="overlay-polygon-outline"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
-              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-            />
-            <Layer
-              id="overlay-lines"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
-              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-            />
-          </Source>
-        )}
-      </MapGL>
-    );
-  }
-);
+        ))
+      )}
+      {overlay.points.map((p) => (
+        <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
+          <div
+            title={p.title}
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              backgroundColor: "#8b5cf6",
+              border: "2px dashed white",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              cursor: "pointer"
+            }}
+          />
+        </Marker>
+      ))}
+      {hasOverlayGeoJSON && (
+        // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+        <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
+          <Layer
+            id="overlay-polygons"
+            type="fill"
+            // @ts-expect-error - MapLibre filter expression; types are strict
+            filter={POLYGON_FILTER}
+            paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
+          />
+          <Layer
+            id="overlay-polygon-outline"
+            type="line"
+            // @ts-expect-error - MapLibre filter expression
+            filter={POLYGON_FILTER}
+            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+          />
+          <Layer
+            id="overlay-lines"
+            type="line"
+            // @ts-expect-error - MapLibre filter expression
+            filter={LINESTRING_FILTER}
+            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+          />
+        </Source>
+      )}
+    </MapGL>
+  );
+});
 
 export default MapView;

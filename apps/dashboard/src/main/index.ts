@@ -990,8 +990,8 @@ app.whenReady().then(() => {
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' blob:",
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob: https://tiles.openfreemap.org https://*.openfreemap.org",
-            "connect-src 'self' https://tiles.openfreemap.org https://*.openfreemap.org",
+            "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io",
+            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io",
             "worker-src 'self' blob:",
             "font-src 'self' data:"
           ].join("; ")

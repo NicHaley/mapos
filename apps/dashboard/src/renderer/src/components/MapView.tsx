@@ -8,7 +8,20 @@ import {
   useState
 } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import MapGL, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
+import MapGL, {
+  Layer,
+  type MapLayerMouseEvent,
+  type MapRef,
+  Marker,
+  Source
+} from "react-map-gl/maplibre";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "./ui/dropdown-menu";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
@@ -105,6 +118,14 @@ const MapView = forwardRef<
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
 
+  const [contextMenu, setContextMenu] = useState<{
+    lat: number;
+    lng: number;
+    title: string;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+
   const projectSidebarOpenRef = useRef(projectSidebarOpen);
   projectSidebarOpenRef.current = projectSidebarOpen;
   const chatSidebarOpenRef = useRef(chatSidebarOpen);
@@ -119,9 +140,7 @@ const MapView = forwardRef<
     const paddingLeft = projectSidebarOpenRef.current
       ? PROJECT_SIDEBAR_WIDTH + FIT_BUFFER
       : FIT_BUFFER;
-    const paddingRight = chatSidebarOpenRef.current
-      ? CHAT_SIDEBAR_WIDTH + FIT_BUFFER
-      : FIT_BUFFER;
+    const paddingRight = chatSidebarOpenRef.current ? CHAT_SIDEBAR_WIDTH + FIT_BUFFER : FIT_BUFFER;
     if (places.length === 1) {
       map.flyTo({
         center: [places[0].lng, places[0].lat],
@@ -146,12 +165,16 @@ const MapView = forwardRef<
     }
   }, []);
 
-  useImperativeHandle(ref, () => ({
-    flyTo: (lat, lng) => {
-      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
-    },
-    fitToFolder
-  }), [fitToFolder]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      flyTo: (lat, lng) => {
+        mapRef.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+      },
+      fitToFolder
+    }),
+    [fitToFolder]
+  );
 
   const debouncedMove = useCallback(() => {
     if (boundsTimer.current) clearTimeout(boundsTimer.current);
@@ -201,6 +224,49 @@ const MapView = forwardRef<
     }
   }, [selectedFolder, fitToFolder]);
 
+  const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
+    e.preventDefault();
+    const oe = e.originalEvent as MouseEvent | undefined;
+    setContextMenu({
+      lat: e.lngLat.lat,
+      lng: e.lngLat.lng,
+      title: (e.features?.[0]?.properties?.title as string) ?? "",
+      clientX: oe?.clientX ?? 0,
+      clientY: oe?.clientY ?? 0
+    });
+  }, []);
+
+  const handleCreatePlaceFile = useCallback(async () => {
+    if (!contextMenu) return;
+    const result = await window.api.fs.createPlaceFile({
+      parentFolderPath: selectedFolder ?? null,
+      lat: contextMenu.lat,
+      lng: contextMenu.lng
+    });
+    setContextMenu(null);
+    if (!result.success) {
+      console.error("[MapView] create place file:", result.error);
+      return;
+    }
+    const filePath = result.filePath;
+    const basename = filePath.split(/[/\\]/).pop() ?? "new-place.md";
+    const title = basename.replace(/\.md$/i, "");
+    if (!selectedPlace && selectedFolder) {
+      setFolderPlaces((prev) => [
+        ...prev,
+        {
+          id: title,
+          lat: contextMenu.lat,
+          lng: contextMenu.lng,
+          title,
+          status: "want-to-go",
+          type: "place",
+          filePath
+        }
+      ]);
+    }
+  }, [contextMenu, selectedFolder, selectedPlace]);
+
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{
       type: "Feature";
@@ -230,13 +296,15 @@ const MapView = forwardRef<
   const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
   return (
-    <MapGL
-      ref={mapRef}
-      initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-      style={{ width: "100%", height: "100%" }}
-      mapStyle={mapStyle}
-      onMove={debouncedMove}
-    >
+    <>
+      <MapGL
+        ref={mapRef}
+        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+        style={{ width: "100%", height: "100%" }}
+        mapStyle={mapStyle}
+        onMove={debouncedMove}
+        onContextMenu={handleContextMenu}
+      >
       {selectedPlace ? (
         <Marker
           key={selectedPlace.filePath}
@@ -335,7 +403,37 @@ const MapView = forwardRef<
           />
         </Source>
       )}
-    </MapGL>
+      </MapGL>
+      {contextMenu ? (
+        <DropdownMenu
+          open
+          onOpenChange={(open) => {
+            if (!open) setContextMenu(null);
+          }}
+        >
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="fixed z-100 size-px p-0 opacity-0"
+                style={{ left: contextMenu.clientX, top: contextMenu.clientY }}
+                aria-hidden
+                tabIndex={-1}
+              />
+            }
+          />
+          <DropdownMenuContent side="bottom" align="start" className="min-w-40">
+            <DropdownMenuItem
+              onClick={() => {
+                void handleCreatePlaceFile();
+              }}
+            >
+              New place file
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </>
   );
 });
 

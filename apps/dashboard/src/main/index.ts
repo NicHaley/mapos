@@ -257,6 +257,55 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   });
 
+  ipcMain.handle(
+    "fs:create-place-file",
+    async (
+      _event,
+      args: { parentFolderPath: string | null; lat: number; lng: number }
+    ) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      let dir: string;
+      if (args.parentFolderPath) {
+        const p = args.parentFolderPath;
+        if (p !== MAPOS_DIR && !p.startsWith(vaultPrefix)) {
+          return { success: false as const, error: "Path outside vault" };
+        }
+        dir = p;
+      } else {
+        dir = MAPOS_DIR;
+      }
+      const baseSlug = "new-place";
+      let slug = baseSlug;
+      let candidate = join(dir, `${slug}.md`);
+      let n = 0;
+      while (existsSync(candidate)) {
+        n++;
+        slug = `${baseSlug}-${n}`;
+        candidate = join(dir, `${slug}.md`);
+      }
+      const title = slug
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      const content = `---
+id: ${slug}
+lat: ${args.lat}
+lng: ${args.lng}
+type: place
+status: want-to-go
+---
+
+# ${title}
+`;
+      try {
+        writeFileSync(candidate, content, "utf-8");
+        return { success: true as const, filePath: candidate };
+      } catch (err) {
+        return { success: false as const, error: String(err) };
+      }
+    }
+  );
+
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))

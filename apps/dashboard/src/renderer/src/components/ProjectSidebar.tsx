@@ -1,8 +1,25 @@
 import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import { ChevronRightIcon, FileIcon, FileTextIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { PlaceRecord } from "./MapView";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "./ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "./ui/dropdown-menu";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
 
 function fileIcon(name: string) {
@@ -17,7 +34,8 @@ function FileTreeNode({
   selectedFilePath,
   selectedFolderPath,
   onSelectPlace,
-  onSelectFolder
+  onSelectFolder,
+  onOpenContextMenu
 }: {
   node: FileNode;
   depth: number;
@@ -25,6 +43,11 @@ function FileTreeNode({
   selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
+  onOpenContextMenu?: (args: {
+    node: FileNode;
+    clientX: number;
+    clientY: number;
+  }) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
 
@@ -40,6 +63,14 @@ function FileTreeNode({
               : "text-sidebar-foreground hover:bg-sidebar-accent"
           )}
           style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onOpenContextMenu?.({
+              node,
+              clientX: e.clientX,
+              clientY: e.clientY
+            });
+          }}
         >
           <button
             onClick={() => setOpen((o) => !o)}
@@ -77,6 +108,7 @@ function FileTreeNode({
                 selectedFolderPath={selectedFolderPath}
                 onSelectPlace={onSelectPlace}
                 onSelectFolder={onSelectFolder}
+                onOpenContextMenu={onOpenContextMenu}
               />
             ))}
           </div>
@@ -96,6 +128,14 @@ function FileTreeNode({
           : "text-sidebar-foreground"
       )}
       style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onOpenContextMenu?.({
+          node,
+          clientX: e.clientX,
+          clientY: e.clientY
+        });
+      }}
       onClick={async () => {
         const place = await window.api.places.getByPath(node.path);
         if (place) onSelectPlace?.(place);
@@ -112,25 +152,52 @@ export function ProjectSidebar({
   selectedFilePath,
   selectedFolderPath,
   onSelectPlace,
-  onSelectFolder
+  onSelectFolder,
+  onDeletePath
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
+  onDeletePath?: (path: string, type: FileNode["type"]) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
+  const [contextMenu, setContextMenu] = useState<{
+    node: FileNode;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
     setTree(nodes);
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-    window.api.fs.onChange(load);
+    void load();
+    window.api.fs.onChange(() => {
+      void load();
+    });
     return () => window.api.fs.removeListeners();
-  }, []);
+  }, [load]);
+
+  async function confirmDelete() {
+    if (!pendingDelete || isDeleting) return;
+    setDeleteError(null);
+    setIsDeleting(true);
+    const result = await window.api.fs.deletePath(pendingDelete.path);
+    setIsDeleting(false);
+    if (!result.success) {
+      setDeleteError(result.error);
+      return;
+    }
+    onDeletePath?.(pendingDelete.path, pendingDelete.type);
+    setPendingDelete(null);
+    await load();
+  }
 
   return (
     <Sidebar collapsible="offcanvas" variant="floating">
@@ -150,9 +217,94 @@ export function ProjectSidebar({
             selectedFolderPath={selectedFolderPath}
             onSelectPlace={onSelectPlace}
             onSelectFolder={onSelectFolder}
+            onOpenContextMenu={({ node, clientX, clientY }) => {
+              setContextMenu({ node, clientX, clientY });
+            }}
           />
         ))}
       </SidebarContent>
+      {contextMenu && typeof document !== "undefined"
+        ? createPortal(
+            <DropdownMenu
+              open
+              onOpenChange={(open) => {
+                if (!open) setContextMenu(null);
+              }}
+            >
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    type="button"
+                    className="fixed z-100 size-px p-0 opacity-0"
+                    style={{ left: contextMenu.clientX, top: contextMenu.clientY }}
+                    aria-hidden
+                    tabIndex={-1}
+                  />
+                }
+              />
+              <DropdownMenuContent side="bottom" align="start" className="min-w-40">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setPendingDelete(contextMenu.node);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>,
+            document.body
+          )
+        : null}
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {pendingDelete?.type === "directory" ? "folder" : "file"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.type === "directory"
+                ? `This will permanently delete "${pendingDelete?.name}" and all its contents.`
+                : `This will permanently delete "${pendingDelete?.name}".`}
+            </AlertDialogDescription>
+            {deleteError ? (
+              <AlertDialogDescription className="text-destructive">
+                {deleteError}
+              </AlertDialogDescription>
+            ) : null}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (isDeleting) return;
+                setPendingDelete(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={() => {
+                void confirmDelete();
+              }}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   );
 }

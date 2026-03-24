@@ -256,6 +256,22 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   });
 
+  ipcMain.handle("fs:delete-path", async (_event, targetPath: string) => {
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    if (targetPath !== MAPOS_DIR && !targetPath.startsWith(vaultPrefix)) {
+      return { success: false as const, error: "Path outside vault" };
+    }
+    if (targetPath === MAPOS_DIR) {
+      return { success: false as const, error: "Cannot delete vault root" };
+    }
+    try {
+      rmSync(targetPath, { recursive: true, force: false });
+      return { success: true as const };
+    } catch (err) {
+      return { success: false as const, error: String(err) };
+    }
+  });
+
   ipcMain.handle(
     "fs:create-place-file",
     async (

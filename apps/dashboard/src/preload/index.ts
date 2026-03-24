@@ -63,6 +63,10 @@ const api = {
       ipcRenderer.invoke("fs:rename-file", oldPath, newName) as Promise<
         { success: true; newPath: string } | { success: false; error: string }
       >,
+    deletePath: (targetPath: string) =>
+      ipcRenderer.invoke("fs:delete-path", targetPath) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
     createPlaceFile: (args: { parentFolderPath: string | null; lat: number; lng: number }) =>
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<
         { success: true; filePath: string } | { success: false; error: string }

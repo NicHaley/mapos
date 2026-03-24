@@ -26,6 +26,22 @@ function App(): React.JSX.Element {
     mapRef.current?.fitToFolder(folderPath);
   }, []);
 
+  const handleDeletedPath = useCallback((deletedPath: string, type: "file" | "directory") => {
+    const isSameOrChildPath = (currentPath: string, parentPath: string) =>
+      currentPath === parentPath || currentPath.startsWith(`${parentPath}/`) || currentPath.startsWith(`${parentPath}\\`);
+
+    if (type === "file") {
+      setSelectedPlace((prev) => (prev?.filePath === deletedPath ? null : prev));
+      return;
+    }
+    setSelectedFolder((prev) =>
+      prev && isSameOrChildPath(prev, deletedPath) ? null : prev
+    );
+    setSelectedPlace((prev) =>
+      prev && isSameOrChildPath(prev.filePath, deletedPath) ? null : prev
+    );
+  }, []);
+
   useEffect(() => {
     if (selectedPlace) {
       mapRef.current?.flyTo(selectedPlace.lat, selectedPlace.lng);
@@ -91,6 +107,7 @@ function App(): React.JSX.Element {
             selectedFolderPath={selectedFolder ?? undefined}
             onSelectPlace={handleSelectPlace}
             onSelectFolder={handleSelectFolder}
+            onDeletePath={handleDeletedPath}
           />
         </SidebarProvider>
 

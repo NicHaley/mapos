@@ -10,11 +10,9 @@ const CURRENT_SCHEMA_VERSION = 1;
 
 export const features = sqliteTable("features", {
   rowid: integer("rowid").primaryKey({ autoIncrement: true }),
-  id: text("id").notNull(),
   file_path: text("file_path").notNull(),
   geometry_type: text("geometry_type").notNull(),
   geometry: text("geometry").notNull(),
-  title: text("title"),
   status: text("status"),
   tags: text("tags"),
   indexed_at: text("indexed_at").notNull()
@@ -29,11 +27,9 @@ function applyMigrations(sqlite: Database.Database): void {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS features (
       rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      id TEXT NOT NULL UNIQUE,
       file_path TEXT NOT NULL UNIQUE,
       geometry_type TEXT NOT NULL,
       geometry TEXT NOT NULL,
-      title TEXT,
       status TEXT,
       tags TEXT,
       indexed_at TEXT NOT NULL
@@ -71,17 +67,14 @@ function getSqlite(): Database.Database {
 export type Bounds = { north: number; south: number; east: number; west: number };
 
 export interface FeatureRecord {
-  id: string;
   file_path: string;
   geometry_type: string;
   geometry: string;
-  title: string | null;
   status: string | null;
   tags: string[] | null;
 }
 
 export interface PlaceRecord {
-  id: string;
   lat: number;
   lng: number;
   title: string;
@@ -102,11 +95,9 @@ export function indexFeature(record: PlaceRecord): void {
   const [row] = db
     .insert(features)
     .values({
-      id: record.id,
       file_path: record.filePath,
       geometry_type: "point",
       geometry,
-      title: record.title,
       status: record.status,
       tags: tagsJson,
       indexed_at: now
@@ -114,10 +105,8 @@ export function indexFeature(record: PlaceRecord): void {
     .onConflictDoUpdate({
       target: features.file_path,
       set: {
-        id: sql`excluded.id`,
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
-        title: sql`excluded.title`,
         status: sql`excluded.status`,
         tags: sql`excluded.tags`,
         indexed_at: sql`excluded.indexed_at`
@@ -169,7 +158,7 @@ export function querySpatialIndex(
   const sqlite = getSqlite();
 
   let sql = `
-    SELECT f.id, f.file_path, f.geometry_type, f.geometry, f.title, f.status, f.tags
+    SELECT f.file_path, f.geometry_type, f.geometry, f.status, f.tags
     FROM features f
     JOIN features_rtree r ON r.id = f.rowid
     WHERE r.min_lat >= ? AND r.max_lat <= ?
@@ -186,11 +175,9 @@ export function querySpatialIndex(
   }
 
   const rows = sqlite.prepare(sql).all(...params) as Array<{
-    id: string;
     file_path: string;
     geometry_type: string;
     geometry: string;
-    title: string | null;
     status: string | null;
     tags: string | null;
   }>;
@@ -210,14 +197,12 @@ export function queryFolderAll(folderPath: string): FeatureRecord[] {
   const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
   const rows = sqlite
     .prepare(
-      "SELECT id, file_path, geometry_type, geometry, title, status, tags FROM features WHERE file_path LIKE ?"
+      "SELECT file_path, geometry_type, geometry, status, tags FROM features WHERE file_path LIKE ?"
     )
     .all(`${prefix}%`) as Array<{
-    id: string;
     file_path: string;
     geometry_type: string;
     geometry: string;
-    title: string | null;
     status: string | null;
     tags: string | null;
   }>;

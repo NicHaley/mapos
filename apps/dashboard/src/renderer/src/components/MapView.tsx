@@ -39,7 +39,6 @@ function useDarkMapStyle() {
 }
 
 export type PlaceRecord = {
-  id: string;
   lat: number;
   lng: number;
   title: string;
@@ -255,7 +254,6 @@ const MapView = forwardRef<
       setFolderPlaces((prev) => [
         ...prev,
         {
-          id: title,
           lat: contextMenu.lat,
           lng: contextMenu.lng,
           title,

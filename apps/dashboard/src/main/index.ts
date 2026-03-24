@@ -30,7 +30,6 @@ import {
 } from "./db";
 
 type PlaceRecord = {
-  id: string;
   lat: number;
   lng: number;
   title: string;
@@ -38,6 +37,7 @@ type PlaceRecord = {
   type: string;
   category?: string;
   tags?: string[];
+  // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;
 };
 
@@ -50,7 +50,6 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
     const basename = filePath.split(sep).pop() ?? filePath;
     const title = basename.replace(/\.md$/i, "");
     return {
-      id: data.id ?? "",
       lat: data.lat,
       lng: data.lng,
       title,
@@ -274,21 +273,17 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       } else {
         dir = MAPOS_DIR;
       }
-      const baseSlug = "new-place";
-      let slug = baseSlug;
-      let candidate = join(dir, `${slug}.md`);
+      const baseName = "New Place";
+      let fileName = baseName;
+      let candidate = join(dir, `${fileName}.md`);
       let n = 0;
       while (existsSync(candidate)) {
         n++;
-        slug = `${baseSlug}-${n}`;
-        candidate = join(dir, `${slug}.md`);
+        fileName = `${baseName} ${n}`;
+        candidate = join(dir, `${fileName}.md`);
       }
-      const title = slug
-        .split("-")
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(" ");
+      const title = fileName;
       const content = `---
-id: ${slug}
 lat: ${args.lat}
 lng: ${args.lng}
 type: place
@@ -311,11 +306,11 @@ status: want-to-go
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
         const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+        const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          id: r.id,
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
-          title: r.title ?? r.id,
+          title: titleFallback,
           status: r.status ?? "",
           type: "place",
           tags: r.tags ?? undefined,
@@ -329,11 +324,11 @@ status: want-to-go
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
         const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+        const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          id: r.id,
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
-          title: r.title ?? r.id,
+          title: titleFallback,
           status: r.status ?? "",
           type: "place",
           tags: r.tags ?? undefined,
@@ -351,11 +346,11 @@ status: want-to-go
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
         const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
+        const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          id: r.id,
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
-          title: r.title ?? r.id,
+          title: titleFallback,
           status: r.status ?? "",
           type: "place",
           tags: r.tags ?? undefined,
@@ -394,7 +389,7 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 - layers/               — saved map layer configurations (JSON)
 - analysis/             — saved spatial query results (JSON/GeoJSON)
 
-Place files use Markdown with YAML frontmatter. Required frontmatter: id (kebab-slug), lat, lng, type (place|note|collection-entry), status (want-to-go|visited|maybe). Optional: category, tags, source_url, created, visited_on, rating, collection.
+Place files use Markdown with YAML frontmatter. Required frontmatter: lat, lng, type (place|note|collection-entry), status (want-to-go|visited|maybe). Optional: category, tags, source_url, created, visited_on, rating, collection.
 
 Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.
 

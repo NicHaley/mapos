@@ -270,6 +270,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   });
 
+  ipcMain.handle("fs:reveal-in-finder", (_event, targetPath: string) => {
+    shell.showItemInFolder(targetPath);
+  });
+
   ipcMain.handle(
     "fs:create-place-file",
     async (

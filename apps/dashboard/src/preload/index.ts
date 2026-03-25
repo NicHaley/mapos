@@ -67,6 +67,8 @@ const api = {
       ipcRenderer.invoke("fs:delete-path", targetPath) as Promise<
         { success: true } | { success: false; error: string }
       >,
+    revealInFinder: (targetPath: string) =>
+      ipcRenderer.invoke("fs:reveal-in-finder", targetPath),
     createPlaceFile: (args: { parentFolderPath: string | null; lat: number; lng: number }) =>
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<
         { success: true; filePath: string } | { success: false; error: string }

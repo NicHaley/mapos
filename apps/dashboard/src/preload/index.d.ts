@@ -74,6 +74,7 @@ declare global {
         deletePath: (
           targetPath: string
         ) => Promise<{ success: true } | { success: false; error: string }>;
+        revealInFinder: (targetPath: string) => Promise<void>;
         createPlaceFile: (args: {
           parentFolderPath: string | null;
           lat: number;

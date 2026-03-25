@@ -244,6 +244,14 @@ export function ProjectSidebar({
               />
               <DropdownMenuContent side="bottom" align="start" className="min-w-40">
                 <DropdownMenuItem
+                  onClick={() => {
+                    void window.api.fs.revealInFinder(contextMenu.node.path);
+                    setContextMenu(null);
+                  }}
+                >
+                  Reveal in Finder
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   variant="destructive"
                   onClick={() => {
                     setDeleteError(null);

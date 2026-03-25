@@ -17,11 +17,11 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "./ui/dropdown-menu";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
@@ -107,21 +107,20 @@ const MapView = forwardRef<
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
 
+  const contextLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
+
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
-
-  const [contextMenu, setContextMenu] = useState<{
-    lat: number;
-    lng: number;
-    title: string;
-    clientX: number;
-    clientY: number;
-  } | null>(null);
 
   const projectSidebarOpenRef = useRef(projectSidebarOpen);
   projectSidebarOpenRef.current = projectSidebarOpen;
   const chatSidebarOpenRef = useRef(chatSidebarOpen);
   chatSidebarOpenRef.current = chatSidebarOpen;
+
+  const selectedFolderForCreate = useRef(selectedFolder);
+  selectedFolderForCreate.current = selectedFolder;
+  const selectedPlaceForCreate = useRef(selectedPlace);
+  selectedPlaceForCreate.current = selectedPlace;
 
   const fitToFolder = useCallback(async (folderPath: string) => {
     const places = await window.api.places.queryFolderAll(folderPath);
@@ -217,25 +216,17 @@ const MapView = forwardRef<
   }, [selectedFolder, fitToFolder]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
-    e.preventDefault();
-    const oe = e.originalEvent as MouseEvent | undefined;
-    setContextMenu({
-      lat: e.lngLat.lat,
-      lng: e.lngLat.lng,
-      title: (e.features?.[0]?.properties?.title as string) ?? "",
-      clientX: oe?.clientX ?? 0,
-      clientY: oe?.clientY ?? 0
-    });
+    contextLatLngRef.current = { lat: e.lngLat.lat, lng: e.lngLat.lng };
   }, []);
 
   const handleCreatePlaceFile = useCallback(async () => {
-    if (!contextMenu) return;
+    const latLng = contextLatLngRef.current;
+    if (!latLng) return;
     const result = await window.api.fs.createPlaceFile({
-      parentFolderPath: selectedFolder ?? null,
-      lat: contextMenu.lat,
-      lng: contextMenu.lng
+      parentFolderPath: selectedFolderForCreate.current ?? null,
+      lat: latLng.lat,
+      lng: latLng.lng
     });
-    setContextMenu(null);
     if (!result.success) {
       console.error("[MapView] create place file:", result.error);
       return;
@@ -244,21 +235,18 @@ const MapView = forwardRef<
     const basename = filePath.split(/[/\\]/).pop() ?? "new-place.md";
     const title = basename.replace(/\.md$/i, "");
     const fallbackPlace: PlaceRecord = {
-      lat: contextMenu.lat,
-      lng: contextMenu.lng,
+      lat: latLng.lat,
+      lng: latLng.lng,
       title,
       type: "place",
       filePath
     };
     const createdPlace = (await window.api.places.getByPath(filePath)) ?? fallbackPlace;
     onSelectPlace?.(createdPlace);
-    if (!selectedPlace && selectedFolder) {
-      setFolderPlaces((prev) => [
-        ...prev,
-        fallbackPlace
-      ]);
+    if (!selectedPlaceForCreate.current && selectedFolderForCreate.current) {
+      setFolderPlaces((prev) => [...prev, fallbackPlace]);
     }
-  }, [contextMenu, selectedFolder, selectedPlace, onSelectPlace]);
+  }, [onSelectPlace]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{
@@ -289,144 +277,122 @@ const MapView = forwardRef<
   const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
   return (
-    <>
-      <MapGL
-        ref={mapRef}
-        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-        style={{ width: "100%", height: "100%" }}
-        mapStyle={mapStyle}
-        onMove={debouncedMove}
-        onContextMenu={handleContextMenu}
-      >
-      {selectedPlace ? (
-        <Marker
-          key={selectedPlace.filePath}
-          longitude={selectedPlace.lng}
-          latitude={selectedPlace.lat}
-          anchor="center"
+    <ContextMenu>
+      <ContextMenuTrigger style={{ display: "contents" }}>
+        <MapGL
+          ref={mapRef}
+          initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+          style={{ width: "100%", height: "100%" }}
+          mapStyle={mapStyle}
+          onMove={debouncedMove}
+          onContextMenu={handleContextMenu}
         >
-          <div
-            role="button"
-            tabIndex={0}
-            title={selectedPlace.title}
-            onClick={() => onSelectPlace?.(selectedPlace)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelectPlace?.(selectedPlace);
-              }
-            }}
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              backgroundColor: selectedPlace.color ?? "#6b7280",
-              border: "2px solid white",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-              cursor: "pointer"
-            }}
-          />
-        </Marker>
-      ) : (
-        folderPlaces.map((place) => (
-          <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
+        {selectedPlace ? (
+          <Marker
+            key={selectedPlace.filePath}
+            longitude={selectedPlace.lng}
+            latitude={selectedPlace.lat}
+            anchor="center"
+          >
             <div
               role="button"
               tabIndex={0}
-              title={place.title}
-              onClick={() => onSelectPlace?.(place)}
+              title={selectedPlace.title}
+              onClick={() => onSelectPlace?.(selectedPlace)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  onSelectPlace?.(place);
+                  onSelectPlace?.(selectedPlace);
                 }
               }}
               style={{
                 width: 12,
                 height: 12,
                 borderRadius: "50%",
-                backgroundColor: place.color ?? "#6b7280",
+                backgroundColor: selectedPlace.color ?? "#6b7280",
                 border: "2px solid white",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                 cursor: "pointer"
               }}
             />
           </Marker>
-        ))
-      )}
-      {overlay.points.map((p) => (
-        <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-          <div
-            title={p.title}
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              backgroundColor: "#8b5cf6",
-              border: "2px dashed white",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-              cursor: "pointer"
-            }}
-          />
-        </Marker>
-      ))}
-      {hasOverlayGeoJSON && (
-        // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
-        <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
-          <Layer
-            id="overlay-polygons"
-            type="fill"
-            // @ts-expect-error - MapLibre filter expression; types are strict
-            filter={POLYGON_FILTER}
-            paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
-          />
-          <Layer
-            id="overlay-polygon-outline"
-            type="line"
-            // @ts-expect-error - MapLibre filter expression
-            filter={POLYGON_FILTER}
-            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-          />
-          <Layer
-            id="overlay-lines"
-            type="line"
-            // @ts-expect-error - MapLibre filter expression
-            filter={LINESTRING_FILTER}
-            paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-          />
-        </Source>
-      )}
-      </MapGL>
-      {contextMenu ? (
-        <DropdownMenu
-          open
-          onOpenChange={(open) => {
-            if (!open) setContextMenu(null);
-          }}
-        >
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className="fixed z-100 size-px p-0 opacity-0"
-                style={{ left: contextMenu.clientX, top: contextMenu.clientY }}
-                aria-hidden
-                tabIndex={-1}
+        ) : (
+          folderPlaces.map((place) => (
+            <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
+              <div
+                role="button"
+                tabIndex={0}
+                title={place.title}
+                onClick={() => onSelectPlace?.(place)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectPlace?.(place);
+                  }
+                }}
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: "50%",
+                  backgroundColor: place.color ?? "#6b7280",
+                  border: "2px solid white",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                  cursor: "pointer"
+                }}
               />
-            }
-          />
-          <DropdownMenuContent side="bottom" align="start" className="min-w-40">
-            <DropdownMenuItem
-              onClick={() => {
-                void handleCreatePlaceFile();
+            </Marker>
+          ))
+        )}
+        {overlay.points.map((p) => (
+          <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
+            <div
+              title={p.title}
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: "50%",
+                backgroundColor: "#8b5cf6",
+                border: "2px dashed white",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                cursor: "pointer"
               }}
-            >
-              New place file
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </>
+            />
+          </Marker>
+        ))}
+        {hasOverlayGeoJSON && (
+          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+          <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
+            <Layer
+              id="overlay-polygons"
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression; types are strict
+              filter={POLYGON_FILTER}
+              paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
+            />
+            <Layer
+              id="overlay-polygon-outline"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+            />
+            <Layer
+              id="overlay-lines"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+            />
+          </Source>
+        )}
+        </MapGL>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => void handleCreatePlaceFile()}>
+          New place file
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 

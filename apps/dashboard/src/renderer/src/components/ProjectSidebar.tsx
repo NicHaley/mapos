@@ -2,7 +2,6 @@ import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import { ChevronRightIcon, FileIcon, FileTextIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import type { PlaceRecord } from "./MapView";
 import {
   AlertDialog,
@@ -15,11 +14,12 @@ import {
   AlertDialogTitle
 } from "./ui/alert-dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "./ui/dropdown-menu";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
 
 function fileIcon(name: string) {
@@ -35,7 +35,7 @@ function FileTreeNode({
   selectedFolderPath,
   onSelectPlace,
   onSelectFolder,
-  onOpenContextMenu
+  onRequestDelete,
 }: {
   node: FileNode;
   depth: number;
@@ -43,108 +43,115 @@ function FileTreeNode({
   selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
-  onOpenContextMenu?: (args: {
-    node: FileNode;
-    clientX: number;
-    clientY: number;
-  }) => void;
+  onRequestDelete?: (node: FileNode) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
+
+  const menuItems = (
+    <>
+      <ContextMenuItem
+        onClick={() => void window.api.fs.revealInFinder(node.path)}
+      >
+        Reveal in Finder
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        variant="destructive"
+        onClick={() => onRequestDelete?.(node)}
+      >
+        Delete
+      </ContextMenuItem>
+    </>
+  );
 
   if (node.type === "directory") {
     const isActive = node.path === selectedFolderPath;
     return (
-      <div>
-        <div
-          className={cn(
-            "flex items-center rounded text-sm",
-            isActive
-              ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-              : "text-sidebar-foreground hover:bg-sidebar-accent"
-          )}
-          style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onOpenContextMenu?.({
-              node,
-              clientX: e.clientX,
-              clientY: e.clientY
-            });
-          }}
-        >
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="p-1 shrink-0 hover:bg-white/10 rounded"
-            type="button"
-          >
-            <ChevronRightIcon
-              className={cn(
-                "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
-                open && "rotate-90"
-              )}
-            />
-          </button>
-          <button
-            onClick={() => onSelectFolder?.(node.path)}
-            className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left"
-            type="button"
-          >
-            {open ? (
-              <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-            ) : (
-              <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+      <ContextMenu>
+        <ContextMenuTrigger render={<div />}>
+          <div
+            className={cn(
+              "flex items-center rounded text-sm",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                : "text-sidebar-foreground hover:bg-sidebar-accent"
             )}
-            <span className="truncate">{node.name}</span>
-          </button>
-        </div>
-        {open && node.children && (
-          <div>
-            {node.children.map((child) => (
-              <FileTreeNode
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                selectedFilePath={selectedFilePath}
-                selectedFolderPath={selectedFolderPath}
-                onSelectPlace={onSelectPlace}
-                onSelectFolder={onSelectFolder}
-                onOpenContextMenu={onOpenContextMenu}
+            style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
+          >
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className="p-1 shrink-0 hover:bg-white/10 rounded"
+              type="button"
+            >
+              <ChevronRightIcon
+                className={cn(
+                  "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
+                  open && "rotate-90"
+                )}
               />
-            ))}
+            </button>
+            <button
+              onClick={() => onSelectFolder?.(node.path)}
+              className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left"
+              type="button"
+            >
+              {open ? (
+                <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+              ) : (
+                <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+              )}
+              <span className="truncate">{node.name}</span>
+            </button>
           </div>
-        )}
-      </div>
+          {open && node.children && (
+            <div>
+              {node.children.map((child) => (
+                <FileTreeNode
+                  key={child.path}
+                  node={child}
+                  depth={depth + 1}
+                  selectedFilePath={selectedFilePath}
+                  selectedFolderPath={selectedFolderPath}
+                  onSelectPlace={onSelectPlace}
+                  onSelectFolder={onSelectFolder}
+                  onRequestDelete={onRequestDelete}
+                />
+              ))}
+            </div>
+          )}
+        </ContextMenuTrigger>
+        <ContextMenuContent>{menuItems}</ContextMenuContent>
+      </ContextMenu>
     );
   }
 
   const isActive = node.path === selectedFilePath;
 
   return (
-    <button
-      className={cn(
-        "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
-        isActive
-          ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-          : "text-sidebar-foreground"
-      )}
-      style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onOpenContextMenu?.({
-          node,
-          clientX: e.clientX,
-          clientY: e.clientY
-        });
-      }}
-      onClick={async () => {
-        const place = await window.api.places.getByPath(node.path);
-        if (place) onSelectPlace?.(place);
-      }}
-      type="button"
-    >
-      {fileIcon(node.name)}
-      <span className="truncate">{node.name.replace(/\.[^.]+$/, "")}</span>
-    </button>
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <button
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                : "text-sidebar-foreground"
+            )}
+            style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
+            onClick={async () => {
+              const place = await window.api.places.getByPath(node.path);
+              if (place) onSelectPlace?.(place);
+            }}
+            type="button"
+          />
+        }
+      >
+        {fileIcon(node.name)}
+        <span className="truncate">{node.name.replace(/\.[^.]+$/, "")}</span>
+      </ContextMenuTrigger>
+      <ContextMenuContent>{menuItems}</ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -162,11 +169,6 @@ export function ProjectSidebar({
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
-  const [contextMenu, setContextMenu] = useState<{
-    node: FileNode;
-    clientX: number;
-    clientY: number;
-  } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -217,55 +219,13 @@ export function ProjectSidebar({
             selectedFolderPath={selectedFolderPath}
             onSelectPlace={onSelectPlace}
             onSelectFolder={onSelectFolder}
-            onOpenContextMenu={({ node, clientX, clientY }) => {
-              setContextMenu({ node, clientX, clientY });
+            onRequestDelete={(node) => {
+              setDeleteError(null);
+              setPendingDelete(node);
             }}
           />
         ))}
       </SidebarContent>
-      {contextMenu && typeof document !== "undefined"
-        ? createPortal(
-            <DropdownMenu
-              open
-              onOpenChange={(open) => {
-                if (!open) setContextMenu(null);
-              }}
-            >
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    type="button"
-                    className="fixed z-100 size-px p-0 opacity-0"
-                    style={{ left: contextMenu.clientX, top: contextMenu.clientY }}
-                    aria-hidden
-                    tabIndex={-1}
-                  />
-                }
-              />
-              <DropdownMenuContent side="bottom" align="start" className="min-w-40">
-                <DropdownMenuItem
-                  onClick={() => {
-                    void window.api.fs.revealInFinder(contextMenu.node.path);
-                    setContextMenu(null);
-                  }}
-                >
-                  Reveal in Finder
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setPendingDelete(contextMenu.node);
-                    setContextMenu(null);
-                  }}
-                >
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>,
-            document.body
-          )
-        : null}
       <AlertDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {

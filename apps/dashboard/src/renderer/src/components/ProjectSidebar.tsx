@@ -1,7 +1,7 @@
 import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import { ChevronRightIcon, FileIcon, FileTextIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlaceRecord } from "./MapView";
 import {
   AlertDialog,
@@ -18,9 +18,10 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuTrigger,
+  ContextMenuTrigger
 } from "./ui/context-menu";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 function fileIcon(name: string) {
   if (name.endsWith(".md"))
@@ -36,6 +37,7 @@ function FileTreeNode({
   onSelectPlace,
   onSelectFolder,
   onRequestDelete,
+  onRenameComplete
 }: {
   node: FileNode;
   depth: number;
@@ -44,21 +46,112 @@ function FileTreeNode({
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
+  onRenameComplete?: (oldPath: string, newPath: string) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  function startRename() {
+    const displayName = node.type === "file" ? node.name.replace(/\.md$/, "") : node.name;
+    setRenameDraft(displayName);
+    setRenameError(null);
+    setIsRenaming(true);
+  }
+
+  async function commitRename() {
+    const draft = renameDraft.trim();
+    if (!draft) {
+      setRenameError("Name cannot be empty");
+      inputRef.current?.focus();
+      return;
+    }
+    const originalDisplay = node.type === "file" ? node.name.replace(/\.md$/, "") : node.name;
+    if (draft === originalDisplay) {
+      setIsRenaming(false);
+      setRenameError(null);
+      return;
+    }
+    const result = await window.api.fs.renameFile(node.path, draft);
+    if (!result.success) {
+      setRenameError(result.error ?? "Rename failed");
+      inputRef.current?.focus();
+      return;
+    }
+    setIsRenaming(false);
+    setRenameError(null);
+    onRenameComplete?.(node.path, result.newPath);
+  }
+
+  function cancelRename() {
+    setIsRenaming(false);
+    setRenameError(null);
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRename();
+    }
+  }
+
+  const renameInput = (
+    <div className="flex-1 min-w-0">
+      <TooltipProvider>
+        <Tooltip open={!!renameError}>
+          <TooltipTrigger
+            render={
+              <input
+                ref={inputRef}
+                value={renameDraft}
+                onChange={(e) => {
+                  setRenameDraft(e.target.value);
+                  setRenameError(null);
+                }}
+                onKeyDown={handleRenameKeyDown}
+                onBlur={cancelRename}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "w-full rounded px-1 py-0 text-sm bg-sidebar-background text-sidebar-foreground border outline-none",
+                  renameError
+                    ? "border-destructive"
+                    : "border-sidebar-border focus:border-sidebar-foreground/40"
+                )}
+              />
+            }
+          />
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="bg-destructive text-destructive-foreground"
+          >
+            {renameError}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
 
   const menuItems = (
     <>
-      <ContextMenuItem
-        onClick={() => void window.api.fs.revealInFinder(node.path)}
-      >
+      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
+      <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         Reveal in Finder
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem
-        variant="destructive"
-        onClick={() => onRequestDelete?.(node)}
-      >
+      <ContextMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
         Delete
       </ContextMenuItem>
     </>
@@ -91,8 +184,10 @@ function FileTreeNode({
               />
             </button>
             <button
-              onClick={() => onSelectFolder?.(node.path)}
-              className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left"
+              onClick={() => {
+                if (!isRenaming) onSelectFolder?.(node.path);
+              }}
+              className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left min-w-0"
               type="button"
             >
               {open ? (
@@ -100,7 +195,7 @@ function FileTreeNode({
               ) : (
                 <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
               )}
-              <span className="truncate">{node.name}</span>
+              {isRenaming ? renameInput : <span className="truncate">{node.name}</span>}
             </button>
           </div>
           {open && node.children && (
@@ -115,6 +210,7 @@ function FileTreeNode({
                   onSelectPlace={onSelectPlace}
                   onSelectFolder={onSelectFolder}
                   onRequestDelete={onRequestDelete}
+                  onRenameComplete={onRenameComplete}
                 />
               ))}
             </div>
@@ -131,24 +227,40 @@ function FileTreeNode({
     <ContextMenu>
       <ContextMenuTrigger
         render={
-          <button
-            className={cn(
-              "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-                : "text-sidebar-foreground"
-            )}
-            style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
-            onClick={async () => {
-              const place = await window.api.places.getByPath(node.path);
-              if (place) onSelectPlace?.(place);
-            }}
-            type="button"
-          />
+          isRenaming ? (
+            <div
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                  : "text-sidebar-foreground"
+              )}
+              style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
+            />
+          ) : (
+            <button
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                  : "text-sidebar-foreground"
+              )}
+              style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
+              onClick={async () => {
+                const place = await window.api.places.getByPath(node.path);
+                if (place) onSelectPlace?.(place);
+              }}
+              type="button"
+            />
+          )
         }
       >
         {fileIcon(node.name)}
-        <span className="truncate">{node.name.replace(/\.[^.]+$/, "")}</span>
+        {isRenaming ? (
+          renameInput
+        ) : (
+          <span className="truncate">{node.name.replace(/\.[^.]+$/, "")}</span>
+        )}
       </ContextMenuTrigger>
       <ContextMenuContent>{menuItems}</ContextMenuContent>
     </ContextMenu>
@@ -160,13 +272,15 @@ export function ProjectSidebar({
   selectedFolderPath,
   onSelectPlace,
   onSelectFolder,
-  onDeletePath
+  onDeletePath,
+  onRenamePath
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
+  onRenamePath?: (oldPath: string, newPath: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
@@ -223,6 +337,7 @@ export function ProjectSidebar({
               setDeleteError(null);
               setPendingDelete(node);
             }}
+            onRenameComplete={onRenamePath}
           />
         ))}
       </SidebarContent>

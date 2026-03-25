@@ -6,6 +6,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync
 } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -241,10 +242,15 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     if (!safeName) return { success: false, error: "Empty name" };
 
     const dir = oldPath.split(sep).slice(0, -1).join(sep);
-    const finalName = safeName.endsWith(".md") ? safeName : `${safeName}.md`;
+    const isDir = statSync(oldPath).isDirectory();
+    const finalName = isDir || safeName.endsWith(".md") ? safeName : `${safeName}.md`;
     const newPath = join(dir, finalName);
 
     if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+
+    if (existsSync(newPath) && newPath !== oldPath) {
+      return { success: false, error: "A file or folder with that name already exists" };
+    }
 
     try {
       renameSync(oldPath, newPath);

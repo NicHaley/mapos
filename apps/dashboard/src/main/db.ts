@@ -6,14 +6,14 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Inline DDL — CURRENT_SCHEMA_VERSION must be bumped on any schema change
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export const features = sqliteTable("features", {
   rowid: integer("rowid").primaryKey({ autoIncrement: true }),
   file_path: text("file_path").notNull(),
   geometry_type: text("geometry_type").notNull(),
   geometry: text("geometry").notNull(),
-  status: text("status"),
+  color: text("color"),
   tags: text("tags"),
   indexed_at: text("indexed_at").notNull()
 });
@@ -24,20 +24,28 @@ function applyMigrations(sqlite: Database.Database): void {
   const row = sqlite.prepare("PRAGMA user_version").get() as { user_version: number };
   if (row.user_version >= CURRENT_SCHEMA_VERSION) return;
 
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS features (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_path TEXT NOT NULL UNIQUE,
-      geometry_type TEXT NOT NULL,
-      geometry TEXT NOT NULL,
-      status TEXT,
-      tags TEXT,
-      indexed_at TEXT NOT NULL
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS features_rtree USING rtree(
-      id, min_lat, max_lat, min_lng, max_lng
-    );
-  `);
+  if (row.user_version === 0) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS features (
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL UNIQUE,
+        geometry_type TEXT NOT NULL,
+        geometry TEXT NOT NULL,
+        color TEXT,
+        tags TEXT,
+        indexed_at TEXT NOT NULL
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS features_rtree USING rtree(
+        id, min_lat, max_lat, min_lng, max_lng
+      );
+    `);
+  }
+
+  if (row.user_version < 2) {
+    // Upgrading from v1: add color column (status column left in place, no longer used)
+    try { sqlite.exec("ALTER TABLE features ADD COLUMN color TEXT"); } catch { /* already exists */ }
+  }
+
   sqlite.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
 }
 
@@ -70,7 +78,7 @@ export interface FeatureRecord {
   file_path: string;
   geometry_type: string;
   geometry: string;
-  status: string | null;
+  color: string | null;
   tags: string[] | null;
 }
 
@@ -78,9 +86,8 @@ export interface PlaceRecord {
   lat: number;
   lng: number;
   title: string;
-  status: string;
+  color?: string;
   type: string;
-  category?: string;
   tags?: string[];
   filePath: string;
 }
@@ -98,7 +105,7 @@ export function indexFeature(record: PlaceRecord): void {
       file_path: record.filePath,
       geometry_type: "point",
       geometry,
-      status: record.status,
+      color: record.color ?? null,
       tags: tagsJson,
       indexed_at: now
     })
@@ -107,7 +114,7 @@ export function indexFeature(record: PlaceRecord): void {
       set: {
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
-        status: sql`excluded.status`,
+        color: sql`excluded.color`,
         tags: sql`excluded.tags`,
         indexed_at: sql`excluded.indexed_at`
       }
@@ -153,12 +160,12 @@ export function removeFeature(filePath: string): void {
 
 export function querySpatialIndex(
   bounds: Bounds,
-  filters?: { status?: string; tags?: string[]; folderPath?: string }
+  filters?: { tags?: string[]; folderPath?: string }
 ): FeatureRecord[] {
   const sqlite = getSqlite();
 
   let sql = `
-    SELECT f.file_path, f.geometry_type, f.geometry, f.status, f.tags
+    SELECT f.file_path, f.geometry_type, f.geometry, f.color, f.tags
     FROM features f
     JOIN features_rtree r ON r.id = f.rowid
     WHERE r.min_lat >= ? AND r.max_lat <= ?
@@ -178,12 +185,11 @@ export function querySpatialIndex(
     file_path: string;
     geometry_type: string;
     geometry: string;
-    status: string | null;
+    color: string | null;
     tags: string | null;
   }>;
 
   return rows
-    .filter((r) => !filters?.status || r.status === filters.status)
     .filter((r) => {
       if (!filters?.tags?.length) return true;
       const rowTags: string[] = r.tags ? JSON.parse(r.tags) : [];
@@ -197,13 +203,13 @@ export function queryFolderAll(folderPath: string): FeatureRecord[] {
   const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
   const rows = sqlite
     .prepare(
-      "SELECT file_path, geometry_type, geometry, status, tags FROM features WHERE file_path LIKE ?"
+      "SELECT file_path, geometry_type, geometry, color, tags FROM features WHERE file_path LIKE ?"
     )
     .all(`${prefix}%`) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
-    status: string | null;
+    color: string | null;
     tags: string | null;
   }>;
   return rows.map((r) => ({ ...r, tags: r.tags ? JSON.parse(r.tags) : null }));

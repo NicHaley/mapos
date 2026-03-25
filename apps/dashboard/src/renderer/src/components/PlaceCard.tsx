@@ -6,11 +6,6 @@ import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
 import { Skeleton } from "./ui/skeleton";
 
-const STATUS_META: Record<string, { label: string; className: string }> = {
-  "want-to-go": { label: "Want to go", className: "text-blue-500" },
-  visited: { label: "Visited", className: "text-green-500" },
-  maybe: { label: "Maybe", className: "text-amber-500" }
-};
 
 export function PlaceCard({
   place,
@@ -124,7 +119,6 @@ export function PlaceCard({
     }
   }
 
-  const status = STATUS_META[place.status];
   const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
 
   return (
@@ -137,7 +131,7 @@ export function PlaceCard({
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
-              {place.category ?? place.type}
+              {place.type}
             </p>
             {titleMode === "view" ? (
               <h2
@@ -166,20 +160,6 @@ export function PlaceCard({
             <XIcon className="size-3.5" />
           </button>
         </div>
-
-        {/* Status */}
-        {status && (
-          <div className="px-4 pb-3 shrink-0">
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-sidebar-accent",
-                status.className
-              )}
-            >
-              {status.label}
-            </span>
-          </div>
-        )}
 
         {/* Tags */}
         {place.tags && place.tags.length > 0 && (

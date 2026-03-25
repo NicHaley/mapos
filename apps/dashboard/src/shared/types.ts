@@ -2,9 +2,8 @@ export type PlaceRecord = {
   lat: number;
   lng: number;
   title: string;
-  status: string;
+  color?: string;
   type: string;
-  category?: string;
   tags?: string[];
   // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;

@@ -33,9 +33,8 @@ type PlaceRecord = {
   lat: number;
   lng: number;
   title: string;
-  status: string;
+  color?: string;
   type: string;
-  category?: string;
   tags?: string[];
   // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;
@@ -53,9 +52,8 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
       lat: data.lat,
       lng: data.lng,
       title,
-      status: data.status ?? "",
+      color: typeof data.color === "string" ? data.color : undefined,
       type: data.type ?? "place",
-      category: data.category,
       tags: data.tags,
       filePath
     };
@@ -327,7 +325,7 @@ status: want-to-go
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
           title: titleFallback,
-          status: r.status ?? "",
+          color: r.color ?? undefined,
           type: "place",
           tags: r.tags ?? undefined,
           filePath: r.file_path
@@ -345,7 +343,7 @@ status: want-to-go
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
           title: titleFallback,
-          status: r.status ?? "",
+          color: r.color ?? undefined,
           type: "place",
           tags: r.tags ?? undefined,
           filePath: r.file_path
@@ -367,7 +365,7 @@ status: want-to-go
           lat: geo.coordinates[1],
           lng: geo.coordinates[0],
           title: titleFallback,
-          status: r.status ?? "",
+          color: r.color ?? undefined,
           type: "place",
           tags: r.tags ?? undefined,
           filePath: r.file_path

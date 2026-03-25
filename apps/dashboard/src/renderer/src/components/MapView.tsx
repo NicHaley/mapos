@@ -42,17 +42,10 @@ export type PlaceRecord = {
   lat: number;
   lng: number;
   title: string;
-  status: string;
+  color?: string;
   type: string;
-  category?: string;
   tags?: string[];
   filePath: string;
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  "want-to-go": "#3b82f6",
-  visited: "#22c55e",
-  maybe: "#f59e0b"
 };
 
 type OverlayPoint = {
@@ -250,20 +243,22 @@ const MapView = forwardRef<
     const filePath = result.filePath;
     const basename = filePath.split(/[/\\]/).pop() ?? "new-place.md";
     const title = basename.replace(/\.md$/i, "");
+    const fallbackPlace: PlaceRecord = {
+      lat: contextMenu.lat,
+      lng: contextMenu.lng,
+      title,
+      type: "place",
+      filePath
+    };
+    const createdPlace = (await window.api.places.getByPath(filePath)) ?? fallbackPlace;
+    onSelectPlace?.(createdPlace);
     if (!selectedPlace && selectedFolder) {
       setFolderPlaces((prev) => [
         ...prev,
-        {
-          lat: contextMenu.lat,
-          lng: contextMenu.lng,
-          title,
-          status: "want-to-go",
-          type: "place",
-          filePath
-        }
+        fallbackPlace
       ]);
     }
-  }, [contextMenu, selectedFolder, selectedPlace]);
+  }, [contextMenu, selectedFolder, selectedPlace, onSelectPlace]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{
@@ -325,7 +320,7 @@ const MapView = forwardRef<
               width: 12,
               height: 12,
               borderRadius: "50%",
-              backgroundColor: STATUS_COLORS[selectedPlace.status] ?? "#6b7280",
+              backgroundColor: selectedPlace.color ?? "#6b7280",
               border: "2px solid white",
               boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
               cursor: "pointer"
@@ -350,7 +345,7 @@ const MapView = forwardRef<
                 width: 12,
                 height: 12,
                 borderRadius: "50%",
-                backgroundColor: STATUS_COLORS[place.status] ?? "#6b7280",
+                backgroundColor: place.color ?? "#6b7280",
                 border: "2px solid white",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                 cursor: "pointer"

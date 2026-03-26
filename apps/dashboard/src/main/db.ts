@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { count, eq, sql } from "drizzle-orm";
+import { count, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -133,29 +133,63 @@ export function indexFeature(record: PlaceRecord): void {
 export function reconcileIndexWithPlaces(places: Map<string, PlaceRecord>): number {
   const db = getDb();
   const rows = db.select({ file_path: features.file_path }).from(features).all();
-  let count = 0;
-  for (const r of rows) {
-    if (!places.has(r.file_path)) {
-      removeFeature(r.file_path);
-      count++;
-    }
-  }
-  return count;
+  const stale = rows.filter((r) => !places.has(r.file_path)).map((r) => r.file_path);
+  removeFeatures(stale);
+  return stale.length;
 }
 
-export function removeFeature(filePath: string): void {
+export function indexFeatures(records: PlaceRecord[]): void {
+  if (records.length === 0) return;
   const db = getDb();
   const sqlite = getSqlite();
+  const now = new Date().toISOString();
 
-  const [row] = db
-    .select({ rowid: features.rowid })
-    .from(features)
-    .where(eq(features.file_path, filePath))
+  const rows = db
+    .insert(features)
+    .values(
+      records.map((r) => ({
+        file_path: r.filePath,
+        geometry_type: "point",
+        geometry: JSON.stringify({ type: "Point", coordinates: [r.lng, r.lat] }),
+        color: r.color ?? null,
+        tags: r.tags ? JSON.stringify(r.tags) : null,
+        indexed_at: now
+      }))
+    )
+    .onConflictDoUpdate({
+      target: features.file_path,
+      set: {
+        geometry_type: sql`excluded.geometry_type`,
+        geometry: sql`excluded.geometry`,
+        color: sql`excluded.color`,
+        tags: sql`excluded.tags`,
+        indexed_at: sql`excluded.indexed_at`
+      }
+    })
+    .returning({ rowid: features.rowid, file_path: features.file_path })
     .all();
 
-  if (!row) return;
-  sqlite.prepare("DELETE FROM features_rtree WHERE id = ?").run(row.rowid);
-  db.delete(features).where(eq(features.file_path, filePath)).run();
+  const byFilePath = new Map(records.map((r) => [r.filePath, r]));
+  const placeholders = rows.map(() => "(?,?,?,?,?)").join(",");
+  const params = rows.flatMap((row) => {
+    const r = byFilePath.get(row.file_path);
+    if (!r) return [];
+    return [row.rowid, r.lat, r.lat, r.lng, r.lng];
+  });
+  sqlite
+    .prepare(`INSERT OR REPLACE INTO features_rtree (id,min_lat,max_lat,min_lng,max_lng) VALUES ${placeholders}`)
+    .run(...params);
+}
+
+export function removeFeatures(filePaths: string[]): void {
+  if (filePaths.length === 0) return;
+  const db = getDb();
+  const sqlite = getSqlite();
+  const placeholders = filePaths.map(() => "?").join(",");
+  sqlite
+    .prepare(`DELETE FROM features_rtree WHERE id IN (SELECT rowid FROM features WHERE file_path IN (${placeholders}))`)
+    .run(...filePaths);
+  db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
 export function querySpatialIndex(
@@ -230,10 +264,7 @@ export function clearAllFeatures(): void {
 
 export function rebuildIndexFromPlaces(places: Map<string, PlaceRecord>): number {
   clearAllFeatures();
-  let count = 0;
-  for (const record of places.values()) {
-    indexFeature(record);
-    count++;
-  }
-  return count;
+  const records = [...places.values()];
+  indexFeatures(records);
+  return records.length;
 }

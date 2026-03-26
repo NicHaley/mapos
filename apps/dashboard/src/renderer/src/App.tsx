@@ -25,6 +25,16 @@ function App(): React.JSX.Element {
     mapRef.current?.fitToFolder(folderPath);
   }, []);
 
+  const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
+    setSelectedFolder((prev) => {
+      if (!prev) return prev;
+      if (prev === oldPath) return newPath;
+      if (prev.startsWith(`${oldPath}/`) || prev.startsWith(`${oldPath}\\`))
+        return newPath + prev.slice(oldPath.length);
+      return prev;
+    });
+  }, []);
+
   const handleDeletedPath = useCallback((deletedPath: string, type: "file" | "directory") => {
     const isSameOrChildPath = (currentPath: string, parentPath: string) =>
       currentPath === parentPath ||
@@ -112,6 +122,7 @@ function App(): React.JSX.Element {
             onSelectPlace={handleSelectPlace}
             onSelectFolder={handleSelectFolder}
             onDeletePath={handleDeletedPath}
+            onRenamePath={handleRenamePath}
           />
         </SidebarProvider>
 

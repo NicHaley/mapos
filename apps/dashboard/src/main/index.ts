@@ -21,13 +21,13 @@ import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
 import {
   getFeatureCount,
-  indexFeature,
+  indexFeatures,
   initDb,
   queryFolderAll,
   querySpatialIndex,
   rebuildIndexFromPlaces,
   reconcileIndexWithPlaces,
-  removeFeature
+  removeFeatures
 } from "./db";
 
 type PlaceRecord = {
@@ -119,7 +119,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     console.log("[main] parsed:", place);
     if (place) {
       places.set(filePath, place);
-      indexFeature(place);
+      indexFeatures([place]);
       if (initialScanDone && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("places:updated", { event: "add", place });
       }
@@ -131,10 +131,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     const place = await parsePlaceFile(filePath);
     if (place) {
       places.set(filePath, place);
-      indexFeature(place);
+      indexFeatures([place]);
     } else {
       places.delete(filePath);
-      removeFeature(filePath);
+      removeFeatures([filePath]);
     }
     if (initialScanDone && !mainWindow.isDestroyed()) {
       if (place) {
@@ -153,7 +153,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   watcher.on("unlink", (filePath) => {
     places.delete(filePath);
-    removeFeature(filePath);
+    removeFeatures([filePath]);
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
@@ -254,6 +254,27 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
     try {
       renameSync(oldPath, newPath);
+
+      if (isDir) {
+        const oldPrefix = oldPath + sep;
+        const newPrefix = newPath + sep;
+        const oldKeys: string[] = [];
+        const newPlaces: PlaceRecord[] = [];
+        for (const [key, place] of places) {
+          if (key.startsWith(oldPrefix)) {
+            places.delete(key);
+            oldKeys.push(key);
+            newPlaces.push({ ...place, filePath: newPrefix + key.slice(oldPrefix.length) });
+          }
+        }
+        removeFeatures(oldKeys);
+        indexFeatures(newPlaces);
+        for (const place of newPlaces) {
+          places.set(place.filePath, place);
+        }
+      }
+
+      notifyFsChanged();
       return { success: true, newPath };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -617,7 +638,7 @@ function createMaposMcpServer(
           }
           const record = await parsePlaceFile(args.path);
           if (record) {
-            indexFeature(record);
+            indexFeatures([record]);
             return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
           }
           return {

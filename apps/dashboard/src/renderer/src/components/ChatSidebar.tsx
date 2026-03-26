@@ -148,12 +148,7 @@ export function ChatSidebar(): React.JSX.Element {
     const updated = await window.api.chat.listConversations();
     const sorted = updated.slice().reverse();
     setConversations(sorted);
-    if (sorted.length > 0) {
-      await switchConversation(sorted[0].id);
-    } else {
-      clear();
-      setCurrentConvId(null);
-    }
+    handleNewConversation();
   }
 
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
@@ -185,16 +180,18 @@ export function ChatSidebar(): React.JSX.Element {
           </SelectContent>
         </Select>
         <div className="flex items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-              <EllipsisIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="end">
-              <DropdownMenuItem variant="destructive" onClick={deleteConversation}>
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {currentConvId && (
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                <EllipsisIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end">
+                <DropdownMenuItem variant="destructive" onClick={deleteConversation}>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             variant="ghost"
             size="icon"

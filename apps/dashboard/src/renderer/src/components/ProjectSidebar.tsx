@@ -20,7 +20,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "./ui/context-menu";
-import { Sidebar, SidebarContent, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
+import { Sidebar, SidebarContent, SidebarHeader } from "./ui/sidebar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 function fileIcon(name: string) {
@@ -323,7 +323,6 @@ export function ProjectSidebar({
         <span className="text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase">
           MapOS
         </span>
-        <SidebarTrigger />
       </SidebarHeader>
       <SidebarContent className="px-1 py-2">
         {tree.map((node) => (

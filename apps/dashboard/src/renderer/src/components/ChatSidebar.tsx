@@ -24,13 +24,7 @@ import {
   DropdownMenuTrigger
 } from "./ui/dropdown-menu";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "./ui/select";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarTrigger
-} from "./ui/sidebar";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "./ui/sidebar";
 
 type ChatMessage = {
   role: "user" | "assistant" | "error";
@@ -192,7 +186,7 @@ export function ChatSidebar(): React.JSX.Element {
         </Select>
         <div className="flex items-center gap-1">
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
               <EllipsisIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="bottom" align="end">
@@ -203,13 +197,12 @@ export function ChatSidebar(): React.JSX.Element {
           </DropdownMenu>
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             onClick={handleNewConversation}
             title="New conversation"
           >
             <SquarePenIcon />
           </Button>
-          <SidebarTrigger className="rotate-180" />
         </div>
       </SidebarHeader>
 

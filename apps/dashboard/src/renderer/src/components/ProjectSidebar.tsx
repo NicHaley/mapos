@@ -148,11 +148,11 @@ function FileTreeNode({
 
   const menuItems = (
     <>
-      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         Reveal in Finder
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
       <ContextMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
         Delete
       </ContextMenuItem>

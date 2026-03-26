@@ -108,7 +108,7 @@ function FileTreeNode({
   }
 
   const renameInput = (
-    <div className="flex-1 min-w-0">
+    <div className="flex min-h-0 flex-1 min-w-0 items-center">
       <TooltipProvider>
         <Tooltip open={!!renameError}>
           <TooltipTrigger
@@ -124,10 +124,12 @@ function FileTreeNode({
                 onBlur={cancelRename}
                 onClick={(e) => e.stopPropagation()}
                 className={cn(
-                  "w-full rounded px-1 py-0 text-sm bg-sidebar-background text-sidebar-foreground border outline-none",
+                  // h-5 + ring-inset (not border) keeps row height aligned with the label span
+                  "w-full h-5 min-h-5 box-border rounded p-0 text-sm leading-5",
+                  "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
                   renameError
-                    ? "border-destructive"
-                    : "border-sidebar-border focus:border-sidebar-foreground/40"
+                    ? "ring-2 ring-inset ring-destructive"
+                    : "ring-2 ring-inset ring-blue-500"
                 )}
               />
             }

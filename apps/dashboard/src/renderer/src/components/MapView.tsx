@@ -107,6 +107,7 @@ const MapView = forwardRef<
   MapViewHandle,
   {
     onSelectPlace?: (place: PlaceRecord) => void;
+    onCreatePlace?: (place: PlaceRecord) => void;
     onMapClickEmpty?: () => void;
     selectedPlace?: PlaceRecord | null;
     selectedFolder?: string | null;
@@ -115,6 +116,7 @@ const MapView = forwardRef<
 >(function MapView(
   {
     onSelectPlace,
+    onCreatePlace,
     onMapClickEmpty,
     selectedPlace,
     selectedFolder,
@@ -163,10 +165,15 @@ const MapView = forwardRef<
   const selectedPlaceForCreate = useRef(selectedPlace);
   selectedPlaceForCreate.current = selectedPlace;
 
+  const loadFolderPlaces = useCallback(async (folderPath: string) => {
+    const places = await window.api.places.queryFolderAll(folderPath);
+    setFolderPlaces(places);
+    return places;
+  }, []);
+
   const fitToFolder = useCallback(
     async (folderPath: string, padding: FitPadding) => {
-      const places = await window.api.places.queryFolderAll(folderPath);
-      setFolderPlaces(places);
+      const places = await loadFolderPlaces(folderPath);
       if (places.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
@@ -194,7 +201,7 @@ const MapView = forwardRef<
         );
       }
     },
-    []
+    [loadFolderPlaces]
   );
 
   useImperativeHandle(
@@ -262,10 +269,10 @@ const MapView = forwardRef<
   }, [emitFeaturePosition]);
 
   useEffect(() => {
-    // File changed on disk — re-fit if a folder is selected
+    // File changed on disk — refresh folder places without moving the camera
     window.api.places.onUpdated(() => {
       if (selectedFolderRef.current) {
-        fitToFolder(selectedFolderRef.current);
+        void loadFolderPlaces(selectedFolderRef.current);
       }
     });
     window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
@@ -280,15 +287,15 @@ const MapView = forwardRef<
       window.api.map.removeListeners();
       if (boundsTimer.current) clearTimeout(boundsTimer.current);
     };
-  }, [fitToFolder]);
+  }, [loadFolderPlaces]);
 
   useEffect(() => {
     if (selectedFolder) {
-      fitToFolder(selectedFolder);
+      void loadFolderPlaces(selectedFolder);
     } else {
       setFolderPlaces([]);
     }
-  }, [selectedFolder, fitToFolder]);
+  }, [selectedFolder, loadFolderPlaces]);
 
   useEffect(() => {
     emitFeaturePosition();
@@ -326,11 +333,11 @@ const MapView = forwardRef<
       filePath
     };
     const createdPlace = (await window.api.places.getByPath(filePath)) ?? fallbackPlace;
-    onSelectPlace?.(createdPlace);
+    onCreatePlace?.(createdPlace);
     if (!selectedPlaceForCreate.current && selectedFolderForCreate.current) {
       setFolderPlaces((prev) => [...prev, fallbackPlace]);
     }
-  }, [contextMenu, onSelectPlace]);
+  }, [contextMenu, onCreatePlace]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{

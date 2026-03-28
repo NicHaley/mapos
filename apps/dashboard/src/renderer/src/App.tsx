@@ -66,6 +66,22 @@ function App(): React.JSX.Element {
     }
   }, [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen]);
 
+  // New place file created from map context menu
+  const handleCreatePlace = useCallback((place: PlaceRecord) => {
+    if (selectedFolder) {
+      // Inside a collection — show mini card, keep folder active
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+    } else {
+      // Outside a collection — open full panel
+      setSelectedPlace(place);
+      setPlaceMode("full");
+      setFeatureScreenPos(null);
+      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+    }
+  }, [selectedFolder, projectSidebarOpen, chatSidebarOpen]);
+
   const handleSelectFolder = useCallback((folderPath: string) => {
     setSelectedFolder(folderPath);
     setSelectedPlace(null);
@@ -110,6 +126,7 @@ function App(): React.JSX.Element {
         <MapView
           ref={mapRef}
           onSelectPlace={handleSelectPlaceFromMap}
+          onCreatePlace={handleCreatePlace}
           onMapClickEmpty={isMini ? clearPlace : undefined}
           selectedPlace={selectedPlace}
           selectedFolder={selectedFolder}

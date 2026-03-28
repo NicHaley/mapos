@@ -20,12 +20,10 @@ import { ErrorTooltip } from "./ui/tooltip";
 
 export function PlaceCard({
   place,
-  onClose,
-  sidebarOpen = true
+  onClose
 }: {
   place: PlaceRecord;
   onClose: () => void;
-  sidebarOpen?: boolean;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
@@ -134,10 +132,7 @@ export function PlaceCard({
   const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
 
   return (
-    <div
-      className="fixed z-20 pointer-events-auto top-2 transition-[left] duration-200 ease-linear"
-      style={{ left: sidebarOpen ? "calc(16rem + 0.25rem)" : "0.75rem", width: 272 }}
-    >
+    <div className="pointer-events-auto" style={{ width: 272 }}>
       <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden flex flex-col max-h-[calc(100vh-3.5rem)]">
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">

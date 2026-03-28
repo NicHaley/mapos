@@ -12,11 +12,13 @@ function App(): React.JSX.Element {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
   const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
+  const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
   const mapRef = useRef<MapViewHandle>(null);
 
   const handleSelectPlace = useCallback((place: PlaceRecord) => {
     setSelectedPlace(place);
     setSelectedFolder(null);
+    setFeatureScreenPos(null);
   }, []);
 
   const handleSelectFolder = useCallback((folderPath: string) => {
@@ -68,6 +70,7 @@ function App(): React.JSX.Element {
           selectedFolder={selectedFolder}
           projectSidebarOpen={projectSidebarOpen}
           chatSidebarOpen={chatSidebarOpen}
+          onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
         />
       </div>
 
@@ -100,13 +103,22 @@ function App(): React.JSX.Element {
         className="fixed top-10 inset-x-0 bottom-0 pointer-events-none"
         style={{ transform: "translateZ(0)" }}
       >
-        {/* Place detail card */}
-        {selectedPlace && (
-          <PlaceCard
-            place={selectedPlace}
-            onClose={() => setSelectedPlace(null)}
-            sidebarOpen={projectSidebarOpen}
-          />
+        {/* Place detail card — bottom 16px above the feature center */}
+        {selectedPlace && featureScreenPos && (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: featureScreenPos.x,
+              // featureScreenPos.y is viewport-relative; subtract the 40px top-bar offset
+              top: featureScreenPos.y - 40,
+              transform: "translate(-50%, calc(-100% - 16px))",
+            }}
+          >
+            <PlaceCard
+              place={selectedPlace}
+              onClose={() => setSelectedPlace(null)}
+            />
+          </div>
         )}
 
         {/* Left sidebar overlay */}

@@ -93,6 +93,12 @@ export type MapViewHandle = {
   fitToPlace: (place: PlaceRecord) => void;
 };
 
+function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
+  if (isPoint(geo)) return geo.coordinates;
+  const [minLng, minLat, maxLng, maxLat] = bbox({ type: "Feature", geometry: geo, properties: {} });
+  return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+}
+
 const PROJECT_SIDEBAR_WIDTH = 256; // 16rem
 const CHAT_SIDEBAR_WIDTH = 360;
 const FIT_BUFFER = 40;
@@ -105,9 +111,10 @@ const MapView = forwardRef<
     selectedFolder?: string | null;
     projectSidebarOpen?: boolean;
     chatSidebarOpen?: boolean;
+    onSelectedFeaturePosition?: (x: number, y: number) => void;
   }
 >(function MapView(
-  { onSelectPlace, selectedPlace, selectedFolder, projectSidebarOpen, chatSidebarOpen },
+  { onSelectPlace, selectedPlace, selectedFolder, projectSidebarOpen, chatSidebarOpen, onSelectedFeaturePosition },
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -126,6 +133,23 @@ const MapView = forwardRef<
   projectSidebarOpenRef.current = projectSidebarOpen;
   const chatSidebarOpenRef = useRef(chatSidebarOpen);
   chatSidebarOpenRef.current = chatSidebarOpen;
+
+  const onSelectedFeaturePositionRef = useRef(onSelectedFeaturePosition);
+  onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
+  const selectedPlaceRef = useRef(selectedPlace);
+  selectedPlaceRef.current = selectedPlace;
+
+  const emitFeaturePosition = useCallback(() => {
+    const map = mapRef.current;
+    const place = selectedPlaceRef.current;
+    const cb = onSelectedFeaturePositionRef.current;
+    if (!map || !place || !cb) return;
+    try {
+      const center = getGeometryCenter(parseGeometry(place.geometry));
+      const pt = map.project(center);
+      cb(pt.x, pt.y);
+    } catch { /* invalid geometry */ }
+  }, []);
 
   const selectedFolderForCreate = useRef(selectedFolder);
   selectedFolderForCreate.current = selectedFolder;
@@ -198,6 +222,7 @@ const MapView = forwardRef<
   );
 
   const debouncedMove = useCallback(() => {
+    emitFeaturePosition();
     if (boundsTimer.current) clearTimeout(boundsTimer.current);
     boundsTimer.current = setTimeout(() => {
       const map = mapRef.current;
@@ -214,7 +239,7 @@ const MapView = forwardRef<
         zoom: map.getZoom()
       });
     }, 150);
-  }, []);
+  }, [emitFeaturePosition]);
 
   useEffect(() => {
     // File changed on disk — re-fit if a folder is selected
@@ -244,6 +269,12 @@ const MapView = forwardRef<
       setFolderPlaces([]);
     }
   }, [selectedFolder, fitToFolder]);
+
+  useEffect(() => {
+    // Emit position after a brief delay to let the map finish flying to the place
+    const id = setTimeout(emitFeaturePosition, 650);
+    return () => clearTimeout(id);
+  }, [selectedPlace, emitFeaturePosition]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
     e.preventDefault();

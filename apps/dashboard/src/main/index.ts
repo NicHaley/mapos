@@ -17,7 +17,6 @@ import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
-import { parseWkt } from "./wkt";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
 import {
@@ -30,6 +29,7 @@ import {
   reconcileIndexWithPlaces,
   removeFeatures
 } from "./db";
+import { parseWkt } from "./wkt";
 
 type PlaceRecord = {
   geometry: string; // GeoJSON geometry JSON string
@@ -303,10 +303,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle(
     "fs:create-place-file",
-    async (
-      _event,
-      args: { parentFolderPath: string | null; lat: number; lng: number }
-    ) => {
+    async (_event, args: { parentFolderPath: string | null; lat: number; lng: number }) => {
       const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
       let dir: string;
       if (args.parentFolderPath) {
@@ -413,16 +410,7 @@ status: want-to-go
 
 const MAPOS_SYSTEM_PROMPT = `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, photos, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
 
-MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth. All user data lives under ~/Documents/MapOS/ with this structure:
-- places/want-to-go/    — saved places the user wants to visit
-- places/visited/       — places the user has been
-- places/collections/   — named lists (trips, projects, themes)
-- notes/field-notes/    — notes created while at a location
-- notes/area-research/  — research about a place or area
-- media/imports/        — JSON sidecars for external photo library photos
-- media/local/          — photos stored inside MapOS
-- layers/               — saved map layer configurations (JSON)
-- analysis/             — saved spatial query results (JSON/GeoJSON)
+MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth. All user data lives under ~/Documents/MapOS/.
 
 Place files use Markdown with YAML frontmatter. Required frontmatter: lat, lng, type (place|note|collection-entry), status (want-to-go|visited|maybe). Optional: category, tags, source_url, created, visited_on, rating, collection.
 

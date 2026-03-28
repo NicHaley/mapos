@@ -11,11 +11,10 @@ import {
 import "@mdxeditor/editor/style.css";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
-import { Maximize2Icon, MapPinIcon, XIcon } from "lucide-react";
+import { MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
-import { Skeleton } from "./ui/skeleton";
 import { ErrorTooltip } from "./ui/tooltip";
 
 export function PlaceCard({
@@ -136,13 +135,18 @@ export function PlaceCard({
   const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
 
   return (
-    <div className={cn("pointer-events-auto", mode === "full" ? "h-full" : undefined)} style={mode === "mini" ? { width: 272 } : undefined}>
-      <div className={cn(
-        "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
-        mode === "mini"
-          ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
-          : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
-      )}>
+    <div
+      className={cn("pointer-events-auto", mode === "full" ? "h-full" : undefined)}
+      style={mode === "mini" ? { width: 272 } : undefined}
+    >
+      <div
+        className={cn(
+          "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
+          mode === "mini"
+            ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
+            : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
+        )}
+      >
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
@@ -202,10 +206,10 @@ export function PlaceCard({
         )}
 
         {/* Body content */}
-        {loading && <Skeleton className="mx-4 mb-3 h-16 rounded shrink-0" />}
-
         {!loading && (
-          <ScrollArea className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
+          <ScrollArea
+            className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}
+          >
             <MDXEditor
               ref={editorRef}
               markdown=""
@@ -226,7 +230,7 @@ export function PlaceCard({
         )}
 
         {/* Footer: coords + file */}
-        <div className="border-t border-sidebar-border px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
+        <div className="border-t border-sidebar-border px-4 py-2.5 flex items-center justify-between gap-2 shrink-0 mt-auto">
           <div className="flex items-center gap-1.5 text-[11px] text-sidebar-foreground/40">
             <MapPinIcon className="size-3 shrink-0" />
             <span>

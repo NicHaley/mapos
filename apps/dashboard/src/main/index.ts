@@ -17,6 +17,7 @@ import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
+import { parseWkt } from "./wkt";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
 import {
@@ -31,8 +32,7 @@ import {
 } from "./db";
 
 type PlaceRecord = {
-  lat: number;
-  lng: number;
+  geometry: string; // GeoJSON geometry JSON string
   title: string;
   color?: string;
   type: string;
@@ -45,13 +45,13 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   try {
     const raw = await readFile(filePath, "utf-8");
     const { data } = matter(raw);
-    if (typeof data.lat !== "number" || typeof data.lng !== "number") return null;
     if (data.type === "collection") return null;
+    const geo = parseWkt(data.geometry);
+    if (!geo) return null;
     const basename = filePath.split(sep).pop() ?? filePath;
     const title = basename.replace(/\.md$/i, "");
     return {
-      lat: data.lat,
-      lng: data.lng,
+      geometry: JSON.stringify(geo),
       title,
       color: typeof data.color === "string" ? data.color : undefined,
       type: data.type ?? "place",
@@ -329,8 +329,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       }
       const title = fileName;
       const content = `---
-lat: ${args.lat}
-lng: ${args.lng}
+geometry: POINT(${args.lng} ${args.lat})
 type: place
 status: want-to-go
 ---
@@ -350,11 +349,9 @@ status: want-to-go
     return querySpatialIndex(bounds)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
-        const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          lat: geo.coordinates[1],
-          lng: geo.coordinates[0],
+          geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",
@@ -368,11 +365,9 @@ status: want-to-go
     return queryFolderAll(folderPath)
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
-        const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          lat: geo.coordinates[1],
-          lng: geo.coordinates[0],
+          geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",
@@ -390,11 +385,9 @@ status: want-to-go
     return querySpatialIndex(bounds, { folderPath })
       .filter((r) => r.file_path.startsWith(MAPOS_DIR))
       .map((r) => {
-        const geo = JSON.parse(r.geometry) as { coordinates: [number, number] };
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
-          lat: geo.coordinates[1],
-          lng: geo.coordinates[0],
+          geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",

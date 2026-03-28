@@ -8,12 +8,13 @@ import {
   useState
 } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
+import bbox from "@turf/bbox";
 import MapGL, {
   Layer,
   type MapLayerMouseEvent,
   type MapRef,
   Marker,
-  Source
+  Source,
 } from "react-map-gl/maplibre";
 
 import {
@@ -39,14 +40,28 @@ function useDarkMapStyle() {
 }
 
 export type PlaceRecord = {
-  lat: number;
-  lng: number;
+  geometry: string; // GeoJSON geometry JSON string
   title: string;
   color?: string;
   type: string;
   tags?: string[];
   filePath: string;
 };
+
+type GeoJSONPoint = { type: "Point"; coordinates: [number, number] };
+/** Matches stored place geometries; keeps literal `type` for Turf / GeoJSON typings. */
+type GeoJSONGeometry =
+  | GeoJSONPoint
+  | { type: "LineString"; coordinates: [number, number][] }
+  | { type: "Polygon"; coordinates: [number, number][][] };
+
+function isPoint(geo: GeoJSONGeometry): geo is GeoJSONPoint {
+  return geo.type === "Point";
+}
+
+function parseGeometry(geometryJson: string): GeoJSONGeometry {
+  return JSON.parse(geometryJson) as GeoJSONGeometry;
+}
 
 type OverlayPoint = {
   id: string;
@@ -75,8 +90,9 @@ type OverlayData = {
 
 const EMPTY_OVERLAY: OverlayData = { points: [], lines: [], polygons: [] };
 
-const POLYGON_FILTER = ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]];
-const LINESTRING_FILTER = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
+const POINT_FILTER = ["==", ["geometry-type"], "Point"];
+const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
+const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
 
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
@@ -132,21 +148,21 @@ const MapView = forwardRef<
       ? PROJECT_SIDEBAR_WIDTH + FIT_BUFFER
       : FIT_BUFFER;
     const paddingRight = chatSidebarOpenRef.current ? CHAT_SIDEBAR_WIDTH + FIT_BUFFER : FIT_BUFFER;
-    if (places.length === 1) {
+    const collection = {
+      type: "FeatureCollection" as const,
+      features: places.map((p) => ({ type: "Feature" as const, geometry: parseGeometry(p.geometry), properties: {} }))
+    };
+    const [minLng, minLat, maxLng, maxLat] = bbox(collection);
+    if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
       map.flyTo({
-        center: [places[0].lng, places[0].lat],
+        center: [minLng, minLat],
         zoom: 14,
         duration: 600,
         padding: { left: paddingLeft, right: paddingRight, top: FIT_BUFFER, bottom: FIT_BUFFER }
       });
     } else {
-      const lngs = places.map((p) => p.lng);
-      const lats = places.map((p) => p.lat);
       map.fitBounds(
-        [
-          [Math.min(...lngs), Math.min(...lats)],
-          [Math.max(...lngs), Math.max(...lats)]
-        ],
+        [[minLng, minLat], [maxLng, maxLat]],
         {
           padding: { left: paddingLeft, right: paddingRight, top: FIT_BUFFER, bottom: FIT_BUFFER },
           duration: 600,
@@ -235,8 +251,7 @@ const MapView = forwardRef<
     const basename = filePath.split(/[/\\]/).pop() ?? "new-place.md";
     const title = basename.replace(/\.md$/i, "");
     const fallbackPlace: PlaceRecord = {
-      lat: latLng.lat,
-      lng: latLng.lng,
+      geometry: JSON.stringify({ type: "Point", coordinates: [latLng.lng, latLng.lat] }),
       title,
       type: "place",
       filePath
@@ -276,6 +291,47 @@ const MapView = forwardRef<
 
   const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
+  const toFeature = (p: PlaceRecord) => ({
+    type: "Feature" as const,
+    geometry: parseGeometry(p.geometry),
+    properties: { filePath: p.filePath, color: p.color ?? "#6b7280" }
+  });
+
+  // All folder places as one source (excluding selected to avoid double-render)
+  const folderGeoJSON = useMemo(() => {
+    const places = selectedPlace
+      ? folderPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
+      : folderPlaces;
+    if (places.length === 0) return null;
+    try {
+      return { type: "FeatureCollection" as const, features: places.map(toFeature) };
+    } catch { return null; }
+  }, [folderPlaces, selectedPlace]);
+
+  // Selected place as its own source for distinct styling
+  const selectedGeoJSON = useMemo(() => {
+    if (!selectedPlace) return null;
+    try {
+      return { type: "FeatureCollection" as const, features: [toFeature(selectedPlace)] };
+    } catch { return null; }
+  }, [selectedPlace]);
+
+  const handleLayerClick = useCallback((e: MapLayerMouseEvent) => {
+    const feature = e.features?.[0];
+    if (!feature?.properties?.filePath) return;
+    const filePath = feature.properties.filePath as string;
+    const place = folderPlaces.find((p) => p.filePath === filePath)
+      ?? (selectedPlace?.filePath === filePath ? selectedPlace : undefined);
+    if (place) onSelectPlace?.(place);
+  }, [folderPlaces, selectedPlace, onSelectPlace]);
+
+  const interactiveLayerIds = useMemo(() => {
+    const ids: string[] = [];
+    if (folderGeoJSON) ids.push("folder-circle", "folder-fill", "folder-line");
+    if (selectedGeoJSON) ids.push("selected-circle", "selected-fill", "selected-line");
+    return ids;
+  }, [folderGeoJSON, selectedGeoJSON]);
+
   return (
     <ContextMenu>
       <ContextMenuTrigger style={{ display: "contents" }}>
@@ -286,62 +342,84 @@ const MapView = forwardRef<
           mapStyle={mapStyle}
           onMove={debouncedMove}
           onContextMenu={handleContextMenu}
+          interactiveLayerIds={interactiveLayerIds}
+          onClick={handleLayerClick}
         >
-        {selectedPlace ? (
-          <Marker
-            key={selectedPlace.filePath}
-            longitude={selectedPlace.lng}
-            latitude={selectedPlace.lat}
-            anchor="center"
-          >
-            <div
-              role="button"
-              tabIndex={0}
-              title={selectedPlace.title}
-              onClick={() => onSelectPlace?.(selectedPlace)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelectPlace?.(selectedPlace);
-                }
-              }}
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: "50%",
-                backgroundColor: selectedPlace.color ?? "#6b7280",
-                border: "2px solid white",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                cursor: "pointer"
+        {folderGeoJSON && (
+          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+          <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
+            <Layer
+              id="folder-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 6,
+                "circle-color": ["get", "color"],
+                "circle-stroke-width": 1.5,
+                "circle-stroke-color": "white",
               }}
             />
-          </Marker>
-        ) : (
-          folderPlaces.map((place) => (
-            <Marker key={place.filePath} longitude={place.lng} latitude={place.lat} anchor="center">
-              <div
-                role="button"
-                tabIndex={0}
-                title={place.title}
-                onClick={() => onSelectPlace?.(place)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelectPlace?.(place);
-                  }
-                }}
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  backgroundColor: place.color ?? "#6b7280",
-                  border: "2px solid white",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                  cursor: "pointer"
-                }}
-              />
-            </Marker>
-          ))
+            <Layer
+              id="folder-fill"
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "fill-color": ["get", "color"], "fill-opacity": 0.25 }}
+            />
+            <Layer
+              id="folder-fill-outline"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "line-color": ["get", "color"], "line-width": 2 }}
+            />
+            <Layer
+              id="folder-line"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": ["get", "color"], "line-width": 2 }}
+            />
+          </Source>
+        )}
+        {selectedGeoJSON && (
+          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+          <Source id="selected-geojson" type="geojson" data={selectedGeoJSON}>
+            <Layer
+              id="selected-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 7,
+                "circle-color": ["get", "color"],
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "white",
+              }}
+            />
+            <Layer
+              id="selected-fill"
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "fill-color": ["get", "color"], "fill-opacity": 0.35 }}
+            />
+            <Layer
+              id="selected-fill-outline"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "line-color": ["get", "color"], "line-width": 2.5, "line-dasharray": [2, 1] }}
+            />
+            <Layer
+              id="selected-line"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": ["get", "color"], "line-width": 2.5, "line-dasharray": [2, 1] }}
+            />
+          </Source>
         )}
         {overlay.points.map((p) => (
           <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">

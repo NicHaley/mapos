@@ -1,6 +1,5 @@
 export type PlaceRecord = {
-  lat: number;
-  lng: number;
+  geometry: string; // GeoJSON geometry JSON string (Point, LineString, Polygon, …)
   title: string;
   color?: string;
   type: string;

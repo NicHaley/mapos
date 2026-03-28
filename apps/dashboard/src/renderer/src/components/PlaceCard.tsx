@@ -216,7 +216,17 @@ export function PlaceCard({
           <div className="flex items-center gap-1.5 text-[11px] text-sidebar-foreground/40">
             <MapPinIcon className="size-3 shrink-0" />
             <span>
-              {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
+              {(() => {
+                try {
+                  const geo = JSON.parse(place.geometry) as { type: string; coordinates: [number, number] };
+                  if (geo.type === "Point") {
+                    return `${geo.coordinates[1].toFixed(4)}, ${geo.coordinates[0].toFixed(4)}`;
+                  }
+                  return geo.type;
+                } catch {
+                  return "—";
+                }
+              })()}
             </span>
           </div>
           <span

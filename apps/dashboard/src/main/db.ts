@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import bbox from "@turf/bbox";
 import Database from "better-sqlite3";
 import { count, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -83,8 +84,7 @@ export interface FeatureRecord {
 }
 
 export interface PlaceRecord {
-  lat: number;
-  lng: number;
+  geometry: string; // GeoJSON geometry JSON string
   title: string;
   color?: string;
   type: string;
@@ -95,16 +95,18 @@ export interface PlaceRecord {
 export function indexFeature(record: PlaceRecord): void {
   const db = getDb();
   const sqlite = getSqlite();
-  const geometry = JSON.stringify({ type: "Point", coordinates: [record.lng, record.lat] });
+  const geoObj = JSON.parse(record.geometry);
+  const geometryType = (geoObj.type as string).toLowerCase();
   const tagsJson = record.tags ? JSON.stringify(record.tags) : null;
   const now = new Date().toISOString();
+  const [minLng, minLat, maxLng, maxLat] = bbox(geoObj);
 
   const [row] = db
     .insert(features)
     .values({
       file_path: record.filePath,
-      geometry_type: "point",
-      geometry,
+      geometry_type: geometryType,
+      geometry: record.geometry,
       color: record.color ?? null,
       tags: tagsJson,
       indexed_at: now
@@ -126,7 +128,7 @@ export function indexFeature(record: PlaceRecord): void {
     .prepare(
       "INSERT OR REPLACE INTO features_rtree (id, min_lat, max_lat, min_lng, max_lng) VALUES (?,?,?,?,?)"
     )
-    .run(row.rowid, record.lat, record.lat, record.lng, record.lng);
+    .run(row.rowid, minLat, maxLat, minLng, maxLng);
 }
 
 /** Remove features whose file_path is not in the places Map (e.g. deleted while app was closed). Returns count removed. */
@@ -147,14 +149,17 @@ export function indexFeatures(records: PlaceRecord[]): void {
   const rows = db
     .insert(features)
     .values(
-      records.map((r) => ({
-        file_path: r.filePath,
-        geometry_type: "point",
-        geometry: JSON.stringify({ type: "Point", coordinates: [r.lng, r.lat] }),
-        color: r.color ?? null,
-        tags: r.tags ? JSON.stringify(r.tags) : null,
-        indexed_at: now
-      }))
+      records.map((r) => {
+        const geoObj = JSON.parse(r.geometry);
+        return {
+          file_path: r.filePath,
+          geometry_type: (geoObj.type as string).toLowerCase(),
+          geometry: r.geometry,
+          color: r.color ?? null,
+          tags: r.tags ? JSON.stringify(r.tags) : null,
+          indexed_at: now
+        };
+      })
     )
     .onConflictDoUpdate({
       target: features.file_path,
@@ -174,7 +179,8 @@ export function indexFeatures(records: PlaceRecord[]): void {
   const params = rows.flatMap((row) => {
     const r = byFilePath.get(row.file_path);
     if (!r) return [];
-    return [row.rowid, r.lat, r.lat, r.lng, r.lng];
+    const [minLng, minLat, maxLng, maxLat] = bbox(JSON.parse(r.geometry));
+    return [row.rowid, minLat, maxLat, minLng, maxLng];
   });
   sqlite
     .prepare(`INSERT OR REPLACE INTO features_rtree (id,min_lat,max_lat,min_lng,max_lng) VALUES ${placeholders}`)
@@ -202,10 +208,10 @@ export function querySpatialIndex(
     SELECT f.file_path, f.geometry_type, f.geometry, f.color, f.tags
     FROM features f
     JOIN features_rtree r ON r.id = f.rowid
-    WHERE r.min_lat >= ? AND r.max_lat <= ?
-      AND r.min_lng >= ? AND r.max_lng <= ?
+    WHERE r.min_lat <= ? AND r.max_lat >= ?
+      AND r.min_lng <= ? AND r.max_lng >= ?
   `;
-  const params: unknown[] = [bounds.south, bounds.north, bounds.west, bounds.east];
+  const params: unknown[] = [bounds.north, bounds.south, bounds.east, bounds.west];
 
   if (filters?.folderPath) {
     const prefix = filters.folderPath.endsWith("/")

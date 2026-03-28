@@ -10,6 +10,7 @@ import { SidebarProvider } from "./components/ui/sidebar";
 const PROJECT_SIDEBAR_WIDTH = 256;
 const PLACE_CARD_WIDTH = 320;
 const CHAT_SIDEBAR_WIDTH = 360;
+const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
 
 function mapPadding(
@@ -20,7 +21,7 @@ function mapPadding(
   return {
     left: (projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0) + (placeCardOpen ? PLACE_CARD_WIDTH : 0) + FIT_BUFFER,
     right: (chatSidebarOpen ? CHAT_SIDEBAR_WIDTH : 0) + FIT_BUFFER,
-    top: FIT_BUFFER,
+    top: TOP_BAR_HEIGHT + FIT_BUFFER,
     bottom: FIT_BUFFER,
   };
 }
@@ -136,8 +137,8 @@ function App(): React.JSX.Element {
 
       {/* Top bar */}
       <div
-        className="fixed top-0 inset-x-0 h-10 z-30 flex items-center justify-between pl-20 pr-2 text-sidebar-foreground bg-sidebar/60 backdrop-blur-md border-b border-sidebar-border"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        className="fixed top-0 inset-x-0 z-30 flex items-center justify-between pl-20 pr-2 text-sidebar-foreground bg-sidebar/60 backdrop-blur-md border-b border-sidebar-border"
+        style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         <Button
           variant="ghost"
@@ -157,11 +158,11 @@ function App(): React.JSX.Element {
         </Button>
       </div>
 
-      {/* Content wrapper: top-10 offset + transform creates a new containing block
+      {/* Content wrapper: top offset + transform creates a new containing block
           so all fixed children are relative to this wrapper, not the viewport */}
       <div
-        className="fixed top-10 inset-x-0 bottom-0 pointer-events-none"
-        style={{ transform: "translateZ(0)" }}
+        className="fixed inset-x-0 bottom-0 pointer-events-none"
+        style={{ top: TOP_BAR_HEIGHT, transform: "translateZ(0)" }}
       >
         {/* Full-height place panel */}
         {isFull && selectedPlace && (
@@ -183,7 +184,7 @@ function App(): React.JSX.Element {
             className="absolute pointer-events-none"
             style={{
               left: featureScreenPos.x,
-              top: featureScreenPos.y - 40,
+              top: featureScreenPos.y - TOP_BAR_HEIGHT,
               transform: "translate(-50%, -50%)",
             }}
           >
@@ -200,7 +201,7 @@ function App(): React.JSX.Element {
             className="absolute pointer-events-none"
             style={{
               left: featureScreenPos.x,
-              top: featureScreenPos.y - 40,
+              top: featureScreenPos.y - TOP_BAR_HEIGHT,
               transform: "translate(-50%, calc(-100% - 16px))",
             }}
           >
@@ -223,6 +224,7 @@ function App(): React.JSX.Element {
           open={projectSidebarOpen}
           onOpenChange={setProjectSidebarOpen}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+          style={{ "--sidebar-width": `${PROJECT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
           <ProjectSidebar
             selectedFilePath={isFull ? selectedPlace?.filePath : undefined}
@@ -240,7 +242,7 @@ function App(): React.JSX.Element {
           open={chatSidebarOpen}
           onOpenChange={setChatSidebarOpen}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
-          style={{ "--sidebar-width": "360px" } as React.CSSProperties}
+          style={{ "--sidebar-width": `${CHAT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
           <ChatSidebar />
         </SidebarProvider>

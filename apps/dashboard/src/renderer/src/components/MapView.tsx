@@ -95,13 +95,33 @@ export type MapViewHandle = {
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
 };
 
+/**
+ * Compute the camera position (center + zoom) for a bounding box with the given padding,
+ * independent of the map's current transform.padding state.
+ *
+ * maplibre's cameraForBounds *adds* options.padding to the transform's stored padding when
+ * computing available viewport space. To get a predictable result we temporarily zero out
+ * the transform padding (synchronously, without firing events or triggering a repaint) so
+ * that the calculation only accounts for the padding we actually want.
+ */
+function cameraForBounds(
+  map: MapRef,
+  bounds: [[number, number], [number, number]],
+  padding: FitPadding
+) {
+  const nativeMap = map.getMap();
+  const savedPadding = nativeMap.getPadding();
+  nativeMap.transform.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+  const cam = nativeMap.cameraForBounds(bounds, { padding, maxZoom: 16 });
+  nativeMap.transform.setPadding(savedPadding);
+  return cam;
+}
+
 function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   if (isPoint(geo)) return geo.coordinates;
   const [minLng, minLat, maxLng, maxLat] = bbox({ type: "Feature", geometry: geo, properties: {} });
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 }
-
-const FIT_BUFFER = 40;
 
 const MapView = forwardRef<
   MapViewHandle,
@@ -177,9 +197,6 @@ const MapView = forwardRef<
       if (places.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
-      // MapLibre persists padding as camera state — reset before each call so
-      // the padding we pass isn't compounded onto the previous value.
-      map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
       const collection = {
         type: "FeatureCollection" as const,
         features: places.map((p) => ({
@@ -192,13 +209,8 @@ const MapView = forwardRef<
       if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
         map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
       } else {
-        map.fitBounds(
-          [
-            [minLng, minLat],
-            [maxLng, maxLat]
-          ],
-          { padding, duration: 600, maxZoom: 16 }
-        );
+        const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
+        if (cam) map.flyTo({ ...cam, duration: 600, padding });
       }
     },
     [loadFolderPlaces]
@@ -210,9 +222,6 @@ const MapView = forwardRef<
       flyTo: (lat, lng) => {
         const map = mapRef.current;
         if (!map) return;
-        // MapLibre persists padding as camera state — reset before each call so
-        // the padding we pass isn't compounded onto the previous value.
-        map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
         map.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
       },
       fitToFolder,
@@ -221,9 +230,6 @@ const MapView = forwardRef<
         if (!map) return;
         try {
           const geo = parseGeometry(place.geometry);
-          // MapLibre persists padding as camera state — reset before each call so
-          // the padding we pass isn't compounded onto the previous value.
-          map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
           if (isPoint(geo)) {
             map.flyTo({ center: geo.coordinates, zoom: 14, duration: 600, padding });
           } else {
@@ -232,13 +238,8 @@ const MapView = forwardRef<
               geometry: geo,
               properties: {}
             });
-            map.fitBounds(
-              [
-                [minLng, minLat],
-                [maxLng, maxLat]
-              ],
-              { padding, duration: 600, maxZoom: 16 }
-            );
+            const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
+            if (cam) map.flyTo({ ...cam, duration: 600, padding });
           }
         } catch {
           /* invalid geometry */

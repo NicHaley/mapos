@@ -1,4 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
+import { Button } from "./ui/button";
+import { Separator } from "./ui/separator";
 
 type NavTabsProps = {
   tabs: Array<{ id: string; title: string }>;
@@ -27,64 +29,51 @@ export function NavTabs({
 
   return (
     <div className="flex items-center gap-0.5 min-w-0 h-full" style={noDrag}>
-      {/* Back */}
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={!canBack}
-        className="flex-shrink-0 flex items-center justify-center size-6 rounded text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-foreground/8 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-      >
-        <ChevronLeftIcon className="size-3.5" />
-      </button>
+      <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
+        <ChevronLeftIcon />
+      </Button>
+      <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
+        <ChevronRightIcon />
+      </Button>
 
-      {/* Forward */}
-      <button
-        type="button"
-        onClick={onForward}
-        disabled={!canForward}
-        className="flex-shrink-0 flex items-center justify-center size-6 rounded text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-foreground/8 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-      >
-        <ChevronRightIcon className="size-3.5" />
-      </button>
+      <Separator orientation="vertical" className="mx-0.5 h-4! self-auto" />
 
-      {/* Divider */}
-      <div className="flex-shrink-0 w-px h-4 bg-sidebar-foreground/15 mx-0.5" />
-
-      {/* Tab strip */}
       <div className="flex items-center gap-0.5 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab, i) => {
           const isActive = i === activeTabIndex;
           return (
-            <button
-              type="button"
+            <Button
               key={tab.id}
+              variant="ghost"
+              size="sm"
               onClick={() => onTabActivate(i)}
               className={`
-                group flex-shrink-0 flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 rounded text-xs max-w-[160px] transition-colors
+                group flex-shrink-0 max-w-[160px] gap-1 pr-1
                 ${isActive
-                  ? "bg-sidebar-foreground/15 text-sidebar-foreground"
-                  : "text-sidebar-foreground/50 hover:bg-sidebar-foreground/8 hover:text-sidebar-foreground/80"
+                  ? "bg-sidebar-foreground/15 hover:bg-sidebar-foreground/20 text-sidebar-foreground"
+                  : "text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
                 }
               `}
             >
               <span className="truncate">{tab.title}</span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={(e) => {
                   e.stopPropagation();
                   onTabClose(i);
                 }}
                 className={`
-                  flex-shrink-0 flex items-center justify-center size-4 rounded transition-colors
+                  flex-shrink-0 rounded
                   ${isActive
-                    ? "opacity-60 hover:opacity-100 hover:bg-sidebar-foreground/15"
-                    : "opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-sidebar-foreground/10"
+                    ? "opacity-60 hover:opacity-100"
+                    : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
                   }
                 `}
               >
-                <XIcon className="size-2.5" />
-              </button>
-            </button>
+                <XIcon />
+              </Button>
+            </Button>
           );
         })}
       </div>

@@ -80,6 +80,11 @@ declare global {
           lat: number;
           lng: number;
         }) => Promise<{ success: true; filePath: string } | { success: false; error: string }>;
+        getVaultRoot: () => Promise<string>;
+        createFolder: (args: {
+          parentFolderPath: string;
+          folderName: string;
+        }) => Promise<{ success: true; folderPath: string } | { success: false; error: string }>;
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };

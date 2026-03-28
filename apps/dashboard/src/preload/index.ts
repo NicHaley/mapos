@@ -73,6 +73,11 @@ const api = {
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<
         { success: true; filePath: string } | { success: false; error: string }
       >,
+    getVaultRoot: () => ipcRenderer.invoke("fs:get-vault-root") as Promise<string>,
+    createFolder: (args: { parentFolderPath: string; folderName: string }) =>
+      ipcRenderer.invoke("fs:create-folder", args) as Promise<
+        { success: true; folderPath: string } | { success: false; error: string }
+      >,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },

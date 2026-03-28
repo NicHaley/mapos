@@ -301,6 +301,39 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     shell.showItemInFolder(targetPath);
   });
 
+  ipcMain.handle("fs:get-vault-root", () => MAPOS_DIR);
+
+  ipcMain.handle(
+    "fs:create-folder",
+    (_event, args: { parentFolderPath: string; folderName: string }) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      const parent = args.parentFolderPath;
+      if (parent !== MAPOS_DIR && !parent.startsWith(vaultPrefix))
+        return { success: false as const, error: "Path outside vault" };
+
+      const safeName = args.folderName.replace(/[/\\]/g, "").trim();
+      if (!safeName) return { success: false as const, error: "Empty name" };
+
+      let candidate = join(parent, safeName);
+      let n = 0;
+      while (existsSync(candidate)) {
+        n++;
+        candidate = join(parent, `${safeName} ${n}`);
+      }
+
+      if (!candidate.startsWith(vaultPrefix))
+        return { success: false as const, error: "Path outside vault" };
+
+      try {
+        mkdirSync(candidate);
+        notifyFsChanged();
+        return { success: true as const, folderPath: candidate };
+      } catch (err) {
+        return { success: false as const, error: String(err) };
+      }
+    }
+  );
+
   ipcMain.handle(
     "fs:create-place-file",
     async (_event, args: { parentFolderPath: string | null; lat: number; lng: number }) => {

@@ -34,19 +34,25 @@ function FileTreeNode({
   depth,
   selectedFilePath,
   selectedFolderPath,
+  autoRenamePath,
+  onAutoRenameConsumed,
   onSelectPlace,
   onSelectFolder,
   onRequestDelete,
-  onRenameComplete
+  onRenameComplete,
+  onCreateFolderIn
 }: {
   node: FileNode;
   depth: number;
   selectedFilePath?: string;
   selectedFolderPath?: string;
+  autoRenamePath?: string | null;
+  onAutoRenameConsumed?: () => void;
   onSelectPlace?: (place: PlaceRecord) => void;
   onSelectFolder?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string) => void;
+  onCreateFolderIn?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -60,6 +66,17 @@ function FileTreeNode({
       inputRef.current?.select();
     }
   }, [isRenaming]);
+
+  useEffect(() => {
+    if (!autoRenamePath || node.type !== "directory") return;
+    if (autoRenamePath === node.path) {
+      setOpen(true);
+      startRename();
+      onAutoRenameConsumed?.();
+    } else if (autoRenamePath.startsWith(`${node.path}/`)) {
+      setOpen(true);
+    }
+  }, [autoRenamePath, node.path, node.type, onAutoRenameConsumed]);
 
   function startRename() {
     const displayName = node.type === "file" ? node.name.replace(/\.md$/, "") : node.name;
@@ -143,6 +160,21 @@ function FileTreeNode({
     </>
   );
 
+  const folderMenuItems = (
+    <>
+      <ContextMenuItem onClick={() => onCreateFolderIn?.(node.path)}>New Folder</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
+        Reveal in Finder
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
+      <ContextMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
+        Delete
+      </ContextMenuItem>
+    </>
+  );
+
   if (node.type === "directory") {
     const isActive = node.path === selectedFolderPath;
     return (
@@ -193,16 +225,19 @@ function FileTreeNode({
                   depth={depth + 1}
                   selectedFilePath={selectedFilePath}
                   selectedFolderPath={selectedFolderPath}
+                  autoRenamePath={autoRenamePath}
+                  onAutoRenameConsumed={onAutoRenameConsumed}
                   onSelectPlace={onSelectPlace}
                   onSelectFolder={onSelectFolder}
                   onRequestDelete={onRequestDelete}
                   onRenameComplete={onRenameComplete}
+                  onCreateFolderIn={onCreateFolderIn}
                 />
               ))}
             </div>
           )}
         </ContextMenuTrigger>
-        <ContextMenuContent>{menuItems}</ContextMenuContent>
+        <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
       </ContextMenu>
     );
   }
@@ -269,9 +304,11 @@ export function ProjectSidebar({
   onRenamePath?: (oldPath: string, newPath: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
+  const [vaultRoot, setVaultRoot] = useState<string>("");
   const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pendingRenamePath, setPendingRenamePath] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
@@ -280,6 +317,7 @@ export function ProjectSidebar({
 
   useEffect(() => {
     void load();
+    void window.api.fs.getVaultRoot().then(setVaultRoot);
     window.api.fs.onChange(() => {
       void load();
     });
@@ -301,6 +339,17 @@ export function ProjectSidebar({
     await load();
   }
 
+  async function createFolderIn(parentPath: string) {
+    if (!parentPath) return;
+    const result = await window.api.fs.createFolder({
+      parentFolderPath: parentPath,
+      folderName: "New Folder"
+    });
+    if (result.success) {
+      setPendingRenamePath(result.folderPath);
+    }
+  }
+
   return (
     <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
       <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
@@ -309,22 +358,34 @@ export function ProjectSidebar({
         </span>
       </SidebarHeader>
       <SidebarContent className="px-1 py-2">
-        {tree.map((node) => (
-          <FileTreeNode
-            key={node.path}
-            node={node}
-            depth={0}
-            selectedFilePath={selectedFilePath}
-            selectedFolderPath={selectedFolderPath}
-            onSelectPlace={onSelectPlace}
-            onSelectFolder={onSelectFolder}
-            onRequestDelete={(node) => {
-              setDeleteError(null);
-              setPendingDelete(node);
-            }}
-            onRenameComplete={onRenamePath}
-          />
-        ))}
+        <ContextMenu>
+          <ContextMenuTrigger render={<div className="flex-1 flex flex-col min-h-full" />}>
+            {tree.map((node) => (
+              <FileTreeNode
+                key={node.path}
+                node={node}
+                depth={0}
+                selectedFilePath={selectedFilePath}
+                selectedFolderPath={selectedFolderPath}
+                autoRenamePath={pendingRenamePath}
+                onAutoRenameConsumed={() => setPendingRenamePath(null)}
+                onSelectPlace={onSelectPlace}
+                onSelectFolder={onSelectFolder}
+                onRequestDelete={(node) => {
+                  setDeleteError(null);
+                  setPendingDelete(node);
+                }}
+                onRenameComplete={onRenamePath}
+                onCreateFolderIn={(path) => void createFolderIn(path)}
+              />
+            ))}
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
+              New Folder
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </SidebarContent>
       <AlertDialog
         open={!!pendingDelete}

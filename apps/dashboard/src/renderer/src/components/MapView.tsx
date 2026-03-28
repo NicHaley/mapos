@@ -18,11 +18,11 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger
-} from "./ui/context-menu";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
@@ -124,7 +124,12 @@ const MapView = forwardRef<
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
 
-  const contextLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
@@ -253,16 +258,22 @@ const MapView = forwardRef<
   }, [selectedFolder, fitToFolder]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
-    contextLatLngRef.current = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+    e.preventDefault();
+    setContextMenu({
+      x: e.point.x,
+      y: e.point.y,
+      lat: e.lngLat.lat,
+      lng: e.lngLat.lng,
+    });
   }, []);
 
   const handleCreatePlaceFile = useCallback(async () => {
-    const latLng = contextLatLngRef.current;
-    if (!latLng) return;
+    if (!contextMenu) return;
+    setContextMenu(null);
     const result = await window.api.fs.createPlaceFile({
       parentFolderPath: selectedFolderForCreate.current ?? null,
-      lat: latLng.lat,
-      lng: latLng.lng
+      lat: contextMenu.lat,
+      lng: contextMenu.lng
     });
     if (!result.success) {
       console.error("[MapView] create place file:", result.error);
@@ -272,7 +283,7 @@ const MapView = forwardRef<
     const basename = filePath.split(/[/\\]/).pop() ?? "new-place.md";
     const title = basename.replace(/\.md$/i, "");
     const fallbackPlace: PlaceRecord = {
-      geometry: JSON.stringify({ type: "Point", coordinates: [latLng.lng, latLng.lat] }),
+      geometry: JSON.stringify({ type: "Point", coordinates: [contextMenu.lng, contextMenu.lat] }),
       title,
       type: "place",
       filePath
@@ -282,7 +293,7 @@ const MapView = forwardRef<
     if (!selectedPlaceForCreate.current && selectedFolderForCreate.current) {
       setFolderPlaces((prev) => [...prev, fallbackPlace]);
     }
-  }, [onSelectPlace]);
+  }, [contextMenu, onSelectPlace]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{
@@ -365,18 +376,17 @@ const MapView = forwardRef<
   }, [folderGeoJSON, selectedGeoJSON]);
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger style={{ display: "contents" }}>
-        <MapGL
-          ref={mapRef}
-          initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
-          style={{ width: "100%", height: "100%" }}
-          mapStyle={mapStyle}
-          onMove={debouncedMove}
-          onContextMenu={handleContextMenu}
-          interactiveLayerIds={interactiveLayerIds}
-          onClick={handleLayerClick}
-        >
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <MapGL
+        ref={mapRef}
+        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+        style={{ width: "100%", height: "100%" }}
+        mapStyle={mapStyle}
+        onMove={debouncedMove}
+        onContextMenu={handleContextMenu}
+        interactiveLayerIds={interactiveLayerIds}
+        onClick={handleLayerClick}
+      >
           {folderGeoJSON && (
             <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
               <Layer
@@ -502,13 +512,30 @@ const MapView = forwardRef<
             </Source>
           )}
         </MapGL>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={() => void handleCreatePlaceFile()}>
-          New place file
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+      <DropdownMenu
+        open={!!contextMenu}
+        onOpenChange={(open) => { if (!open) setContextMenu(null); }}
+      >
+        <DropdownMenuTrigger
+          style={{
+            position: "absolute",
+            left: contextMenu?.x ?? 0,
+            top: contextMenu?.y ?? 0,
+            width: 0,
+            height: 0,
+            padding: 0,
+            border: "none",
+            opacity: 0,
+            pointerEvents: "none",
+          }}
+        />
+        <DropdownMenuContent side="bottom" align="start" sideOffset={0}>
+          <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>
+            New place file
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 });
 

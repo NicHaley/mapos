@@ -48,7 +48,7 @@ function FileTreeNode({
   selectedFolderPath?: string;
   autoRenamePath?: string | null;
   onAutoRenameConsumed?: () => void;
-  onSelectPlace?: (place: PlaceRecord) => void;
+  onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string) => void;
@@ -267,9 +267,9 @@ function FileTreeNode({
                   : "text-sidebar-foreground"
               )}
               style={{ paddingLeft: `${0.5 + depth * 0.875 + 0.875}rem` }}
-              onClick={async () => {
+              onClick={async (e) => {
                 const place = await window.api.places.getByPath(node.path);
-                if (place) onSelectPlace?.(place);
+                if (place) onSelectPlace?.(place, e.metaKey || e.ctrlKey);
               }}
               type="button"
             />
@@ -298,7 +298,7 @@ export function ProjectSidebar({
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
-  onSelectPlace?: (place: PlaceRecord) => void;
+  onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string) => void;

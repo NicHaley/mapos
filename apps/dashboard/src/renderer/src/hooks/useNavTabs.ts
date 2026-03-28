@@ -1,0 +1,251 @@
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import type { PlaceRecord } from "../components/MapView";
+
+export type NavEntry =
+  | { kind: "place"; place: PlaceRecord }
+  | { kind: "folder"; folderPath: string; label: string };
+
+export type NavTab = { id: string; history: NavEntry[]; cursor: number };
+export type NavState = { tabs: NavTab[]; activeTab: number };
+
+type NavAction =
+  | { type: "navigate"; entry: NavEntry; newTab: boolean }
+  | { type: "back" }
+  | { type: "forward" }
+  | { type: "activate"; tabIndex: number }
+  | { type: "close"; tabIndex: number }
+  | { type: "remove_path"; path: string; isFolder: boolean }
+  | { type: "restore"; tabs: NavTab[]; activeTab: number };
+
+type PersistedTab =
+  | { kind: "place"; filePath: string }
+  | { kind: "folder"; folderPath: string };
+type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
+
+const NAV_STORAGE_KEY = "mapos-nav-tabs";
+
+export function folderLabel(folderPath: string): string {
+  return folderPath.split(/[/\\]/).filter(Boolean).pop() ?? folderPath;
+}
+
+function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
+  if (entry.kind === "place") {
+    if (isFolder) {
+      return (
+        entry.place.filePath === path ||
+        entry.place.filePath.startsWith(`${path}/`) ||
+        entry.place.filePath.startsWith(`${path}\\`)
+      );
+    }
+    return entry.place.filePath === path;
+  }
+  if (isFolder) {
+    return (
+      entry.folderPath === path ||
+      entry.folderPath.startsWith(`${path}/`) ||
+      entry.folderPath.startsWith(`${path}\\`)
+    );
+  }
+  return false;
+}
+
+export function navReducer(state: NavState, action: NavAction): NavState {
+  switch (action.type) {
+    case "navigate": {
+      if (action.newTab || state.tabs.length === 0) {
+        const newTab: NavTab = {
+          id: crypto.randomUUID(),
+          history: [action.entry],
+          cursor: 0,
+        };
+        return { tabs: [...state.tabs, newTab], activeTab: state.tabs.length };
+      }
+      const tab = state.tabs[state.activeTab];
+      const newHistory = [...tab.history.slice(0, tab.cursor + 1), action.entry];
+      const updatedTab = { ...tab, history: newHistory, cursor: newHistory.length - 1 };
+      return {
+        ...state,
+        tabs: state.tabs.map((t, i) => (i === state.activeTab ? updatedTab : t)),
+      };
+    }
+    case "back": {
+      const tab = state.tabs[state.activeTab];
+      if (!tab || tab.cursor <= 0) return state;
+      return {
+        ...state,
+        tabs: state.tabs.map((t, i) =>
+          i === state.activeTab ? { ...t, cursor: t.cursor - 1 } : t
+        ),
+      };
+    }
+    case "forward": {
+      const tab = state.tabs[state.activeTab];
+      if (!tab || tab.cursor >= tab.history.length - 1) return state;
+      return {
+        ...state,
+        tabs: state.tabs.map((t, i) =>
+          i === state.activeTab ? { ...t, cursor: t.cursor + 1 } : t
+        ),
+      };
+    }
+    case "activate":
+      return { ...state, activeTab: action.tabIndex };
+    case "close": {
+      const newTabs = state.tabs.filter((_, i) => i !== action.tabIndex);
+      if (newTabs.length === 0) return { tabs: [], activeTab: -1 };
+      let active = state.activeTab;
+      if (action.tabIndex < active) active--;
+      else if (action.tabIndex === active) active = Math.min(active, newTabs.length - 1);
+      return { tabs: newTabs, activeTab: active };
+    }
+    case "remove_path": {
+      const newTabs = state.tabs
+        .map((tab) => {
+          const newHistory = tab.history.filter(
+            (entry) => !entryMatchesPath(entry, action.path, action.isFolder)
+          );
+          if (newHistory.length === 0) return null;
+          const newCursor = Math.min(tab.cursor, newHistory.length - 1);
+          return { ...tab, history: newHistory, cursor: newCursor };
+        })
+        .filter(Boolean) as NavTab[];
+      if (newTabs.length === 0) return { tabs: [], activeTab: -1 };
+      return { tabs: newTabs, activeTab: Math.min(state.activeTab, newTabs.length - 1) };
+    }
+    case "restore":
+      return { tabs: action.tabs, activeTab: action.activeTab };
+    default:
+      return state;
+  }
+}
+
+export function useNavTabs({
+  openEntry,
+  onEmpty,
+}: {
+  openEntry: (entry: NavEntry) => void;
+  onEmpty: () => void;
+}) {
+  const [nav, dispatchNav] = useReducer(navReducer, { tabs: [], activeTab: -1 });
+  const navRestoredRef = useRef(false);
+
+  // Persist current tab heads to localStorage whenever nav changes
+  useEffect(() => {
+    if (!navRestoredRef.current) return;
+    if (nav.tabs.length === 0) {
+      localStorage.removeItem(NAV_STORAGE_KEY);
+      return;
+    }
+    const toSave: PersistedNavState = {
+      tabs: nav.tabs.map((tab) => {
+        const current = tab.history[tab.cursor];
+        if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
+        return { kind: "folder", folderPath: current.folderPath };
+      }),
+      activeTab: nav.activeTab,
+    };
+    localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(toSave));
+  }, [nav]);
+
+  // Restore persisted tabs on mount (history is not restored, only the current entry)
+  useEffect(() => {
+    const saved = localStorage.getItem(NAV_STORAGE_KEY);
+    if (!saved) {
+      navRestoredRef.current = true;
+      return;
+    }
+    let parsed: PersistedNavState;
+    try {
+      parsed = JSON.parse(saved) as PersistedNavState;
+    } catch {
+      navRestoredRef.current = true;
+      return;
+    }
+    Promise.all(
+      parsed.tabs.map(async (tab): Promise<NavTab | null> => {
+        if (tab.kind === "folder") {
+          return {
+            id: crypto.randomUUID(),
+            history: [{ kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }],
+            cursor: 0,
+          };
+        }
+        const place = await window.api.places.getByPath(tab.filePath);
+        if (!place) return null;
+        return {
+          id: crypto.randomUUID(),
+          history: [{ kind: "place", place }],
+          cursor: 0,
+        };
+      })
+    ).then((results) => {
+      const validTabs = results.filter(Boolean) as NavTab[];
+      if (validTabs.length > 0) {
+        dispatchNav({
+          type: "restore",
+          tabs: validTabs,
+          activeTab: Math.min(parsed.activeTab, validTabs.length - 1),
+        });
+      }
+      navRestoredRef.current = true;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleNavTabActivate = useCallback((index: number) => {
+    const tab = nav.tabs[index];
+    if (!tab) return;
+    dispatchNav({ type: "activate", tabIndex: index });
+    openEntry(tab.history[tab.cursor]);
+  }, [nav, openEntry]);
+
+  const handleNavTabClose = useCallback((index: number) => {
+    const wasActive = index === nav.activeTab;
+    const nextState = navReducer(nav, { type: "close", tabIndex: index });
+    dispatchNav({ type: "close", tabIndex: index });
+    if (wasActive) {
+      if (nextState.tabs.length === 0) {
+        onEmpty();
+      } else {
+        const nextTab = nextState.tabs[nextState.activeTab];
+        if (nextTab) openEntry(nextTab.history[nextTab.cursor]);
+      }
+    }
+  }, [nav, onEmpty, openEntry]);
+
+  const handleNavBack = useCallback(() => {
+    const tab = nav.tabs[nav.activeTab];
+    if (!tab || tab.cursor <= 0) return;
+    dispatchNav({ type: "back" });
+    openEntry(tab.history[tab.cursor - 1]);
+  }, [nav, openEntry]);
+
+  const handleNavForward = useCallback(() => {
+    const tab = nav.tabs[nav.activeTab];
+    if (!tab || tab.cursor >= tab.history.length - 1) return;
+    dispatchNav({ type: "forward" });
+    openEntry(tab.history[tab.cursor + 1]);
+  }, [nav, openEntry]);
+
+  const activeTab = nav.tabs[nav.activeTab];
+  const navTabsData = nav.tabs.map((tab) => {
+    const current = tab.history[tab.cursor];
+    return {
+      id: tab.id,
+      title: current?.kind === "place" ? current.place.title : (current?.label ?? ""),
+    };
+  });
+
+  return {
+    nav,
+    dispatchNav,
+    navTabsData,
+    activeTabIndex: nav.activeTab,
+    canBack: activeTab ? activeTab.cursor > 0 : false,
+    canForward: activeTab ? activeTab.cursor < activeTab.history.length - 1 : false,
+    handleNavTabActivate,
+    handleNavTabClose,
+    handleNavBack,
+    handleNavForward,
+  };
+}

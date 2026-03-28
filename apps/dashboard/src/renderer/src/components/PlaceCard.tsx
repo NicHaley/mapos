@@ -10,11 +10,13 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { cn } from "@renderer/lib/utils";
 import { MapPinIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
 import { Skeleton } from "./ui/skeleton";
+import { ErrorTooltip } from "./ui/tooltip";
 
 export function PlaceCard({
   place,
@@ -28,10 +30,9 @@ export function PlaceCard({
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [titleMode, setTitleMode] = useState<"view" | "edit">("view");
+  const [titleError, setTitleError] = useState<string | null>(null);
   const editorRef = useRef<MDXEditorMethods>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDark = useDarkMode();
 
@@ -40,8 +41,10 @@ export function PlaceCard({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (titleMode === "edit") {
-          setTitleMode("view");
+        if (document.activeElement === titleRef.current) {
+          if (titleRef.current) titleRef.current.textContent = currentTitle;
+          setTitleError(null);
+          titleRef.current?.blur();
         } else {
           onClose();
         }
@@ -49,11 +52,10 @@ export function PlaceCard({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, titleMode]);
+  }, [onClose, currentTitle]);
 
   useEffect(() => {
     setCurrentFilePath(place.filePath);
-    setTitleMode("view");
     setLoading(true);
     window.api.fs.readFile(place.filePath).then((result) => {
       if ("error" in result) {
@@ -66,8 +68,10 @@ export function PlaceCard({
   }, [place.filePath]);
 
   useEffect(() => {
-    if (titleMode === "edit") titleInputRef.current?.focus();
-  }, [titleMode]);
+    if (titleRef.current && titleRef.current.textContent !== currentTitle) {
+      titleRef.current.textContent = currentTitle;
+    }
+  }, [currentTitle]);
 
   // Cleanup save timer on unmount
   useEffect(() => {
@@ -86,30 +90,44 @@ export function PlaceCard({
     }, 600);
   }
 
-  function handleTitleClick() {
-    setTitleDraft(currentTitle);
-    setTitleMode("edit");
+  function validateTitle(name: string): string | null {
+    if (!name.trim()) return "Name cannot be empty";
+    if (/[/\\:*?"<>|]/.test(name)) return "Name contains invalid characters";
+    return null;
+  }
+
+  function handleTitleInput() {
+    const text = titleRef.current?.textContent ?? "";
+    setTitleError(validateTitle(text));
   }
 
   async function handleTitleBlur() {
-    const newName = titleDraft.trim();
-    if (!newName || newName === currentTitle) {
-      setTitleMode("view");
+    const newName = titleRef.current?.textContent?.trim() ?? "";
+    const error = validateTitle(newName);
+    if (error || newName === currentTitle) {
+      if (titleRef.current) titleRef.current.textContent = currentTitle;
+      setTitleError(null);
       return;
     }
-    const result = await window.api.fs.renameFile(currentFilePath, newName as string);
+    const result = await window.api.fs.renameFile(currentFilePath, newName);
     if (result.success) {
       setCurrentFilePath(result.newPath);
+      setTitleError(null);
+    } else {
+      setTitleError(result.error ?? "Rename failed");
     }
-    setTitleMode("view");
   }
 
-  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLHeadingElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      titleInputRef.current?.blur();
-    } else if (e.key === "Escape") {
-      setTitleMode("view");
+      const text = titleRef.current?.textContent ?? "";
+      const error = validateTitle(text);
+      setTitleError(error);
+      if (!error) {
+        titleRef.current?.blur();
+        editorRef.current?.focus();
+      }
     }
   }
 
@@ -127,24 +145,24 @@ export function PlaceCard({
             <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
               {place.type}
             </p>
-            {titleMode === "view" ? (
+            <ErrorTooltip error={titleError}>
               <h2
-                onClick={handleTitleClick}
-                className="text-lg font-semibold text-sidebar-foreground leading-snug cursor-text hover:bg-sidebar-accent/40 rounded px-0.5 -mx-0.5 transition-colors"
+                ref={titleRef}
+                contentEditable
+                suppressContentEditableWarning
+                aria-label="Place name"
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                onInput={handleTitleInput}
+                spellCheck={false}
+                className={cn(
+                  "text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none",
+                  titleError && "ring-2 ring-inset ring-destructive"
+                )}
               >
                 {currentTitle}
               </h2>
-            ) : (
-              <input
-                ref={titleInputRef}
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onBlur={handleTitleBlur}
-                onKeyDown={handleTitleKeyDown}
-                className="w-full text-lg font-semibold text-sidebar-foreground bg-sidebar border border-sidebar-ring rounded px-0.5 -mx-0.5 focus:outline-none"
-                spellCheck={false}
-              />
-            )}
+            </ErrorTooltip>
           </div>
           <button
             onClick={onClose}

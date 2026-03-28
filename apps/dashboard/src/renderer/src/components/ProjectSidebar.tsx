@@ -21,7 +21,7 @@ import {
   ContextMenuTrigger
 } from "./ui/context-menu";
 import { Sidebar, SidebarContent, SidebarHeader } from "./ui/sidebar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { ErrorTooltip } from "./ui/tooltip";
 
 function fileIcon(name: string) {
   if (name.endsWith(".md"))
@@ -109,40 +109,26 @@ function FileTreeNode({
 
   const renameInput = (
     <div className="flex min-h-0 flex-1 min-w-0 items-center">
-      <TooltipProvider>
-        <Tooltip open={!!renameError}>
-          <TooltipTrigger
-            render={
-              <input
-                ref={inputRef}
-                value={renameDraft}
-                onChange={(e) => {
-                  setRenameDraft(e.target.value);
-                  setRenameError(null);
-                }}
-                onKeyDown={handleRenameKeyDown}
-                onBlur={cancelRename}
-                onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  // h-5 + ring-inset (not border) keeps row height aligned with the label span
-                  "w-full h-5 min-h-5 box-border rounded p-0 text-sm leading-5",
-                  "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
-                  renameError
-                    ? "ring-2 ring-inset ring-destructive"
-                    : "ring-2 ring-inset ring-blue-500"
-                )}
-              />
-            }
-          />
-          <TooltipContent
-            side="bottom"
-            align="start"
-            className="bg-destructive text-destructive-foreground"
-          >
-            {renameError}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <ErrorTooltip error={renameError}>
+        <input
+          ref={inputRef}
+          value={renameDraft}
+          onChange={(e) => {
+            setRenameDraft(e.target.value);
+            setRenameError(null);
+          }}
+          onKeyDown={handleRenameKeyDown}
+          onBlur={cancelRename}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "w-full h-5 min-h-5 box-border rounded p-0 text-sm leading-5",
+            "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
+            renameError
+              ? "ring-2 ring-inset ring-destructive"
+              : "ring-2 ring-inset ring-blue-500"
+          )}
+        />
+      </ErrorTooltip>
     </div>
   );
 

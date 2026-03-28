@@ -53,4 +53,27 @@ function TooltipArrow({ ...props }: TooltipPrimitive.Arrow.Props) {
   return <TooltipPrimitive.Arrow data-slot="tooltip-arrow" {...props} />;
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipArrow };
+function ErrorTooltip({
+  error,
+  children
+}: {
+  error: string | null;
+  children: React.ReactElement;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip open={!!error}>
+        <TooltipTrigger render={children} />
+        <TooltipContent
+          side="bottom"
+          align="start"
+          className="bg-destructive text-destructive-foreground"
+        >
+          {error}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipArrow, ErrorTooltip };

@@ -224,7 +224,7 @@ export function PlaceCard({
                 markdownShortcutPlugin()
               ]}
               placeholder="Add notes…"
-              contentEditableClassName="prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground text-[13px] min-h-[4rem] focus:outline-none !p-0"
+              contentEditableClassName="prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground min-h-[4rem] focus:outline-none !p-0"
             />
           </ScrollArea>
         )}

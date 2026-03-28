@@ -7,25 +7,72 @@ import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
 import { SidebarProvider } from "./components/ui/sidebar";
 
+const PROJECT_SIDEBAR_WIDTH = 256;
+const PLACE_CARD_WIDTH = 320;
+const CHAT_SIDEBAR_WIDTH = 360;
+const FIT_BUFFER = 40;
+
+function mapPadding(
+  projectSidebarOpen: boolean,
+  chatSidebarOpen: boolean,
+  placeCardOpen: boolean
+) {
+  return {
+    left: (projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0) + (placeCardOpen ? PLACE_CARD_WIDTH : 0) + FIT_BUFFER,
+    right: (chatSidebarOpen ? CHAT_SIDEBAR_WIDTH : 0) + FIT_BUFFER,
+    top: FIT_BUFFER,
+    bottom: FIT_BUFFER,
+  };
+}
+
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
+  const [placeMode, setPlaceMode] = useState<"mini" | "full">("mini");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
-  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(false);
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
   const mapRef = useRef<MapViewHandle>(null);
+  const selectedFolderRef = useRef(selectedFolder);
+  selectedFolderRef.current = selectedFolder;
 
-  const handleSelectPlace = useCallback((place: PlaceRecord) => {
-    setSelectedPlace(place);
-    setSelectedFolder(null);
+  const clearPlace = useCallback(() => {
+    setSelectedPlace(null);
+    setPlaceMode("mini");
     setFeatureScreenPos(null);
   }, []);
+
+  // Map feature click — show mini card; no-op when full panel is active
+  const handleSelectPlaceFromMap = useCallback((place: PlaceRecord) => {
+    if (placeMode === "full") return;
+    setSelectedPlace(place);
+    setPlaceMode("mini");
+    setFeatureScreenPos(null);
+    if (!selectedFolderRef.current) {
+      setSelectedFolder(null);
+      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+    }
+  }, [placeMode, projectSidebarOpen, chatSidebarOpen]);
+
+  // Sidebar file click — show full panel and fly to the place
+  const handleSelectPlaceFromSidebar = useCallback((place: PlaceRecord) => {
+    const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
+    setSelectedPlace(place);
+    setPlaceMode("full");
+    setSelectedFolder(null);
+    setFeatureScreenPos(null);
+    if (!alreadyOpen) {
+      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+    }
+  }, [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen]);
 
   const handleSelectFolder = useCallback((folderPath: string) => {
     setSelectedFolder(folderPath);
     setSelectedPlace(null);
-    mapRef.current?.fitToFolder(folderPath);
-  }, []);
+    setPlaceMode("mini");
+    setFeatureScreenPos(null);
+    mapRef.current?.fitToFolder(folderPath, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+  }, [projectSidebarOpen, chatSidebarOpen]);
 
   const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
     setSelectedFolder((prev) => {
@@ -53,11 +100,8 @@ function App(): React.JSX.Element {
     );
   }, []);
 
-  useEffect(() => {
-    if (selectedPlace) {
-      mapRef.current?.fitToPlace(selectedPlace);
-    }
-  }, [selectedPlace]);
+  const isMini = selectedPlace !== null && placeMode === "mini";
+  const isFull = selectedPlace !== null && placeMode === "full";
 
   return (
     <>
@@ -65,11 +109,10 @@ function App(): React.JSX.Element {
       <div className="fixed inset-0 z-0">
         <MapView
           ref={mapRef}
-          onSelectPlace={handleSelectPlace}
+          onSelectPlace={handleSelectPlaceFromMap}
+          onMapClickEmpty={isMini ? clearPlace : undefined}
           selectedPlace={selectedPlace}
           selectedFolder={selectedFolder}
-          projectSidebarOpen={projectSidebarOpen}
-          chatSidebarOpen={chatSidebarOpen}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
         />
       </div>
@@ -103,7 +146,21 @@ function App(): React.JSX.Element {
         className="fixed top-10 inset-x-0 bottom-0 pointer-events-none"
         style={{ transform: "translateZ(0)" }}
       >
-        {/* Ping dot — centered on the feature */}
+        {/* Full-height place panel */}
+        {isFull && selectedPlace && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
+            style={{
+              left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
+              width: PLACE_CARD_WIDTH,
+              transition: "left 200ms linear",
+            }}
+          >
+            <PlaceCard place={selectedPlace} mode="full" onClose={clearPlace} />
+          </div>
+        )}
+
+        {/* Ping dot — shown for both mini and full modes whenever we have a screen position */}
         {selectedPlace && featureScreenPos && (
           <div
             className="absolute pointer-events-none"
@@ -120,20 +177,25 @@ function App(): React.JSX.Element {
           </div>
         )}
 
-        {/* Place detail card — bottom 16px above the feature center */}
-        {selectedPlace && featureScreenPos && (
+        {/* Mini place card — floats above the selected map feature */}
+        {isMini && featureScreenPos && (
           <div
             className="absolute pointer-events-none"
             style={{
               left: featureScreenPos.x,
-              // featureScreenPos.y is viewport-relative; subtract the 40px top-bar offset
               top: featureScreenPos.y - 40,
               transform: "translate(-50%, calc(-100% - 16px))",
             }}
           >
             <PlaceCard
               place={selectedPlace}
-              onClose={() => setSelectedPlace(null)}
+              mode="mini"
+              onClose={clearPlace}
+              onExpand={() => {
+                setPlaceMode("full");
+                setSelectedFolder(null);
+                mapRef.current?.fitToPlace(selectedPlace, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+              }}
             />
           </div>
         )}
@@ -146,9 +208,9 @@ function App(): React.JSX.Element {
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
         >
           <ProjectSidebar
-            selectedFilePath={selectedPlace?.filePath}
+            selectedFilePath={isFull ? selectedPlace?.filePath : undefined}
             selectedFolderPath={selectedFolder ?? undefined}
-            onSelectPlace={handleSelectPlace}
+            onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}
             onDeletePath={handleDeletedPath}
             onRenamePath={handleRenamePath}

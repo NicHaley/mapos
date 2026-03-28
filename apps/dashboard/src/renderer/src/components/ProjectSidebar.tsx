@@ -123,9 +123,7 @@ function FileTreeNode({
           className={cn(
             "w-full h-5 min-h-5 box-border rounded p-0 text-sm leading-5",
             "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
-            renameError
-              ? "ring-2 ring-inset ring-destructive"
-              : "ring-2 ring-inset ring-blue-500"
+            renameError ? "ring-2 ring-inset ring-destructive" : "ring-2 ring-inset ring-blue-500"
           )}
         />
       </ErrorTooltip>
@@ -304,7 +302,7 @@ export function ProjectSidebar({
   }
 
   return (
-    <Sidebar collapsible="offcanvas" variant="floating">
+    <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
       <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
         <span className="text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase">
           MapOS

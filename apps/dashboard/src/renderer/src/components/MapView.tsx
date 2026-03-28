@@ -87,10 +87,12 @@ const POINT_FILTER = ["==", ["geometry-type"], "Point"];
 const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
 const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
 
+type FitPadding = { left: number; right: number; top: number; bottom: number };
+
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
-  fitToFolder: (folderPath: string) => void;
-  fitToPlace: (place: PlaceRecord) => void;
+  fitToFolder: (folderPath: string, padding: FitPadding) => void;
+  fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
 };
 
 function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
@@ -99,27 +101,23 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 }
 
-const PROJECT_SIDEBAR_WIDTH = 256; // 16rem
-const CHAT_SIDEBAR_WIDTH = 360;
 const FIT_BUFFER = 40;
 
 const MapView = forwardRef<
   MapViewHandle,
   {
     onSelectPlace?: (place: PlaceRecord) => void;
+    onMapClickEmpty?: () => void;
     selectedPlace?: PlaceRecord | null;
     selectedFolder?: string | null;
-    projectSidebarOpen?: boolean;
-    chatSidebarOpen?: boolean;
     onSelectedFeaturePosition?: (x: number, y: number) => void;
   }
 >(function MapView(
   {
     onSelectPlace,
+    onMapClickEmpty,
     selectedPlace,
     selectedFolder,
-    projectSidebarOpen,
-    chatSidebarOpen,
     onSelectedFeaturePosition
   },
   ref
@@ -140,11 +138,6 @@ const MapView = forwardRef<
 
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
   const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
-
-  const projectSidebarOpenRef = useRef(projectSidebarOpen);
-  projectSidebarOpenRef.current = projectSidebarOpen;
-  const chatSidebarOpenRef = useRef(chatSidebarOpen);
-  chatSidebarOpenRef.current = chatSidebarOpen;
 
   const onSelectedFeaturePositionRef = useRef(onSelectedFeaturePosition);
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
@@ -170,20 +163,13 @@ const MapView = forwardRef<
   const selectedPlaceForCreate = useRef(selectedPlace);
   selectedPlaceForCreate.current = selectedPlace;
 
-  const getPadding = useCallback(() => {
-    const left = projectSidebarOpenRef.current ? PROJECT_SIDEBAR_WIDTH + FIT_BUFFER : FIT_BUFFER;
-    const right = chatSidebarOpenRef.current ? CHAT_SIDEBAR_WIDTH + FIT_BUFFER : FIT_BUFFER;
-    return { left, right, top: FIT_BUFFER, bottom: FIT_BUFFER };
-  }, []);
-
   const fitToFolder = useCallback(
-    async (folderPath: string) => {
+    async (folderPath: string, padding: FitPadding) => {
       const places = await window.api.places.queryFolderAll(folderPath);
       setFolderPlaces(places);
       if (places.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
-      const padding = getPadding();
       // MapLibre persists padding as camera state — reset before each call so
       // the padding we pass isn't compounded onto the previous value.
       map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
@@ -208,7 +194,7 @@ const MapView = forwardRef<
         );
       }
     },
-    [getPadding]
+    []
   );
 
   useImperativeHandle(
@@ -223,12 +209,11 @@ const MapView = forwardRef<
         map.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
       },
       fitToFolder,
-      fitToPlace: (place: PlaceRecord) => {
+      fitToPlace: (place: PlaceRecord, padding: FitPadding) => {
         const map = mapRef.current;
         if (!map) return;
         try {
           const geo = parseGeometry(place.geometry);
-          const padding = getPadding();
           // MapLibre persists padding as camera state — reset before each call so
           // the padding we pass isn't compounded onto the previous value.
           map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
@@ -253,7 +238,7 @@ const MapView = forwardRef<
         }
       }
     }),
-    [fitToFolder, getPadding]
+    [fitToFolder]
   );
 
   const debouncedMove = useCallback(() => {
@@ -410,14 +395,17 @@ const MapView = forwardRef<
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
       const feature = e.features?.[0];
-      if (!feature?.properties?.filePath) return;
+      if (!feature?.properties?.filePath) {
+        onMapClickEmpty?.();
+        return;
+      }
       const filePath = feature.properties.filePath as string;
       const place =
         folderPlaces.find((p) => p.filePath === filePath) ??
         (selectedPlace?.filePath === filePath ? selectedPlace : undefined);
       if (place) onSelectPlace?.(place);
     },
-    [folderPlaces, selectedPlace, onSelectPlace]
+    [folderPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
   );
 
   const interactiveLayerIds = useMemo(() => {

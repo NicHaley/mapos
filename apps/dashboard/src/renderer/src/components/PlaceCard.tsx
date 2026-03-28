@@ -11,7 +11,7 @@ import {
 import "@mdxeditor/editor/style.css";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
-import { MapPinIcon, XIcon } from "lucide-react";
+import { Maximize2Icon, MapPinIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
@@ -20,10 +20,14 @@ import { ErrorTooltip } from "./ui/tooltip";
 
 export function PlaceCard({
   place,
-  onClose
+  onClose,
+  mode = "mini",
+  onExpand
 }: {
   place: PlaceRecord;
   onClose: () => void;
+  mode?: "mini" | "full";
+  onExpand?: () => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
@@ -132,8 +136,13 @@ export function PlaceCard({
   const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
 
   return (
-    <div className="pointer-events-auto" style={{ width: 272 }}>
-      <div className="rounded-lg border border-sidebar-border bg-sidebar/80 backdrop-blur-md shadow-lg overflow-hidden flex flex-col max-h-[calc(100vh-3.5rem)]">
+    <div className={cn("pointer-events-auto", mode === "full" ? "h-full" : undefined)} style={mode === "mini" ? { width: 272 } : undefined}>
+      <div className={cn(
+        "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
+        mode === "mini"
+          ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
+          : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
+      )}>
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
@@ -159,6 +168,16 @@ export function PlaceCard({
               </h2>
             </ErrorTooltip>
           </div>
+          {mode === "mini" && onExpand && (
+            <button
+              onClick={onExpand}
+              className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
+              type="button"
+              aria-label="Open full view"
+            >
+              <Maximize2Icon className="size-3.5" />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
@@ -186,7 +205,7 @@ export function PlaceCard({
         {loading && <Skeleton className="mx-4 mb-3 h-16 rounded shrink-0" />}
 
         {!loading && (
-          <ScrollArea className="overflow-y-auto px-4 pb-3">
+          <ScrollArea className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
             <MDXEditor
               ref={editorRef}
               markdown=""

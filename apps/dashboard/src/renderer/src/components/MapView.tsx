@@ -8,7 +8,7 @@ import {
   useState
 } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import bbox from "@turf/bbox";
+import { bbox } from "@turf/bbox";
 import MapGL, {
   Layer,
   type MapLayerMouseEvent,

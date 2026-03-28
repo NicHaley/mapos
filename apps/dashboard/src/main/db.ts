@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import bbox from "@turf/bbox";
+import { bbox } from "@turf/bbox";
 import Database from "better-sqlite3";
 import { count, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";

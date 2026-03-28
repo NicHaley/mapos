@@ -17,13 +17,13 @@ import MapGL, {
   Source
 } from "react-map-gl/maplibre";
 
+import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import {
   ContextMenu,
-  ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuTrigger
 } from "./ui/context-menu";
-import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
@@ -114,7 +114,14 @@ const MapView = forwardRef<
     onSelectedFeaturePosition?: (x: number, y: number) => void;
   }
 >(function MapView(
-  { onSelectPlace, selectedPlace, selectedFolder, projectSidebarOpen, chatSidebarOpen, onSelectedFeaturePosition },
+  {
+    onSelectPlace,
+    selectedPlace,
+    selectedFolder,
+    projectSidebarOpen,
+    chatSidebarOpen,
+    onSelectedFeaturePosition
+  },
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -148,7 +155,9 @@ const MapView = forwardRef<
       const center = getGeometryCenter(parseGeometry(place.geometry));
       const pt = map.project(center);
       cb(pt.x, pt.y);
-    } catch { /* invalid geometry */ }
+    } catch {
+      /* invalid geometry */
+    }
   }, []);
 
   const selectedFolderForCreate = useRef(selectedFolder);
@@ -162,31 +171,40 @@ const MapView = forwardRef<
     return { left, right, top: FIT_BUFFER, bottom: FIT_BUFFER };
   }, []);
 
-  const fitToFolder = useCallback(async (folderPath: string) => {
-    const places = await window.api.places.queryFolderAll(folderPath);
-    setFolderPlaces(places);
-    if (places.length === 0) return;
-    const map = mapRef.current;
-    if (!map) return;
-    const padding = getPadding();
-    // MapLibre persists padding as camera state — reset before each call so
-    // the padding we pass isn't compounded onto the previous value.
-    map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
-    const collection = {
-      type: "FeatureCollection" as const,
-      features: places.map((p) => ({
-        type: "Feature" as const,
-        geometry: parseGeometry(p.geometry),
-        properties: {}
-      }))
-    };
-    const [minLng, minLat, maxLng, maxLat] = bbox(collection);
-    if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
-      map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
-    } else {
-      map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding, duration: 600, maxZoom: 16 });
-    }
-  }, [getPadding]);
+  const fitToFolder = useCallback(
+    async (folderPath: string) => {
+      const places = await window.api.places.queryFolderAll(folderPath);
+      setFolderPlaces(places);
+      if (places.length === 0) return;
+      const map = mapRef.current;
+      if (!map) return;
+      const padding = getPadding();
+      // MapLibre persists padding as camera state — reset before each call so
+      // the padding we pass isn't compounded onto the previous value.
+      map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+      const collection = {
+        type: "FeatureCollection" as const,
+        features: places.map((p) => ({
+          type: "Feature" as const,
+          geometry: parseGeometry(p.geometry),
+          properties: {}
+        }))
+      };
+      const [minLng, minLat, maxLng, maxLat] = bbox(collection);
+      if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
+        map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
+      } else {
+        map.fitBounds(
+          [
+            [minLng, minLat],
+            [maxLng, maxLat]
+          ],
+          { padding, duration: 600, maxZoom: 16 }
+        );
+      }
+    },
+    [getPadding]
+  );
 
   useImperativeHandle(
     ref,
@@ -195,8 +213,8 @@ const MapView = forwardRef<
         const map = mapRef.current;
         if (!map) return;
         // MapLibre persists padding as camera state — reset before each call so
-    // the padding we pass isn't compounded onto the previous value.
-    map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+        // the padding we pass isn't compounded onto the previous value.
+        map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
         map.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
       },
       fitToFolder,
@@ -207,15 +225,27 @@ const MapView = forwardRef<
           const geo = parseGeometry(place.geometry);
           const padding = getPadding();
           // MapLibre persists padding as camera state — reset before each call so
-    // the padding we pass isn't compounded onto the previous value.
-    map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+          // the padding we pass isn't compounded onto the previous value.
+          map.getMap().setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
           if (isPoint(geo)) {
             map.flyTo({ center: geo.coordinates, zoom: 14, duration: 600, padding });
           } else {
-            const [minLng, minLat, maxLng, maxLat] = bbox({ type: "Feature", geometry: geo, properties: {} });
-            map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding, duration: 600, maxZoom: 16 });
+            const [minLng, minLat, maxLng, maxLat] = bbox({
+              type: "Feature",
+              geometry: geo,
+              properties: {}
+            });
+            map.fitBounds(
+              [
+                [minLng, minLat],
+                [maxLng, maxLat]
+              ],
+              { padding, duration: 600, maxZoom: 16 }
+            );
           }
-        } catch { /* invalid geometry */ }
+        } catch {
+          /* invalid geometry */
+        }
       }
     }),
     [fitToFolder, getPadding]
@@ -271,12 +301,11 @@ const MapView = forwardRef<
   }, [selectedFolder, fitToFolder]);
 
   useEffect(() => {
-    // Emit position after a brief delay to let the map finish flying to the place
-    const id = setTimeout(emitFeaturePosition, 650);
-    return () => clearTimeout(id);
+    emitFeaturePosition();
   }, [selectedPlace, emitFeaturePosition]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
+    console.log("handleContextMenu", e);
     e.preventDefault();
     contextLatLng.current = { lat: e.lngLat.lat, lng: e.lngLat.lng };
   }, []);
@@ -450,7 +479,7 @@ const MapView = forwardRef<
                 // @ts-expect-error - MapLibre filter expression
                 filter={POINT_FILTER}
                 paint={{
-                  "circle-radius": 7,
+                  "circle-radius": 3,
                   "circle-color": ["get", "color"],
                   "circle-stroke-width": 2,
                   "circle-stroke-color": "white"

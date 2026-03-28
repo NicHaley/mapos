@@ -103,6 +103,23 @@ function App(): React.JSX.Element {
         className="fixed top-10 inset-x-0 bottom-0 pointer-events-none"
         style={{ transform: "translateZ(0)" }}
       >
+        {/* Ping dot — centered on the feature */}
+        {selectedPlace && featureScreenPos && (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: featureScreenPos.x,
+              top: featureScreenPos.y - 40,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-white shadow-sm" />
+            </span>
+          </div>
+        )}
+
         {/* Place detail card — bottom 16px above the feature center */}
         {selectedPlace && featureScreenPos && (
           <div

@@ -1,11 +1,20 @@
-import { cn } from "@renderer/lib/utils";
+import {
+  MDXEditor,
+  type MDXEditorMethods,
+  headingsPlugin,
+  linkPlugin,
+  listsPlugin,
+  markdownShortcutPlugin,
+  quotePlugin,
+  thematicBreakPlugin
+} from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
+import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { MapPinIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
 import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
 import { Skeleton } from "./ui/skeleton";
-
 
 export function PlaceCard({
   place,
@@ -17,24 +26,21 @@ export function PlaceCard({
   sidebarOpen?: boolean;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
-  const [body, setBody] = useState<string | null>(null);
-  const [mode, setMode] = useState<"view" | "edit">("view");
-  const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleMode, setTitleMode] = useState<"view" | "edit">("view");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<MDXEditorMethods>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDark = useDarkMode();
 
   const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (mode === "edit") {
-          setMode("view");
-        } else if (titleMode === "edit") {
+        if (titleMode === "edit") {
           setTitleMode("view");
         } else {
           onClose();
@@ -43,12 +49,10 @@ export function PlaceCard({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, mode, titleMode]);
+  }, [onClose, titleMode]);
 
   useEffect(() => {
     setCurrentFilePath(place.filePath);
-    setBody(null);
-    setMode("view");
     setTitleMode("view");
     setLoading(true);
     window.api.fs.readFile(place.filePath).then((result) => {
@@ -56,40 +60,30 @@ export function PlaceCard({
         setLoading(false);
         return;
       }
-      setBody(result.body);
+      editorRef.current?.setMarkdown(result.body);
       setLoading(false);
     });
   }, [place.filePath]);
-
-  // Auto-resize textarea to fit content
-  useEffect(() => {
-    if (mode === "edit" && textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-      textareaRef.current.focus();
-    }
-  }, [mode]);
 
   useEffect(() => {
     if (titleMode === "edit") titleInputRef.current?.focus();
   }, [titleMode]);
 
-  function handleBodyClick() {
-    if (mode === "view" && body !== null) {
-      setDraft(body);
-      setMode("edit");
-    }
-  }
+  // Cleanup save timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
-  async function handleBlur() {
-    if (mode !== "edit" || saving) return;
-    setSaving(true);
-    const result = await window.api.fs.writePlaceBody(currentFilePath, draft);
-    if (result.success) {
-      setBody(draft.trim());
-    }
-    setSaving(false);
-    setMode("view");
+  function handleEditorChange(markdown: string) {
+    if (saving) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      setSaving(true);
+      await window.api.fs.writePlaceBody(currentFilePath, markdown);
+      setSaving(false);
+    }, 600);
   }
 
   function handleTitleClick() {
@@ -136,7 +130,7 @@ export function PlaceCard({
             {titleMode === "view" ? (
               <h2
                 onClick={handleTitleClick}
-                className="text-sm font-semibold text-sidebar-foreground leading-snug cursor-text hover:bg-sidebar-accent/40 rounded px-0.5 -mx-0.5 transition-colors"
+                className="text-lg font-semibold text-sidebar-foreground leading-snug cursor-text hover:bg-sidebar-accent/40 rounded px-0.5 -mx-0.5 transition-colors"
               >
                 {currentTitle}
               </h2>
@@ -147,7 +141,7 @@ export function PlaceCard({
                 onChange={(e) => setTitleDraft(e.target.value)}
                 onBlur={handleTitleBlur}
                 onKeyDown={handleTitleKeyDown}
-                className="w-full text-sm font-semibold text-sidebar-foreground bg-sidebar border border-sidebar-ring rounded px-0.5 -mx-0.5 focus:outline-none"
+                className="w-full text-lg font-semibold text-sidebar-foreground bg-sidebar border border-sidebar-ring rounded px-0.5 -mx-0.5 focus:outline-none"
                 spellCheck={false}
               />
             )}
@@ -180,34 +174,22 @@ export function PlaceCard({
 
         {!loading && (
           <ScrollArea className="overflow-y-auto px-4 pb-3">
-            {mode === "view" ? (
-              <div
-                onClick={handleBodyClick}
-                className={cn(
-                  "min-h-[2rem] rounded cursor-text",
-                  body ? "hover:bg-sidebar-accent/40 transition-colors" : "flex items-center"
-                )}
-              >
-                {body ? (
-                  <Streamdown className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 text-sidebar-foreground text-[13px]">
-                    {body}
-                  </Streamdown>
-                ) : (
-                  <span className="text-[12px] text-sidebar-foreground/30 italic select-none">
-                    Click to add notes…
-                  </span>
-                )}
-              </div>
-            ) : (
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={handleBlur}
-                className="w-full min-h-[4rem] resize-none rounded border border-sidebar-border bg-sidebar font-mono text-xs text-sidebar-foreground focus:outline-none focus:ring-1 focus:ring-sidebar-ring p-2 overflow-hidden"
-                spellCheck={false}
-              />
-            )}
+            <MDXEditor
+              ref={editorRef}
+              markdown=""
+              onChange={handleEditorChange}
+              className={isDark ? "dark-theme dark-editor" : undefined}
+              plugins={[
+                headingsPlugin(),
+                listsPlugin(),
+                quotePlugin(),
+                thematicBreakPlugin(),
+                linkPlugin(),
+                markdownShortcutPlugin()
+              ]}
+              placeholder="Add notes…"
+              contentEditableClassName="prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground text-[13px] min-h-[4rem] focus:outline-none !p-0"
+            />
           </ScrollArea>
         )}
 
@@ -218,7 +200,10 @@ export function PlaceCard({
             <span>
               {(() => {
                 try {
-                  const geo = JSON.parse(place.geometry) as { type: string; coordinates: [number, number] };
+                  const geo = JSON.parse(place.geometry) as {
+                    type: string;
+                    coordinates: [number, number];
+                  };
                   if (geo.type === "Point") {
                     return `${geo.coordinates[1].toFixed(4)}, ${geo.coordinates[0].toFixed(4)}`;
                   }

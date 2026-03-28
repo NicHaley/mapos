@@ -327,14 +327,11 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         fileName = `${baseName} ${n}`;
         candidate = join(dir, `${fileName}.md`);
       }
-      const title = fileName;
       const content = `---
 geometry: POINT(${args.lng} ${args.lat})
 type: place
 status: want-to-go
 ---
-
-# ${title}
 `;
       try {
         writeFileSync(candidate, content, "utf-8");

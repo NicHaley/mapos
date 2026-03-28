@@ -104,6 +104,17 @@
   animation: blink 1s step-end infinite;
 }
 
+.mdxeditor {
+  --spacing: 0;
+  padding: 0 !important;
+}
+.mdxeditor-root-contenteditable {
+  padding: 0 !important;
+}
+.mdxeditor-root-contenteditable p {
+  margin: 0 !important;
+}
+
 body {
   margin: 0;
   padding: 0;

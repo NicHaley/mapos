@@ -23,19 +23,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
 function useDarkMapStyle() {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const [isDark, setIsDark] = useState(mq.matches);
-
-  useEffect(() => {
-    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [mq]);
-
+  const isDark = useDarkMode();
   return `https://api.protomaps.com/styles/v5/${isDark ? "black" : "light"}/en.json?key=${PROTOMAPS_KEY}`;
 }
 

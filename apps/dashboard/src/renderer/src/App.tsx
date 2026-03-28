@@ -53,12 +53,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     if (selectedPlace) {
-      try {
-        const geo = JSON.parse(selectedPlace.geometry) as { type: string; coordinates: [number, number] };
-        if (geo.type === "Point") {
-          mapRef.current?.flyTo(geo.coordinates[1], geo.coordinates[0]);
-        }
-      } catch { /* invalid geometry — skip flyTo */ }
+      mapRef.current?.fitToPlace(selectedPlace);
     }
   }, [selectedPlace]);
 

@@ -15,16 +15,15 @@ const CHAT_SIDEBAR_WIDTH = 360;
 const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
 
-function mapPadding(
-  projectSidebarOpen: boolean,
-  chatSidebarOpen: boolean,
-  placeCardOpen: boolean
-) {
+function mapPadding(projectSidebarOpen: boolean, chatSidebarOpen: boolean, placeCardOpen: boolean) {
   return {
-    left: (projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0) + (placeCardOpen ? PLACE_CARD_WIDTH : 0) + FIT_BUFFER,
+    left:
+      (projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0) +
+      (placeCardOpen ? PLACE_CARD_WIDTH : 0) +
+      FIT_BUFFER,
     right: (chatSidebarOpen ? CHAT_SIDEBAR_WIDTH : 0) + FIT_BUFFER,
     top: TOP_BAR_HEIGHT + FIT_BUFFER,
-    bottom: FIT_BUFFER,
+    bottom: FIT_BUFFER
   };
 }
 
@@ -46,21 +45,30 @@ function App(): React.JSX.Element {
   }, []);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
-  const openEntry = useCallback((entry: NavEntry) => {
-    if (entry.kind === "place") {
-      setSelectedPlace(entry.place);
-      setPlaceMode("full");
-      setSelectedFolder(null);
-      setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(entry.place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
-    } else {
-      setSelectedFolder(entry.folderPath);
-      setSelectedPlace(null);
-      setPlaceMode("mini");
-      setFeatureScreenPos(null);
-      mapRef.current?.fitToFolder(entry.folderPath, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
-    }
-  }, [projectSidebarOpen, chatSidebarOpen]);
+  const openEntry = useCallback(
+    (entry: NavEntry) => {
+      if (entry.kind === "place") {
+        setSelectedPlace(entry.place);
+        setPlaceMode("full");
+        setSelectedFolder(null);
+        setFeatureScreenPos(null);
+        mapRef.current?.fitToPlace(
+          entry.place,
+          mapPadding(projectSidebarOpen, chatSidebarOpen, true)
+        );
+      } else {
+        setSelectedFolder(entry.folderPath);
+        setSelectedPlace(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        mapRef.current?.fitToFolder(
+          entry.folderPath,
+          mapPadding(projectSidebarOpen, chatSidebarOpen, false)
+        );
+      }
+    },
+    [projectSidebarOpen, chatSidebarOpen]
+  );
 
   const onNavEmpty = useCallback(() => {
     clearPlace();
@@ -77,61 +85,81 @@ function App(): React.JSX.Element {
     handleNavTabActivate,
     handleNavTabClose,
     handleNavBack,
-    handleNavForward,
+    handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
 
   // Map feature click — show mini card; no-op when full panel is active
-  const handleSelectPlaceFromMap = useCallback((place: PlaceRecord) => {
-    if (placeMode === "full") return;
-    setSelectedPlace(place);
-    setPlaceMode("mini");
-    setFeatureScreenPos(null);
-    if (!selectedFolderRef.current) {
-      setSelectedFolder(null);
-      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
-    }
-  }, [placeMode, projectSidebarOpen, chatSidebarOpen]);
-
-  // Sidebar file click — navigate within active tab (or new tab on cmd/ctrl+click)
-  const handleSelectPlaceFromSidebar = useCallback((place: PlaceRecord, newTab = false) => {
-    const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
-    setSelectedPlace(place);
-    setPlaceMode("full");
-    setSelectedFolder(null);
-    setFeatureScreenPos(null);
-    dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab });
-    if (!alreadyOpen) {
-      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
-    }
-  }, [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen, dispatchNav]);
-
-  // Sidebar folder click — navigate within active tab
-  const handleSelectFolder = useCallback((folderPath: string) => {
-    setSelectedFolder(folderPath);
-    setSelectedPlace(null);
-    setPlaceMode("mini");
-    setFeatureScreenPos(null);
-    dispatchNav({
-      type: "navigate",
-      entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
-      newTab: false,
-    });
-    mapRef.current?.fitToFolder(folderPath, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
-  }, [projectSidebarOpen, chatSidebarOpen, dispatchNav]);
-
-  // New place file created from map context menu
-  const handleCreatePlace = useCallback((place: PlaceRecord) => {
-    if (selectedFolder) {
+  const handleSelectPlaceFromMap = useCallback(
+    (place: PlaceRecord) => {
+      if (placeMode === "full") return;
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-    } else {
+      if (!selectedFolderRef.current) {
+        setSelectedFolder(null);
+        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+      }
+    },
+    [placeMode, projectSidebarOpen, chatSidebarOpen]
+  );
+
+  // Sidebar file click — navigate within active tab (or new tab on cmd/ctrl+click)
+  const handleSelectPlaceFromSidebar = useCallback(
+    (place: PlaceRecord, newTab = false) => {
+      const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
       setSelectedPlace(place);
       setPlaceMode("full");
+      setSelectedFolder(null);
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
-    }
-  }, [selectedFolder, projectSidebarOpen, chatSidebarOpen]);
+      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab });
+      if (!alreadyOpen) {
+        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+      }
+    },
+    [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen, dispatchNav]
+  );
+
+  // Sidebar folder click — navigate within active tab
+  const handleSelectFolder = useCallback(
+    (folderPath: string) => {
+      setSelectedFolder(folderPath);
+      setSelectedPlace(null);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
+        newTab: false
+      });
+      console.log(
+        "fitToFolder",
+        folderPath,
+        mapPadding(projectSidebarOpen, chatSidebarOpen, false)
+      );
+      mapRef.current?.fitToFolder(
+        folderPath,
+        mapPadding(projectSidebarOpen, chatSidebarOpen, false)
+      );
+    },
+    [projectSidebarOpen, chatSidebarOpen, dispatchNav]
+  );
+
+  // New place file created from map context menu
+  const handleCreatePlace = useCallback(
+    (place: PlaceRecord) => {
+      if (selectedFolder) {
+        setSelectedPlace(place);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+      } else {
+        setSelectedPlace(place);
+        setPlaceMode("full");
+        setFeatureScreenPos(null);
+        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+      }
+    },
+    [selectedFolder, projectSidebarOpen, chatSidebarOpen]
+  );
 
   const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
     setSelectedFolder((prev) => {
@@ -143,39 +171,42 @@ function App(): React.JSX.Element {
     });
   }, []);
 
-  const handleDeletedPath = useCallback((deletedPath: string, type: "file" | "directory") => {
-    const isSameOrChildPath = (currentPath: string, parentPath: string) =>
-      currentPath === parentPath ||
-      currentPath.startsWith(`${parentPath}/`) ||
-      currentPath.startsWith(`${parentPath}\\`);
+  const handleDeletedPath = useCallback(
+    (deletedPath: string, type: "file" | "directory") => {
+      const isSameOrChildPath = (currentPath: string, parentPath: string) =>
+        currentPath === parentPath ||
+        currentPath.startsWith(`${parentPath}/`) ||
+        currentPath.startsWith(`${parentPath}\\`);
 
-    const isFolder = type === "directory";
-    const nextNavState = navReducer(nav, { type: "remove_path", path: deletedPath, isFolder });
-    dispatchNav({ type: "remove_path", path: deletedPath, isFolder });
+      const isFolder = type === "directory";
+      const nextNavState = navReducer(nav, { type: "remove_path", path: deletedPath, isFolder });
+      dispatchNav({ type: "remove_path", path: deletedPath, isFolder });
 
-    if (isFolder) {
-      const wasAffected =
-        (selectedFolder && isSameOrChildPath(selectedFolder, deletedPath)) ||
-        (selectedPlace && isSameOrChildPath(selectedPlace.filePath, deletedPath));
-      setSelectedFolder((prev) => (prev && isSameOrChildPath(prev, deletedPath) ? null : prev));
-      setSelectedPlace((prev) =>
-        prev && isSameOrChildPath(prev.filePath, deletedPath) ? null : prev
-      );
-      if (wasAffected) {
-        const nextTab = nextNavState.tabs[nextNavState.activeTab];
-        const nextEntry = nextTab?.history[nextTab.cursor];
-        if (nextEntry) openEntry(nextEntry);
-        else onNavEmpty();
+      if (isFolder) {
+        const wasAffected =
+          (selectedFolder && isSameOrChildPath(selectedFolder, deletedPath)) ||
+          (selectedPlace && isSameOrChildPath(selectedPlace.filePath, deletedPath));
+        setSelectedFolder((prev) => (prev && isSameOrChildPath(prev, deletedPath) ? null : prev));
+        setSelectedPlace((prev) =>
+          prev && isSameOrChildPath(prev.filePath, deletedPath) ? null : prev
+        );
+        if (wasAffected) {
+          const nextTab = nextNavState.tabs[nextNavState.activeTab];
+          const nextEntry = nextTab?.history[nextTab.cursor];
+          if (nextEntry) openEntry(nextEntry);
+          else onNavEmpty();
+        }
+      } else {
+        if (selectedPlace?.filePath === deletedPath) {
+          const nextTab = nextNavState.tabs[nextNavState.activeTab];
+          const nextEntry = nextTab?.history[nextTab.cursor];
+          if (nextEntry) openEntry(nextEntry);
+          else clearPlace();
+        }
       }
-    } else {
-      if (selectedPlace?.filePath === deletedPath) {
-        const nextTab = nextNavState.tabs[nextNavState.activeTab];
-        const nextEntry = nextTab?.history[nextTab.cursor];
-        if (nextEntry) openEntry(nextEntry);
-        else clearPlace();
-      }
-    }
-  }, [selectedPlace, selectedFolder, nav, dispatchNav, openEntry, clearPlace, onNavEmpty]);
+    },
+    [selectedPlace, selectedFolder, nav, dispatchNav, openEntry, clearPlace, onNavEmpty]
+  );
 
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
@@ -208,7 +239,10 @@ function App(): React.JSX.Element {
         >
           <PanelLeftIcon className="size-4" />
         </Button>
-        <div className="flex-1 min-w-0 flex items-center h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div
+          className="flex-1 min-w-0 flex items-center h-full"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}
@@ -243,7 +277,7 @@ function App(): React.JSX.Element {
             style={{
               left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
               width: PLACE_CARD_WIDTH,
-              transition: "left 200ms linear",
+              transition: "left 200ms linear"
             }}
           >
             <PlaceCard place={selectedPlace} mode="full" onClose={clearPlace} />
@@ -257,7 +291,7 @@ function App(): React.JSX.Element {
             style={{
               left: featureScreenPos.x,
               top: featureScreenPos.y - TOP_BAR_HEIGHT,
-              transform: "translate(-50%, -50%)",
+              transform: "translate(-50%, -50%)"
             }}
           >
             <span className="relative flex h-3 w-3">
@@ -274,7 +308,7 @@ function App(): React.JSX.Element {
             style={{
               left: featureScreenPos.x,
               top: featureScreenPos.y - TOP_BAR_HEIGHT,
-              transform: "translate(-50%, calc(-100% - 16px))",
+              transform: "translate(-50%, calc(-100% - 16px))"
             }}
           >
             <PlaceCard
@@ -284,8 +318,15 @@ function App(): React.JSX.Element {
               onExpand={() => {
                 setPlaceMode("full");
                 setSelectedFolder(null);
-                dispatchNav({ type: "navigate", entry: { kind: "place", place: selectedPlace }, newTab: false });
-                mapRef.current?.fitToPlace(selectedPlace, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+                dispatchNav({
+                  type: "navigate",
+                  entry: { kind: "place", place: selectedPlace },
+                  newTab: false
+                });
+                mapRef.current?.fitToPlace(
+                  selectedPlace,
+                  mapPadding(projectSidebarOpen, chatSidebarOpen, true)
+                );
               }}
             />
           </div>

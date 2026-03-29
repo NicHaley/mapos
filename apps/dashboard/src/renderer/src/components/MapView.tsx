@@ -111,8 +111,8 @@ function cameraForBounds(
 ) {
   const nativeMap = map.getMap();
   const savedPadding = nativeMap.getPadding();
-  nativeMap.transform.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
-  const cam = nativeMap.cameraForBounds(bounds, { padding, maxZoom: 16 });
+  nativeMap.transform.setPadding(padding);
+  const cam = nativeMap.cameraForBounds(bounds, { maxZoom: 16 });
   nativeMap.transform.setPadding(savedPadding);
   return cam;
 }

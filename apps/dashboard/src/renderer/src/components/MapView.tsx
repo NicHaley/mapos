@@ -33,7 +33,7 @@ function useDarkMapStyle() {
 }
 
 export type PlaceRecord = {
-  geometry: string; // GeoJSON geometry JSON string
+  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
   title: string;
   color?: string;
   type: string;
@@ -227,7 +227,7 @@ const MapView = forwardRef<
       fitToFolder,
       fitToPlace: (place: PlaceRecord, padding: FitPadding) => {
         const map = mapRef.current;
-        if (!map) return;
+        if (!map || !place.geometry) return;
         try {
           const geo = parseGeometry(place.geometry);
           if (isPoint(geo)) {
@@ -379,9 +379,11 @@ const MapView = forwardRef<
 
   // All folder places as one source (excluding selected to avoid double-render)
   const folderGeoJSON = useMemo(() => {
-    const places = selectedPlace
-      ? folderPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
-      : folderPlaces;
+    const places = (
+      selectedPlace
+        ? folderPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
+        : folderPlaces
+    ).filter((p) => p.geometry);
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
@@ -392,7 +394,7 @@ const MapView = forwardRef<
 
   // Selected place as its own source for distinct styling
   const selectedGeoJSON = useMemo(() => {
-    if (!selectedPlace) return null;
+    if (!selectedPlace || !selectedPlace.geometry) return null;
     try {
       return { type: "FeatureCollection" as const, features: [toFeature(selectedPlace)] };
     } catch {

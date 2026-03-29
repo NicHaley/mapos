@@ -84,7 +84,7 @@ export interface FeatureRecord {
 }
 
 export interface PlaceRecord {
-  geometry: string; // GeoJSON geometry JSON string
+  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
   title: string;
   color?: string;
   type: string;
@@ -270,7 +270,7 @@ export function clearAllFeatures(): void {
 
 export function rebuildIndexFromPlaces(places: Map<string, PlaceRecord>): number {
   clearAllFeatures();
-  const records = [...places.values()];
+  const records = [...places.values()].filter((r) => r.geometry);
   indexFeatures(records);
   return records.length;
 }

@@ -32,7 +32,7 @@ import {
 import { parseWkt } from "./wkt";
 
 type PlaceRecord = {
-  geometry: string; // GeoJSON geometry JSON string
+  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
   title: string;
   color?: string;
   type: string;
@@ -47,11 +47,10 @@ async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
     const { data } = matter(raw);
     if (data.type === "collection") return null;
     const geo = parseWkt(data.geometry);
-    if (!geo) return null;
     const basename = filePath.split(sep).pop() ?? filePath;
     const title = basename.replace(/\.md$/i, "");
     return {
-      geometry: JSON.stringify(geo),
+      geometry: geo ? JSON.stringify(geo) : undefined,
       title,
       color: typeof data.color === "string" ? data.color : undefined,
       type: data.type ?? "place",
@@ -119,7 +118,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     console.log("[main] parsed:", place);
     if (place) {
       places.set(filePath, place);
-      indexFeatures([place]);
+      if (place.geometry) indexFeatures([place]);
       if (initialScanDone && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("places:updated", { event: "add", place });
       }
@@ -131,7 +130,11 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     const place = await parsePlaceFile(filePath);
     if (place) {
       places.set(filePath, place);
-      indexFeatures([place]);
+      if (place.geometry) {
+        indexFeatures([place]);
+      } else {
+        removeFeatures([filePath]);
+      }
     } else {
       places.delete(filePath);
       removeFeatures([filePath]);

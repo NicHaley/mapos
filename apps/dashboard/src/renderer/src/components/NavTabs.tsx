@@ -1,5 +1,6 @@
+import { cn } from "@renderer/lib/utils";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button, buttonVariants } from "./ui/button";
 import { Separator } from "./ui/separator";
 
 type NavTabsProps = {
@@ -23,7 +24,7 @@ export function NavTabs({
   onTabActivate,
   onTabClose,
   onBack,
-  onForward,
+  onForward
 }: NavTabsProps) {
   if (tabs.length === 0) return null;
 
@@ -42,18 +43,21 @@ export function NavTabs({
         {tabs.map((tab, i) => {
           const isActive = i === activeTabIndex;
           return (
-            <Button
+            <div
               key={tab.id}
-              variant="ghost"
-              size="sm"
+              role="tab"
+              tabIndex={0}
               onClick={() => onTabActivate(i)}
-              className={`
-                group flex-shrink-0 max-w-[160px] gap-1 pr-1
-                ${isActive
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onTabActivate(i);
+              }}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "group shrink-0 max-w-[160px] gap-1 pr-1 cursor-pointer",
+                isActive
                   ? "bg-sidebar-foreground/15 hover:bg-sidebar-foreground/20 text-sidebar-foreground"
                   : "text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
-                }
-              `}
+              )}
             >
               <span className="truncate">{tab.title}</span>
               <Button
@@ -63,17 +67,16 @@ export function NavTabs({
                   e.stopPropagation();
                   onTabClose(i);
                 }}
-                className={`
-                  flex-shrink-0 rounded
-                  ${isActive
+                className={cn(
+                  "shrink-0 rounded",
+                  isActive
                     ? "opacity-60 hover:opacity-100"
-                    : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
-                  }
-                `}
+                    : "opacity-0 group-hover:opacity-60 hover:opacity-100!"
+                )}
               >
                 <XIcon />
               </Button>
-            </Button>
+            </div>
           );
         })}
       </div>

@@ -55,7 +55,7 @@ export function NavTabs({
                 buttonVariants({ variant: "ghost", size: "sm" }),
                 "group shrink-0 max-w-[160px] gap-1 pr-1 cursor-pointer",
                 isActive
-                  ? "bg-sidebar-foreground/15 hover:bg-sidebar-foreground/20 text-sidebar-foreground"
+                  ? "hover:bg-sidebar-accent bg-sidebar-accent! text-sidebar-foreground"
                   : "text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
               )}
             >

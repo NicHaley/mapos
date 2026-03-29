@@ -131,11 +131,6 @@ function App(): React.JSX.Element {
         entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
         newTab: false
       });
-      console.log(
-        "fitToFolder",
-        folderPath,
-        mapPadding(projectSidebarOpen, chatSidebarOpen, false)
-      );
       mapRef.current?.fitToFolder(
         folderPath,
         mapPadding(projectSidebarOpen, chatSidebarOpen, false)

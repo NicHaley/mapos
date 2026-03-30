@@ -40,7 +40,8 @@ function FileTreeNode({
   onSelectFolder,
   onRequestDelete,
   onRenameComplete,
-  onCreateFolderIn
+  onCreateFolderIn,
+  onCreateNoteIn
 }: {
   node: FileNode;
   depth: number;
@@ -53,6 +54,7 @@ function FileTreeNode({
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string) => void;
   onCreateFolderIn?: (path: string) => void;
+  onCreateNoteIn?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth === 0);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -162,6 +164,7 @@ function FileTreeNode({
 
   const folderMenuItems = (
     <>
+      <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>New Note</ContextMenuItem>
       <ContextMenuItem onClick={() => onCreateFolderIn?.(node.path)}>New Folder</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
@@ -232,6 +235,7 @@ function FileTreeNode({
                   onRequestDelete={onRequestDelete}
                   onRenameComplete={onRenameComplete}
                   onCreateFolderIn={onCreateFolderIn}
+                  onCreateNoteIn={onCreateNoteIn}
                 />
               ))}
             </div>
@@ -339,6 +343,18 @@ export function ProjectSidebar({
     await load();
   }
 
+  async function createNoteIn(parentPath: string) {
+    if (!parentPath) return;
+    const result = await window.api.fs.createNoteFile({ parentFolderPath: parentPath });
+    if (result.success) {
+      setPendingRenamePath(result.filePath);
+      const filePath = result.filePath;
+      const title = (filePath.split(/[/\\]/).pop() ?? "Untitled.md").replace(/\.md$/i, "");
+      const place = (await window.api.places.getByPath(filePath)) ?? { title, type: "note", filePath };
+      onSelectPlace?.(place);
+    }
+  }
+
   async function createFolderIn(parentPath: string) {
     if (!parentPath) return;
     const result = await window.api.fs.createFolder({
@@ -377,10 +393,12 @@ export function ProjectSidebar({
                 }}
                 onRenameComplete={onRenamePath}
                 onCreateFolderIn={(path) => void createFolderIn(path)}
+                onCreateNoteIn={(path) => void createNoteIn(path)}
               />
             ))}
           </ContextMenuTrigger>
           <ContextMenuContent>
+            <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>New Note</ContextMenuItem>
             <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
               New Folder
             </ContextMenuItem>

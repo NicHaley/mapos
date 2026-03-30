@@ -209,7 +209,14 @@ const MapView = forwardRef<
       if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
         map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
       } else {
-        const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
+        const cam = cameraForBounds(
+          map,
+          [
+            [minLng, minLat],
+            [maxLng, maxLat]
+          ],
+          padding
+        );
         if (cam) map.flyTo({ ...cam, duration: 600, padding });
       }
     },
@@ -238,7 +245,14 @@ const MapView = forwardRef<
               geometry: geo,
               properties: {}
             });
-            const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
+            const cam = cameraForBounds(
+              map,
+              [
+                [minLng, minLat],
+                [maxLng, maxLat]
+              ],
+              padding
+            );
             if (cam) map.flyTo({ ...cam, duration: 600, padding });
           }
         } catch {
@@ -315,7 +329,7 @@ const MapView = forwardRef<
   const handleCreatePlaceFile = useCallback(async () => {
     if (!contextMenu) return;
     setContextMenu(null);
-    const result = await window.api.fs.createPlaceFile({
+    const result = await window.api.fs.createNoteFile({
       parentFolderPath: selectedFolderForCreate.current ?? null,
       lat: contextMenu.lat,
       lng: contextMenu.lng
@@ -590,9 +604,7 @@ const MapView = forwardRef<
           }}
         />
         <DropdownMenuContent side="bottom" align="start" sideOffset={0}>
-          <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>
-            New place file
-          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>New Note</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

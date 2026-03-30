@@ -339,7 +339,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle(
     "fs:create-place-file",
-    async (_event, args: { parentFolderPath: string | null; lat: number; lng: number }) => {
+    async (_event, args: { parentFolderPath: string | null; lat?: number; lng?: number }) => {
       const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
       let dir: string;
       if (args.parentFolderPath) {
@@ -351,7 +351,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       } else {
         dir = MAPOS_DIR;
       }
-      const baseName = "New Place";
+      const baseName = "Untitled";
       let fileName = baseName;
       let candidate = join(dir, `${fileName}.md`);
       let n = 0;
@@ -360,14 +360,13 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         fileName = `${baseName} ${n}`;
         candidate = join(dir, `${fileName}.md`);
       }
-      const content = `---
-geometry: POINT(${args.lng} ${args.lat})
-type: place
-status: want-to-go
----
-`;
+      const content =
+        args.lat != null && args.lng != null
+          ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
+          : "";
       try {
         writeFileSync(candidate, content, "utf-8");
+        notifyFsChanged();
         return { success: true as const, filePath: candidate };
       } catch (err) {
         return { success: false as const, error: String(err) };

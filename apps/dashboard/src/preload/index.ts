@@ -69,7 +69,7 @@ const api = {
       >,
     revealInFinder: (targetPath: string) =>
       ipcRenderer.invoke("fs:reveal-in-finder", targetPath),
-    createPlaceFile: (args: { parentFolderPath: string | null; lat: number; lng: number }) =>
+    createNoteFile: (args: { parentFolderPath: string | null; lat?: number; lng?: number }) =>
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<
         { success: true; filePath: string } | { success: false; error: string }
       >,

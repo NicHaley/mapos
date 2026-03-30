@@ -75,7 +75,7 @@ declare global {
           targetPath: string
         ) => Promise<{ success: true } | { success: false; error: string }>;
         revealInFinder: (targetPath: string) => Promise<void>;
-        createPlaceFile: (args: {
+        createNoteFile: (args: {
           parentFolderPath: string | null;
           lat: number;
           lng: number;

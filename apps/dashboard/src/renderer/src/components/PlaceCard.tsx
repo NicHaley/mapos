@@ -1,17 +1,10 @@
-import {
-  MDXEditor,
-  type MDXEditorMethods,
-  headingsPlugin,
-  linkPlugin,
-  listsPlugin,
-  markdownShortcutPlugin,
-  quotePlugin,
-  thematicBreakPlugin
-} from "@mdxeditor/editor";
-import "@mdxeditor/editor/style.css";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
-import { MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
+import Link from "@tiptap/extension-link";
+import { Markdown } from "@tiptap/markdown";
+import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PlaceRecord } from "./MapView";
 import { ScrollArea } from "./ui/scroll-area";
@@ -32,12 +25,29 @@ export function PlaceCard({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
-  const editorRef = useRef<MDXEditorMethods>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const isLoadingRef = useRef(false);
   const isDark = useDarkMode();
+  const [linkUrl, setLinkUrl] = useState("");
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const linkInputRef = useRef<HTMLInputElement>(null);
 
   const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+
+  const editor = useEditor({
+    extensions: [StarterKit, Link.configure({ openOnClick: false }), Markdown],
+    editorProps: {
+      attributes: {
+        class:
+          "prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground min-h-[4rem] focus:outline-none"
+      }
+    },
+    onUpdate({ editor: e }) {
+      if (isLoadingRef.current) return;
+      handleEditorChange(e.getMarkdown());
+    }
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -56,17 +66,21 @@ export function PlaceCard({
   }, [onClose, currentTitle]);
 
   useEffect(() => {
+    if (!editor) return;
     setCurrentFilePath(place.filePath);
     setLoading(true);
+    isLoadingRef.current = true;
     window.api.fs.readFile(place.filePath).then((result) => {
       if ("error" in result) {
         setLoading(false);
+        isLoadingRef.current = false;
         return;
       }
-      editorRef.current?.setMarkdown(result.body);
+      editor.commands.setContent(result.body);
       setLoading(false);
+      isLoadingRef.current = false;
     });
-  }, [place.filePath]);
+  }, [place.filePath, editor]);
 
   useEffect(() => {
     if (titleRef.current && titleRef.current.textContent !== currentTitle) {
@@ -74,7 +88,6 @@ export function PlaceCard({
     }
   }, [currentTitle]);
 
-  // Cleanup save timer on unmount
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -127,8 +140,35 @@ export function PlaceCard({
       setTitleError(error);
       if (!error) {
         titleRef.current?.blur();
-        editorRef.current?.focus();
+        editor?.commands.focus();
       }
+    }
+  }
+
+  function openLinkInput() {
+    const existing = editor?.getAttributes("link").href as string | undefined;
+    setLinkUrl(existing ?? "");
+    setShowLinkInput(true);
+    setTimeout(() => linkInputRef.current?.focus(), 0);
+  }
+
+  function applyLink() {
+    if (!editor) return;
+    const url = linkUrl.trim();
+    if (url) {
+      editor.chain().focus().setLink({ href: url }).run();
+    } else {
+      editor.chain().focus().unsetLink().run();
+    }
+    setShowLinkInput(false);
+    setLinkUrl("");
+  }
+
+  function handleLinkKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") applyLink();
+    if (e.key === "Escape") {
+      setShowLinkInput(false);
+      setLinkUrl("");
     }
   }
 
@@ -210,22 +250,81 @@ export function PlaceCard({
           <ScrollArea
             className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}
           >
-            <MDXEditor
-              ref={editorRef}
-              markdown=""
-              onChange={handleEditorChange}
-              className={isDark ? "dark-theme dark-editor" : undefined}
-              plugins={[
-                headingsPlugin(),
-                listsPlugin(),
-                quotePlugin(),
-                thematicBreakPlugin(),
-                linkPlugin(),
-                markdownShortcutPlugin()
-              ]}
-              placeholder="Add notes…"
-              contentEditableClassName="prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground min-h-[4rem] focus:outline-none !p-0"
-            />
+            {editor && (
+              <BubbleMenu
+                editor={editor}
+                tippyOptions={{ duration: 100, onHide: () => setShowLinkInput(false) }}
+              >
+                {showLinkInput ? (
+                  <div className="flex items-center gap-1.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg px-2.5 py-1.5">
+                    <Link2Icon className="size-3 text-sidebar-foreground/40 shrink-0" />
+                    <input
+                      ref={linkInputRef}
+                      value={linkUrl}
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={handleLinkKeyDown}
+                      placeholder="https://…"
+                      className="text-xs bg-transparent outline-none text-sidebar-foreground w-44 placeholder:text-sidebar-foreground/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyLink}
+                      className="text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-0.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg p-1">
+                    <button
+                      type="button"
+                      onClick={() => editor.chain().focus().toggleBold().run()}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
+                        editor.isActive("bold")
+                          ? "bg-sidebar-accent text-sidebar-foreground"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                      )}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editor.chain().focus().toggleItalic().run()}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-xs italic transition-colors",
+                        editor.isActive("italic")
+                          ? "bg-sidebar-accent text-sidebar-foreground"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                      )}
+                    >
+                      I
+                    </button>
+                    <div className="w-px h-3.5 bg-sidebar-border mx-0.5" />
+                    {editor.isActive("link") ? (
+                      <button
+                        type="button"
+                        onClick={() => editor.chain().focus().unsetLink().run()}
+                        className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                        title="Remove link"
+                      >
+                        <Link2OffIcon className="size-3" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={openLinkInput}
+                        className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                        title="Add link"
+                      >
+                        <Link2Icon className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </BubbleMenu>
+            )}
+            <EditorContent editor={editor} className={cn(isDark && "dark")} />
           </ScrollArea>
         )}
 

@@ -104,15 +104,11 @@
   animation: blink 1s step-end infinite;
 }
 
-.mdxeditor {
-  --spacing: 0;
-  padding: 0 !important;
+.tiptap {
+  outline: none;
 }
-.mdxeditor-root-contenteditable {
-  padding: 0 !important;
-}
-.mdxeditor-root-contenteditable p {
-  margin: 0 !important;
+.tiptap p {
+  margin: 0;
 }
 
 body {

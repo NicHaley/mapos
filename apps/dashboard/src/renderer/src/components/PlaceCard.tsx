@@ -4,11 +4,24 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
 import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { PlaceRecord } from "./MapView";
+import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
+
+function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
+  const result: WikilinkItem[] = [];
+  for (const node of nodes) {
+    if (node.type === "file" && node.name.endsWith(".md")) {
+      result.push({ title: node.name.replace(/\.md$/i, ""), filePath: node.path });
+    } else if (node.type === "directory" && node.children) {
+      result.push(...flattenMdFiles(node.children));
+    }
+  }
+  return result;
+}
 
 export function PlaceCard({
   place,
@@ -28,6 +41,7 @@ export function PlaceCard({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
+  const vaultFilesRef = useRef<WikilinkItem[]>([]);
   const isDark = useDarkMode();
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -36,7 +50,21 @@ export function PlaceCard({
   const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
   const editor = useEditor({
-    extensions: [StarterKit, Link.configure({ openOnClick: false }), Markdown],
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false }),
+      Markdown,
+      WikilinkExtension.configure({
+        suggestion: {
+          items({ query }: { query: string }) {
+            const q = query.toLowerCase();
+            return vaultFilesRef.current
+              .filter((f) => f.title.toLowerCase().includes(q))
+              .slice(0, 20);
+          },
+        },
+      }),
+    ],
     editorProps: {
       attributes: {
         class:
@@ -87,6 +115,12 @@ export function PlaceCard({
       titleRef.current.textContent = currentTitle;
     }
   }, [currentTitle]);
+
+  useEffect(() => {
+    window.api.fs.listDir().then((nodes) => {
+      vaultFilesRef.current = flattenMdFiles(nodes);
+    });
+  }, []);
 
   useEffect(() => {
     return () => {

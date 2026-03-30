@@ -36,6 +36,7 @@
     "@tiptap/pm": "^3.21.0",
     "@tiptap/react": "^3.21.0",
     "@tiptap/starter-kit": "^3.21.0",
+    "@tiptap/suggestion": "^3.21.0",
     "@turf/bbox": "^7.3.4",
     "@types/wellknown": "^0.5.8",
     "@xyflow/react": "^12.10.1",

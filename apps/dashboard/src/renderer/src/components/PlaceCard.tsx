@@ -1,10 +1,11 @@
+import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
-import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
-import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
@@ -27,21 +28,24 @@ export function PlaceCard({
   place,
   onClose,
   mode = "mini",
-  onExpand
+  onExpand,
+  onNavigate
 }: {
   place: PlaceRecord;
   onClose: () => void;
   mode?: "mini" | "full";
   onExpand?: () => void;
+  onNavigate?: (place: PlaceRecord) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
   const isDark = useDarkMode();
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -55,15 +59,21 @@ export function PlaceCard({
       Link.configure({ openOnClick: false }),
       Markdown,
       WikilinkExtension.configure({
+        onClickWikilink: async (title: string) => {
+          const item = vaultFilesRef.current.find((f) => f.title === title);
+          if (!item) return;
+          const result = await window.api.places.getByPath(item.filePath);
+          if (result) onNavigateRef.current?.(result as PlaceRecord);
+        },
         suggestion: {
           items({ query }: { query: string }) {
             const q = query.toLowerCase();
             return vaultFilesRef.current
               .filter((f) => f.title.toLowerCase().includes(q))
               .slice(0, 20);
-          },
-        },
-      }),
+          }
+        }
+      })
     ],
     editorProps: {
       attributes: {
@@ -104,7 +114,7 @@ export function PlaceCard({
         isLoadingRef.current = false;
         return;
       }
-      editor.commands.setContent(result.body);
+      editor.commands.setContent(result.body, { contentType: "markdown" });
       setLoading(false);
       isLoadingRef.current = false;
     });
@@ -129,12 +139,9 @@ export function PlaceCard({
   }, []);
 
   function handleEditorChange(markdown: string) {
-    if (saving) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      setSaving(true);
       await window.api.fs.writePlaceBody(currentFilePath, markdown);
-      setSaving(false);
     }, 600);
   }
 
@@ -285,10 +292,7 @@ export function PlaceCard({
             className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}
           >
             {editor && (
-              <BubbleMenu
-                editor={editor}
-                tippyOptions={{ duration: 100, onHide: () => setShowLinkInput(false) }}
-              >
+              <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
                 {showLinkInput ? (
                   <div className="flex items-center gap-1.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg px-2.5 py-1.5">
                     <Link2Icon className="size-3 text-sidebar-foreground/40 shrink-0" />

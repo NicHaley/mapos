@@ -23,13 +23,20 @@ export type { WikilinkItem };
 
 const WikilinkPluginKey = new PluginKey("wikilink");
 
-function WikilinkNodeView({ node, selected }: ReactNodeViewProps) {
+function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
+  const onClickWikilink = (extension as { options: WikilinkOptions }).options.onClickWikilink;
+
   return (
     <NodeViewWrapper as="span" style={{ display: "inline" }}>
       <span
+        role={onClickWikilink ? "button" : undefined}
+        tabIndex={onClickWikilink ? 0 : undefined}
+        onClick={onClickWikilink ? (e) => { e.stopPropagation(); onClickWikilink(node.attrs.title); } : undefined}
+        onKeyDown={onClickWikilink ? (e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onClickWikilink(node.attrs.title); } } : undefined}
         className={cn(
-          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium cursor-default",
+          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium",
           "bg-sidebar-accent text-sidebar-foreground ring-1 ring-sidebar-border",
+          onClickWikilink ? "cursor-pointer hover:ring-2 hover:ring-ring" : "cursor-default",
           selected && "ring-2 ring-ring"
         )}
       >
@@ -68,6 +75,7 @@ function getSuggestionRenderCallbacks() {
 }
 
 export interface WikilinkOptions {
+  onClickWikilink?: (title: string) => void;
   suggestion: Omit<SuggestionOptions<WikilinkItem>, "editor">;
 }
 
@@ -123,6 +131,7 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
 
   addOptions() {
     return {
+      onClickWikilink: undefined,
       suggestion: {
         char: "[[",
         pluginKey: WikilinkPluginKey,

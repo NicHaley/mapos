@@ -30,16 +30,7 @@ import {
   removeFeatures
 } from "./db";
 import { parseWkt } from "./wkt";
-
-type PlaceRecord = {
-  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
-  title: string;
-  color?: string;
-  type: string;
-  tags?: string[];
-  // Canonical place identity in MapOS (replaces separate id field).
-  filePath: string;
-};
+import type { PlaceRecord } from "../shared/types";
 
 async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   try {

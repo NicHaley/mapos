@@ -275,7 +275,7 @@ function App(): React.JSX.Element {
               transition: "left 200ms linear"
             }}
           >
-            <PlaceCard place={selectedPlace} mode="full" onClose={clearPlace} />
+            <PlaceCard place={selectedPlace} mode="full" onClose={clearPlace} onNavigate={handleSelectPlaceFromSidebar} />
           </div>
         )}
 
@@ -310,6 +310,7 @@ function App(): React.JSX.Element {
               place={selectedPlace}
               mode="mini"
               onClose={clearPlace}
+              onNavigate={handleSelectPlaceFromSidebar}
               onExpand={() => {
                 setPlaceMode("full");
                 setSelectedFolder(null);

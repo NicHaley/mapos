@@ -6,6 +6,8 @@ import { count, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import type { PlaceRecord } from "../shared/types";
+
 // Inline DDL — CURRENT_SCHEMA_VERSION must be bumped on any schema change
 const CURRENT_SCHEMA_VERSION = 2;
 
@@ -83,16 +85,10 @@ export interface FeatureRecord {
   tags: string[] | null;
 }
 
-export interface PlaceRecord {
-  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
-  title: string;
-  color?: string;
-  type: string;
-  tags?: string[];
-  filePath: string;
-}
+export type { PlaceRecord };
 
 export function indexFeature(record: PlaceRecord): void {
+  if (!record.geometry) return;
   const db = getDb();
   const sqlite = getSqlite();
   const geoObj = JSON.parse(record.geometry);
@@ -141,7 +137,8 @@ export function reconcileIndexWithPlaces(places: Map<string, PlaceRecord>): numb
 }
 
 export function indexFeatures(records: PlaceRecord[]): void {
-  if (records.length === 0) return;
+  const withGeo = records.filter((r): r is PlaceRecord & { geometry: string } => Boolean(r.geometry));
+  if (withGeo.length === 0) return;
   const db = getDb();
   const sqlite = getSqlite();
   const now = new Date().toISOString();
@@ -149,7 +146,7 @@ export function indexFeatures(records: PlaceRecord[]): void {
   const rows = db
     .insert(features)
     .values(
-      records.map((r) => {
+      withGeo.map((r) => {
         const geoObj = JSON.parse(r.geometry);
         return {
           file_path: r.filePath,
@@ -174,7 +171,7 @@ export function indexFeatures(records: PlaceRecord[]): void {
     .returning({ rowid: features.rowid, file_path: features.file_path })
     .all();
 
-  const byFilePath = new Map(records.map((r) => [r.filePath, r]));
+  const byFilePath = new Map(withGeo.map((r) => [r.filePath, r]));
   const placeholders = rows.map(() => "(?,?,?,?,?)").join(",");
   const params = rows.flatMap((row) => {
     const r = byFilePath.get(row.file_path);

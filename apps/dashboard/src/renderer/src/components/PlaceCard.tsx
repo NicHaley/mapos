@@ -1,42 +1,85 @@
+import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
-import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { PlaceRecord } from "./MapView";
+import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
+
+function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
+  const result: WikilinkItem[] = [];
+  for (const node of nodes) {
+    if (node.type === "file" && node.name.endsWith(".md")) {
+      result.push({ title: node.name.replace(/\.md$/i, ""), filePath: node.path });
+    } else if (node.type === "directory" && node.children) {
+      result.push(...flattenMdFiles(node.children));
+    }
+  }
+  return result;
+}
 
 export function PlaceCard({
   place,
   onClose,
   mode = "mini",
-  onExpand
+  onExpand,
+  onNavigate
 }: {
   place: PlaceRecord;
   onClose: () => void;
   mode?: "mini" | "full";
   onExpand?: () => void;
+  onNavigate?: (place: PlaceRecord) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
+  const vaultFilesRef = useRef<WikilinkItem[]>([]);
+  const currentFilePathRef = useRef(currentFilePath);
+  currentFilePathRef.current = currentFilePath;
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
   const isDark = useDarkMode();
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+  const [titleInput, setTitleInput] = useState(currentTitle);
 
   const editor = useEditor({
-    extensions: [StarterKit, Link.configure({ openOnClick: false }), Markdown],
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false }),
+      Markdown,
+      WikilinkExtension.configure({
+        onClickWikilink: async (title: string) => {
+          const item = vaultFilesRef.current.find((f) => f.title === title);
+          if (!item) return;
+          const result = await window.api.places.getByPath(item.filePath);
+          if (result) onNavigateRef.current?.(result as PlaceRecord);
+        },
+        suggestion: {
+          items({ query }: { query: string }) {
+            const q = query.toLowerCase();
+            return vaultFilesRef.current
+              .filter(
+                (f) =>
+                  f.filePath !== currentFilePathRef.current && f.title.toLowerCase().includes(q)
+              )
+              .slice(0, 20);
+          }
+        }
+      })
+    ],
     editorProps: {
       attributes: {
         class:
@@ -52,10 +95,11 @@ export function PlaceCard({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (document.activeElement === titleRef.current) {
-          if (titleRef.current) titleRef.current.textContent = currentTitle;
+        const active = document.activeElement;
+        if (active?.getAttribute("aria-label") === "Place name") {
+          setTitleInput(currentTitle);
           setTitleError(null);
-          titleRef.current?.blur();
+          (active as HTMLElement).blur();
         } else {
           onClose();
         }
@@ -64,6 +108,10 @@ export function PlaceCard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, currentTitle]);
+
+  useEffect(() => {
+    setTitleInput(currentTitle);
+  }, [currentTitle]);
 
   useEffect(() => {
     if (!editor) return;
@@ -76,17 +124,17 @@ export function PlaceCard({
         isLoadingRef.current = false;
         return;
       }
-      editor.commands.setContent(result.body);
+      editor.commands.setContent(result.body, { contentType: "markdown" });
       setLoading(false);
       isLoadingRef.current = false;
     });
   }, [place.filePath, editor]);
 
   useEffect(() => {
-    if (titleRef.current && titleRef.current.textContent !== currentTitle) {
-      titleRef.current.textContent = currentTitle;
-    }
-  }, [currentTitle]);
+    window.api.fs.listDir().then((nodes) => {
+      vaultFilesRef.current = flattenMdFiles(nodes);
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -95,12 +143,9 @@ export function PlaceCard({
   }, []);
 
   function handleEditorChange(markdown: string) {
-    if (saving) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      setSaving(true);
       await window.api.fs.writePlaceBody(currentFilePath, markdown);
-      setSaving(false);
     }, 600);
   }
 
@@ -110,16 +155,11 @@ export function PlaceCard({
     return null;
   }
 
-  function handleTitleInput() {
-    const text = titleRef.current?.textContent ?? "";
-    setTitleError(validateTitle(text));
-  }
-
   async function handleTitleBlur() {
-    const newName = titleRef.current?.textContent?.trim() ?? "";
+    const newName = titleInput.trim();
     const error = validateTitle(newName);
     if (error || newName === currentTitle) {
-      if (titleRef.current) titleRef.current.textContent = currentTitle;
+      setTitleInput(currentTitle);
       setTitleError(null);
       return;
     }
@@ -132,14 +172,13 @@ export function PlaceCard({
     }
   }
 
-  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLHeadingElement>) {
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const text = titleRef.current?.textContent ?? "";
-      const error = validateTitle(text);
+      const error = validateTitle(titleInput);
       setTitleError(error);
       if (!error) {
-        titleRef.current?.blur();
+        e.currentTarget.blur();
         editor?.commands.focus();
       }
     }
@@ -194,22 +233,22 @@ export function PlaceCard({
               {place.type}
             </p>
             <ErrorTooltip error={titleError}>
-              <h2
-                ref={titleRef}
-                contentEditable
-                suppressContentEditableWarning
+              <input
+                type="text"
+                value={titleInput}
+                onChange={(e) => {
+                  setTitleInput(e.target.value);
+                  setTitleError(validateTitle(e.target.value));
+                }}
                 aria-label="Place name"
                 onBlur={handleTitleBlur}
                 onKeyDown={handleTitleKeyDown}
-                onInput={handleTitleInput}
                 spellCheck={false}
                 className={cn(
-                  "text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none",
+                  "w-full min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none bg-transparent border-0 p-0 shadow-none",
                   titleError && "ring-2 ring-inset ring-destructive"
                 )}
-              >
-                {currentTitle}
-              </h2>
+              />
             </ErrorTooltip>
           </div>
           {mode === "mini" && onExpand && (
@@ -251,10 +290,7 @@ export function PlaceCard({
             className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}
           >
             {editor && (
-              <BubbleMenu
-                editor={editor}
-                tippyOptions={{ duration: 100, onHide: () => setShowLinkInput(false) }}
-              >
+              <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
                 {showLinkInput ? (
                   <div className="flex items-center gap-1.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg px-2.5 py-1.5">
                     <Link2Icon className="size-3 text-sidebar-foreground/40 shrink-0" />
@@ -335,6 +371,7 @@ export function PlaceCard({
             <span>
               {(() => {
                 try {
+                  if (!place.geometry) return "—";
                   const geo = JSON.parse(place.geometry) as {
                     type: string;
                     coordinates: [number, number];

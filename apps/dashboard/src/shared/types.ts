@@ -1,5 +1,5 @@
 export type PlaceRecord = {
-  geometry: string; // GeoJSON geometry JSON string (Point, LineString, Polygon, …)
+  geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
   color?: string;
   type: string;

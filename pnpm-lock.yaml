@@ -56,6 +56,9 @@ importers:
       '@streamdown/mermaid':
         specifier: ^1.0.2
         version: 1.0.2(react@19.2.4)
+      '@tiptap/extension-bubble-menu':
+        specifier: ^3.21.0
+        version: 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)
       '@tiptap/extension-link':
         specifier: ^3.21.0
         version: 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)
@@ -71,6 +74,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.21.0
         version: 3.21.0
+      '@tiptap/suggestion':
+        specifier: ^3.21.0
+        version: 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)
       '@turf/bbox':
         specifier: ^7.3.4
         version: 7.3.4
@@ -2065,6 +2071,12 @@ packages:
 
   '@tiptap/starter-kit@3.21.0':
     resolution: {integrity: sha512-w7fWxglDtqXFBgRYH+LforJyUboSAQllnWQbGVSTyX4rsICqZjkb3f6CTSUWpGoGKmlmbb2ZpEuoik7tur9d8Q==}
+
+  '@tiptap/suggestion@3.21.0':
+    resolution: {integrity: sha512-ShgbaH2hbCRLV+AaVuSx7a/nzPOSdUeW0TNeuxZfWim62MBcx33qtllja1zOoY2tgGXokEihuzFODx83IyvGfQ==}
+    peerDependencies:
+      '@tiptap/core': ^3.21.0
+      '@tiptap/pm': ^3.21.0
 
   '@tokenlens/core@1.3.0':
     resolution: {integrity: sha512-d8YNHNC+q10bVpi95fELJwJyPVf1HfvBEI18eFQxRSZTdByXrP+f/ZtlhSzkx0Jl0aEmYVeBA5tPeeYRioLViQ==}
@@ -7604,7 +7616,6 @@ snapshots:
       '@floating-ui/dom': 1.7.6
       '@tiptap/core': 3.21.0(@tiptap/pm@3.21.0)
       '@tiptap/pm': 3.21.0
-    optional: true
 
   '@tiptap/extension-bullet-list@3.21.0(@tiptap/extension-list@3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0))':
     dependencies:
@@ -7768,6 +7779,11 @@ snapshots:
       '@tiptap/extension-text': 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))
       '@tiptap/extension-underline': 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))
       '@tiptap/extensions': 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)
+      '@tiptap/pm': 3.21.0
+
+  '@tiptap/suggestion@3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)':
+    dependencies:
+      '@tiptap/core': 3.21.0(@tiptap/pm@3.21.0)
       '@tiptap/pm': 3.21.0
 
   '@tokenlens/core@1.3.0': {}

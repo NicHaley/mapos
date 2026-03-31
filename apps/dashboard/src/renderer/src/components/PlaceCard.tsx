@@ -40,7 +40,6 @@ export function PlaceCard({
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
@@ -52,6 +51,7 @@ export function PlaceCard({
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+  const [titleInput, setTitleInput] = useState(currentTitle);
 
   const editor = useEditor({
     extensions: [
@@ -90,10 +90,11 @@ export function PlaceCard({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (document.activeElement === titleRef.current) {
-          if (titleRef.current) titleRef.current.textContent = currentTitle;
+        const active = document.activeElement;
+        if (active?.getAttribute("aria-label") === "Place name") {
+          setTitleInput(currentTitle);
           setTitleError(null);
-          titleRef.current?.blur();
+          (active as HTMLElement).blur();
         } else {
           onClose();
         }
@@ -102,6 +103,10 @@ export function PlaceCard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, currentTitle]);
+
+  useEffect(() => {
+    setTitleInput(currentTitle);
+  }, [currentTitle]);
 
   useEffect(() => {
     if (!editor) return;
@@ -119,12 +124,6 @@ export function PlaceCard({
       isLoadingRef.current = false;
     });
   }, [place.filePath, editor]);
-
-  useEffect(() => {
-    if (titleRef.current && titleRef.current.textContent !== currentTitle) {
-      titleRef.current.textContent = currentTitle;
-    }
-  }, [currentTitle]);
 
   useEffect(() => {
     window.api.fs.listDir().then((nodes) => {
@@ -151,16 +150,11 @@ export function PlaceCard({
     return null;
   }
 
-  function handleTitleInput() {
-    const text = titleRef.current?.textContent ?? "";
-    setTitleError(validateTitle(text));
-  }
-
   async function handleTitleBlur() {
-    const newName = titleRef.current?.textContent?.trim() ?? "";
+    const newName = titleInput.trim();
     const error = validateTitle(newName);
     if (error || newName === currentTitle) {
-      if (titleRef.current) titleRef.current.textContent = currentTitle;
+      setTitleInput(currentTitle);
       setTitleError(null);
       return;
     }
@@ -173,14 +167,13 @@ export function PlaceCard({
     }
   }
 
-  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLHeadingElement>) {
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const text = titleRef.current?.textContent ?? "";
-      const error = validateTitle(text);
+      const error = validateTitle(titleInput);
       setTitleError(error);
       if (!error) {
-        titleRef.current?.blur();
+        e.currentTarget.blur();
         editor?.commands.focus();
       }
     }
@@ -235,22 +228,22 @@ export function PlaceCard({
               {place.type}
             </p>
             <ErrorTooltip error={titleError}>
-              <h2
-                ref={titleRef}
-                contentEditable
-                suppressContentEditableWarning
+              <input
+                type="text"
+                value={titleInput}
+                onChange={(e) => {
+                  setTitleInput(e.target.value);
+                  setTitleError(validateTitle(e.target.value));
+                }}
                 aria-label="Place name"
                 onBlur={handleTitleBlur}
                 onKeyDown={handleTitleKeyDown}
-                onInput={handleTitleInput}
                 spellCheck={false}
                 className={cn(
-                  "text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none",
+                  "w-full min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none bg-transparent border-0 p-0 shadow-none",
                   titleError && "ring-2 ring-inset ring-destructive"
                 )}
-              >
-                {currentTitle}
-              </h2>
+              />
             </ErrorTooltip>
           </div>
           {mode === "mini" && onExpand && (

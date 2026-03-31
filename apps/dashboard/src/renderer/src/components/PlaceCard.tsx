@@ -35,7 +35,7 @@ export function PlaceCard({
   onClose: () => void;
   mode?: "mini" | "full";
   onExpand?: () => void;
-  onNavigate?: (place: PlaceRecord) => void;
+  onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
@@ -61,11 +61,11 @@ export function PlaceCard({
       Link.configure({ openOnClick: false }),
       Markdown,
       WikilinkExtension.configure({
-        onClickWikilink: async (title: string) => {
+        onClickWikilink: async (title: string, newTab: boolean) => {
           const item = vaultFilesRef.current.find((f) => f.title === title);
           if (!item) return;
           const result = await window.api.places.getByPath(item.filePath);
-          if (result) onNavigateRef.current?.(result as PlaceRecord);
+          if (result) onNavigateRef.current?.(result as PlaceRecord, newTab);
         },
         suggestion: {
           items({ query }: { query: string }) {

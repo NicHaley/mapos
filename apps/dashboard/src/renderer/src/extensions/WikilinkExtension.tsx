@@ -1,6 +1,7 @@
 import {
   type WikilinkItem,
   WikilinkSuggestion,
+  type WikilinkSuggestionProps,
   type WikilinkSuggestionRef
 } from "@renderer/components/WikilinkSuggestion";
 import { cn } from "@renderer/lib/utils";
@@ -41,7 +42,7 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
           onClickWikilink
             ? (e) => {
                 e.stopPropagation();
-                onClickWikilink(node.attrs.title);
+                onClickWikilink(node.attrs.title, e.metaKey || e.ctrlKey);
               }
             : undefined
         }
@@ -50,7 +51,7 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
             ? (e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.stopPropagation();
-                  onClickWikilink(node.attrs.title);
+                  onClickWikilink(node.attrs.title, e.metaKey || e.ctrlKey);
                 }
               }
             : undefined
@@ -73,11 +74,11 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
 }
 
 function getSuggestionRenderCallbacks() {
-  let renderer: ReactRenderer<WikilinkSuggestionRef> | null = null;
+  let renderer: ReactRenderer<WikilinkSuggestionRef, WikilinkSuggestionProps> | null = null;
 
   return {
     onStart(props: SuggestionProps<WikilinkItem>) {
-      renderer = new ReactRenderer<WikilinkSuggestionRef>(WikilinkSuggestion, {
+      renderer = new ReactRenderer<WikilinkSuggestionRef, WikilinkSuggestionProps>(WikilinkSuggestion, {
         props: {
           ...props,
           onDismiss: () => {
@@ -108,7 +109,7 @@ function getSuggestionRenderCallbacks() {
 }
 
 export interface WikilinkOptions {
-  onClickWikilink?: (title: string) => void;
+  onClickWikilink?: (title: string, newTab: boolean) => void;
   suggestion: Omit<SuggestionOptions<WikilinkItem>, "editor">;
 }
 

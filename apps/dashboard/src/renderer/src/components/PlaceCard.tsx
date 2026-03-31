@@ -43,6 +43,8 @@ export function PlaceCard({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
+  const currentFilePathRef = useRef(currentFilePath);
+  currentFilePathRef.current = currentFilePath;
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
   const isDark = useDarkMode();
@@ -69,7 +71,10 @@ export function PlaceCard({
           items({ query }: { query: string }) {
             const q = query.toLowerCase();
             return vaultFilesRef.current
-              .filter((f) => f.title.toLowerCase().includes(q))
+              .filter(
+                (f) =>
+                  f.filePath !== currentFilePathRef.current && f.title.toLowerCase().includes(q)
+              )
               .slice(0, 20);
           }
         }

@@ -1,23 +1,29 @@
 import {
-  Node,
+  type WikilinkItem,
+  WikilinkSuggestion,
+  type WikilinkSuggestionRef
+} from "@renderer/components/WikilinkSuggestion";
+import { cn } from "@renderer/lib/utils";
+import {
   type JSONContent,
   type MarkdownParseHelpers,
   type MarkdownParseResult,
   type MarkdownRendererHelpers,
   type MarkdownToken,
+  Node,
   type RenderContext,
-  mergeAttributes,
+  mergeAttributes
 } from "@tiptap/core";
+import { PluginKey } from "@tiptap/pm/state";
 import { NodeViewWrapper, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
 import type { ReactNodeViewProps } from "@tiptap/react";
-import { Suggestion, type SuggestionKeyDownProps, type SuggestionOptions, type SuggestionProps } from "@tiptap/suggestion";
-import { PluginKey } from "@tiptap/pm/state";
-import { cn } from "@renderer/lib/utils";
 import {
-  WikilinkSuggestion,
-  type WikilinkItem,
-  type WikilinkSuggestionRef,
-} from "@renderer/components/WikilinkSuggestion";
+  Suggestion,
+  type SuggestionKeyDownProps,
+  type SuggestionOptions,
+  type SuggestionProps
+} from "@tiptap/suggestion";
+import { SquareArrowOutUpRightIcon } from "lucide-react";
 
 export type { WikilinkItem };
 
@@ -31,16 +37,36 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
       <span
         role={onClickWikilink ? "button" : undefined}
         tabIndex={onClickWikilink ? 0 : undefined}
-        onClick={onClickWikilink ? (e) => { e.stopPropagation(); onClickWikilink(node.attrs.title); } : undefined}
-        onKeyDown={onClickWikilink ? (e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onClickWikilink(node.attrs.title); } } : undefined}
+        onClick={
+          onClickWikilink
+            ? (e) => {
+                e.stopPropagation();
+                onClickWikilink(node.attrs.title);
+              }
+            : undefined
+        }
+        onKeyDown={
+          onClickWikilink
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  onClickWikilink(node.attrs.title);
+                }
+              }
+            : undefined
+        }
         className={cn(
-          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium",
-          "bg-sidebar-accent text-sidebar-foreground ring-1 ring-sidebar-border",
-          onClickWikilink ? "cursor-pointer hover:ring-2 hover:ring-ring" : "cursor-default",
-          selected && "ring-2 ring-ring"
+          "inline-flex items-center gap-0.5 underline underline-offset-2 decoration-sidebar-foreground/40",
+          "text-sidebar-foreground",
+          onClickWikilink ? "cursor-pointer hover:decoration-sidebar-foreground" : "cursor-default",
+          selected && "bg-sidebar-accent rounded"
         )}
       >
-        [[{node.attrs.title}]]
+        <SquareArrowOutUpRightIcon
+          className="size-3 shrink-0 no-underline"
+          style={{ textDecoration: "none" }}
+        />
+        {node.attrs.title}
       </span>
     </NodeViewWrapper>
   );
@@ -52,7 +78,13 @@ function getSuggestionRenderCallbacks() {
   return {
     onStart(props: SuggestionProps<WikilinkItem>) {
       renderer = new ReactRenderer<WikilinkSuggestionRef>(WikilinkSuggestion, {
-        props,
+        props: {
+          ...props,
+          onDismiss: () => {
+            renderer?.destroy();
+            renderer = null;
+          },
+        },
         editor: props.editor,
       });
     },
@@ -61,6 +93,7 @@ function getSuggestionRenderCallbacks() {
     },
     onKeyDown({ event }: SuggestionKeyDownProps) {
       if (event.key === "Escape") {
+        event.stopPropagation();
         renderer?.destroy();
         renderer = null;
         return true;
@@ -70,7 +103,7 @@ function getSuggestionRenderCallbacks() {
     onExit() {
       renderer?.destroy();
       renderer = null;
-    },
+    }
   };
 }
 
@@ -91,8 +124,8 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
       title: {
         default: null,
         parseHTML: (el) => el.getAttribute("data-title"),
-        renderHTML: (attrs) => ({ "data-title": attrs.title }),
-      },
+        renderHTML: (attrs) => ({ "data-title": attrs.title })
+      }
     };
   },
 
@@ -117,15 +150,27 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
     tokenize(src: string, _tokens: MarkdownToken[]) {
       const match = src.match(/^\[\[([^\[\]]+?)\]\]/);
       if (!match) return undefined;
-      return { type: "wikilink", raw: match[0], title: match[1].trim(), tokens: [] } as MarkdownToken & { title: string };
-    },
+      return {
+        type: "wikilink",
+        raw: match[0],
+        title: match[1].trim(),
+        tokens: []
+      } as MarkdownToken & { title: string };
+    }
   },
 
-  parseMarkdown(token: MarkdownToken & { title?: string }, helpers: MarkdownParseHelpers): MarkdownParseResult {
+  parseMarkdown(
+    token: MarkdownToken & { title?: string },
+    helpers: MarkdownParseHelpers
+  ): MarkdownParseResult {
     return helpers.createNode("wikilink", { title: token.title ?? "" });
   },
 
-  renderMarkdown(node: JSONContent, _helpers: MarkdownRendererHelpers, _ctx: RenderContext): string {
+  renderMarkdown(
+    node: JSONContent,
+    _helpers: MarkdownRendererHelpers,
+    _ctx: RenderContext
+  ): string {
     return `[[${node.attrs?.title ?? ""}]]`;
   },
 
@@ -138,7 +183,15 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
         allowSpaces: true,
         allowedPrefixes: null,
         items: (): WikilinkItem[] => [],
-        command({ editor, range, props }: { editor: Parameters<typeof Suggestion>[0]["editor"]; range: { from: number; to: number }; props: WikilinkItem }) {
+        command({
+          editor,
+          range,
+          props
+        }: {
+          editor: Parameters<typeof Suggestion>[0]["editor"];
+          range: { from: number; to: number };
+          props: WikilinkItem;
+        }) {
           editor
             .chain()
             .focus()
@@ -147,8 +200,8 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
             .insertContent(" ")
             .run();
         },
-        render: () => getSuggestionRenderCallbacks(),
-      },
+        render: () => getSuggestionRenderCallbacks()
+      }
     };
   },
 
@@ -156,8 +209,8 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
     return [
       Suggestion<WikilinkItem>({
         editor: this.editor,
-        ...this.options.suggestion,
-      }),
+        ...this.options.suggestion
+      })
     ];
-  },
+  }
 });

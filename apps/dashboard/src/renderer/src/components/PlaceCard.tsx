@@ -373,6 +373,7 @@ export function PlaceCard({
             <span>
               {(() => {
                 try {
+                  if (!place.geometry) return "—";
                   const geo = JSON.parse(place.geometry) as {
                     type: string;
                     coordinates: [number, number];

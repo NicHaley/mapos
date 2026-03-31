@@ -18,6 +18,7 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import type { PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,21 +26,14 @@ import {
   DropdownMenuTrigger
 } from "./ui/dropdown-menu";
 
+export type { PlaceRecord };
+
 const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
 
 function useDarkMapStyle() {
   const isDark = useDarkMode();
   return `https://api.protomaps.com/styles/v5/${isDark ? "black" : "light"}/en.json?key=${PROTOMAPS_KEY}`;
 }
-
-export type PlaceRecord = {
-  geometry?: string; // GeoJSON geometry JSON string; undefined for files without location
-  title: string;
-  color?: string;
-  type: string;
-  tags?: string[];
-  filePath: string;
-};
 
 type GeoJSONPoint = { type: "Point"; coordinates: [number, number] };
 /** Matches stored place geometries; keeps literal `type` for Turf / GeoJSON typings. */
@@ -170,7 +164,7 @@ const MapView = forwardRef<
     const map = mapRef.current;
     const place = selectedPlaceRef.current;
     const cb = onSelectedFeaturePositionRef.current;
-    if (!map || !place || !cb) return;
+    if (!map || !place || !cb || !place.geometry) return;
     try {
       const center = getGeometryCenter(parseGeometry(place.geometry));
       const pt = map.project(center);
@@ -194,19 +188,22 @@ const MapView = forwardRef<
   const fitToFolder = useCallback(
     async (folderPath: string, padding: FitPadding) => {
       const places = await loadFolderPlaces(folderPath);
-      if (places.length === 0) return;
+      const placesWithGeo = places.filter((p): p is PlaceRecord & { geometry: string } =>
+        Boolean(p.geometry)
+      );
+      if (placesWithGeo.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
       const collection = {
         type: "FeatureCollection" as const,
-        features: places.map((p) => ({
+        features: placesWithGeo.map((p) => ({
           type: "Feature" as const,
           geometry: parseGeometry(p.geometry),
           properties: {}
         }))
       };
       const [minLng, minLat, maxLng, maxLat] = bbox(collection);
-      if (places.length === 1 && minLng === maxLng && minLat === maxLat) {
+      if (placesWithGeo.length === 1 && minLng === maxLng && minLat === maxLat) {
         map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
       } else {
         const cam = cameraForBounds(
@@ -382,14 +379,13 @@ const MapView = forwardRef<
 
   const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
 
-  const toFeature = useCallback(
-    (p: PlaceRecord) => ({
+  const toFeature = useCallback((p: PlaceRecord & { geometry: string }) => {
+    return {
       type: "Feature" as const,
       geometry: parseGeometry(p.geometry),
       properties: { filePath: p.filePath, color: p.color ?? "#6b7280" }
-    }),
-    []
-  );
+    };
+  }, []);
 
   // All folder places as one source (excluding selected to avoid double-render)
   const folderGeoJSON = useMemo(() => {
@@ -397,7 +393,7 @@ const MapView = forwardRef<
       selectedPlace
         ? folderPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
         : folderPlaces
-    ).filter((p) => p.geometry);
+    ).filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
@@ -408,9 +404,14 @@ const MapView = forwardRef<
 
   // Selected place as its own source for distinct styling
   const selectedGeoJSON = useMemo(() => {
-    if (!selectedPlace || !selectedPlace.geometry) return null;
+    if (!selectedPlace) return null;
+    const { geometry } = selectedPlace;
+    if (!geometry) return null;
     try {
-      return { type: "FeatureCollection" as const, features: [toFeature(selectedPlace)] };
+      return {
+        type: "FeatureCollection" as const,
+        features: [toFeature({ ...selectedPlace, geometry })]
+      };
     } catch {
       return null;
     }

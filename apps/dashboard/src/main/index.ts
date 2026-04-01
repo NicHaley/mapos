@@ -1086,7 +1086,7 @@ app.whenReady().then(() => {
             "script-src 'self' 'unsafe-inline' blob:",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io",
-            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io",
+            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io",
             "worker-src 'self' blob:",
             "font-src 'self' data:"
           ].join("; ")

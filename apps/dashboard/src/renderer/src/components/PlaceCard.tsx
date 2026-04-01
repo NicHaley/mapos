@@ -115,9 +115,20 @@ export function PlaceCard({
 
   useEffect(() => {
     if (!editor) return;
+    editor.setEditable(place.previewMarkdown === undefined);
+  }, [editor, place.previewMarkdown]);
+
+  useEffect(() => {
+    if (!editor) return;
     setCurrentFilePath(place.filePath);
     setLoading(true);
     isLoadingRef.current = true;
+    if (place.previewMarkdown !== undefined) {
+      editor.commands.setContent(place.previewMarkdown, { contentType: "markdown" });
+      setLoading(false);
+      isLoadingRef.current = false;
+      return;
+    }
     window.api.fs.readFile(place.filePath).then((result) => {
       if ("error" in result) {
         setLoading(false);
@@ -128,7 +139,7 @@ export function PlaceCard({
       setLoading(false);
       isLoadingRef.current = false;
     });
-  }, [place.filePath, editor]);
+  }, [place.filePath, place.previewMarkdown, editor]);
 
   useEffect(() => {
     window.api.fs.listDir().then((nodes) => {
@@ -143,6 +154,7 @@ export function PlaceCard({
   }, []);
 
   function handleEditorChange(markdown: string) {
+    if (place.previewMarkdown !== undefined) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       await window.api.fs.writePlaceBody(currentFilePath, markdown);
@@ -156,6 +168,10 @@ export function PlaceCard({
   }
 
   async function handleTitleBlur() {
+    if (place.previewMarkdown !== undefined) {
+      setTitleInput(currentTitle);
+      return;
+    }
     const newName = titleInput.trim();
     const error = validateTitle(newName);
     if (error || newName === currentTitle) {
@@ -236,6 +252,7 @@ export function PlaceCard({
               <input
                 type="text"
                 value={titleInput}
+                readOnly={place.previewMarkdown !== undefined}
                 onChange={(e) => {
                   setTitleInput(e.target.value);
                   setTitleError(validateTitle(e.target.value));
@@ -245,7 +262,8 @@ export function PlaceCard({
                 onKeyDown={handleTitleKeyDown}
                 spellCheck={false}
                 className={cn(
-                  "w-full min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug cursor-text rounded transition-colors focus:outline-none bg-transparent border-0 p-0 shadow-none",
+                  "w-full min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors focus:outline-none bg-transparent border-0 p-0 shadow-none",
+                  place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
                   titleError && "ring-2 ring-inset ring-destructive"
                 )}
               />

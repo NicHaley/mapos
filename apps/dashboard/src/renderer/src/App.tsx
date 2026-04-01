@@ -3,17 +3,39 @@ import { useCallback, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
 import { NavTabs } from "./components/NavTabs";
+import { PhotonSearchPopover } from "./components/PhotonSearchPopover";
 import { PlaceCard } from "./components/PlaceCard";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
+import type { PhotonSearchResult } from "./lib/photon";
 
 const PROJECT_SIDEBAR_WIDTH = 256;
 const PLACE_CARD_WIDTH = 320;
 const CHAT_SIDEBAR_WIDTH = 360;
 const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
+
+function placeFromPhotonSearchResult(r: PhotonSearchResult): PlaceRecord {
+  const geometry = JSON.stringify({
+    type: "Point",
+    coordinates: [r.lng, r.lat]
+  });
+  const previewMarkdown = [
+    r.secondaryLabel ? `*${r.secondaryLabel}*` : null,
+    "Search result from OpenStreetMap (Photon). Not saved to your vault."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    filePath: `photon-search:${r.id}`,
+    title: r.primaryLabel,
+    type: "Search",
+    geometry,
+    previewMarkdown
+  };
+}
 
 function mapPadding(projectSidebarOpen: boolean, chatSidebarOpen: boolean, placeCardOpen: boolean) {
   return {
@@ -156,6 +178,18 @@ function App(): React.JSX.Element {
     [selectedFolder, projectSidebarOpen, chatSidebarOpen]
   );
 
+  const handlePhotonSearchResult = useCallback(
+    (r: PhotonSearchResult) => {
+      const place = placeFromPhotonSearchResult(r);
+      setSelectedFolder(null);
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+    },
+    [projectSidebarOpen, chatSidebarOpen]
+  );
+
   const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
     setSelectedFolder((prev) => {
       if (!prev) return prev;
@@ -234,6 +268,9 @@ function App(): React.JSX.Element {
         >
           <PanelLeftIcon className="size-4" />
         </Button>
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <PhotonSearchPopover onSelectResult={handlePhotonSearchResult} />
+        </div>
         <div
           className="flex-1 min-w-0 flex items-center h-full"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -275,7 +312,12 @@ function App(): React.JSX.Element {
               transition: "left 200ms linear"
             }}
           >
-            <PlaceCard place={selectedPlace} mode="full" onClose={clearPlace} onNavigate={handleSelectPlaceFromSidebar} />
+            <PlaceCard
+              place={selectedPlace}
+              mode="full"
+              onClose={clearPlace}
+              onNavigate={handleSelectPlaceFromSidebar}
+            />
           </div>
         )}
 
@@ -311,19 +353,23 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={clearPlace}
               onNavigate={handleSelectPlaceFromSidebar}
-              onExpand={() => {
-                setPlaceMode("full");
-                setSelectedFolder(null);
-                dispatchNav({
-                  type: "navigate",
-                  entry: { kind: "place", place: selectedPlace },
-                  newTab: false
-                });
-                mapRef.current?.fitToPlace(
-                  selectedPlace,
-                  mapPadding(projectSidebarOpen, chatSidebarOpen, true)
-                );
-              }}
+              onExpand={
+                selectedPlace.previewMarkdown !== undefined
+                  ? undefined
+                  : () => {
+                      setPlaceMode("full");
+                      setSelectedFolder(null);
+                      dispatchNav({
+                        type: "navigate",
+                        entry: { kind: "place", place: selectedPlace },
+                        newTab: false
+                      });
+                      mapRef.current?.fitToPlace(
+                        selectedPlace,
+                        mapPadding(projectSidebarOpen, chatSidebarOpen, true)
+                      );
+                    }
+              }
             />
           </div>
         )}

@@ -71,6 +71,10 @@ declare global {
           oldPath: string,
           newName: string
         ) => Promise<{ success: true; newPath: string } | { success: false; error: string }>;
+        moveInto: (
+          sourcePath: string,
+          destinationFolderPath: string
+        ) => Promise<{ success: true; newPath: string } | { success: false; error: string }>;
         deletePath: (
           targetPath: string
         ) => Promise<{ success: true } | { success: false; error: string }>;

@@ -8,18 +8,72 @@ export type NavEntry =
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
 
-type NavAction =
+export type NavAction =
   | { type: "navigate"; entry: NavEntry; newTab: boolean }
   | { type: "back" }
   | { type: "forward" }
   | { type: "activate"; tabIndex: number }
   | { type: "close"; tabIndex: number }
   | { type: "remove_path"; path: string; isFolder: boolean }
-  | { type: "restore"; tabs: NavTab[]; activeTab: number };
+  | { type: "restore"; tabs: NavTab[]; activeTab: number }
+  | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean };
 
-type PersistedTab =
-  | { kind: "place"; filePath: string }
-  | { kind: "folder"; folderPath: string };
+/** Rewrite paths when a file or folder was moved to a new location. */
+function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
+  if (path === oldRoot) return newRoot;
+  if (path.startsWith(`${oldRoot}/`) || path.startsWith(`${oldRoot}\\`)) {
+    return newRoot + path.slice(oldRoot.length);
+  }
+  return null;
+}
+
+function placeTitleFromPath(filePath: string): string {
+  const base = filePath.split(/[/\\]/).pop() ?? filePath;
+  return base.replace(/\.md$/i, "");
+}
+
+function relocateEntry(
+  entry: NavEntry,
+  oldPath: string,
+  newPath: string,
+  isDirectory: boolean
+): NavEntry {
+  if (entry.kind === "place") {
+    const fp = entry.place.filePath;
+    if (!isDirectory) {
+      if (fp !== oldPath) return entry;
+      return {
+        kind: "place",
+        place: {
+          ...entry.place,
+          filePath: newPath,
+          title: placeTitleFromPath(newPath)
+        }
+      };
+    }
+    const next = relocateFilePath(fp, oldPath, newPath);
+    if (next === null) return entry;
+    return {
+      kind: "place",
+      place: {
+        ...entry.place,
+        filePath: next,
+        title: placeTitleFromPath(next)
+      }
+    };
+  }
+  const folderPath = entry.folderPath;
+  if (!isDirectory) return entry;
+  const next = relocateFilePath(folderPath, oldPath, newPath);
+  if (next === null) return entry;
+  return {
+    kind: "folder",
+    folderPath: next,
+    label: folderLabel(next)
+  };
+}
+
+type PersistedTab = { kind: "place"; filePath: string } | { kind: "folder"; folderPath: string };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 const NAV_STORAGE_KEY = "mapos-nav-tabs";
@@ -56,7 +110,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         const newTab: NavTab = {
           id: crypto.randomUUID(),
           history: [action.entry],
-          cursor: 0,
+          cursor: 0
         };
         return { tabs: [...state.tabs, newTab], activeTab: state.tabs.length };
       }
@@ -65,7 +119,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
       const updatedTab = { ...tab, history: newHistory, cursor: newHistory.length - 1 };
       return {
         ...state,
-        tabs: state.tabs.map((t, i) => (i === state.activeTab ? updatedTab : t)),
+        tabs: state.tabs.map((t, i) => (i === state.activeTab ? updatedTab : t))
       };
     }
     case "back": {
@@ -73,9 +127,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
       if (!tab || tab.cursor <= 0) return state;
       return {
         ...state,
-        tabs: state.tabs.map((t, i) =>
-          i === state.activeTab ? { ...t, cursor: t.cursor - 1 } : t
-        ),
+        tabs: state.tabs.map((t, i) => (i === state.activeTab ? { ...t, cursor: t.cursor - 1 } : t))
       };
     }
     case "forward": {
@@ -83,9 +135,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
       if (!tab || tab.cursor >= tab.history.length - 1) return state;
       return {
         ...state,
-        tabs: state.tabs.map((t, i) =>
-          i === state.activeTab ? { ...t, cursor: t.cursor + 1 } : t
-        ),
+        tabs: state.tabs.map((t, i) => (i === state.activeTab ? { ...t, cursor: t.cursor + 1 } : t))
       };
     }
     case "activate":
@@ -114,6 +164,16 @@ export function navReducer(state: NavState, action: NavAction): NavState {
     }
     case "restore":
       return { tabs: action.tabs, activeTab: action.activeTab };
+    case "relocate_path": {
+      const { oldPath, newPath, isDirectory } = action;
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) => relocateEntry(entry, oldPath, newPath, isDirectory))
+        }))
+      };
+    }
     default:
       return state;
   }
@@ -121,7 +181,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
 
 export function useNavTabs({
   openEntry,
-  onEmpty,
+  onEmpty
 }: {
   openEntry: (entry: NavEntry) => void;
   onEmpty: () => void;
@@ -142,7 +202,7 @@ export function useNavTabs({
         if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
         return { kind: "folder", folderPath: current.folderPath };
       }),
-      activeTab: nav.activeTab,
+      activeTab: nav.activeTab
     };
     localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(toSave));
   }, [nav]);
@@ -166,8 +226,10 @@ export function useNavTabs({
         if (tab.kind === "folder") {
           return {
             id: crypto.randomUUID(),
-            history: [{ kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }],
-            cursor: 0,
+            history: [
+              { kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }
+            ],
+            cursor: 0
           };
         }
         const place = await window.api.places.getByPath(tab.filePath);
@@ -175,7 +237,7 @@ export function useNavTabs({
         return {
           id: crypto.randomUUID(),
           history: [{ kind: "place", place }],
-          cursor: 0,
+          cursor: 0
         };
       })
     ).then((results) => {
@@ -184,34 +246,40 @@ export function useNavTabs({
         dispatchNav({
           type: "restore",
           tabs: validTabs,
-          activeTab: Math.min(parsed.activeTab, validTabs.length - 1),
+          activeTab: Math.min(parsed.activeTab, validTabs.length - 1)
         });
       }
       navRestoredRef.current = true;
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleNavTabActivate = useCallback((index: number) => {
-    const tab = nav.tabs[index];
-    if (!tab) return;
-    dispatchNav({ type: "activate", tabIndex: index });
-    openEntry(tab.history[tab.cursor]);
-  }, [nav, openEntry]);
+  const handleNavTabActivate = useCallback(
+    (index: number) => {
+      const tab = nav.tabs[index];
+      if (!tab) return;
+      dispatchNav({ type: "activate", tabIndex: index });
+      openEntry(tab.history[tab.cursor]);
+    },
+    [nav, openEntry]
+  );
 
-  const handleNavTabClose = useCallback((index: number) => {
-    const wasActive = index === nav.activeTab;
-    const nextState = navReducer(nav, { type: "close", tabIndex: index });
-    dispatchNav({ type: "close", tabIndex: index });
-    if (wasActive) {
-      if (nextState.tabs.length === 0) {
-        onEmpty();
-      } else {
-        const nextTab = nextState.tabs[nextState.activeTab];
-        if (nextTab) openEntry(nextTab.history[nextTab.cursor]);
+  const handleNavTabClose = useCallback(
+    (index: number) => {
+      const wasActive = index === nav.activeTab;
+      const nextState = navReducer(nav, { type: "close", tabIndex: index });
+      dispatchNav({ type: "close", tabIndex: index });
+      if (wasActive) {
+        if (nextState.tabs.length === 0) {
+          onEmpty();
+        } else {
+          const nextTab = nextState.tabs[nextState.activeTab];
+          if (nextTab) openEntry(nextTab.history[nextTab.cursor]);
+        }
       }
-    }
-  }, [nav, onEmpty, openEntry]);
+    },
+    [nav, onEmpty, openEntry]
+  );
 
   const handleNavBack = useCallback(() => {
     const tab = nav.tabs[nav.activeTab];
@@ -232,7 +300,7 @@ export function useNavTabs({
     const current = tab.history[tab.cursor];
     return {
       id: tab.id,
-      title: current?.kind === "place" ? current.place.title : (current?.label ?? ""),
+      title: current?.kind === "place" ? current.place.title : (current?.label ?? "")
     };
   });
 
@@ -246,6 +314,6 @@ export function useNavTabs({
     handleNavTabActivate,
     handleNavTabClose,
     handleNavBack,
-    handleNavForward,
+    handleNavForward
   };
 }

@@ -8,7 +8,7 @@ import {
   FolderOpenIcon,
   SquarePenIcon
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/useShortcuts";
 import type { PlaceRecord } from "./MapView";
 import {
@@ -39,6 +39,35 @@ import {
   TooltipTrigger
 } from "./ui/tooltip";
 
+const MAPOS_DRAG_MIME = "application/x-mapos-node";
+
+function parentDir(filePath: string): string {
+  const n = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  if (n <= 0) return filePath.slice(0, 1);
+  return filePath.slice(0, n);
+}
+
+export type SidebarDndBridge = {
+  dragOverTarget: string | null;
+  onDragStartNode: (e: React.DragEvent, path: string, type: FileNode["type"]) => void;
+  onDragEnd: () => void;
+  onFolderDragOver: (e: React.DragEvent, folderPath: string) => void;
+  onFolderDragLeave: (e: React.DragEvent) => void;
+  onFolderDrop: (e: React.DragEvent, folderPath: string) => void;
+};
+
+function parseDragPayload(e: React.DragEvent): { path: string; type: FileNode["type"] } | null {
+  try {
+    const raw = e.dataTransfer.getData(MAPOS_DRAG_MIME);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { path?: string; type?: FileNode["type"] };
+    if (!parsed.path || !parsed.type) return null;
+    return { path: parsed.path, type: parsed.type };
+  } catch {
+    return null;
+  }
+}
+
 function fileIcon(name: string) {
   if (name.endsWith(".md"))
     return <FileTextIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
@@ -57,7 +86,8 @@ function FileTreeNode({
   onRequestDelete,
   onRenameComplete,
   onCreateFolderIn,
-  onCreateNoteIn
+  onCreateNoteIn,
+  dnd
 }: {
   node: FileNode;
   depth: number;
@@ -71,6 +101,7 @@ function FileTreeNode({
   onRenameComplete?: (oldPath: string, newPath: string) => void;
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
+  dnd?: SidebarDndBridge;
 }) {
   const [open, setOpen] = useState(depth === 0);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -196,73 +227,98 @@ function FileTreeNode({
 
   if (node.type === "directory") {
     const isActive = node.path === selectedFolderPath;
+    const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
     return (
-      <ContextMenu>
-        <ContextMenuTrigger render={<div />}>
-          <div
-            className={cn(
-              "flex items-center rounded text-sm",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-                : "text-sidebar-foreground hover:bg-sidebar-accent"
-            )}
-            style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
-          >
-            <button
-              onClick={() => setOpen((o) => !o)}
-              className="p-1 shrink-0 hover:bg-white/10 rounded"
-              type="button"
-            >
-              <ChevronRightIcon
-                className={cn(
-                  "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
-                  open && "rotate-90"
-                )}
-              />
-            </button>
-            <button
-              onClick={() => {
-                if (!isRenaming) onSelectFolder?.(node.path);
+      <div className={cn("rounded", folderDropZone && "bg-sky-500/10")}>
+        <ContextMenu>
+          <ContextMenuTrigger render={<div />}>
+            <div
+              draggable={Boolean(dnd) && !isRenaming}
+              onDragStart={(e) => {
+                if (!dnd || isRenaming) return;
+                dnd.onDragStartNode(e, node.path, "directory");
               }}
-              className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left min-w-0"
-              type="button"
-            >
-              {open ? (
-                <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-              ) : (
-                <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+              onDragEnd={() => dnd?.onDragEnd()}
+              onDragOver={(e) => {
+                if (!dnd) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "move";
+                dnd.onFolderDragOver(e, node.path);
+              }}
+              onDragLeave={(e) => dnd?.onFolderDragLeave(e)}
+              onDrop={(e) => {
+                if (!dnd) return;
+                e.preventDefault();
+                e.stopPropagation();
+                dnd.onFolderDrop(e, node.path);
+              }}
+              className={cn(
+                "flex items-center rounded text-sm",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent"
               )}
-              {isRenaming ? renameInput : <span className="truncate">{node.name}</span>}
-            </button>
-          </div>
-          {open && node.children && (
-            <div>
-              {node.children.map((child) => (
-                <FileTreeNode
-                  key={child.path}
-                  node={child}
-                  depth={depth + 1}
-                  selectedFilePath={selectedFilePath}
-                  selectedFolderPath={selectedFolderPath}
-                  autoRenamePath={autoRenamePath}
-                  onAutoRenameConsumed={onAutoRenameConsumed}
-                  onSelectPlace={onSelectPlace}
-                  onSelectFolder={onSelectFolder}
-                  onRequestDelete={onRequestDelete}
-                  onRenameComplete={onRenameComplete}
-                  onCreateFolderIn={onCreateFolderIn}
-                  onCreateNoteIn={onCreateNoteIn}
+              style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
+            >
+              <button
+                onClick={() => setOpen((o) => !o)}
+                className="p-1 shrink-0 hover:bg-white/10 rounded"
+                type="button"
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "size-3 shrink-0 text-sidebar-foreground/40 transition-transform",
+                    open && "rotate-90"
+                  )}
                 />
-              ))}
+              </button>
+              <button
+                onClick={() => {
+                  if (!isRenaming) onSelectFolder?.(node.path);
+                }}
+                className="flex flex-1 items-center gap-1.5 py-1 pr-2 text-left min-w-0"
+                type="button"
+              >
+                {open ? (
+                  <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+                ) : (
+                  <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+                )}
+                {isRenaming ? renameInput : <span className="truncate">{node.name}</span>}
+              </button>
             </div>
-          )}
-        </ContextMenuTrigger>
-        <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
-      </ContextMenu>
+            {open && node.children && (
+              <div>
+                {node.children.map((child) => (
+                  <FileTreeNode
+                    key={child.path}
+                    node={child}
+                    depth={depth + 1}
+                    selectedFilePath={selectedFilePath}
+                    selectedFolderPath={selectedFolderPath}
+                    autoRenamePath={autoRenamePath}
+                    onAutoRenameConsumed={onAutoRenameConsumed}
+                    onSelectPlace={onSelectPlace}
+                    onSelectFolder={onSelectFolder}
+                    onRequestDelete={onRequestDelete}
+                    onRenameComplete={onRenameComplete}
+                    onCreateFolderIn={onCreateFolderIn}
+                    onCreateNoteIn={onCreateNoteIn}
+                    dnd={dnd}
+                  />
+                ))}
+              </div>
+            )}
+          </ContextMenuTrigger>
+          <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
+        </ContextMenu>
+      </div>
     );
   }
 
   const isActive = node.path === selectedFilePath;
+  const parentFolder = parentDir(node.path);
 
   return (
     <ContextMenu>
@@ -280,6 +336,25 @@ function FileTreeNode({
             />
           ) : (
             <button
+              draggable={Boolean(dnd) && !isRenaming}
+              onDragStart={(e) => {
+                if (!dnd || isRenaming) return;
+                dnd.onDragStartNode(e, node.path, "file");
+              }}
+              onDragEnd={() => dnd?.onDragEnd()}
+              onDragOver={(e) => {
+                if (!dnd || isRenaming) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "move";
+                dnd.onFolderDragOver(e, parentFolder);
+              }}
+              onDrop={(e) => {
+                if (!dnd || isRenaming) return;
+                e.preventDefault();
+                e.stopPropagation();
+                dnd.onFolderDrop(e, parentFolder);
+              }}
               className={cn(
                 "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
                 isActive
@@ -314,7 +389,8 @@ export function ProjectSidebar({
   onSelectPlace,
   onSelectFolder,
   onDeletePath,
-  onRenamePath
+  onRenamePath,
+  onMoved
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -322,6 +398,7 @@ export function ProjectSidebar({
   onSelectFolder?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string) => void;
+  onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
@@ -329,6 +406,8 @@ export function ProjectSidebar({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingRenamePath, setPendingRenamePath] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
@@ -343,6 +422,59 @@ export function ProjectSidebar({
     });
     return () => window.api.fs.removeListeners();
   }, [load]);
+
+  useEffect(() => {
+    const clear = () => setDragOverTarget(null);
+    window.addEventListener("dragend", clear);
+    return () => window.removeEventListener("dragend", clear);
+  }, []);
+
+  const runMove = useCallback(
+    async (sourcePath: string, sourceType: FileNode["type"], destinationFolderPath: string) => {
+      if (!vaultRoot) return;
+      if (sourcePath === destinationFolderPath) return;
+      const parent = parentDir(sourcePath);
+      if (parent === destinationFolderPath) return;
+      if (sourceType === "directory") {
+        const slash = sourcePath.includes("\\") ? "\\" : "/";
+        const prefix = sourcePath + slash;
+        if (destinationFolderPath === sourcePath || destinationFolderPath.startsWith(prefix))
+          return;
+      }
+      const result = await window.api.fs.moveInto(sourcePath, destinationFolderPath);
+      if (!result.success) {
+        setMoveError(result.error);
+        window.setTimeout(() => setMoveError(null), 4000);
+        return;
+      }
+      if (result.newPath !== sourcePath) {
+        onMoved?.(sourcePath, result.newPath, sourceType === "directory");
+      }
+    },
+    [vaultRoot, onMoved]
+  );
+
+  const dndBridge = useMemo<SidebarDndBridge | undefined>(() => {
+    if (!vaultRoot) return undefined;
+    return {
+      dragOverTarget,
+      onDragStartNode: (e, path, type) => {
+        e.dataTransfer.setData(MAPOS_DRAG_MIME, JSON.stringify({ path, type }));
+        e.dataTransfer.effectAllowed = "move";
+      },
+      onDragEnd: () => setDragOverTarget(null),
+      onFolderDragOver: (_e, folderPath) => {
+        setDragOverTarget(folderPath);
+      },
+      onFolderDragLeave: () => {},
+      onFolderDrop: (e, folderPath) => {
+        setDragOverTarget(null);
+        const payload = parseDragPayload(e);
+        if (!payload) return;
+        void runMove(payload.path, payload.type, folderPath);
+      }
+    };
+  }, [vaultRoot, dragOverTarget, runMove]);
 
   async function confirmDelete() {
     if (!pendingDelete || isDeleting) return;
@@ -418,37 +550,69 @@ export function ProjectSidebar({
           </Tooltip>
         </TooltipProvider>
       </SidebarHeader>
-      <SidebarContent className="px-1 py-2">
-        <ContextMenu>
-          <ContextMenuTrigger render={<div className="flex-1 flex flex-col min-h-full" />}>
-            {tree.map((node) => (
-              <FileTreeNode
-                key={node.path}
-                node={node}
-                depth={0}
-                selectedFilePath={selectedFilePath}
-                selectedFolderPath={selectedFolderPath}
-                autoRenamePath={pendingRenamePath}
-                onAutoRenameConsumed={() => setPendingRenamePath(null)}
-                onSelectPlace={onSelectPlace}
-                onSelectFolder={onSelectFolder}
-                onRequestDelete={(node) => {
-                  setDeleteError(null);
-                  setPendingDelete(node);
-                }}
-                onRenameComplete={onRenamePath}
-                onCreateFolderIn={(path) => void createFolderIn(path)}
-                onCreateNoteIn={(path) => void createNoteIn(path)}
-              />
-            ))}
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>New Note</ContextMenuItem>
-            <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
-              New Folder
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
+      <SidebarContent className="flex min-h-0 flex-1 flex-col px-1 py-2">
+        {moveError ? (
+          <p className="mx-1 mb-2 text-xs text-destructive" role="alert">
+            {moveError}
+          </p>
+        ) : null}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ContextMenu>
+            <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="shrink-0 rounded -mx-1 px-1">
+                  {tree.map((node) => (
+                    <FileTreeNode
+                      key={node.path}
+                      node={node}
+                      depth={0}
+                      selectedFilePath={selectedFilePath}
+                      selectedFolderPath={selectedFolderPath}
+                      autoRenamePath={pendingRenamePath}
+                      onAutoRenameConsumed={() => setPendingRenamePath(null)}
+                      onSelectPlace={onSelectPlace}
+                      onSelectFolder={onSelectFolder}
+                      onRequestDelete={(node) => {
+                        setDeleteError(null);
+                        setPendingDelete(node);
+                      }}
+                      onRenameComplete={onRenamePath}
+                      onCreateFolderIn={(path) => void createFolderIn(path)}
+                      onCreateNoteIn={(path) => void createNoteIn(path)}
+                      dnd={dndBridge}
+                    />
+                  ))}
+                </div>
+                {vaultRoot && dndBridge ? (
+                  <div
+                    aria-hidden
+                    className="min-h-8 flex-1"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverTarget(vaultRoot);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverTarget(null);
+                      const payload = parseDragPayload(e);
+                      if (!payload) return;
+                      void runMove(payload.path, payload.type, vaultRoot);
+                    }}
+                  />
+                ) : null}
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
+                New Note
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
+                New Folder
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        </div>
       </SidebarContent>
       <AlertDialog
         open={!!pendingDelete}

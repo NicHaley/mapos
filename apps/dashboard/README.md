@@ -32,3 +32,11 @@ $ pnpm build:mac
 # For Linux
 $ pnpm build:linux
 ```
+
+
+## Features
+
+### Search
+
+- **Online place search** uses [Photon](https://photon.komoot.io/) (OpenStreetMap-backed). Results are previewed on the map; saving creates a note in the vault using the active folder or parent directory of the open file, same as other “new place” flows.
+- **Local search (planned):** SQLite **FTS5** over the vault and indexed metadata, extending to **downloaded / offline map** assets once those are stored and indexed locally.

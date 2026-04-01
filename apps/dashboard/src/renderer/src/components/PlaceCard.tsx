@@ -6,7 +6,7 @@ import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
-import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, XIcon } from "lucide-react";
+import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { ScrollArea } from "./ui/scroll-area";
@@ -29,16 +29,20 @@ export function PlaceCard({
   onClose,
   mode = "mini",
   onExpand,
-  onNavigate
+  onNavigate,
+  onSaveSearchToVault
 }: {
   place: PlaceRecord;
   onClose: () => void;
   mode?: "mini" | "full";
   onExpand?: () => void;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
+  /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
+  onSaveSearchToVault?: () => Promise<void>;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [loading, setLoading] = useState(false);
+  const [savingSearch, setSavingSearch] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const isLoadingRef = useRef(false);
@@ -52,7 +56,8 @@ export function PlaceCard({
   const [showLinkInput, setShowLinkInput] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
-  const currentTitle = currentFilePath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
+  const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
   const [titleInput, setTitleInput] = useState(currentTitle);
 
   const editor = useEditor({
@@ -124,7 +129,7 @@ export function PlaceCard({
     setLoading(true);
     isLoadingRef.current = true;
     if (place.previewMarkdown !== undefined) {
-      editor.commands.setContent(place.previewMarkdown, { contentType: "markdown" });
+      editor.commands.setContent(place.previewMarkdown || "", { contentType: "markdown" });
       setLoading(false);
       isLoadingRef.current = false;
       return;
@@ -227,7 +232,7 @@ export function PlaceCard({
     }
   }
 
-  const fileName = currentFilePath.split("/").pop() ?? currentFilePath;
+  const fileName = currentFilePath.split(/[/\\]/).pop() ?? currentFilePath;
 
   return (
     <div
@@ -269,6 +274,27 @@ export function PlaceCard({
               />
             </ErrorTooltip>
           </div>
+          {place.previewMarkdown !== undefined && onSaveSearchToVault && (
+            <button
+              type="button"
+              disabled={savingSearch}
+              onClick={() => {
+                void (async () => {
+                  setSavingSearch(true);
+                  try {
+                    await onSaveSearchToVault();
+                  } finally {
+                    setSavingSearch(false);
+                  }
+                })();
+              }}
+              className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors disabled:opacity-50"
+              aria-label="Save place to vault"
+              title="Save to active folder"
+            >
+              <PlusIcon className="size-3.5" />
+            </button>
+          )}
           {mode === "mini" && onExpand && (
             <button
               onClick={onExpand}
@@ -404,12 +430,14 @@ export function PlaceCard({
               })()}
             </span>
           </div>
-          <span
-            className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]"
-            title={currentFilePath}
-          >
-            {fileName}
-          </span>
+          {place.previewMarkdown === undefined ? (
+            <span
+              className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]"
+              title={currentFilePath}
+            >
+              {fileName}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>

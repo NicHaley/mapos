@@ -1,5 +1,5 @@
 import { MessageCircleIcon, PanelLeftIcon } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
 import { NavTabs } from "./components/NavTabs";
@@ -17,24 +17,52 @@ const CHAT_SIDEBAR_WIDTH = 360;
 const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
 
+/** File basename (no extension) from Photon/OSM place name — keeps casing and spacing; only strips illegal path chars. */
+function filenameBaseFromPlaceTitle(title: string): string {
+  const s = title
+    .trim()
+    .replace(/[/\\:*?"<>|]/g, "")
+    .trim();
+  return s || "place";
+}
+
+async function renameCreatedPlaceToSlug(
+  initialPath: string,
+  baseSlug: string
+): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
+  const candidates = [baseSlug, ...Array.from({ length: 30 }, (_, i) => `${baseSlug}-${i + 2}`)];
+  const current = initialPath;
+  for (const slug of candidates) {
+    const r = await window.api.fs.renameFile(current, slug);
+    if (r.success) return { ok: true, filePath: r.newPath };
+    if (r.error !== "A file or folder with that name already exists") {
+      return { ok: false, error: r.error };
+    }
+  }
+  return { ok: false, error: "Could not find an available filename" };
+}
+
 function placeFromPhotonSearchResult(r: PhotonSearchResult): PlaceRecord {
   const geometry = JSON.stringify({
     type: "Point",
     coordinates: [r.lng, r.lat]
   });
-  const previewMarkdown = [
-    r.secondaryLabel ? `*${r.secondaryLabel}*` : null,
-    "Search result from OpenStreetMap (Photon). Not saved to your vault."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
   return {
     filePath: `photon-search:${r.id}`,
     title: r.primaryLabel,
     type: "Search",
     geometry,
-    previewMarkdown
+    /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
+    previewMarkdown: ""
   };
+}
+
+/** Directory containing a vault file path (browser-safe; avoids Node `path` in the renderer bundle). */
+function parentFolderOfVaultFile(filePath: string): string {
+  const n = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  if (n === -1) return ".";
+  if (n === 0) return filePath.slice(0, 1);
+  return filePath.slice(0, n);
 }
 
 function mapPadding(projectSidebarOpen: boolean, chatSidebarOpen: boolean, placeCardOpen: boolean) {
@@ -56,9 +84,27 @@ function App(): React.JSX.Element {
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
   const [chatSidebarOpen, setChatSidebarOpen] = useState(false);
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
+  /** Last real vault file path (kept when switching to a Photon search preview). */
+  const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
+
+  useEffect(() => {
+    const p = selectedPlace?.filePath;
+    if (!p) {
+      setLastVaultFilePath(null);
+      return;
+    }
+    if (!p.startsWith("photon-search:")) {
+      setLastVaultFilePath(p);
+    }
+  }, [selectedPlace]);
+
+  const parentFolderForNewFiles = useMemo(
+    () => selectedFolder ?? (lastVaultFilePath ? parentFolderOfVaultFile(lastVaultFilePath) : null),
+    [selectedFolder, lastVaultFilePath]
+  );
 
   const clearPlace = useCallback(() => {
     setSelectedPlace(null);
@@ -181,7 +227,6 @@ function App(): React.JSX.Element {
   const handlePhotonSearchResult = useCallback(
     (r: PhotonSearchResult) => {
       const place = placeFromPhotonSearchResult(r);
-      setSelectedFolder(null);
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
@@ -189,6 +234,65 @@ function App(): React.JSX.Element {
     },
     [projectSidebarOpen, chatSidebarOpen]
   );
+
+  const handleSaveSearchToVault = useCallback(async () => {
+    const place = selectedPlace;
+    if (place?.previewMarkdown === undefined || !place.geometry) return;
+    let coordinates: [number, number];
+    try {
+      const geo = JSON.parse(place.geometry) as { coordinates: [number, number] };
+      coordinates = geo.coordinates;
+    } catch {
+      return;
+    }
+    const [lng, lat] = coordinates;
+    const create = await window.api.fs.createNoteFile({
+      parentFolderPath: parentFolderForNewFiles,
+      lat,
+      lng
+    });
+    if (!create.success) {
+      console.error("[save search]", create.error);
+      return;
+    }
+    const baseName = filenameBaseFromPlaceTitle(place.title);
+    const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+    if (!renamed.ok) {
+      console.error("[save search]", renamed.error);
+      return;
+    }
+    const created =
+      (await window.api.places.getByPath(renamed.filePath)) ??
+      ({
+        filePath: renamed.filePath,
+        title: place.title,
+        type: "place",
+        geometry: place.geometry
+      } satisfies PlaceRecord);
+    if (selectedFolder) {
+      setSelectedPlace(created);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+    } else {
+      setSelectedPlace(created);
+      setPlaceMode("full");
+      setFeatureScreenPos(null);
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "place", place: created },
+        newTab: false
+      });
+      mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+    }
+  }, [
+    parentFolderForNewFiles,
+    selectedFolder,
+    selectedPlace,
+    projectSidebarOpen,
+    chatSidebarOpen,
+    dispatchNav
+  ]);
 
   const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
     setSelectedFolder((prev) => {
@@ -240,6 +344,17 @@ function App(): React.JSX.Element {
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
 
+  /** Sidebar tree highlight: follow the active tab's place, not `selectedPlace` (Photon replaces that in mini mode). */
+  const selectedFilePathForSidebar = useMemo(() => {
+    const tab = nav.tabs[nav.activeTab];
+    const entry = tab?.history[tab.cursor];
+    if (entry?.kind !== "place") return undefined;
+    const fp = entry.place.filePath;
+    // Sidebar matches real vault paths only; Photon preview ids are not files on disk.
+    if (fp.startsWith("photon-search:")) return undefined;
+    return fp;
+  }, [nav]);
+
   return (
     <>
       {/* Map: full viewport, goes under the top bar */}
@@ -251,6 +366,7 @@ function App(): React.JSX.Element {
           onMapClickEmpty={isMini ? clearPlace : undefined}
           selectedPlace={selectedPlace}
           selectedFolder={selectedFolder}
+          parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
         />
       </div>
@@ -353,6 +469,9 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={clearPlace}
               onNavigate={handleSelectPlaceFromSidebar}
+              onSaveSearchToVault={
+                selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
+              }
               onExpand={
                 selectedPlace.previewMarkdown !== undefined
                   ? undefined
@@ -383,7 +502,7 @@ function App(): React.JSX.Element {
           style={{ "--sidebar-width": `${PROJECT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
           <ProjectSidebar
-            selectedFilePath={isFull ? selectedPlace?.filePath : undefined}
+            selectedFilePath={selectedFilePathForSidebar}
             selectedFolderPath={selectedFolder ?? undefined}
             onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}

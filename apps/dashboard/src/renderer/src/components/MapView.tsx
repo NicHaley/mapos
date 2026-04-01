@@ -125,6 +125,8 @@ const MapView = forwardRef<
     onMapClickEmpty?: () => void;
     selectedPlace?: PlaceRecord | null;
     selectedFolder?: string | null;
+    /** Where new notes are created (context menu): explicit folder, or parent of last vault file. */
+    parentFolderForNewFiles?: string | null;
     onSelectedFeaturePosition?: (x: number, y: number) => void;
   }
 >(function MapView(
@@ -134,6 +136,7 @@ const MapView = forwardRef<
     onMapClickEmpty,
     selectedPlace,
     selectedFolder,
+    parentFolderForNewFiles,
     onSelectedFeaturePosition
   },
   ref
@@ -174,10 +177,8 @@ const MapView = forwardRef<
     }
   }, []);
 
-  const selectedFolderForCreate = useRef(selectedFolder);
-  selectedFolderForCreate.current = selectedFolder;
-  const selectedPlaceForCreate = useRef(selectedPlace);
-  selectedPlaceForCreate.current = selectedPlace;
+  const parentForCreate =
+    parentFolderForNewFiles !== undefined ? parentFolderForNewFiles : (selectedFolder ?? null);
 
   const loadFolderPlaces = useCallback(async (folderPath: string) => {
     const places = await window.api.places.queryFolderAll(folderPath);
@@ -309,6 +310,8 @@ const MapView = forwardRef<
     }
   }, [selectedFolder, loadFolderPlaces]);
 
+  // Re-project when selection changes (emit reads refs; selectedPlace still needed to trigger)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedPlace
   useEffect(() => {
     emitFeaturePosition();
   }, [selectedPlace, emitFeaturePosition]);
@@ -327,7 +330,7 @@ const MapView = forwardRef<
     if (!contextMenu) return;
     setContextMenu(null);
     const result = await window.api.fs.createNoteFile({
-      parentFolderPath: selectedFolderForCreate.current ?? null,
+      parentFolderPath: parentForCreate ?? null,
       lat: contextMenu.lat,
       lng: contextMenu.lng
     });
@@ -346,10 +349,10 @@ const MapView = forwardRef<
     };
     const createdPlace = (await window.api.places.getByPath(filePath)) ?? fallbackPlace;
     onCreatePlace?.(createdPlace);
-    if (!selectedPlaceForCreate.current && selectedFolderForCreate.current) {
+    if (!selectedPlace && parentForCreate) {
       setFolderPlaces((prev) => [...prev, fallbackPlace]);
     }
-  }, [contextMenu, onCreatePlace]);
+  }, [contextMenu, onCreatePlace, parentForCreate, selectedPlace]);
 
   const overlayGeoJSON = useMemo(() => {
     const features: Array<{

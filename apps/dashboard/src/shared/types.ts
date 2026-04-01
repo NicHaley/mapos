@@ -6,6 +6,8 @@ export type PlaceRecord = {
   tags?: string[];
   // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;
+  /** When set, PlaceCard shows preview content without reading the file; no save/rename. */
+  previewMarkdown?: string;
 };
 
 export type PlaceUpdate =

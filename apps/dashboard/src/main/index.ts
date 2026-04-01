@@ -48,23 +48,32 @@ function uniquePathInDir(
 ): string {
   const available = (candidate: string) =>
     !existsSync(candidate) || (skipPath !== undefined && candidate === skipPath);
+  const parseSuffix = (name: string): { base: string; start: number } => {
+    const match = name.match(/^(.*?)(?: (\d+))?$/);
+    const rawBase = match?.[1] ?? name;
+    const base = rawBase.trimEnd();
+    const suffix = match?.[2];
+    return { base, start: suffix ? Number.parseInt(suffix, 10) : 0 };
+  };
 
   if (isDirectory) {
-    let candidate = join(dir, finalName);
-    let n = 0;
+    const { base, start } = parseSuffix(finalName);
+    let n = start;
+    let candidate = join(dir, n === 0 ? base : `${base} ${n}`);
     while (!available(candidate)) {
       n++;
-      candidate = join(dir, `${finalName} ${n}`);
+      candidate = join(dir, `${base} ${n}`);
     }
     return candidate;
   }
   const ext = extname(finalName);
   const stem = ext ? finalName.slice(0, -ext.length) : finalName;
-  let candidate = join(dir, finalName);
-  let n = 0;
+  const { base, start } = parseSuffix(stem);
+  let n = start;
+  let candidate = join(dir, `${n === 0 ? base : `${base} ${n}`}${ext}`);
   while (!available(candidate)) {
     n++;
-    candidate = join(dir, `${stem} ${n}${ext}`);
+    candidate = join(dir, `${base} ${n}${ext}`);
   }
   return candidate;
 }

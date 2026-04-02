@@ -17,7 +17,9 @@ import MapGL, {
   Source
 } from "react-map-gl/maplibre";
 
-import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { Protocol } from "pmtiles";
+import maplibregl from "maplibre-gl";
+import { useMapStyle } from "@renderer/hooks/use-map-style";
 import type { PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
@@ -25,15 +27,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "./ui/dropdown-menu";
+import { RegionPicker } from "./RegionPicker";
+
+// Register the pmtiles:// protocol with MapLibre once at module load time.
+const pmtilesProtocol = new Protocol();
+maplibregl.addProtocol("pmtiles", pmtilesProtocol.tile.bind(pmtilesProtocol));
 
 export type { PlaceRecord };
-
-const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
-
-function useDarkMapStyle() {
-  const isDark = useDarkMode();
-  return `https://api.protomaps.com/styles/v5/${isDark ? "black" : "light"}/en.json?key=${PROTOMAPS_KEY}`;
-}
 
 type GeoJSONPoint = { type: "Point"; coordinates: [number, number] };
 /** Matches stored place geometries; keeps literal `type` for Turf / GeoJSON typings. */
@@ -142,7 +142,7 @@ const MapView = forwardRef<
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
-  const mapStyle = useDarkMapStyle();
+  const { mapStyle, regions, selectedRegionId, setSelectedRegionId } = useMapStyle();
 
   const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedFolderRef = useRef<string | null>(null);
@@ -580,6 +580,11 @@ const MapView = forwardRef<
           </Source>
         )}
       </MapGL>
+      <RegionPicker
+        regions={regions}
+        selectedRegionId={selectedRegionId}
+        onSelect={setSelectedRegionId}
+      />
       <DropdownMenu
         modal
         open={!!contextMenu}

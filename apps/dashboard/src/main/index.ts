@@ -1209,8 +1209,8 @@ app.whenReady().then(() => {
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' blob:",
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io",
-            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io",
+            "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io https://*.r2.dev",
+            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io https://*.r2.dev",
             "worker-src 'self' blob:",
             "font-src 'self' data:"
           ].join("; ")

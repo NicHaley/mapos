@@ -9,12 +9,12 @@ import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
+import { TOP_BAR_HEIGHT_PX as TOP_BAR_HEIGHT } from "./lib/layout";
 import type { PhotonSearchResult } from "./lib/photon";
 
 const PROJECT_SIDEBAR_WIDTH = 256;
 const PLACE_CARD_WIDTH = 320;
 const CHAT_SIDEBAR_WIDTH = 360;
-const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
 
 /** File basename (no extension) from Photon/OSM place name — keeps casing and spacing; only strips illegal path chars. */

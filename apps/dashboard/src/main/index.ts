@@ -1,4 +1,5 @@
 import {
+  type Stats,
   appendFileSync,
   existsSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { basename, dirname, extname, join, sep } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
@@ -19,6 +20,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
+import type { PlaceRecord } from "../shared/types";
 import {
   getFeatureCount,
   indexFeatures,
@@ -30,7 +32,51 @@ import {
   removeFeatures
 } from "./db";
 import { parseWkt } from "./wkt";
-import type { PlaceRecord } from "../shared/types";
+
+/**
+ * First available `join(dir, …)` using the same pattern as Obsidian-style naming:
+ * directories: `name`, `name 1`, `name 2`, …
+ * files: `stem.ext`, `stem 1.ext`, …
+ *
+ * If `skipPath` is set, that path counts as available (same-file rename).
+ */
+function uniquePathInDir(
+  dir: string,
+  finalName: string,
+  isDirectory: boolean,
+  skipPath?: string
+): string {
+  const available = (candidate: string) =>
+    !existsSync(candidate) || (skipPath !== undefined && candidate === skipPath);
+  const parseSuffix = (name: string): { base: string; start: number } => {
+    const match = name.match(/^(.*?)(?: (\d+))?$/);
+    const rawBase = match?.[1] ?? name;
+    const base = rawBase.trimEnd();
+    const suffix = match?.[2];
+    return { base, start: suffix ? Number.parseInt(suffix, 10) : 0 };
+  };
+
+  if (isDirectory) {
+    const { base, start } = parseSuffix(finalName);
+    let n = start;
+    let candidate = join(dir, n === 0 ? base : `${base} ${n}`);
+    while (!available(candidate)) {
+      n++;
+      candidate = join(dir, `${base} ${n}`);
+    }
+    return candidate;
+  }
+  const ext = extname(finalName);
+  const stem = ext ? finalName.slice(0, -ext.length) : finalName;
+  const { base, start } = parseSuffix(stem);
+  let n = start;
+  let candidate = join(dir, `${n === 0 ? base : `${base} ${n}`}${ext}`);
+  while (!available(candidate)) {
+    n++;
+    candidate = join(dir, `${base} ${n}${ext}`);
+  }
+  return candidate;
+}
 
 async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
   try {
@@ -238,13 +284,9 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     const dir = oldPath.split(sep).slice(0, -1).join(sep);
     const isDir = statSync(oldPath).isDirectory();
     const finalName = isDir || safeName.endsWith(".md") ? safeName : `${safeName}.md`;
-    const newPath = join(dir, finalName);
+    const newPath = uniquePathInDir(dir, finalName, isDir, oldPath);
 
     if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
-
-    if (existsSync(newPath) && newPath !== oldPath) {
-      return { success: false, error: "A file or folder with that name already exists" };
-    }
 
     try {
       renameSync(oldPath, newPath);
@@ -274,6 +316,101 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       return { success: false, error: String(err) };
     }
   });
+
+  ipcMain.handle(
+    "fs:move-into",
+    async (_event, sourcePath: string, destinationFolderPath: string) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+
+      if (sourcePath !== MAPOS_DIR && !sourcePath.startsWith(vaultPrefix)) {
+        return { success: false as const, error: "Path outside vault" };
+      }
+      if (destinationFolderPath !== MAPOS_DIR && !destinationFolderPath.startsWith(vaultPrefix)) {
+        return { success: false as const, error: "Path outside vault" };
+      }
+
+      let destStat: Stats;
+      try {
+        destStat = statSync(destinationFolderPath);
+      } catch {
+        return { success: false as const, error: "Destination folder does not exist" };
+      }
+      if (!destStat.isDirectory()) {
+        return { success: false as const, error: "Destination is not a folder" };
+      }
+
+      const sourceDir = dirname(sourcePath);
+      if (sourceDir === destinationFolderPath) {
+        return { success: true as const, newPath: sourcePath };
+      }
+
+      let sourceStat: Stats;
+      try {
+        sourceStat = statSync(sourcePath);
+      } catch {
+        return { success: false as const, error: "Source does not exist" };
+      }
+      const sourceIsDir = sourceStat.isDirectory();
+
+      if (sourceIsDir) {
+        if (destinationFolderPath === sourcePath) {
+          return { success: false as const, error: "Cannot move a folder into itself" };
+        }
+        const sourcePrefix = sourcePath + sep;
+        if (
+          destinationFolderPath === sourcePath ||
+          destinationFolderPath.startsWith(sourcePrefix)
+        ) {
+          return { success: false as const, error: "Cannot move a folder into itself" };
+        }
+      }
+
+      const newPath = uniquePathInDir(destinationFolderPath, basename(sourcePath), sourceIsDir);
+
+      if (!newPath.startsWith(vaultPrefix)) {
+        return { success: false as const, error: "Path outside vault" };
+      }
+
+      try {
+        renameSync(sourcePath, newPath);
+
+        if (sourceIsDir) {
+          const oldPrefix = sourcePath + sep;
+          const newPrefix = newPath + sep;
+          const oldKeys: string[] = [];
+          const newPlaces: PlaceRecord[] = [];
+          for (const [key, place] of places) {
+            if (key.startsWith(oldPrefix)) {
+              places.delete(key);
+              oldKeys.push(key);
+              newPlaces.push({ ...place, filePath: newPrefix + key.slice(oldPrefix.length) });
+            }
+          }
+          removeFeatures(oldKeys);
+          indexFeatures(newPlaces);
+          for (const place of newPlaces) {
+            places.set(place.filePath, place);
+          }
+        } else {
+          const place = places.get(sourcePath);
+          if (place) {
+            places.delete(sourcePath);
+            removeFeatures([sourcePath]);
+            const moved: PlaceRecord = { ...place, filePath: newPath };
+            places.set(newPath, moved);
+            if (moved.geometry) {
+              indexFeatures([moved]);
+            }
+          }
+        }
+
+        notifyFsChanged();
+        return { success: true as const, newPath };
+      } catch (err) {
+        return { success: false as const, error: String(err) };
+      }
+    }
+  );
 
   ipcMain.handle("fs:delete-path", async (_event, targetPath: string) => {
     const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
@@ -308,12 +445,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       const safeName = args.folderName.replace(/[/\\]/g, "").trim();
       if (!safeName) return { success: false as const, error: "Empty name" };
 
-      let candidate = join(parent, safeName);
-      let n = 0;
-      while (existsSync(candidate)) {
-        n++;
-        candidate = join(parent, `${safeName} ${n}`);
-      }
+      const candidate = uniquePathInDir(parent, safeName, true);
 
       if (!candidate.startsWith(vaultPrefix))
         return { success: false as const, error: "Path outside vault" };
@@ -342,15 +474,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       } else {
         dir = MAPOS_DIR;
       }
-      const baseName = "Untitled";
-      let fileName = baseName;
-      let candidate = join(dir, `${fileName}.md`);
-      let n = 0;
-      while (existsSync(candidate)) {
-        n++;
-        fileName = `${baseName} ${n}`;
-        candidate = join(dir, `${fileName}.md`);
-      }
+      const candidate = uniquePathInDir(dir, "Untitled.md", false);
       const content =
         args.lat != null && args.lng != null
           ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`

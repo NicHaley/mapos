@@ -304,6 +304,42 @@ function App(): React.JSX.Element {
     });
   }, []);
 
+  /** After drag-and-drop or cross-folder move: sync nav tabs, selection, and open place paths. */
+  const handlePathRelocated = useCallback(
+    (oldPath: string, newPath: string, isDirectory: boolean) => {
+      dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory });
+
+      setSelectedFolder((prev) => {
+        if (!prev) return prev;
+        if (prev === oldPath) return newPath;
+        if (prev.startsWith(`${oldPath}/`) || prev.startsWith(`${oldPath}\\`))
+          return newPath + prev.slice(oldPath.length);
+        return prev;
+      });
+
+      setSelectedPlace((prev) => {
+        if (!prev || prev.filePath.startsWith("photon-search:")) return prev;
+        const fp = prev.filePath;
+        if (!isDirectory) {
+          if (fp !== oldPath) return prev;
+          const base = newPath.split(/[/\\]/).pop() ?? newPath;
+          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
+        }
+        if (fp === oldPath) {
+          const base = newPath.split(/[/\\]/).pop() ?? newPath;
+          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
+        }
+        if (fp.startsWith(`${oldPath}/`) || fp.startsWith(`${oldPath}\\`)) {
+          const nextPath = newPath + fp.slice(oldPath.length);
+          const base = nextPath.split(/[/\\]/).pop() ?? nextPath;
+          return { ...prev, filePath: nextPath, title: base.replace(/\.md$/i, "") };
+        }
+        return prev;
+      });
+    },
+    [dispatchNav]
+  );
+
   const handleDeletedPath = useCallback(
     (deletedPath: string, type: "file" | "directory") => {
       const isSameOrChildPath = (currentPath: string, parentPath: string) =>
@@ -508,6 +544,7 @@ function App(): React.JSX.Element {
             onSelectFolder={handleSelectFolder}
             onDeletePath={handleDeletedPath}
             onRenamePath={handleRenamePath}
+            onMoved={handlePathRelocated}
           />
         </SidebarProvider>
 

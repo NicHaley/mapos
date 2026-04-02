@@ -229,7 +229,7 @@ function FileTreeNode({
     const isActive = node.path === selectedFolderPath;
     const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
     return (
-      <div className={cn("rounded", folderDropZone && "bg-sky-500/10")}>
+      <div className={cn("rounded", folderDropZone && "bg-blue-600/10")}>
         <ContextMenu>
           <ContextMenuTrigger render={<div />}>
             <div
@@ -255,9 +255,11 @@ function FileTreeNode({
               }}
               className={cn(
                 "flex items-center rounded text-sm",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent"
+                folderDropZone
+                  ? "bg-blue-600/90 text-white [&_svg]:text-white/90"
+                  : isActive
+                    ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent"
               )}
               style={{ paddingLeft: `${0.5 + depth * 0.875}rem` }}
             >

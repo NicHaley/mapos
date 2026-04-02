@@ -81,8 +81,8 @@ declare global {
         revealInFinder: (targetPath: string) => Promise<void>;
         createNoteFile: (args: {
           parentFolderPath: string | null;
-          lat: number;
-          lng: number;
+          lat?: number;
+          lng?: number;
         }) => Promise<{ success: true; filePath: string } | { success: false; error: string }>;
         getVaultRoot: () => Promise<string>;
         createFolder: (args: {

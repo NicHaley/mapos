@@ -3,6 +3,7 @@ import type { ChatToolCallPayload, ChatToolResultPayload, ConversationMeta } fro
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
+  ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
   EllipsisIcon,
@@ -21,13 +22,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton
 } from "./ai-elements/conversation";
-import {
-  Message,
-  MessageAction,
-  MessageActions,
-  MessageContent,
-  MessageResponse
-} from "./ai-elements/message";
+import { Message, MessageContent, MessageResponse } from "./ai-elements/message";
 import {
   PromptInput,
   PromptInputFooter,
@@ -61,7 +56,11 @@ type ActiveToolCall = {
   status: "running" | "done" | "error";
 };
 
-const VAULT_FILE_TOOLS = new Set(["mcp__mapos__write_vault_file", "mcp__mapos__delete_vault_file"]);
+const VAULT_FILE_TOOLS = new Set([
+  "mcp__mapos__write_vault_file",
+  "mcp__mapos__delete_vault_file",
+  "mcp__mapos__rename_vault_file"
+]);
 
 const TOOL_LABELS: Record<string, string> = {
   mcp__mapos__render_overlay_on_map: "Rendering On Map",
@@ -73,6 +72,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__mapos__pan_to: "Panning Map",
   mcp__mapos__write_vault_file: "Writing File",
   mcp__mapos__delete_vault_file: "Deleting File",
+  mcp__mapos__rename_vault_file: "Renaming File",
   Bash: "Running Command",
   Read: "Reading File",
   Glob: "Searching Files",
@@ -83,13 +83,15 @@ const TOOL_LABELS: Record<string, string> = {
 
 function toolLabel(name: string): string {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
-  return name.replace(/^mcp__\w+__/, "").replace(/_/g, " ");
+  // Strip mcp__namespace__ prefix, then humanize snake_case
+  return name.replace(/^mcp__[^_]+(?:__[^_]+)*?__/, "").replace(/_/g, " ");
 }
 
 type FileChangeResult = {
   success: boolean;
   path: string;
-  action: "created" | "modified" | "deleted";
+  fromPath?: string;
+  action: "created" | "modified" | "deleted" | "renamed";
   previousContent: string | null;
   newContent: string | null;
 };
@@ -177,7 +179,8 @@ function FileChangeRow({
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const change = parseFileChangeResult(call);
-  const filename = change?.path.split("/").pop() ?? call.name;
+  const filename = change?.path.split("/").pop() ?? toolLabel(call.name);
+  const fromFilename = change?.fromPath?.split("/").pop();
 
   const ActionIcon =
     call.status === "running"
@@ -186,7 +189,9 @@ function FileChangeRow({
         ? FilePlusIcon
         : change?.action === "deleted"
           ? FileX2Icon
-          : PencilIcon;
+          : change?.action === "renamed"
+            ? ArrowRightIcon
+            : PencilIcon;
 
   const actionLabel =
     call.status === "running"
@@ -195,7 +200,9 @@ function FileChangeRow({
         ? "Created"
         : change?.action === "deleted"
           ? "Deleted"
-          : "Modified";
+          : change?.action === "renamed"
+            ? "Renamed"
+            : "Modified";
 
   const actionColor =
     call.status === "running"
@@ -204,7 +211,9 @@ function FileChangeRow({
         ? "text-emerald-500"
         : change?.action === "deleted"
           ? "text-destructive"
-          : "text-blue-400";
+          : change?.action === "renamed"
+            ? "text-amber-400"
+            : "text-blue-400";
 
   const allLines =
     change && call.status !== "running"
@@ -213,7 +222,9 @@ function FileChangeRow({
 
   const hasOverflow = allLines.length > PREVIEW_LINES;
   const visibleLines = expanded ? allLines : allLines.slice(0, PREVIEW_LINES);
-  const canOpen = !!change && change.action !== "deleted" && call.status !== "running";
+  const canOpen =
+    !!change && change.action !== "deleted" && call.status !== "running";
+  const showDiff = allLines.length > 0 && call.status !== "running" && change?.action !== "renamed";
 
   return (
     <div className="overflow-hidden">
@@ -231,13 +242,21 @@ function FileChangeRow({
           onClick={() => change && onOpenFile(change.path)}
           className="flex-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none truncate font-mono"
         >
-          {filename}
+          {change?.action === "renamed" && fromFilename ? (
+            <span className="flex items-center gap-1">
+              <span className="opacity-50">{fromFilename}</span>
+              <ArrowRightIcon className="size-3 shrink-0 opacity-50" />
+              {filename}
+            </span>
+          ) : (
+            filename
+          )}
         </button>
         <span className={cn("text-xs font-medium shrink-0", actionColor)}>{actionLabel}</span>
       </div>
 
       {/* Diff */}
-      {allLines.length > 0 && call.status !== "running" && (
+      {showDiff && (
         <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 overflow-hidden">
           <pre className="font-mono text-[11px] leading-relaxed !m-0">
             {visibleLines.map((item, i) => (
@@ -603,7 +622,6 @@ export function ChatSidebar({
             )}
 
             {messages.map((msg, i) => {
-              const isLastAssistant = i === messages.length - 1 && msg.role === "assistant";
               return msg.role === "error" ? (
                 <div
                   key={i}
@@ -634,14 +652,6 @@ export function ChatSidebar({
                     <MessageContent>
                       <MessageResponse>{msg.content}</MessageResponse>
                     </MessageContent>
-                  )}
-                  {isLastAssistant && canUndo && (
-                    <MessageActions>
-                      <MessageAction tooltip="Undo last turn's file changes" onClick={handleUndo}>
-                        <Undo2Icon className="size-3.5" />
-                        Undo
-                      </MessageAction>
-                    </MessageActions>
                   )}
                 </Message>
               );
@@ -677,6 +687,15 @@ export function ChatSidebar({
           <ConversationScrollButton />
         </Conversation>
       </SidebarContent>
+
+      {canUndo && (
+        <div className="flex justify-end px-3 py-2">
+          <Button variant="outline" size="sm" onClick={handleUndo}>
+            <Undo2Icon className="size-3.5" />
+            Undo
+          </Button>
+        </div>
+      )}
 
       <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
         <PromptInput onSubmit={handleSubmit}>

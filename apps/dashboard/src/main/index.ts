@@ -572,7 +572,7 @@ When you get search or geocode results from Mapbox (e.g. geocoding an address, s
 
 ## File operations
 
-For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw Bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing.
+For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw Bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
 ## Display vs. action intent
 
@@ -597,7 +597,8 @@ const ALLOWED_TOOLS = [
   "mcp__mapos__get_viewport",
   "mcp__mapos__pan_to",
   "mcp__mapos__write_vault_file",
-  "mcp__mapos__delete_vault_file"
+  "mcp__mapos__delete_vault_file",
+  "mcp__mapos__rename_vault_file"
 ] as const;
 
 type ViewportState = {
@@ -930,6 +931,57 @@ function createMaposMcpServer(
             ]
           };
         }
+      ),
+      tool(
+        "rename_vault_file",
+        "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically.",
+        {
+          fromPath: z.string().describe("Current absolute path of the file within the vault"),
+          toPath: z.string().describe("New absolute path within the vault")
+        },
+        async (args) => {
+          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
+          const fromUnder = args.fromPath === maposDir || args.fromPath.startsWith(vaultPrefix);
+          const toUnder = args.toPath === maposDir || args.toPath.startsWith(vaultPrefix);
+          if (!fromUnder || !toUnder) {
+            return {
+              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Both paths must be within vault" }) }]
+            };
+          }
+          if (!existsSync(args.fromPath)) {
+            return {
+              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Source file not found" }) }]
+            };
+          }
+          const content = readFileSync(args.fromPath, "utf-8");
+          // Track both sides for undo
+          onVaultWrite({ path: args.fromPath, previousContent: content });
+          onVaultWrite({ path: args.toPath, previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null });
+          mkdirSync(dirname(args.toPath), { recursive: true });
+          renameSync(args.fromPath, args.toPath);
+          removeFeatures([args.fromPath]);
+          try {
+            const record = await parsePlaceFile(args.toPath);
+            if (record) indexFeatures([record]);
+          } catch {
+            // Not a place file
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: true,
+                  path: args.toPath,
+                  fromPath: args.fromPath,
+                  action: "renamed",
+                  previousContent: content,
+                  newContent: content
+                })
+              }
+            ]
+          };
+        }
       )
     ]
   });
@@ -1204,9 +1256,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           ).message?.content;
           if (Array.isArray(content)) {
             for (const block of content) {
-              if (block.type === "text" && typeof block.text === "string") {
-                fullText += block.text;
-              } else if (block.type === "tool_use" && block.name) {
+              if (block.type === "tool_use" && block.name) {
                 const id = block.id ?? "";
                 fullToolCalls.push({ id, name: block.name, input: block.input ?? {} });
                 mainWindow.webContents.send("chat:tool_call", {

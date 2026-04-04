@@ -131,8 +131,10 @@ function readDirTree(dirPath: string): FileNode[] {
   }
 }
 
+/** Canonical vault root (same path the renderer gets from `fs:get-vault-root`). */
+const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
+
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
-  const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
   if (!existsSync(MAPOS_DIR)) {
     mkdirSync(MAPOS_DIR, { recursive: true });
   }
@@ -560,7 +562,11 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
 const MAPOS_SYSTEM_PROMPT = `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
 
-MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth. All user data lives under ~/Documents/MapOS/.
+MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth.
+
+## Vault location (authoritative — use exactly this path)
+The MapOS vault root on this machine is: ${MAPOS_DIR}
+The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in Bash). For Glob, Grep, Read, Bash, and any file search or listing tools, search only under this path (e.g. ${MAPOS_DIR}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts or use patterns like /Users/*/Documents/MapOS — always use the absolute path above.
 
 Place files use Markdown with YAML frontmatter. Required frontmatter: geometry (WKT string).
 
@@ -570,6 +576,8 @@ Have a neutral tone. Don't be too friendly or too formal.
 
 When you get search or geocode results from Mapbox (e.g. geocoding an address, searching for POIs), use render_overlay_on_map to display them on the map as temporary overlay. Pass points for POIs, lines for routes/boundaries, polygons for isochrones or areas. Use clear_map_overlay when starting a new search or when the user asks to clear.
 
+After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
+
 ## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw Bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
@@ -578,8 +586,6 @@ For any vault file write or delete, use write_vault_file or delete_vault_file �
 
 - If the user asks you to find, show, search, explore, or preview → use render_overlay_on_map for ephemeral display. Do not write files.
 - If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.`;
-
-const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
 
 const ALLOWED_TOOLS = [
   "Bash",
@@ -636,7 +642,11 @@ function createMaposMcpServer(
                 lat: z.number().describe("Latitude in decimal degrees"),
                 lng: z.number().describe("Longitude in decimal degrees"),
                 title: z.string().describe("Display name for the marker"),
-                id: z.string().optional().describe("Unique identifier for the point")
+                id: z.string().optional().describe("Unique identifier for the point"),
+                preview_markdown: z
+                  .string()
+                  .optional()
+                  .describe("Optional markdown shown in the place preview card before save")
               })
             )
             .optional()
@@ -648,7 +658,11 @@ function createMaposMcpServer(
                   .array(z.tuple([z.number(), z.number()]))
                   .describe("Array of [longitude, latitude] pairs"),
                 title: z.string().optional(),
-                id: z.string().optional()
+                id: z.string().optional(),
+                preview_markdown: z
+                  .string()
+                  .optional()
+                  .describe("Optional markdown shown in the place preview card before save")
               })
             )
             .optional()
@@ -662,7 +676,11 @@ function createMaposMcpServer(
                     "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
                   ),
                 title: z.string().optional(),
-                id: z.string().optional()
+                id: z.string().optional(),
+                preview_markdown: z
+                  .string()
+                  .optional()
+                  .describe("Optional markdown shown in the place preview card before save")
               })
             )
             .optional()
@@ -679,12 +697,14 @@ function createMaposMcpServer(
               id: p.id ?? `overlay-point-${i}`,
               lat: p.lat,
               lng: p.lng,
-              title: p.title
+              title: p.title,
+              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
             }));
             const lines = (args.lines ?? []).map((l, i) => ({
               id: l.id ?? `overlay-line-${i}`,
               coordinates: l.coordinates,
-              title: l.title
+              title: l.title,
+              ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
             }));
             const polygons = (args.polygons ?? []).map((p, i) => ({
               id: p.id ?? `overlay-polygon-${i}`,
@@ -694,7 +714,8 @@ function createMaposMcpServer(
                 const isClosed = first[0] === last[0] && first[1] === last[1];
                 return isClosed ? ring : [...ring, ring[0]];
               }),
-              title: p.title
+              title: p.title,
+              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
             }));
             mainWindow.webContents.send("map:overlay", {
               layerName: args.layer_name,
@@ -1210,7 +1231,8 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           env: {
             ...process.env,
             ANTHROPIC_API_KEY: apiKey,
-            ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL
+            ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL,
+            MAPOS_VAULT_ROOT: MAPOS_DIR
           }
         }
       });

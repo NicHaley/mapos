@@ -20,7 +20,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
-import type { PlaceRecord } from "../shared/types";
+import type { PersistedMessage, PlaceRecord } from "../shared/types";
 import {
   getFeatureCount,
   indexFeatures,
@@ -828,13 +828,6 @@ function createMaposMcpServer(
   });
 }
 
-type PersistedMessage = {
-  role: "user" | "assistant";
-  content: string;
-  thinking?: string;
-  timestamp: string;
-};
-
 type ActiveConversation = {
   id: string;
   messages: PersistedMessage[];
@@ -1026,6 +1019,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           ...(currentConversation.sdkSessionId ? { resume: currentConversation.sdkSessionId } : {}),
           abortController,
           cwd: MAPOS_DIR,
+          model: "claude-sonnet-4-6",
           systemPrompt: MAPOS_SYSTEM_PROMPT,
           allowedTools: [...ALLOWED_TOOLS],
           tools: [...ALLOWED_TOOLS],
@@ -1053,6 +1047,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
       let fullText = "";
       let fullThinking = "";
+      const fullToolCalls: Array<{ id: string; name: string; input: unknown; result?: string; isError?: boolean }> = [];
 
       for await (const msg of q) {
         if (mainWindow.isDestroyed()) break;
@@ -1075,12 +1070,70 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
           }
         } else if (msg.type === "assistant") {
           const content = (
-            msg as { message?: { content?: Array<{ type?: string; text?: string }> } }
+            msg as {
+              message?: {
+                content?: Array<{
+                  type?: string;
+                  text?: string;
+                  id?: string;
+                  name?: string;
+                  input?: unknown;
+                }>;
+              };
+            }
           ).message?.content;
           if (Array.isArray(content)) {
             for (const block of content) {
               if (block.type === "text" && typeof block.text === "string") {
                 fullText += block.text;
+              } else if (block.type === "tool_use" && block.name) {
+                const id = block.id ?? "";
+                fullToolCalls.push({ id, name: block.name, input: block.input ?? {} });
+                mainWindow.webContents.send("chat:tool_call", {
+                  id,
+                  name: block.name,
+                  input: block.input ?? {}
+                });
+              }
+            }
+          }
+        } else if (msg.type === "user") {
+          const userMsg = msg as {
+            message?: {
+              content?: Array<{
+                type?: string;
+                tool_use_id?: string;
+                content?: unknown;
+                is_error?: boolean;
+              }>;
+            };
+          };
+          const content = userMsg.message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === "tool_result" && block.tool_use_id) {
+                const resultText =
+                  typeof block.content === "string"
+                    ? block.content
+                    : Array.isArray(block.content)
+                      ? (
+                          block.content as Array<{ type?: string; text?: string }>
+                        )
+                          .filter((b) => b.type === "text")
+                          .map((b) => b.text ?? "")
+                          .join("")
+                      : "";
+                const isError = block.is_error ?? false;
+                const tc = fullToolCalls.find((t) => t.id === block.tool_use_id);
+                if (tc) {
+                  tc.result = resultText;
+                  tc.isError = isError;
+                }
+                mainWindow.webContents.send("chat:tool_result", {
+                  tool_use_id: block.tool_use_id,
+                  content: resultText,
+                  isError
+                });
               }
             }
           }
@@ -1096,6 +1149,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
               role: "assistant",
               content: fullText,
               thinking: fullThinking || undefined,
+              toolCalls: fullToolCalls.length > 0 ? fullToolCalls : undefined,
               timestamp: new Date().toISOString()
             };
             currentConversation.messages.push(assistantMsg);

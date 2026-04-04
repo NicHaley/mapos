@@ -40,10 +40,31 @@ export type FileNode = {
   children?: FileNode[];
 };
 
+export type PersistedToolCall = {
+  id: string;
+  name: string;
+  input: unknown;
+  result?: string;
+  isError?: boolean;
+};
+
+export type ChatToolCallPayload = {
+  id: string;
+  name: string;
+  input: unknown;
+};
+
+export type ChatToolResultPayload = {
+  tool_use_id: string;
+  content: string;
+  isError: boolean;
+};
+
 export type PersistedMessage = {
   role: "user" | "assistant";
   content: string;
   thinking?: string;
+  toolCalls?: PersistedToolCall[];
   timestamp: string;
 };
 

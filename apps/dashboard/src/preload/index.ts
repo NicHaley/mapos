@@ -1,5 +1,6 @@
 import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
+import type { ChatToolCallPayload, ChatToolResultPayload } from "../shared/types";
 
 // Custom APIs for renderer
 const api = {
@@ -100,11 +101,17 @@ const api = {
     onDone: (cb: () => void) => ipcRenderer.on("chat:done", cb),
     onError: (cb: (msg: string) => void) =>
       ipcRenderer.on("chat:error", (_e, m) => cb(m)),
+    onToolCall: (cb: (data: ChatToolCallPayload) => void) =>
+      ipcRenderer.on("chat:tool_call", (_e, d) => cb(d)),
+    onToolResult: (cb: (data: ChatToolResultPayload) => void) =>
+      ipcRenderer.on("chat:tool_result", (_e, d) => cb(d)),
     removeListeners: () => {
       ipcRenderer.removeAllListeners("chat:chunk");
       ipcRenderer.removeAllListeners("chat:thinking_chunk");
       ipcRenderer.removeAllListeners("chat:done");
       ipcRenderer.removeAllListeners("chat:error");
+      ipcRenderer.removeAllListeners("chat:tool_call");
+      ipcRenderer.removeAllListeners("chat:tool_result");
     }
   }
 };

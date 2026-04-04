@@ -1,5 +1,7 @@
 import type { ElectronAPI } from "@electron-toolkit/preload";
 import type {
+  ChatToolCallPayload,
+  ChatToolResultPayload,
   ConversationMeta,
   FileNode,
   OverlayLine,
@@ -104,6 +106,8 @@ declare global {
         onThinkingChunk: (cb: (text: string) => void) => void;
         onDone: (cb: () => void) => void;
         onError: (cb: (msg: string) => void) => void;
+        onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
+        onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;
         removeListeners: () => void;
       };
     };

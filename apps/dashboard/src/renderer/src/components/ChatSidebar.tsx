@@ -1,7 +1,15 @@
-import type { ConversationMeta } from "@shared/types";
+import type { ChatToolCallPayload, ChatToolResultPayload, ConversationMeta } from "@shared/types";
 import type { ChatStatus } from "ai";
-import { EllipsisIcon, SquarePenIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+  Loader2Icon,
+  SquarePenIcon,
+  XIcon
+} from "lucide-react";
+import { useEffect, useReducer, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -30,12 +38,164 @@ type ChatMessage = {
   role: "user" | "assistant" | "error";
   content: string;
   thinking?: string;
+  toolCalls?: ActiveToolCall[];
 };
 
+type ActiveToolCall = {
+  id: string;
+  name: string;
+  input: unknown;
+  result?: string;
+  isError?: boolean;
+  status: "running" | "done" | "error";
+};
+
+function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const inputStr = JSON.stringify(call.input, null, 2);
+  const hasDetail = inputStr !== "{}" || call.result;
+
+  return (
+    <div className="my-1 rounded-md border border-sidebar-border bg-sidebar-accent/40 text-xs font-mono overflow-hidden">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left hover:bg-sidebar-accent/60 transition-colors disabled:cursor-default"
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        disabled={!hasDetail}
+      >
+        {call.status === "running" ? (
+          <Loader2Icon className="size-3 shrink-0 animate-spin text-muted-foreground" />
+        ) : call.status === "error" ? (
+          <XIcon className="size-3 shrink-0 text-destructive" />
+        ) : (
+          <CheckIcon className="size-3 shrink-0 text-emerald-500" />
+        )}
+        <span className="text-foreground/80">{call.name}</span>
+        {hasDetail && (
+          <span className="ml-auto text-muted-foreground">
+            {expanded ? (
+              <ChevronDownIcon className="size-3" />
+            ) : (
+              <ChevronRightIcon className="size-3" />
+            )}
+          </span>
+        )}
+      </button>
+      {expanded && hasDetail && (
+        <div className="flex flex-col gap-2 border-t border-sidebar-border px-2.5 py-2">
+          {inputStr !== "{}" && (
+            <pre className="whitespace-pre-wrap text-muted-foreground leading-relaxed !m-0">
+              {inputStr}
+            </pre>
+          )}
+          {call.result && (
+            <pre
+              className={`whitespace-pre-wrap leading-relaxed !m-0 ${call.isError ? "text-destructive" : "text-foreground/70"}`}
+            >
+              {call.result.length > 500 ? `${call.result.slice(0, 500)}\n…` : call.result}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ChatState = {
+  messages: ChatMessage[];
+  streamingContent: string;
+  streamingThinking: string;
+  activeToolCalls: ActiveToolCall[];
+};
+
+type ChatAction =
+  | { type: "load_history"; messages: ChatMessage[] }
+  | { type: "user_message"; content: string }
+  | { type: "chunk"; text: string }
+  | { type: "thinking_chunk"; text: string }
+  | ({ type: "tool_call" } & ChatToolCallPayload)
+  | ({ type: "tool_result" } & ChatToolResultPayload)
+  | { type: "done" }
+  | { type: "error"; message: string }
+  | { type: "reset" };
+
+const initialChatState: ChatState = {
+  messages: [],
+  streamingContent: "",
+  streamingThinking: "",
+  activeToolCalls: []
+};
+
+function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case "load_history":
+      return { ...state, messages: action.messages };
+    case "user_message":
+      return { ...state, messages: [...state.messages, { role: "user", content: action.content }] };
+    case "chunk":
+      return { ...state, streamingContent: state.streamingContent + action.text };
+    case "thinking_chunk":
+      return { ...state, streamingThinking: state.streamingThinking + action.text };
+    case "tool_call":
+      return {
+        ...state,
+        activeToolCalls: [
+          ...state.activeToolCalls,
+          { id: action.id, name: action.name, input: action.input, status: "running" }
+        ]
+      };
+    case "tool_result":
+      return {
+        ...state,
+        activeToolCalls: state.activeToolCalls.map((tc) =>
+          tc.id === action.tool_use_id
+            ? {
+                ...tc,
+                result: action.content,
+                isError: action.isError,
+                status: action.isError ? "error" : "done"
+              }
+            : tc
+        )
+      };
+    case "done": {
+      const { streamingContent, streamingThinking, activeToolCalls } = state;
+      const newMessages =
+        streamingContent || activeToolCalls.length > 0
+          ? [
+              ...state.messages,
+              {
+                role: "assistant" as const,
+                content: streamingContent,
+                thinking: streamingThinking || undefined,
+                toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined
+              }
+            ]
+          : state.messages;
+      return {
+        messages: newMessages,
+        streamingContent: "",
+        streamingThinking: "",
+        activeToolCalls: []
+      };
+    }
+    case "error":
+      return {
+        messages: [...state.messages, { role: "error", content: `Error: ${action.message}` }],
+        streamingContent: "",
+        streamingThinking: "",
+        activeToolCalls: []
+      };
+    case "reset":
+      return initialChatState;
+  }
+}
+
 export function ChatSidebar(): React.JSX.Element {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [streamingThinking, setStreamingThinking] = useState("");
+  const [{ messages, streamingContent, streamingThinking, activeToolCalls }, dispatch] = useReducer(
+    chatReducer,
+    initialChatState
+  );
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
@@ -43,13 +203,17 @@ export function ChatSidebar(): React.JSX.Element {
   useEffect(() => {
     window.api.chat.loadHistory().then((history) => {
       if (history.length > 0) {
-        setMessages(
-          history.map((msg) => ({
+        dispatch({
+          type: "load_history",
+          messages: history.map((msg) => ({
             role: msg.role,
             content: msg.content,
-            thinking: msg.thinking
+            thinking: msg.thinking,
+            toolCalls: msg.toolCalls?.map(
+              (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
+            )
           }))
-        );
+        });
       }
     });
 
@@ -63,27 +227,17 @@ export function ChatSidebar(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    window.api.chat.onChunk((text) => {
-      setStreamingContent((prev) => prev + text);
-    });
-
-    window.api.chat.onThinkingChunk((text) => {
-      setStreamingThinking((prev) => prev + text);
-    });
+    window.api.chat.onChunk((text) => dispatch({ type: "chunk", text }));
+    window.api.chat.onThinkingChunk((text) => dispatch({ type: "thinking_chunk", text }));
+    window.api.chat.onToolCall(({ id, name, input }) =>
+      dispatch({ type: "tool_call", id, name, input })
+    );
+    window.api.chat.onToolResult(({ tool_use_id, content, isError }) =>
+      dispatch({ type: "tool_result", tool_use_id, content, isError })
+    );
 
     window.api.chat.onDone(() => {
-      setStreamingContent((content) => {
-        setStreamingThinking((thinking) => {
-          if (content) {
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content, thinking: thinking || undefined }
-            ]);
-          }
-          return "";
-        });
-        return "";
-      });
+      dispatch({ type: "done" });
       setLoading(false);
       window.api.chat.listConversations().then((convos) => {
         const sorted = convos.slice().reverse();
@@ -95,9 +249,7 @@ export function ChatSidebar(): React.JSX.Element {
     });
 
     window.api.chat.onError((msg) => {
-      setMessages((prev) => [...prev, { role: "error", content: `Error: ${msg}` }]);
-      setStreamingContent("");
-      setStreamingThinking("");
+      dispatch({ type: "error", message: msg });
       setLoading(false);
     });
 
@@ -108,7 +260,7 @@ export function ChatSidebar(): React.JSX.Element {
 
   function handleSubmit({ text }: { text: string }): void {
     if (!text.trim() || loading) return;
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    dispatch({ type: "user_message", content: text });
     setLoading(true);
     window.api.chat.send(text);
   }
@@ -120,20 +272,24 @@ export function ChatSidebar(): React.JSX.Element {
 
   function clear(): void {
     window.api.chat.reset();
-    setMessages([]);
-    setStreamingContent("");
-    setStreamingThinking("");
+    dispatch({ type: "reset" });
     setLoading(false);
   }
 
   async function switchConversation(id: string): Promise<void> {
     const history = await window.api.chat.switchConversation(id);
-    setMessages(
-      history.map((msg) => ({ role: msg.role, content: msg.content, thinking: msg.thinking }))
-    );
+    dispatch({
+      type: "load_history",
+      messages: history.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        thinking: msg.thinking,
+        toolCalls: msg.toolCalls?.map(
+          (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
+        )
+      }))
+    });
     setCurrentConvId(id);
-    setStreamingContent("");
-    setStreamingThinking("");
     setLoading(false);
   }
 
@@ -229,20 +385,36 @@ export function ChatSidebar(): React.JSX.Element {
                       <ReasoningContent>{msg.thinking}</ReasoningContent>
                     </Reasoning>
                   )}
-                  <MessageContent>
-                    <MessageResponse>{msg.content}</MessageResponse>
-                  </MessageContent>
+                  {msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <div className="w-full space-y-0.5">
+                      {msg.toolCalls.map((tc) => (
+                        <ToolCallRow key={tc.id} call={tc} />
+                      ))}
+                    </div>
+                  )}
+                  {msg.content && (
+                    <MessageContent>
+                      <MessageResponse>{msg.content}</MessageResponse>
+                    </MessageContent>
+                  )}
                 </Message>
               )
             )}
 
-            {(streamingThinking || streamingContent) && (
+            {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
               <Message from="assistant">
                 {streamingThinking && (
                   <Reasoning isStreaming={!streamingContent}>
                     <ReasoningTrigger />
                     <ReasoningContent>{streamingThinking}</ReasoningContent>
                   </Reasoning>
+                )}
+                {activeToolCalls.length > 0 && (
+                  <div className="w-full space-y-0.5">
+                    {activeToolCalls.map((tc) => (
+                      <ToolCallRow key={tc.id} call={tc} />
+                    ))}
+                  </div>
                 )}
                 {streamingContent && (
                   <MessageContent>

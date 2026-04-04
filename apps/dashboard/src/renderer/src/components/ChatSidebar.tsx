@@ -1,5 +1,10 @@
 import { cn } from "@renderer/lib/utils";
-import type { ChatToolCallPayload, ChatToolResultPayload, ConversationMeta } from "@shared/types";
+import type {
+  ChatToolCallPayload,
+  ChatToolResultPayload,
+  ConversationMeta,
+  MapOverlayPayload
+} from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
@@ -435,16 +440,35 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
+function mapOverlayFeatureCount(o: MapOverlayPayload): number {
+  return o.points.length + o.lines.length + o.polygons.length;
+}
+
+const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
+
 export function ChatSidebar({
-  onOpenFile
+  onOpenFile,
+  mapOverlay,
+  mapOverlayNonce,
+  onAddAllOverlayToVault,
+  addAllOverlayBusy
 }: {
   onOpenFile: (filePath: string) => void;
+  mapOverlay: MapOverlayPayload;
+  /** Increments when the map receives a new non-empty overlay (resets Add-all visibility). */
+  mapOverlayNonce: number;
+  onAddAllOverlayToVault: () => void | Promise<void>;
+  addAllOverlayBusy: boolean;
 }): React.JSX.Element {
   const [{ messages, streamingContent, streamingThinking, activeToolCalls, canUndo }, dispatch] =
     useReducer(chatReducer, initialChatState);
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  /** User clicked Add all for the current overlay batch. */
+  const [addAllToVaultConsumed, setAddAllToVaultConsumed] = useState(false);
+  /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
+  const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
 
   useEffect(() => {
     window.api.chat.loadHistory().then((history) => {
@@ -471,6 +495,13 @@ export function ChatSidebar({
       }
     });
   }, []);
+
+  // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
+  useEffect(() => {
+    setAddAllToVaultConsumed(false);
+    setAddAllHiddenAfterUserMessage(false);
+  }, [mapOverlayNonce]);
 
   useEffect(() => {
     window.api.chat.onChunk((text) => dispatch({ type: "chunk", text }));
@@ -507,6 +538,7 @@ export function ChatSidebar({
   function handleSubmit({ text }: { text: string }): void {
     if (!text.trim() || loading) return;
     dispatch({ type: "user_message", content: text });
+    setAddAllHiddenAfterUserMessage(true);
     setLoading(true);
     window.api.chat.send(text);
   }
@@ -525,6 +557,8 @@ export function ChatSidebar({
     window.api.chat.reset();
     dispatch({ type: "reset" });
     setLoading(false);
+    setAddAllToVaultConsumed(false);
+    setAddAllHiddenAfterUserMessage(false);
   }
 
   async function switchConversation(id: string): Promise<void> {
@@ -542,6 +576,8 @@ export function ChatSidebar({
     });
     setCurrentConvId(id);
     setLoading(false);
+    setAddAllToVaultConsumed(false);
+    setAddAllHiddenAfterUserMessage(false);
   }
 
   function handleNewConversation(): void {
@@ -558,7 +594,15 @@ export function ChatSidebar({
     handleNewConversation();
   }
 
+  async function handleAddAllToVaultClick(): Promise<void> {
+    setAddAllToVaultConsumed(true);
+    await onAddAllOverlayToVault();
+  }
+
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
+  const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
+  const showAddAllToVaultRow =
+    mapOverlayCount > 0 && !addAllToVaultConsumed && !addAllHiddenAfterUserMessage;
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -687,16 +731,45 @@ export function ChatSidebar({
         </Conversation>
       </SidebarContent>
 
-      {canUndo && (
-        <div className="flex justify-end px-3 py-2">
-          <Button variant="outline" size="sm" onClick={handleUndo}>
-            <Undo2Icon className="size-3.5" />
-            Undo
-          </Button>
-        </div>
-      )}
-
-      <SidebarFooter className="px-3 pb-3 pt-0">
+      <SidebarFooter className="px-3 pb-3 pt-0 pointer-events-auto">
+        {(canUndo || showAddAllToVaultRow) && (
+          <div className="flex flex-col gap-2 pt-2">
+            {canUndo && (
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className={overlayActionButtonClass}
+                  onClick={() => void handleUndo()}
+                >
+                  <Undo2Icon className="size-3.5" />
+                  Undo
+                </Button>
+              </div>
+            )}
+            {showAddAllToVaultRow && (
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="min-w-0 truncate">
+                  {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"} on map
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className={overlayActionButtonClass}
+                  disabled={addAllOverlayBusy}
+                  onClick={() => void handleAddAllToVaultClick()}
+                >
+                  {addAllOverlayBusy ? (
+                    <Loader2Icon className="size-3.5 animate-spin" />
+                  ) : (
+                    <FilePlusIcon className="size-3.5" />
+                  )}
+                  Add all to vault
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <PromptInput onSubmit={handleSubmit}>
           <PromptInputTextarea placeholder="Message MapOS..." disabled={loading} />
           <PromptInputFooter>

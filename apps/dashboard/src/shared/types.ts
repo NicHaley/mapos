@@ -19,18 +19,30 @@ export type OverlayPoint = {
   lat: number;
   lng: number;
   title: string;
+  /** Shown in mini PlaceCard body before save (optional). */
+  preview_markdown?: string;
 };
 
 export type OverlayLine = {
   id: string;
   coordinates: [number, number][];
   title?: string;
+  preview_markdown?: string;
 };
 
 export type OverlayPolygon = {
   id: string;
   coordinates: [number, number][][];
   title?: string;
+  preview_markdown?: string;
+};
+
+/** Normalized overlay payload for map + chat batch save. */
+export type MapOverlayPayload = {
+  layerName: string;
+  points: OverlayPoint[];
+  lines: OverlayLine[];
+  polygons: OverlayPolygon[];
 };
 
 export type FileNode = {

@@ -1,3 +1,5 @@
+import type { MapOverlayPayload, OverlayLine, OverlayPolygon } from "@shared/types";
+import { bbox } from "@turf/bbox";
 import { MessageCircleIcon, PanelLeftIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
@@ -40,6 +42,74 @@ async function renameCreatedPlaceToSlug(
     }
   }
   return { ok: false, error: "Could not find an available filename" };
+}
+
+const EMPTY_MAP_OVERLAY: MapOverlayPayload = {
+  layerName: "",
+  points: [],
+  lines: [],
+  polygons: []
+};
+
+function representativeLngLatFromGeometryJson(geometryJson: string): [number, number] | null {
+  try {
+    const geo = JSON.parse(geometryJson) as {
+      type: string;
+      coordinates: unknown;
+    };
+    if (geo.type === "Point" && Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+      const c = geo.coordinates as number[];
+      const lng = c[0];
+      const lat = c[1];
+      if (typeof lng !== "number" || typeof lat !== "number") return null;
+      return [lng, lat];
+    }
+    if (geo.type === "LineString" && Array.isArray(geo.coordinates)) {
+      const [minLng, minLat, maxLng, maxLat] = bbox({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: geo.coordinates as [number, number][] },
+        properties: {}
+      });
+      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+    }
+    if (geo.type === "Polygon" && Array.isArray(geo.coordinates)) {
+      const [minLng, minLat, maxLng, maxLat] = bbox({
+        type: "Feature",
+        geometry: { type: "Polygon", coordinates: geo.coordinates as [number, number][][] },
+        properties: {}
+      });
+      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function lngLatFromOverlayLine(line: OverlayLine): [number, number] | null {
+  try {
+    const [minLng, minLat, maxLng, maxLat] = bbox({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: line.coordinates },
+      properties: {}
+    });
+    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+  } catch {
+    return null;
+  }
+}
+
+function lngLatFromOverlayPolygon(poly: OverlayPolygon): [number, number] | null {
+  try {
+    const [minLng, minLat, maxLng, maxLat] = bbox({
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: poly.coordinates },
+      properties: {}
+    });
+    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+  } catch {
+    return null;
+  }
 }
 
 function placeFromPhotonSearchResult(r: PhotonSearchResult): PlaceRecord {
@@ -86,6 +156,10 @@ function App(): React.JSX.Element {
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
+  const [mapOverlay, setMapOverlay] = useState<MapOverlayPayload>(EMPTY_MAP_OVERLAY);
+  /** Bumps when a non-empty overlay is pushed so chat can re-show "Add all". */
+  const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
+  const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
@@ -98,7 +172,7 @@ function App(): React.JSX.Element {
       setLastVaultFilePath(null);
       return;
     }
-    if (!p.startsWith("photon-search:")) {
+    if (!p.startsWith("photon-search:") && !p.startsWith("map-overlay:")) {
       setLastVaultFilePath(p);
     }
   }, [selectedPlace]);
@@ -121,6 +195,29 @@ function App(): React.JSX.Element {
         clearPlace();
       }
     });
+  }, [clearPlace]);
+
+  useEffect(() => {
+    window.api.map.onOverlay((data) => {
+      const points = data.points ?? [];
+      const lines = data.lines ?? [];
+      const polygons = data.polygons ?? [];
+      setMapOverlay({
+        layerName: data.layerName,
+        points,
+        lines,
+        polygons
+      });
+      if (points.length + lines.length + polygons.length > 0) {
+        setMapOverlayNonce((n) => n + 1);
+      }
+    });
+    window.api.map.onOverlayClear(() => {
+      setMapOverlay(EMPTY_MAP_OVERLAY);
+      const fp = selectedPlaceRef.current?.filePath;
+      if (fp?.startsWith("map-overlay:")) clearPlace();
+    });
+    return () => window.api.map.removeOverlayListeners();
   }, [clearPlace]);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
@@ -249,14 +346,9 @@ function App(): React.JSX.Element {
   const handleSaveSearchToVault = useCallback(async () => {
     const place = selectedPlace;
     if (place?.previewMarkdown === undefined || !place.geometry) return;
-    let coordinates: [number, number];
-    try {
-      const geo = JSON.parse(place.geometry) as { coordinates: [number, number] };
-      coordinates = geo.coordinates;
-    } catch {
-      return;
-    }
-    const [lng, lat] = coordinates;
+    const lngLat = representativeLngLatFromGeometryJson(place.geometry);
+    if (!lngLat) return;
+    const [lng, lat] = lngLat;
     const create = await window.api.fs.createNoteFile({
       parentFolderPath: parentFolderForNewFiles,
       lat,
@@ -271,6 +363,10 @@ function App(): React.JSX.Element {
     if (!renamed.ok) {
       console.error("[save search]", renamed.error);
       return;
+    }
+    if (place.previewMarkdown.trim()) {
+      const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
+      if (!w.success) console.error("[save search] write body", w.error);
     }
     const created =
       (await window.api.places.getByPath(renamed.filePath)) ??
@@ -305,6 +401,86 @@ function App(): React.JSX.Element {
     dispatchNav
   ]);
 
+  const handleAddAllOverlayToVault = useCallback(async () => {
+    const { points, lines, polygons } = mapOverlay;
+    const n = points.length + lines.length + polygons.length;
+    if (n === 0) return;
+    setAddAllOverlayBusy(true);
+    try {
+      for (const p of points) {
+        const create = await window.api.fs.createNoteFile({
+          parentFolderPath: parentFolderForNewFiles,
+          lat: p.lat,
+          lng: p.lng
+        });
+        if (!create.success) {
+          console.error("[add all overlay]", create.error);
+          continue;
+        }
+        const baseName = filenameBaseFromPlaceTitle(p.title);
+        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+        if (!renamed.ok) {
+          console.error("[add all overlay]", renamed.error);
+          continue;
+        }
+        if (p.preview_markdown?.trim()) {
+          const w = await window.api.fs.writePlaceBody(renamed.filePath, p.preview_markdown);
+          if (!w.success) console.error("[add all overlay] write body", w.error);
+        }
+      }
+      for (const l of lines) {
+        const ll = lngLatFromOverlayLine(l);
+        if (!ll) continue;
+        const [lng, lat] = ll;
+        const create = await window.api.fs.createNoteFile({
+          parentFolderPath: parentFolderForNewFiles,
+          lat,
+          lng
+        });
+        if (!create.success) {
+          console.error("[add all overlay]", create.error);
+          continue;
+        }
+        const baseName = filenameBaseFromPlaceTitle(l.title ?? "Route");
+        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+        if (!renamed.ok) {
+          console.error("[add all overlay]", renamed.error);
+          continue;
+        }
+        if (l.preview_markdown?.trim()) {
+          const w = await window.api.fs.writePlaceBody(renamed.filePath, l.preview_markdown);
+          if (!w.success) console.error("[add all overlay] write body", w.error);
+        }
+      }
+      for (const poly of polygons) {
+        const ll = lngLatFromOverlayPolygon(poly);
+        if (!ll) continue;
+        const [lng, lat] = ll;
+        const create = await window.api.fs.createNoteFile({
+          parentFolderPath: parentFolderForNewFiles,
+          lat,
+          lng
+        });
+        if (!create.success) {
+          console.error("[add all overlay]", create.error);
+          continue;
+        }
+        const baseName = filenameBaseFromPlaceTitle(poly.title ?? "Area");
+        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+        if (!renamed.ok) {
+          console.error("[add all overlay]", renamed.error);
+          continue;
+        }
+        if (poly.preview_markdown?.trim()) {
+          const w = await window.api.fs.writePlaceBody(renamed.filePath, poly.preview_markdown);
+          if (!w.success) console.error("[add all overlay] write body", w.error);
+        }
+      }
+    } finally {
+      setAddAllOverlayBusy(false);
+    }
+  }, [mapOverlay, parentFolderForNewFiles]);
+
   const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
     setSelectedFolder((prev) => {
       if (!prev) return prev;
@@ -329,7 +505,12 @@ function App(): React.JSX.Element {
       });
 
       setSelectedPlace((prev) => {
-        if (!prev || prev.filePath.startsWith("photon-search:")) return prev;
+        if (
+          !prev ||
+          prev.filePath.startsWith("photon-search:") ||
+          prev.filePath.startsWith("map-overlay:")
+        )
+          return prev;
         const fp = prev.filePath;
         if (!isDirectory) {
           if (fp !== oldPath) return prev;
@@ -397,8 +578,8 @@ function App(): React.JSX.Element {
     const entry = tab?.history[tab.cursor];
     if (entry?.kind !== "place") return undefined;
     const fp = entry.place.filePath;
-    // Sidebar matches real vault paths only; Photon preview ids are not files on disk.
-    if (fp.startsWith("photon-search:")) return undefined;
+    // Sidebar matches real vault paths only; preview ids are not files on disk.
+    if (fp.startsWith("photon-search:") || fp.startsWith("map-overlay:")) return undefined;
     return fp;
   }, [nav]);
 
@@ -415,6 +596,11 @@ function App(): React.JSX.Element {
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
+          mapOverlay={{
+            points: mapOverlay.points,
+            lines: mapOverlay.lines,
+            polygons: mapOverlay.polygons
+          }}
         />
       </div>
 
@@ -568,6 +754,10 @@ function App(): React.JSX.Element {
           style={{ "--sidebar-width": `${CHAT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
           <ChatSidebar
+            mapOverlay={mapOverlay}
+            mapOverlayNonce={mapOverlayNonce}
+            onAddAllOverlayToVault={handleAddAllOverlayToVault}
+            addAllOverlayBusy={addAllOverlayBusy}
             onOpenFile={async (filePath) => {
               const place = await window.api.places.getByPath(filePath);
               if (place) handleSelectPlaceFromSidebar(place);

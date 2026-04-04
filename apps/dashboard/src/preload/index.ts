@@ -1,6 +1,10 @@
 import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
-import type { ChatToolCallPayload, ChatToolResultPayload } from "../shared/types";
+import type {
+  ChatToolCallPayload,
+  ChatToolResultPayload,
+  MapOverlayPayload
+} from "../shared/types";
 
 // Custom APIs for renderer
 const api = {
@@ -24,26 +28,28 @@ const api = {
     }
   },
   map: {
-    onOverlay: (
-      cb: (data: {
-        layerName: string;
-        points: Array<{ id: string; lat: number; lng: number; title: string }>;
-        lines: Array<{ id: string; coordinates: [number, number][]; title?: string }>;
-        polygons: Array<{ id: string; coordinates: [number, number][][]; title?: string }>;
-      }) => void
-    ) => ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
+    onOverlay: (cb: (data: MapOverlayPayload) => void) =>
+      ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
     onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
     sendViewport: (data: {
-      north: number; south: number; east: number; west: number;
-      centerLat: number; centerLng: number; zoom: number;
+      north: number;
+      south: number;
+      east: number;
+      west: number;
+      centerLat: number;
+      centerLng: number;
+      zoom: number;
     }) => ipcRenderer.send("map:viewport-update", data),
     onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) =>
       ipcRenderer.on("map:pan-to", (_e, data) => cb(data)),
     removeListeners: () => {
-      ipcRenderer.removeAllListeners("map:overlay");
-      ipcRenderer.removeAllListeners("map:overlay-clear");
       ipcRenderer.removeAllListeners("map:pan-to");
       ipcRenderer.removeAllListeners("map:viewport-update");
+    },
+    /** Overlay listeners are owned by App (shared with Chat); not cleared by MapView.removeListeners. */
+    removeOverlayListeners: () => {
+      ipcRenderer.removeAllListeners("map:overlay");
+      ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },
   fs: {
@@ -53,13 +59,15 @@ const api = {
         { raw: string; body: string } | { error: string }
       >,
     writeFile: (filePath: string, content: string) =>
-      ipcRenderer.invoke("fs:write-file", filePath, content) as Promise<
-        { success: boolean; error?: string }
-      >,
+      ipcRenderer.invoke("fs:write-file", filePath, content) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     writePlaceBody: (filePath: string, body: string) =>
-      ipcRenderer.invoke("fs:write-place-body", filePath, body) as Promise<
-        { success: boolean; error?: string }
-      >,
+      ipcRenderer.invoke("fs:write-place-body", filePath, body) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     renameFile: (oldPath: string, newName: string) =>
       ipcRenderer.invoke("fs:rename-file", oldPath, newName) as Promise<
         { success: true; newPath: string } | { success: false; error: string }
@@ -72,8 +80,7 @@ const api = {
       ipcRenderer.invoke("fs:delete-path", targetPath) as Promise<
         { success: true } | { success: false; error: string }
       >,
-    revealInFinder: (targetPath: string) =>
-      ipcRenderer.invoke("fs:reveal-in-finder", targetPath),
+    revealInFinder: (targetPath: string) => ipcRenderer.invoke("fs:reveal-in-finder", targetPath),
     createNoteFile: (args: { parentFolderPath: string | null; lat?: number; lng?: number }) =>
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<
         { success: true; filePath: string } | { success: false; error: string }
@@ -94,15 +101,13 @@ const api = {
     listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
     switchConversation: (id: string) => ipcRenderer.invoke("chat:switch-conversation", id),
     deleteConversation: (id: string) => ipcRenderer.invoke("chat:delete-conversation", id),
-    onChunk: (cb: (text: string) => void) =>
-      ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
+    onChunk: (cb: (text: string) => void) => ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
     onThinkingChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:thinking_chunk", (_e, t) => cb(t)),
     onDone: (cb: (data: { canUndo: boolean }) => void) =>
       ipcRenderer.on("chat:done", (_e, data) => cb(data)),
     undo: () => ipcRenderer.invoke("chat:undo"),
-    onError: (cb: (msg: string) => void) =>
-      ipcRenderer.on("chat:error", (_e, m) => cb(m)),
+    onError: (cb: (msg: string) => void) => ipcRenderer.on("chat:error", (_e, m) => cb(m)),
     onToolCall: (cb: (data: ChatToolCallPayload) => void) =>
       ipcRenderer.on("chat:tool_call", (_e, d) => cb(d)),
     onToolResult: (cb: (data: ChatToolResultPayload) => void) =>

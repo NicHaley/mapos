@@ -4,6 +4,7 @@ import type {
   ChatToolResultPayload,
   ConversationMeta,
   FileNode,
+  MapOverlayPayload,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -45,18 +46,12 @@ declare global {
         removeListeners: () => void;
       };
       map: {
-        onOverlay: (
-          cb: (data: {
-            layerName: string;
-            points: OverlayPoint[];
-            lines: OverlayLine[];
-            polygons: OverlayPolygon[];
-          }) => void
-        ) => void;
+        onOverlay: (cb: (data: MapOverlayPayload) => void) => void;
         onOverlayClear: (cb: () => void) => void;
         sendViewport: (data: ViewportState) => void;
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
         removeListeners: () => void;
+        removeOverlayListeners: () => void;
       };
       fs: {
         listDir: () => Promise<FileNode[]>;

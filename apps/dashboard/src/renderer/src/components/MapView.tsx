@@ -18,7 +18,7 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
-import type { PlaceRecord } from "../../../shared/types";
+import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,32 +50,40 @@ function parseGeometry(geometryJson: string): GeoJSONGeometry {
   return JSON.parse(geometryJson) as GeoJSONGeometry;
 }
 
-type OverlayPoint = {
-  id: string;
-  lat: number;
-  lng: number;
-  title: string;
-};
-
-type OverlayLine = {
-  id: string;
-  coordinates: [number, number][];
-  title?: string;
-};
-
-type OverlayPolygon = {
-  id: string;
-  coordinates: [number, number][][];
-  title?: string;
-};
-
-type OverlayData = {
+type OverlayRenderData = {
   points: OverlayPoint[];
   lines: OverlayLine[];
   polygons: OverlayPolygon[];
 };
 
-const EMPTY_OVERLAY: OverlayData = { points: [], lines: [], polygons: [] };
+const EMPTY_OVERLAY: OverlayRenderData = { points: [], lines: [], polygons: [] };
+
+const MAP_OVERLAY_PREFIX = "map-overlay:";
+
+function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
+  return {
+    filePath: `${MAP_OVERLAY_PREFIX}${p.id}`,
+    title: p.title || "Place",
+    type: "Preview",
+    geometry: JSON.stringify({ type: "Point", coordinates: [p.lng, p.lat] }),
+    previewMarkdown: p.preview_markdown ?? ""
+  };
+}
+
+function placeFromOverlayFeature(
+  geometry: GeoJSONGeometry,
+  id: string,
+  title: string,
+  previewMarkdown?: string
+): PlaceRecord {
+  return {
+    filePath: `${MAP_OVERLAY_PREFIX}${id}`,
+    title: title || "Map overlay",
+    type: "Preview",
+    geometry: JSON.stringify(geometry),
+    previewMarkdown: previewMarkdown ?? ""
+  };
+}
 
 const POINT_FILTER = ["==", ["geometry-type"], "Point"];
 const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
@@ -128,6 +136,8 @@ const MapView = forwardRef<
     /** Where new notes are created (context menu): explicit folder, or parent of last vault file. */
     parentFolderForNewFiles?: string | null;
     onSelectedFeaturePosition?: (x: number, y: number) => void;
+    /** Ephemeral MCP overlay; owned by App (single IPC subscription). */
+    mapOverlay?: OverlayRenderData;
   }
 >(function MapView(
   {
@@ -137,7 +147,8 @@ const MapView = forwardRef<
     selectedPlace,
     selectedFolder,
     parentFolderForNewFiles,
-    onSelectedFeaturePosition
+    onSelectedFeaturePosition,
+    mapOverlay = EMPTY_OVERLAY
   },
   ref
 ) {
@@ -156,7 +167,7 @@ const MapView = forwardRef<
   } | null>(null);
 
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
-  const [overlay, setOverlay] = useState<OverlayData>(EMPTY_OVERLAY);
+  const overlay = mapOverlay;
 
   const onSelectedFeaturePositionRef = useRef(onSelectedFeaturePosition);
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
@@ -288,10 +299,6 @@ const MapView = forwardRef<
         void loadFolderPlaces(selectedFolderRef.current);
       }
     });
-    window.api.map.onOverlay(({ points = [], lines = [], polygons = [] }) =>
-      setOverlay({ points, lines, polygons })
-    );
-    window.api.map.onOverlayClear(() => setOverlay(EMPTY_OVERLAY));
     window.api.map.onPanTo(({ lat, lng, zoom }) => {
       mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? 14, duration: 800 });
     });
@@ -366,14 +373,24 @@ const MapView = forwardRef<
       features.push({
         type: "Feature",
         geometry: { type: "LineString", coordinates: l.coordinates },
-        properties: { id: l.id, title: l.title } as Record<string, unknown>
+        properties: {
+          kind: "overlay",
+          overlayId: l.id,
+          title: l.title,
+          preview_markdown: l.preview_markdown
+        } as Record<string, unknown>
       });
     }
     for (const p of overlay.polygons) {
       features.push({
         type: "Feature",
         geometry: { type: "Polygon", coordinates: p.coordinates },
-        properties: { id: p.id, title: p.title } as Record<string, unknown>
+        properties: {
+          kind: "overlay",
+          overlayId: p.id,
+          title: p.title,
+          preview_markdown: p.preview_markdown
+        } as Record<string, unknown>
       });
     }
     if (features.length === 0) return null;
@@ -422,16 +439,33 @@ const MapView = forwardRef<
 
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
-      const feature = e.features?.[0];
-      if (!feature?.properties?.filePath) {
-        onMapClickEmpty?.();
-        return;
+      const feats = e.features ?? [];
+      for (const feature of feats) {
+        const fp = feature.properties?.filePath;
+        if (typeof fp === "string" && fp.length > 0) {
+          const place =
+            folderPlaces.find((p) => p.filePath === fp) ??
+            (selectedPlace?.filePath === fp ? selectedPlace : undefined);
+          if (place) {
+            onSelectPlace?.(place);
+            return;
+          }
+        }
       }
-      const filePath = feature.properties.filePath as string;
-      const place =
-        folderPlaces.find((p) => p.filePath === filePath) ??
-        (selectedPlace?.filePath === filePath ? selectedPlace : undefined);
-      if (place) onSelectPlace?.(place);
+      for (const feature of feats) {
+        if (feature.properties?.kind !== "overlay" || !feature.geometry) continue;
+        const id = String(feature.properties.overlayId ?? feature.properties.id ?? "overlay");
+        const title = (feature.properties.title as string | undefined) ?? "Map overlay";
+        const previewMarkdown = (feature.properties.preview_markdown as string | undefined) ?? "";
+        try {
+          const geometry = feature.geometry as GeoJSONGeometry;
+          onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown));
+          return;
+        } catch {
+          /* invalid */
+        }
+      }
+      onMapClickEmpty?.();
     },
     [folderPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
   );
@@ -440,8 +474,11 @@ const MapView = forwardRef<
     const ids: string[] = [];
     if (folderGeoJSON) ids.push("folder-circle", "folder-fill", "folder-line");
     if (selectedGeoJSON) ids.push("selected-circle", "selected-fill", "selected-line");
+    if (hasOverlayGeoJSON) {
+      ids.push("overlay-polygons", "overlay-lines-hit", "overlay-lines");
+    }
     return ids;
-  }, [folderGeoJSON, selectedGeoJSON]);
+  }, [folderGeoJSON, selectedGeoJSON, hasOverlayGeoJSON]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -539,16 +576,22 @@ const MapView = forwardRef<
         )}
         {overlay.points.map((p) => (
           <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-            <div
+            <button
+              type="button"
               title={p.title}
+              onPointerDown={(ev) => ev.stopPropagation()}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                onSelectPlace?.(placeFromOverlayPoint(p));
+              }}
+              className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
               style={{
                 width: 12,
                 height: 12,
                 borderRadius: "50%",
                 backgroundColor: "#8b5cf6",
                 border: "2px dashed white",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                cursor: "pointer"
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)"
               }}
             />
           </Marker>
@@ -569,6 +612,17 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
+            />
+            <Layer
+              id="overlay-lines-hit"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{
+                "line-color": "#000000",
+                "line-opacity": 0,
+                "line-width": 14
+              }}
             />
             <Layer
               id="overlay-lines"

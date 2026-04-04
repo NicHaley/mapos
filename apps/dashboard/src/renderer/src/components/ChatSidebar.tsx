@@ -222,8 +222,7 @@ function FileChangeRow({
 
   const hasOverflow = allLines.length > PREVIEW_LINES;
   const visibleLines = expanded ? allLines : allLines.slice(0, PREVIEW_LINES);
-  const canOpen =
-    !!change && change.action !== "deleted" && call.status !== "running";
+  const canOpen = !!change && change.action !== "deleted" && call.status !== "running";
   const showDiff = allLines.length > 0 && call.status !== "running" && change?.action !== "renamed";
 
   return (
@@ -563,7 +562,7 @@ export function ChatSidebar({
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
-      <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
+      <SidebarHeader className="flex-row items-center justify-between px-3 py-2">
         <Select value={currentConvId ?? ""} onValueChange={(id) => id && switchConversation(id)}>
           <SelectTrigger className="min-w-0 max-w-[160px]">
             <span className="truncate text-sm">
@@ -697,7 +696,7 @@ export function ChatSidebar({
         </div>
       )}
 
-      <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
+      <SidebarFooter className="px-3 pb-3 pt-0">
         <PromptInput onSubmit={handleSubmit}>
           <PromptInputTextarea placeholder="Message MapOS..." disabled={loading} />
           <PromptInputFooter>

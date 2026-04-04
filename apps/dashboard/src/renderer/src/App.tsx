@@ -89,6 +89,8 @@ function App(): React.JSX.Element {
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
+  const selectedPlaceRef = useRef(selectedPlace);
+  selectedPlaceRef.current = selectedPlace;
 
   useEffect(() => {
     const p = selectedPlace?.filePath;
@@ -111,6 +113,15 @@ function App(): React.JSX.Element {
     setPlaceMode("mini");
     setFeatureScreenPos(null);
   }, []);
+
+  // Close the place card if the currently open file is deleted externally (e.g. by undo)
+  useEffect(() => {
+    window.api.places.onUpdated((update) => {
+      if (update.event === "unlink" && update.filePath === selectedPlaceRef.current?.filePath) {
+        clearPlace();
+      }
+    });
+  }, [clearPlace]);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
   const openEntry = useCallback(

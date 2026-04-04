@@ -98,7 +98,9 @@ const api = {
       ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
     onThinkingChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:thinking_chunk", (_e, t) => cb(t)),
-    onDone: (cb: () => void) => ipcRenderer.on("chat:done", cb),
+    onDone: (cb: (data: { canUndo: boolean }) => void) =>
+      ipcRenderer.on("chat:done", (_e, data) => cb(data)),
+    undo: () => ipcRenderer.invoke("chat:undo"),
     onError: (cb: (msg: string) => void) =>
       ipcRenderer.on("chat:error", (_e, m) => cb(m)),
     onToolCall: (cb: (data: ChatToolCallPayload) => void) =>

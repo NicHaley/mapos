@@ -7,6 +7,7 @@ import {
   EllipsisIcon,
   Loader2Icon,
   SquarePenIcon,
+  Undo2Icon,
   XIcon
 } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
@@ -16,7 +17,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton
 } from "./ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "./ai-elements/message";
+import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from "./ai-elements/message";
 import {
   PromptInput,
   PromptInputFooter,
@@ -106,6 +107,7 @@ type ChatState = {
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ActiveToolCall[];
+  canUndo: boolean;
 };
 
 type ChatAction =
@@ -115,7 +117,8 @@ type ChatAction =
   | { type: "thinking_chunk"; text: string }
   | ({ type: "tool_call" } & ChatToolCallPayload)
   | ({ type: "tool_result" } & ChatToolResultPayload)
-  | { type: "done" }
+  | { type: "done"; canUndo: boolean }
+  | { type: "undo_confirmed" }
   | { type: "error"; message: string }
   | { type: "reset" };
 
@@ -123,7 +126,8 @@ const initialChatState: ChatState = {
   messages: [],
   streamingContent: "",
   streamingThinking: "",
-  activeToolCalls: []
+  activeToolCalls: [],
+  canUndo: false
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -131,7 +135,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "load_history":
       return { ...state, messages: action.messages };
     case "user_message":
-      return { ...state, messages: [...state.messages, { role: "user", content: action.content }] };
+      return {
+        ...state,
+        canUndo: false,
+        messages: [...state.messages, { role: "user", content: action.content }]
+      };
     case "chunk":
       return { ...state, streamingContent: state.streamingContent + action.text };
     case "thinking_chunk":
@@ -176,15 +184,19 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages: newMessages,
         streamingContent: "",
         streamingThinking: "",
-        activeToolCalls: []
+        activeToolCalls: [],
+        canUndo: action.canUndo
       };
     }
+    case "undo_confirmed":
+      return { ...state, canUndo: false };
     case "error":
       return {
         messages: [...state.messages, { role: "error", content: `Error: ${action.message}` }],
         streamingContent: "",
         streamingThinking: "",
-        activeToolCalls: []
+        activeToolCalls: [],
+        canUndo: false
       };
     case "reset":
       return initialChatState;
@@ -192,10 +204,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 }
 
 export function ChatSidebar(): React.JSX.Element {
-  const [{ messages, streamingContent, streamingThinking, activeToolCalls }, dispatch] = useReducer(
-    chatReducer,
-    initialChatState
-  );
+  const [{ messages, streamingContent, streamingThinking, activeToolCalls, canUndo }, dispatch] =
+    useReducer(chatReducer, initialChatState);
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
@@ -236,8 +246,8 @@ export function ChatSidebar(): React.JSX.Element {
       dispatch({ type: "tool_result", tool_use_id, content, isError })
     );
 
-    window.api.chat.onDone(() => {
-      dispatch({ type: "done" });
+    window.api.chat.onDone(({ canUndo: hasVaultOps }) => {
+      dispatch({ type: "done", canUndo: hasVaultOps });
       setLoading(false);
       window.api.chat.listConversations().then((convos) => {
         const sorted = convos.slice().reverse();
@@ -263,6 +273,11 @@ export function ChatSidebar(): React.JSX.Element {
     dispatch({ type: "user_message", content: text });
     setLoading(true);
     window.api.chat.send(text);
+  }
+
+  async function handleUndo(): Promise<void> {
+    await window.api.chat.undo();
+    dispatch({ type: "undo_confirmed" });
   }
 
   function handleStop(): void {
@@ -369,8 +384,10 @@ export function ChatSidebar(): React.JSX.Element {
               />
             )}
 
-            {messages.map((msg, i) =>
-              msg.role === "error" ? (
+            {messages.map((msg, i) => {
+              const isLastAssistant =
+                i === messages.length - 1 && msg.role === "assistant";
+              return msg.role === "error" ? (
                 <div
                   key={i}
                   className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
@@ -397,9 +414,20 @@ export function ChatSidebar(): React.JSX.Element {
                       <MessageResponse>{msg.content}</MessageResponse>
                     </MessageContent>
                   )}
+                  {isLastAssistant && canUndo && (
+                    <MessageActions>
+                      <MessageAction
+                        tooltip="Undo last turn's file changes"
+                        onClick={handleUndo}
+                      >
+                        <Undo2Icon className="size-3.5" />
+                        Undo
+                      </MessageAction>
+                    </MessageActions>
+                  )}
                 </Message>
-              )
-            )}
+              );
+            })}
 
             {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
               <Message from="assistant">

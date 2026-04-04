@@ -75,3 +75,12 @@ export type ConversationMeta = {
   messageCount: number;
   preview: string;
 };
+
+export type VaultOperation = {
+  path: string;
+  previousContent: string | null; // null = file was created this turn (undo = delete it)
+};
+
+export type UndoEntry = {
+  operations: VaultOperation[];
+};

@@ -104,7 +104,8 @@ declare global {
         deleteConversation: (id: string) => Promise<void>;
         onChunk: (cb: (text: string) => void) => void;
         onThinkingChunk: (cb: (text: string) => void) => void;
-        onDone: (cb: () => void) => void;
+        onDone: (cb: (data: { canUndo: boolean }) => void) => void;
+        undo: () => Promise<{ success: boolean; error?: string; errors?: string[] }>;
         onError: (cb: (msg: string) => void) => void;
         onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
         onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;

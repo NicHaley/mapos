@@ -868,7 +868,18 @@ function createMaposMcpServer(
             // Not a place file — skip indexing
           }
           return {
-            content: [{ type: "text", text: JSON.stringify({ success: true, path: args.path }) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: true,
+                  path: args.path,
+                  action: previousContent === null ? "created" : "modified",
+                  previousContent,
+                  newContent: args.content
+                })
+              }
+            ]
           };
         }
       ),
@@ -905,7 +916,18 @@ function createMaposMcpServer(
           removeFeatures([args.path]);
           rmSync(args.path);
           return {
-            content: [{ type: "text", text: JSON.stringify({ success: true, path: args.path }) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: true,
+                  path: args.path,
+                  action: "deleted",
+                  previousContent,
+                  newContent: null
+                })
+              }
+            ]
           };
         }
       )

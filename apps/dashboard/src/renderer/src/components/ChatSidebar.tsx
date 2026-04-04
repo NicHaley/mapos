@@ -1,11 +1,15 @@
+import { cn } from "@renderer/lib/utils";
 import type { ChatToolCallPayload, ChatToolResultPayload, ConversationMeta } from "@shared/types";
 import type { ChatStatus } from "ai";
+import { diffLines } from "diff";
 import {
   CheckIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   EllipsisIcon,
+  FilePlusIcon,
+  FileX2Icon,
   Loader2Icon,
+  PencilIcon,
   SquarePenIcon,
   Undo2Icon,
   XIcon
@@ -17,7 +21,13 @@ import {
   ConversationEmptyState,
   ConversationScrollButton
 } from "./ai-elements/conversation";
-import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from "./ai-elements/message";
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+  MessageResponse
+} from "./ai-elements/message";
 import {
   PromptInput,
   PromptInputFooter,
@@ -51,51 +61,257 @@ type ActiveToolCall = {
   status: "running" | "done" | "error";
 };
 
+const VAULT_FILE_TOOLS = new Set(["mcp__mapos__write_vault_file", "mcp__mapos__delete_vault_file"]);
+
+const TOOL_LABELS: Record<string, string> = {
+  mcp__mapos__render_overlay_on_map: "Rendering On Map",
+  mcp__mapos__clear_map_overlay: "Clearing Overlay",
+  mcp__mapos__query_spatial_index: "Querying Vault",
+  mcp__mapos__index_file: "Indexing File",
+  mcp__mapos__rebuild_index: "Rebuilding Index",
+  mcp__mapos__get_viewport: "Getting Viewport",
+  mcp__mapos__pan_to: "Panning Map",
+  mcp__mapos__write_vault_file: "Writing File",
+  mcp__mapos__delete_vault_file: "Deleting File",
+  Bash: "Running Command",
+  Read: "Reading File",
+  Glob: "Searching Files",
+  Grep: "Searching Content",
+  WebSearch: "Searching Web",
+  WebFetch: "Fetching URL"
+};
+
+function toolLabel(name: string): string {
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+  return name.replace(/^mcp__\w+__/, "").replace(/_/g, " ");
+}
+
+type FileChangeResult = {
+  success: boolean;
+  path: string;
+  action: "created" | "modified" | "deleted";
+  previousContent: string | null;
+  newContent: string | null;
+};
+
+type DiffLineItem =
+  | { kind: "added"; text: string }
+  | { kind: "removed"; text: string }
+  | { kind: "context"; text: string }
+  | { kind: "ellipsis" };
+
+function flattenDiffParts(parts: ReturnType<typeof diffLines>): DiffLineItem[] {
+  const items: DiffLineItem[] = [];
+  const MAX_CONTEXT = 2;
+  for (const part of parts) {
+    const lines = part.value.replace(/\n$/, "").split("\n");
+    if (part.added) {
+      for (const line of lines) items.push({ kind: "added", text: line });
+    } else if (part.removed) {
+      for (const line of lines) items.push({ kind: "removed", text: line });
+    } else {
+      const nonEmpty = lines.filter((l) => l !== "");
+      if (nonEmpty.length <= MAX_CONTEXT * 2) {
+        for (const line of nonEmpty) items.push({ kind: "context", text: line });
+      } else {
+        for (const line of nonEmpty.slice(0, MAX_CONTEXT))
+          items.push({ kind: "context", text: line });
+        items.push({ kind: "ellipsis" });
+        for (const line of nonEmpty.slice(-MAX_CONTEXT))
+          items.push({ kind: "context", text: line });
+      }
+    }
+  }
+  return items;
+}
+
+function DiffLineView({ item }: { item: DiffLineItem }): React.JSX.Element {
+  if (item.kind === "ellipsis") {
+    return (
+      <div className="px-2.5 py-px text-muted-foreground/30 select-none border-l-2 border-transparent">
+        ···
+      </div>
+    );
+  }
+  if (item.kind === "added") {
+    return (
+      <div className="px-2.5 py-px border-l-2 border-emerald-500/50 text-emerald-500/70">
+        <span className="select-none mr-2 opacity-60">+</span>
+        {item.text}
+      </div>
+    );
+  }
+  if (item.kind === "removed") {
+    return (
+      <div className="px-2.5 py-px border-l-2 border-destructive/40 text-destructive/60">
+        <span className="select-none mr-2 opacity-60">-</span>
+        {item.text}
+      </div>
+    );
+  }
+  return (
+    <div className="px-2.5 py-px border-l-2 border-transparent text-muted-foreground/50">
+      <span className="select-none mr-2 opacity-0"> </span>
+      {item.text}
+    </div>
+  );
+}
+
+function parseFileChangeResult(call: ActiveToolCall): FileChangeResult | null {
+  if (!VAULT_FILE_TOOLS.has(call.name) || !call.result) return null;
+  try {
+    const parsed = JSON.parse(call.result) as FileChangeResult;
+    if (!parsed.action || !parsed.path) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+const PREVIEW_LINES = 6;
+
+function FileChangeRow({
+  call,
+  onOpenFile
+}: {
+  call: ActiveToolCall;
+  onOpenFile: (filePath: string) => void;
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const change = parseFileChangeResult(call);
+  const filename = change?.path.split("/").pop() ?? call.name;
+
+  const ActionIcon =
+    call.status === "running"
+      ? Loader2Icon
+      : change?.action === "created"
+        ? FilePlusIcon
+        : change?.action === "deleted"
+          ? FileX2Icon
+          : PencilIcon;
+
+  const actionLabel =
+    call.status === "running"
+      ? "Writing…"
+      : change?.action === "created"
+        ? "Created"
+        : change?.action === "deleted"
+          ? "Deleted"
+          : "Modified";
+
+  const actionColor =
+    call.status === "running"
+      ? "text-muted-foreground"
+      : change?.action === "created"
+        ? "text-emerald-500"
+        : change?.action === "deleted"
+          ? "text-destructive"
+          : "text-blue-400";
+
+  const allLines =
+    change && call.status !== "running"
+      ? flattenDiffParts(diffLines(change.previousContent ?? "", change.newContent ?? ""))
+      : [];
+
+  const hasOverflow = allLines.length > PREVIEW_LINES;
+  const visibleLines = expanded ? allLines : allLines.slice(0, PREVIEW_LINES);
+  const canOpen = !!change && change.action !== "deleted" && call.status !== "running";
+
+  return (
+    <div className="my-0.5 overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-2 pb-1.5">
+        <ActionIcon
+          className={cn(
+            "size-4 shrink-0",
+            call.status === "running" ? "animate-spin text-muted-foreground" : actionColor
+          )}
+        />
+        <button
+          type="button"
+          disabled={!canOpen}
+          onClick={() => change && onOpenFile(change.path)}
+          className="flex-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none truncate font-mono"
+        >
+          {filename}
+        </button>
+        <span className={cn("text-xs font-medium shrink-0", actionColor)}>{actionLabel}</span>
+      </div>
+
+      {/* Diff */}
+      {allLines.length > 0 && call.status !== "running" && (
+        <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 overflow-hidden">
+          <pre className="font-mono text-[11px] leading-relaxed !m-0">
+            {visibleLines.map((item, i) => (
+              <DiffLineView key={i} item={item} />
+            ))}
+          </pre>
+          {hasOverflow && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="flex w-full items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors border-t border-sidebar-border/40"
+            >
+              <ChevronDownIcon
+                className={cn("size-3 transition-transform", expanded ? "rotate-180" : "rotate-0")}
+              />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(call.input, null, 2);
-  const hasDetail = inputStr !== "{}" || call.result;
+  const hasDetail = inputStr !== "{}" || !!call.result;
 
   return (
-    <div className="my-1 rounded-md border border-sidebar-border bg-sidebar-accent/40 text-xs font-mono overflow-hidden">
+    <div className="overflow-hidden">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left hover:bg-sidebar-accent/60 transition-colors disabled:cursor-default"
-        onClick={() => hasDetail && setExpanded((v) => !v)}
         disabled={!hasDetail}
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
       >
         {call.status === "running" ? (
-          <Loader2Icon className="size-3 shrink-0 animate-spin text-muted-foreground" />
+          <Loader2Icon className="size-4 shrink-0 animate-spin" />
         ) : call.status === "error" ? (
-          <XIcon className="size-3 shrink-0 text-destructive" />
+          <XIcon className="size-4 shrink-0 text-destructive" />
         ) : (
-          <CheckIcon className="size-3 shrink-0 text-emerald-500" />
+          <CheckIcon className="size-4 shrink-0 text-emerald-500" />
         )}
-        <span className="text-foreground/80">{call.name}</span>
+        <span className="capitalize">{toolLabel(call.name)}</span>
         {hasDetail && (
-          <span className="ml-auto text-muted-foreground">
-            {expanded ? (
-              <ChevronDownIcon className="size-3" />
-            ) : (
-              <ChevronRightIcon className="size-3" />
+          <ChevronDownIcon
+            className={cn(
+              "size-4 shrink-0 transition-transform",
+              expanded ? "rotate-180" : "rotate-0"
             )}
-          </span>
+          />
         )}
       </button>
       {expanded && hasDetail && (
-        <div className="flex flex-col gap-2 border-t border-sidebar-border px-2.5 py-2">
-          {inputStr !== "{}" && (
-            <pre className="whitespace-pre-wrap text-muted-foreground leading-relaxed !m-0">
-              {inputStr}
-            </pre>
-          )}
-          {call.result && (
-            <pre
-              className={`whitespace-pre-wrap leading-relaxed !m-0 ${call.isError ? "text-destructive" : "text-foreground/70"}`}
-            >
-              {call.result.length > 500 ? `${call.result.slice(0, 500)}\n…` : call.result}
-            </pre>
-          )}
+        <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 text-xs font-mono overflow-hidden">
+          <div className="flex flex-col gap-2 px-2.5 py-2">
+            {inputStr !== "{}" && (
+              <pre className="whitespace-pre-wrap text-muted-foreground leading-relaxed !m-0">
+                {inputStr}
+              </pre>
+            )}
+            {call.result && (
+              <pre
+                className={cn(
+                  "whitespace-pre-wrap leading-relaxed !m-0",
+                  call.isError ? "text-destructive" : "text-foreground/70"
+                )}
+              >
+                {call.result.length > 500 ? `${call.result.slice(0, 500)}\n…` : call.result}
+              </pre>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -203,7 +419,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-export function ChatSidebar(): React.JSX.Element {
+export function ChatSidebar({
+  onOpenFile
+}: {
+  onOpenFile: (filePath: string) => void;
+}): React.JSX.Element {
   const [{ messages, streamingContent, streamingThinking, activeToolCalls, canUndo }, dispatch] =
     useReducer(chatReducer, initialChatState);
   const [loading, setLoading] = useState(false);
@@ -385,8 +605,7 @@ export function ChatSidebar(): React.JSX.Element {
             )}
 
             {messages.map((msg, i) => {
-              const isLastAssistant =
-                i === messages.length - 1 && msg.role === "assistant";
+              const isLastAssistant = i === messages.length - 1 && msg.role === "assistant";
               return msg.role === "error" ? (
                 <div
                   key={i}
@@ -403,10 +622,14 @@ export function ChatSidebar(): React.JSX.Element {
                     </Reasoning>
                   )}
                   {msg.toolCalls && msg.toolCalls.length > 0 && (
-                    <div className="w-full space-y-0.5">
-                      {msg.toolCalls.map((tc) => (
-                        <ToolCallRow key={tc.id} call={tc} />
-                      ))}
+                    <div className="w-full flex flex-col gap-2">
+                      {msg.toolCalls.map((tc) =>
+                        VAULT_FILE_TOOLS.has(tc.name) ? (
+                          <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
+                        ) : (
+                          <ToolCallRow key={tc.id} call={tc} />
+                        )
+                      )}
                     </div>
                   )}
                   {msg.content && (
@@ -416,10 +639,7 @@ export function ChatSidebar(): React.JSX.Element {
                   )}
                   {isLastAssistant && canUndo && (
                     <MessageActions>
-                      <MessageAction
-                        tooltip="Undo last turn's file changes"
-                        onClick={handleUndo}
-                      >
+                      <MessageAction tooltip="Undo last turn's file changes" onClick={handleUndo}>
                         <Undo2Icon className="size-3.5" />
                         Undo
                       </MessageAction>
@@ -439,9 +659,13 @@ export function ChatSidebar(): React.JSX.Element {
                 )}
                 {activeToolCalls.length > 0 && (
                   <div className="w-full space-y-0.5">
-                    {activeToolCalls.map((tc) => (
-                      <ToolCallRow key={tc.id} call={tc} />
-                    ))}
+                    {activeToolCalls.map((tc) =>
+                      VAULT_FILE_TOOLS.has(tc.name) ? (
+                        <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
+                      ) : (
+                        <ToolCallRow key={tc.id} call={tc} />
+                      )
+                    )}
                   </div>
                 )}
                 {streamingContent && (

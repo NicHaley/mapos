@@ -567,7 +567,12 @@ function App(): React.JSX.Element {
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
           style={{ "--sidebar-width": `${CHAT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
-          <ChatSidebar />
+          <ChatSidebar
+            onOpenFile={async (filePath) => {
+              const place = await window.api.places.getByPath(filePath);
+              if (place) handleSelectPlaceFromSidebar(place);
+            }}
+          />
         </SidebarProvider>
       </div>
     </>

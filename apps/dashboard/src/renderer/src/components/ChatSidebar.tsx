@@ -102,7 +102,6 @@ type DiffLineItem =
 
 function flattenDiffParts(parts: ReturnType<typeof diffLines>): DiffLineItem[] {
   const items: DiffLineItem[] = [];
-  const MAX_CONTEXT = 2;
   for (const part of parts) {
     const lines = part.value.replace(/\n$/, "").split("\n");
     if (part.added) {
@@ -110,17 +109,16 @@ function flattenDiffParts(parts: ReturnType<typeof diffLines>): DiffLineItem[] {
     } else if (part.removed) {
       for (const line of lines) items.push({ kind: "removed", text: line });
     } else {
-      const nonEmpty = lines.filter((l) => l !== "");
-      if (nonEmpty.length <= MAX_CONTEXT * 2) {
-        for (const line of nonEmpty) items.push({ kind: "context", text: line });
-      } else {
-        for (const line of nonEmpty.slice(0, MAX_CONTEXT))
-          items.push({ kind: "context", text: line });
+      // Unchanged section — collapse to separator, avoiding consecutive ellipses
+      const hasContent = lines.some((l) => l !== "");
+      if (hasContent && items.length > 0 && items[items.length - 1].kind !== "ellipsis") {
         items.push({ kind: "ellipsis" });
-        for (const line of nonEmpty.slice(-MAX_CONTEXT))
-          items.push({ kind: "context", text: line });
       }
     }
+  }
+  // Strip trailing ellipsis
+  while (items.length > 0 && items[items.length - 1].kind === "ellipsis") {
+    items.pop();
   }
   return items;
 }
@@ -218,13 +216,13 @@ function FileChangeRow({
   const canOpen = !!change && change.action !== "deleted" && call.status !== "running";
 
   return (
-    <div className="my-0.5 overflow-hidden">
+    <div className="overflow-hidden">
       {/* Header row */}
       <div className="flex items-center gap-2 pb-1.5">
         <ActionIcon
           className={cn(
-            "size-4 shrink-0",
-            call.status === "running" ? "animate-spin text-muted-foreground" : actionColor
+            "size-3.5 shrink-0",
+            call.status === "running" ? "animate-spin text-muted-foreground/70" : actionColor
           )}
         />
         <button
@@ -274,20 +272,20 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
         type="button"
         disabled={!hasDetail}
         onClick={() => hasDetail && setExpanded((v) => !v)}
-        className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+        className="flex w-full items-center gap-2 text-sm text-muted-foreground/70 transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground/70"
       >
         {call.status === "running" ? (
-          <Loader2Icon className="size-4 shrink-0 animate-spin" />
+          <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
         ) : call.status === "error" ? (
-          <XIcon className="size-4 shrink-0 text-destructive" />
+          <XIcon className="size-3.5 shrink-0 text-destructive" />
         ) : (
-          <CheckIcon className="size-4 shrink-0 text-emerald-500" />
+          <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />
         )}
         <span className="capitalize">{toolLabel(call.name)}</span>
         {hasDetail && (
           <ChevronDownIcon
             className={cn(
-              "size-4 shrink-0 transition-transform",
+              "size-3.5 shrink-0 transition-transform",
               expanded ? "rotate-180" : "rotate-0"
             )}
           />

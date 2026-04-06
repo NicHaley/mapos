@@ -57,7 +57,6 @@ export function PlaceCard({
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
   const [propertyTypes, setPropertyTypes] = useState<PropertyTypes>({});
-  const [allKnownKeys, setAllKnownKeys] = useState<string[]>([]);
   const [propertyOrder, setPropertyOrder] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,15 +158,12 @@ export function PlaceCard({
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      window.api.properties.readTypes(),
-      window.api.properties.listAllKeys(),
-      window.api.properties.readOrder()
-    ]).then(([types, keys, order]) => {
-      setPropertyTypes(types);
-      setAllKnownKeys(keys);
-      setPropertyOrder(order);
-    });
+    Promise.all([window.api.properties.readTypes(), window.api.properties.readOrder()]).then(
+      ([types, order]) => {
+        setPropertyTypes(types);
+        setPropertyOrder(order);
+      }
+    );
   }, []);
 
   useEffect(() => {
@@ -353,7 +349,6 @@ export function PlaceCard({
             frontmatter={frontmatter}
             propertyTypes={propertyTypes}
             propertyOrder={propertyOrder}
-            allKnownKeys={allKnownKeys}
             onTypesChange={setPropertyTypes}
             onOrderChange={setPropertyOrder}
           />

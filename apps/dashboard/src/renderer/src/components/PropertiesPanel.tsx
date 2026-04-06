@@ -1,11 +1,11 @@
 import {
   CalendarIcon,
   CheckIcon,
-  CheckSquareIcon,
   GripVerticalIcon,
   HashIcon,
   PlusIcon,
   TextIcon,
+  ToggleLeftIcon,
   Trash2Icon
 } from "lucide-react";
 import { Reorder } from "motion/react";
@@ -30,13 +30,11 @@ const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNod
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
   { value: "number", label: "Number", icon: <HashIcon className="size-4" /> },
   { value: "date", label: "Date", icon: <CalendarIcon className="size-4" /> },
-  { value: "checkbox", label: "Checkbox", icon: <CheckSquareIcon className="size-4" /> }
+  { value: "checkbox", label: "Checkbox", icon: <ToggleLeftIcon className="size-4" /> }
 ];
 
 function typeIcon(type: PropertyType): React.ReactNode {
-  return (
-    PROPERTY_TYPES.find((t) => t.value === type)?.icon ?? <TextIcon className="size-4" />
-  );
+  return PROPERTY_TYPES.find((t) => t.value === type)?.icon ?? <TextIcon className="size-4" />;
 }
 
 function defaultValueForType(type: PropertyType): unknown {
@@ -57,6 +55,20 @@ function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] 
   const ordered = order.filter((k) => k in fm);
   const rest = fmKeys.filter((k) => !order.includes(k));
   return [...ordered, ...rest];
+}
+
+/** Same candidate pattern as `renameCreatedPlaceToSlug` in App.tsx: base, base-2, base-3, … */
+function allocateUniquePropertyKey(
+  base: string,
+  fm: Record<string, unknown>,
+  reserved: Set<string>
+): string {
+  const candidates = [base, ...Array.from({ length: 30 }, (_, i) => `${base}-${i + 2}`)];
+  for (const k of candidates) {
+    if (reserved.has(k)) continue;
+    if (!(k in fm)) return k;
+  }
+  return `${base}-fallback`;
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
@@ -104,7 +116,15 @@ function PropertyKey({
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted outline-none">
-        {typeIcon(type)}
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
+            {typeIcon(type)}
+          </span>
+          <GripVerticalIcon
+            className="pointer-events-none absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground/50"
+            aria-hidden
+          />
+        </span>
         <span className="truncate">{propKey}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="start" className="w-48">
@@ -189,7 +209,7 @@ function PropertyValue({
     return (
       <button
         type="button"
-        className="flex w-full cursor-pointer items-center rounded px-2 py-1"
+        className="flex w-full cursor-pointer items-center rounded px-2 py-1 transition-colors hover:bg-sidebar-accent"
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('[role="switch"]')) return;
           onValueChange(propKey, !(value === true || value === "true"));
@@ -207,11 +227,11 @@ function PropertyValue({
   if (type === "date") {
     return (
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm hover:bg-muted">
+        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {isEmpty ? (
             <span className="text-muted-foreground">Empty</span>
           ) : (
-            <span>{toDisplayString(value)}</span>
+            <span className="text-sidebar-foreground">{toDisplayString(value)}</span>
           )}
         </PopoverTrigger>
         <PopoverContent side="bottom" align="start" className="w-auto p-2">
@@ -223,7 +243,7 @@ function PropertyValue({
               onValueChange(propKey, e.target.value);
               setOpen(false);
             }}
-            className="rounded border border-input bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring"
+            className="rounded border border-input bg-transparent px-2 py-1 text-sm text-sidebar-foreground outline-none focus:ring-1 focus:ring-ring"
             ref={(el) => {
               if (el) el.focus();
             }}
@@ -242,11 +262,11 @@ function PropertyValue({
         if (!val) commitDraft();
       }}
     >
-      <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm hover:bg-muted text-left">
+      <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
         {isEmpty ? (
           <span className="text-muted-foreground">Empty</span>
         ) : (
-          <span className="truncate">{toDisplayString(value)}</span>
+          <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
         )}
       </PopoverTrigger>
       <PopoverContent side="bottom" align="start" className="w-52 p-2">
@@ -281,7 +301,6 @@ interface PropertiesPanelProps {
   frontmatter: Record<string, unknown>;
   propertyTypes: PropertyTypes;
   propertyOrder: string[];
-  allKnownKeys: string[];
   onTypesChange: (newTypes: PropertyTypes) => void;
   onOrderChange: (newOrder: string[]) => void;
 }
@@ -291,15 +310,10 @@ export function PropertiesPanel({
   frontmatter,
   propertyTypes,
   propertyOrder,
-  allKnownKeys,
   onTypesChange,
   onOrderChange
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
-  const [isAdding, setIsAdding] = useState(false);
-  const [newKey, setNewKey] = useState("");
-  const [newType, setNewType] = useState<PropertyType>("text");
-  const newKeyInputRef = useRef<HTMLInputElement>(null);
   const localFrontmatterRef = useRef(localFrontmatter);
   localFrontmatterRef.current = localFrontmatter;
 
@@ -318,12 +332,6 @@ export function PropertiesPanel({
     setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatterRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyOrder]);
-
-  useEffect(() => {
-    if (isAdding) {
-      setTimeout(() => newKeyInputRef.current?.focus(), 0);
-    }
-  }, [isAdding]);
 
   async function handleValueChange(key: string, value: unknown): Promise<void> {
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
@@ -383,44 +391,27 @@ export function PropertiesPanel({
     void window.api.properties.writeOrder(newOrder);
   }
 
-  async function handleAddConfirm(): Promise<void> {
-    const key = newKey.trim();
-    if (!key) {
-      setIsAdding(false);
-      setNewKey("");
-      return;
-    }
-    if (key in localFrontmatter) {
-      setIsAdding(false);
-      setNewKey("");
-      return;
-    }
-    const value = defaultValueForType(newType);
+  async function handleAddProperty(type: PropertyType): Promise<void> {
+    const label = PROPERTY_TYPES.find((t) => t.value === type)?.label ?? "Text";
+    const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+    const key = allocateUniquePropertyKey(label, localFrontmatter, reserved);
+    const value = defaultValueForType(type);
     const newOrder = [...orderedKeys, key];
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
     setOrderedKeys(newOrder);
     onOrderChange(newOrder);
 
-    if (newType !== "text") {
-      const newTypes = { ...propertyTypes, [key]: newType };
+    if (type !== "text") {
+      const newTypes = { ...propertyTypes, [key]: type };
       onTypesChange(newTypes);
       await window.api.properties.writeTypes(newTypes);
     }
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
     await window.api.properties.writeOrder(newOrder);
-
-    setIsAdding(false);
-    setNewKey("");
-    setNewType("text");
   }
 
-  const reservedSet = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-  const suggestedKeys = allKnownKeys.filter(
-    (k) => !reservedSet.has(k) && !(k in localFrontmatter)
-  );
-
   return (
-    <div className="border-t border-border px-2 py-1">
+    <div className="px-2 py-1 text-sidebar-foreground">
       <Reorder.Group
         axis="y"
         values={orderedKeys}
@@ -435,18 +426,15 @@ export function PropertiesPanel({
             className="group grid grid-cols-2 items-center"
             as="div"
           >
-            <div className="flex items-center gap-1 min-w-0">
-              <GripVerticalIcon className="size-3 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-muted-foreground/50" />
-              <div className="flex-1 min-w-0">
-                <PropertyKey
-                  propKey={key}
-                  type={propertyTypes[key] ?? "text"}
-                  propertyTypes={propertyTypes}
-                  onTypeChange={handleTypeChange}
-                  onRename={handleRename}
-                  onDelete={handleDelete}
-                />
-              </div>
+            <div className="min-w-0">
+              <PropertyKey
+                propKey={key}
+                type={propertyTypes[key] ?? "text"}
+                propertyTypes={propertyTypes}
+                onTypeChange={handleTypeChange}
+                onRename={handleRename}
+                onDelete={handleDelete}
+              />
             </div>
             <PropertyValue
               propKey={key}
@@ -458,55 +446,25 @@ export function PropertiesPanel({
         ))}
       </Reorder.Group>
 
-      {isAdding ? (
-        <div className="flex items-center gap-1 px-2 py-1">
-          <select
-            value={newType}
-            onChange={(e) => setNewType(e.target.value as PropertyType)}
-            className="w-5 h-5 shrink-0 appearance-none bg-transparent text-muted-foreground border-0 outline-none cursor-pointer text-sm p-0"
-            aria-label="Property type"
-          >
-            {PROPERTY_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          <input
-            ref={newKeyInputRef}
-            type="text"
-            value={newKey}
-            onChange={(e) => setNewKey(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleAddConfirm();
-              if (e.key === "Escape") {
-                setIsAdding(false);
-                setNewKey("");
-              }
-            }}
-            onBlur={() => {
-              setTimeout(() => void handleAddConfirm(), 150);
-            }}
-            list="properties-panel-key-suggestions"
-            placeholder="Property name"
-            className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-          />
-          <datalist id="properties-panel-key-suggestions">
-            {suggestedKeys.map((k) => (
-              <option key={k} value={k} />
-            ))}
-          </datalist>
+      <div className="grid grid-cols-2 items-center">
+        <div className="min-w-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
+              <PlusIcon className="size-4" />
+              Add property
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="start" className="w-48">
+              {PROPERTY_TYPES.map((t) => (
+                <DropdownMenuItem key={t.value} onClick={() => void handleAddProperty(t.value)}>
+                  {t.icon}
+                  {t.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setIsAdding(true)}
-          className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted transition-colors"
-        >
-          <PlusIcon className="size-4" />
-          Add property
-        </button>
-      )}
+        <div className="min-w-0" aria-hidden />
+      </div>
     </div>
   );
 }

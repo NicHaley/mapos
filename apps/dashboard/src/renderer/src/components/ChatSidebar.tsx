@@ -314,7 +314,7 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
         )}
       </button>
       {expanded && hasDetail && (
-        <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 text-xs font-mono overflow-hidden">
+        <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 text-xs font-mono overflow-hidden mt-2">
           <div className="flex flex-col gap-2 px-2.5 py-2">
             {inputStr !== "{}" && (
               <pre className="whitespace-pre-wrap text-muted-foreground leading-relaxed !m-0">

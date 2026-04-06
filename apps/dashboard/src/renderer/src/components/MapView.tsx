@@ -138,6 +138,8 @@ const MapView = forwardRef<
     onSelectedFeaturePosition?: (x: number, y: number) => void;
     /** Ephemeral MCP overlay; owned by App (single IPC subscription). */
     mapOverlay?: OverlayRenderData;
+    /** Only render the overlay layer when the chat sidebar is open. */
+    showOverlay?: boolean;
   }
 >(function MapView(
   {
@@ -148,7 +150,8 @@ const MapView = forwardRef<
     selectedFolder,
     parentFolderForNewFiles,
     onSelectedFeaturePosition,
-    mapOverlay = EMPTY_OVERLAY
+    mapOverlay = EMPTY_OVERLAY,
+    showOverlay = false
   },
   ref
 ) {
@@ -574,7 +577,7 @@ const MapView = forwardRef<
             />
           </Source>
         )}
-        {overlay.points.map((p) => (
+        {showOverlay && overlay.points.map((p) => (
           <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
             <button
               type="button"
@@ -596,7 +599,7 @@ const MapView = forwardRef<
             />
           </Marker>
         ))}
-        {hasOverlayGeoJSON && (
+        {showOverlay && hasOverlayGeoJSON && (
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
             <Layer

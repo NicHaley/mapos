@@ -610,6 +610,7 @@ function App(): React.JSX.Element {
             lines: mapOverlay.lines,
             polygons: mapOverlay.polygons
           }}
+          showOverlay={chatSidebarOpen}
         />
       </div>
 

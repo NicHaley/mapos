@@ -9,14 +9,16 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { Reorder } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PropertyType, PropertyTypes } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
 import { firstUniqueName } from "@renderer/lib/unique-name";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -56,6 +58,26 @@ function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] 
   const ordered = order.filter((k) => k in fm);
   const rest = fmKeys.filter((k) => !order.includes(k));
   return [...ordered, ...rest];
+}
+
+/** Keys registered in the vault catalog but not yet on this file, in a sensible order. */
+function existingPropertyKeysNotOnFile(
+  propertyTypes: PropertyTypes,
+  orderedKeys: string[],
+  globalOrder: string[]
+): string[] {
+  const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+  const onFile = new Set(orderedKeys);
+  const raw = Object.keys(propertyTypes).filter((k) => !onFile.has(k) && !reserved.has(k));
+  const orderIndex = new Map(globalOrder.map((k, i) => [k, i]));
+  return raw.sort((a, b) => {
+    const ia = orderIndex.get(a);
+    const ib = orderIndex.get(b);
+    if (ia !== undefined && ib !== undefined) return ia - ib;
+    if (ia !== undefined) return -1;
+    if (ib !== undefined) return 1;
+    return a.localeCompare(b);
+  });
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
@@ -317,6 +339,11 @@ export function PropertiesPanel({
     setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatter));
   }, [propertyOrder, localFrontmatter]);
 
+  const existingKeysToAdd = useMemo(
+    () => existingPropertyKeysNotOnFile(propertyTypes, orderedKeys, propertyOrder),
+    [propertyTypes, orderedKeys, propertyOrder]
+  );
+
   async function handleValueChange(key: string, value: unknown): Promise<void> {
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
@@ -402,6 +429,17 @@ export function PropertiesPanel({
     await window.api.properties.writeOrder(newOrder);
   }
 
+  async function handleAddExistingProperty(key: string): Promise<void> {
+    const type = propertyTypes[key] ?? "text";
+    const value = defaultValueForType(type);
+    const newOrder = [...orderedKeys, key];
+    setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
+    setOrderedKeys(newOrder);
+    onOrderChange(newOrder);
+    await window.api.fs.writeFrontmatterProperty(filePath, key, value);
+    await window.api.properties.writeOrder(newOrder);
+  }
+
   return (
     <div className="px-2 py-1 text-sidebar-foreground">
       <Reorder.Group
@@ -445,13 +483,34 @@ export function PropertiesPanel({
               <PlusIcon className="size-4" />
               Add property
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="start" className="w-48">
-              {PROPERTY_TYPES.map((t) => (
-                <DropdownMenuItem key={t.value} onClick={() => void handleAddProperty(t.value)}>
-                  {t.icon}
-                  {t.label}
-                </DropdownMenuItem>
-              ))}
+            <DropdownMenuContent side="bottom" align="start" className="w-56 max-h-72">
+              {existingKeysToAdd.length > 0 && (
+                <>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Existing properties</DropdownMenuLabel>
+                    {existingKeysToAdd.map((key) => (
+                      <DropdownMenuItem
+                        key={key}
+                        onClick={() => void handleAddExistingProperty(key)}
+                        className="gap-2"
+                      >
+                        {typeIcon(propertyTypes[key] ?? "text")}
+                        <span className="truncate">{key}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>New property</DropdownMenuLabel>
+                {PROPERTY_TYPES.map((t) => (
+                  <DropdownMenuItem key={t.value} onClick={() => void handleAddProperty(t.value)}>
+                    {t.icon}
+                    {t.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

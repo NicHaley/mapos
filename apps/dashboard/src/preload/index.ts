@@ -101,6 +101,7 @@ const api = {
     listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
     switchConversation: (id: string) => ipcRenderer.invoke("chat:switch-conversation", id),
     deleteConversation: (id: string) => ipcRenderer.invoke("chat:delete-conversation", id),
+    clearOverlay: () => ipcRenderer.send("chat:clear-overlay"),
     onChunk: (cb: (text: string) => void) => ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
     onThinkingChunk: (cb: (text: string) => void) =>
       ipcRenderer.on("chat:thinking_chunk", (_e, t) => cb(t)),

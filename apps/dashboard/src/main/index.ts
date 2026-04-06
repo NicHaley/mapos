@@ -20,7 +20,13 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 import matter from "gray-matter";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
-import type { PersistedMessage, PlaceRecord, UndoEntry, VaultOperation } from "../shared/types";
+import type {
+  MapOverlayPayload,
+  PersistedMessage,
+  PlaceRecord,
+  UndoEntry,
+  VaultOperation
+} from "../shared/types";
 import {
   getFeatureCount,
   indexFeatures,
@@ -626,7 +632,9 @@ function createMaposMcpServer(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   maposDir: string,
-  onVaultWrite: (op: VaultOperation) => void
+  onVaultWrite: (op: VaultOperation) => void,
+  onOverlayUpdate: (overlay: MapOverlayPayload | null) => void,
+  getOverlay: () => MapOverlayPayload | null | undefined
 ) {
   return createSdkMcpServer({
     name: "mapos",
@@ -717,12 +725,14 @@ function createMaposMcpServer(
               title: p.title,
               ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
             }));
-            mainWindow.webContents.send("map:overlay", {
+            const payload: MapOverlayPayload = {
               layerName: args.layer_name,
               points,
               lines,
               polygons
-            });
+            };
+            mainWindow.webContents.send("map:overlay", payload);
+            onOverlayUpdate(payload);
           }
           const counts = {
             points: (args.points ?? []).length,
@@ -744,8 +754,11 @@ function createMaposMcpServer(
         "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
         {},
         async () => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("map:overlay-clear");
+          if (getOverlay() != null) {
+            if (!mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("map:overlay-clear");
+            }
+            onOverlayUpdate(null);
           }
           return {
             content: [{ type: "text", text: "Overlay cleared" }]
@@ -1012,6 +1025,7 @@ type ActiveConversation = {
   id: string;
   messages: PersistedMessage[];
   sdkSessionId?: string;
+  overlay?: MapOverlayPayload | null;
 };
 
 function newConversationId(): string {
@@ -1022,6 +1036,24 @@ function newConversationId(): string {
 
 const CONVERSATIONS_DIR = join(MAPOS_DIR, ".mapos", "conversations");
 const CONVERSATIONS_INDEX = join(CONVERSATIONS_DIR, "index.jsonl");
+
+function loadConvState(id: string): { overlay: MapOverlayPayload | null } {
+  try {
+    const p = join(CONVERSATIONS_DIR, `${id}.state.json`);
+    if (!existsSync(p)) return { overlay: null };
+    return JSON.parse(readFileSync(p, "utf-8")) as { overlay: MapOverlayPayload | null };
+  } catch {
+    return { overlay: null };
+  }
+}
+
+function saveConvState(id: string, state: { overlay: MapOverlayPayload | null }): void {
+  try {
+    writeFileSync(join(CONVERSATIONS_DIR, `${id}.state.json`), JSON.stringify(state), "utf-8");
+  } catch (err) {
+    console.error("[main] failed to save conv state:", err);
+  }
+}
 
 type ConversationMeta = {
   id: string;
@@ -1106,7 +1138,8 @@ function loadMostRecentConversation(): ActiveConversation | null {
         return [];
       }
     });
-    return { id: latest.id, messages, sdkSessionId: latest.sdkSessionId };
+    const state = loadConvState(latest.id);
+    return { id: latest.id, messages, sdkSessionId: latest.sdkSessionId, overlay: state.overlay };
   } catch {
     return null;
   }
@@ -1140,6 +1173,12 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     }
   };
 
+  const onOverlayUpdate = (overlay: MapOverlayPayload | null): void => {
+    if (!currentConversation) return;
+    currentConversation.overlay = overlay;
+    saveConvState(currentConversation.id, { overlay });
+  };
+
   initConversationsDir();
 
   let currentConversation: ActiveConversation | null = loadMostRecentConversation();
@@ -1152,10 +1191,13 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     );
   }
 
-  const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR, onVaultWrite);
+  const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR, onVaultWrite, onOverlayUpdate, () => currentConversation?.overlay);
 
   ipcMain.handle("chat:load-history", () => {
-    return currentConversation?.messages ?? [];
+    return {
+      messages: currentConversation?.messages ?? [],
+      overlay: currentConversation?.overlay ?? null
+    };
   });
 
   ipcMain.handle("chat:list-conversations", () => {
@@ -1164,6 +1206,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
   ipcMain.handle("chat:switch-conversation", (_event, id: string) => {
     try {
+      currentUndoEntry = null;
       const lines = readFileSync(join(CONVERSATIONS_DIR, `${id}.jsonl`), "utf-8")
         .split("\n")
         .filter(Boolean);
@@ -1175,10 +1218,11 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
         }
       });
       const meta = readConversationIndex().find((e) => e.id === id);
-      currentConversation = { id, messages, sdkSessionId: meta?.sdkSessionId };
-      return messages;
+      const state = loadConvState(id);
+      currentConversation = { id, messages, sdkSessionId: meta?.sdkSessionId, overlay: state.overlay };
+      return { messages, overlay: state.overlay };
     } catch {
-      return [];
+      return { messages: [], overlay: null };
     }
   });
 
@@ -1410,14 +1454,25 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
   ipcMain.on("chat:reset", () => {
     currentConversation = null;
+    currentUndoEntry = null;
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("map:overlay-clear");
+    }
+  });
+
+  ipcMain.on("chat:clear-overlay", () => {
+    onOverlayUpdate(null);
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("map:overlay-clear");
+    }
   });
 
   ipcMain.handle("chat:delete-conversation", (_event, id: string) => {
     try {
       const convFile = join(CONVERSATIONS_DIR, `${id}.jsonl`);
-      if (existsSync(convFile)) {
-        rmSync(convFile);
-      }
+      if (existsSync(convFile)) rmSync(convFile);
+      const stateFile = join(CONVERSATIONS_DIR, `${id}.state.json`);
+      if (existsSync(stateFile)) rmSync(stateFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
       if (currentConversation?.id === id) {

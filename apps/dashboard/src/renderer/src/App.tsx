@@ -401,6 +401,15 @@ function App(): React.JSX.Element {
     dispatchNav
   ]);
 
+  const handleOverlayRestore = useCallback((overlay: MapOverlayPayload | null) => {
+    if (overlay) {
+      setMapOverlay(overlay);
+      setMapOverlayNonce((n) => n + 1);
+    } else {
+      setMapOverlay(EMPTY_MAP_OVERLAY);
+    }
+  }, []);
+
   const handleAddAllOverlayToVault = useCallback(async () => {
     const { points, lines, polygons } = mapOverlay;
     const n = points.length + lines.length + polygons.length;
@@ -758,6 +767,7 @@ function App(): React.JSX.Element {
             mapOverlayNonce={mapOverlayNonce}
             onAddAllOverlayToVault={handleAddAllOverlayToVault}
             addAllOverlayBusy={addAllOverlayBusy}
+            onOverlayRestore={handleOverlayRestore}
             onOpenFile={async (filePath) => {
               const place = await window.api.places.getByPath(filePath);
               if (place) handleSelectPlaceFromSidebar(place);

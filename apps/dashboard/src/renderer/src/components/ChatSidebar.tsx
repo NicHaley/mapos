@@ -17,8 +17,7 @@ import {
   Loader2Icon,
   PencilIcon,
   SquarePenIcon,
-  Undo2Icon,
-  XIcon
+  Undo2Icon
 } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import {
@@ -370,7 +369,7 @@ const initialChatState: ChatState = {
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "load_history":
-      return { ...state, messages: action.messages };
+      return { ...state, messages: action.messages, canUndo: false };
     case "user_message":
       return {
         ...state,
@@ -451,7 +450,8 @@ export function ChatSidebar({
   mapOverlay,
   mapOverlayNonce,
   onAddAllOverlayToVault,
-  addAllOverlayBusy
+  addAllOverlayBusy,
+  onOverlayRestore
 }: {
   onOpenFile: (filePath: string) => void;
   mapOverlay: MapOverlayPayload;
@@ -459,23 +459,23 @@ export function ChatSidebar({
   mapOverlayNonce: number;
   onAddAllOverlayToVault: () => void | Promise<void>;
   addAllOverlayBusy: boolean;
+  onOverlayRestore: (overlay: MapOverlayPayload | null) => void;
 }): React.JSX.Element {
   const [{ messages, streamingContent, streamingThinking, activeToolCalls, canUndo }, dispatch] =
     useReducer(chatReducer, initialChatState);
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
-  /** User clicked Add all for the current overlay batch. */
-  const [addAllToVaultConsumed, setAddAllToVaultConsumed] = useState(false);
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
   const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only effect
   useEffect(() => {
-    window.api.chat.loadHistory().then((history) => {
-      if (history.length > 0) {
+    window.api.chat.loadHistory().then(({ messages, overlay }) => {
+      if (messages.length > 0) {
         dispatch({
           type: "load_history",
-          messages: history.map((msg) => ({
+          messages: messages.map((msg) => ({
             role: msg.role,
             content: msg.content,
             thinking: msg.thinking,
@@ -485,6 +485,7 @@ export function ChatSidebar({
           }))
         });
       }
+      onOverlayRestore(overlay);
     });
 
     window.api.chat.listConversations().then((convos) => {
@@ -499,7 +500,6 @@ export function ChatSidebar({
   // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
   useEffect(() => {
-    setAddAllToVaultConsumed(false);
     setAddAllHiddenAfterUserMessage(false);
   }, [mapOverlayNonce]);
 
@@ -557,15 +557,14 @@ export function ChatSidebar({
     window.api.chat.reset();
     dispatch({ type: "reset" });
     setLoading(false);
-    setAddAllToVaultConsumed(false);
     setAddAllHiddenAfterUserMessage(false);
   }
 
   async function switchConversation(id: string): Promise<void> {
-    const history = await window.api.chat.switchConversation(id);
+    const { messages, overlay } = await window.api.chat.switchConversation(id);
     dispatch({
       type: "load_history",
-      messages: history.map((msg) => ({
+      messages: messages.map((msg) => ({
         role: msg.role,
         content: msg.content,
         thinking: msg.thinking,
@@ -576,8 +575,8 @@ export function ChatSidebar({
     });
     setCurrentConvId(id);
     setLoading(false);
-    setAddAllToVaultConsumed(false);
     setAddAllHiddenAfterUserMessage(false);
+    onOverlayRestore(overlay);
   }
 
   function handleNewConversation(): void {
@@ -595,14 +594,13 @@ export function ChatSidebar({
   }
 
   async function handleAddAllToVaultClick(): Promise<void> {
-    setAddAllToVaultConsumed(true);
     await onAddAllOverlayToVault();
+    window.api.chat.clearOverlay();
   }
 
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
   const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
-  const showAddAllToVaultRow =
-    mapOverlayCount > 0 && !addAllToVaultConsumed && !addAllHiddenAfterUserMessage;
+  const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -749,23 +747,34 @@ export function ChatSidebar({
             )}
             {showAddAllToVaultRow && (
               <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="min-w-0 truncate">
-                  {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"} on map
+                <span className="shrink-0">
+                  {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"}
                 </span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className={overlayActionButtonClass}
-                  disabled={addAllOverlayBusy}
-                  onClick={() => void handleAddAllToVaultClick()}
-                >
-                  {addAllOverlayBusy ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  ) : (
-                    <FilePlusIcon className="size-3.5" />
-                  )}
-                  Add all to vault
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={overlayActionButtonClass}
+                    disabled={addAllOverlayBusy}
+                    onClick={() => window.api.chat.clearOverlay()}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className={overlayActionButtonClass}
+                    disabled={addAllOverlayBusy}
+                    onClick={() => void handleAddAllToVaultClick()}
+                  >
+                    {addAllOverlayBusy ? (
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                    ) : (
+                      <FilePlusIcon className="size-3.5" />
+                    )}
+                    Add all to vault
+                  </Button>
+                </div>
               </div>
             )}
           </div>

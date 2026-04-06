@@ -96,3 +96,9 @@ export type VaultOperation = {
 export type UndoEntry = {
   operations: VaultOperation[];
 };
+
+/** Returned by chat:load-history and chat:switch-conversation. */
+export type ConversationLoadResult = {
+  messages: PersistedMessage[];
+  overlay: MapOverlayPayload | null;
+};

@@ -2,6 +2,7 @@ import type { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
+  ConversationLoadResult,
   ConversationMeta,
   FileNode,
   MapOverlayPayload,
@@ -93,9 +94,10 @@ declare global {
         send: (message: string) => void;
         abort: () => void;
         reset: () => void;
-        loadHistory: () => Promise<PersistedMessage[]>;
+        clearOverlay: () => void;
+        loadHistory: () => Promise<ConversationLoadResult>;
         listConversations: () => Promise<ConversationMeta[]>;
-        switchConversation: (id: string) => Promise<PersistedMessage[]>;
+        switchConversation: (id: string) => Promise<ConversationLoadResult>;
         deleteConversation: (id: string) => Promise<void>;
         onChunk: (cb: (text: string) => void) => void;
         onThinkingChunk: (cb: (text: string) => void) => void;

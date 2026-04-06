@@ -1,3 +1,5 @@
+import { firstUniqueName } from "@renderer/lib/unique-name";
+import { cn } from "@renderer/lib/utils";
 import {
   CalendarIcon,
   CheckIcon,
@@ -6,13 +8,13 @@ import {
   PlusIcon,
   TextIcon,
   ToggleLeftIcon,
-  Trash2Icon
+  Trash2Icon,
+  TriangleAlertIcon
 } from "lucide-react";
 import { Reorder } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PropertyType, PropertyTypes } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
-import { firstUniqueName } from "@renderer/lib/unique-name";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,7 @@ import {
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
@@ -51,6 +54,58 @@ function toDisplayString(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "boolean") return String(value);
   return String(value);
+}
+
+function isEmptyPropertyValue(value: unknown): boolean {
+  return value === null || value === undefined || value === "";
+}
+
+/** Whether frontmatter value matches the declared property type (empty values are ok). */
+function isValueAlignedWithType(value: unknown, type: PropertyType): boolean {
+  if (isEmptyPropertyValue(value)) return true;
+  switch (type) {
+    case "text":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "date": {
+      if (typeof value !== "string") return false;
+      return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+    }
+    case "checkbox":
+      return (
+        typeof value === "boolean" ||
+        (typeof value === "string" && (value === "true" || value === "false"))
+      );
+    default:
+      return true;
+  }
+}
+
+function expectedTypeLabel(type: PropertyType): string {
+  return PROPERTY_TYPES.find((t) => t.value === type)?.label.toLowerCase() ?? type;
+}
+
+function TypeMismatchAlert({ type }: { type: PropertyType }): React.JSX.Element {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Type mismatch, expected ${expectedTypeLabel(type)}`}
+            />
+          }
+        >
+          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
+        </TooltipTrigger>
+        <TooltipContent>Type mismatch, expected {expectedTypeLabel(type)}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] {
@@ -212,94 +267,104 @@ function PropertyValue({
     }
   }
 
-  const isEmpty = value === null || value === undefined || value === "";
+  const isEmpty = isEmptyPropertyValue(value);
+  const typeMismatch = !isValueAlignedWithType(value, type);
 
   if (type === "checkbox") {
     return (
-      <button
-        type="button"
-        className="flex w-full cursor-pointer items-center rounded px-2 py-1 transition-colors hover:bg-sidebar-accent"
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('[role="switch"]')) return;
-          onValueChange(propKey, !(value === true || value === "true"));
-        }}
-      >
-        <Switch
-          size="sm"
-          checked={value === true || value === "true"}
-          onCheckedChange={(checked) => onValueChange(propKey, checked)}
-        />
-      </button>
+      <div className="relative min-w-0 w-full flex h-full">
+        <button
+          type="button"
+          className="flex w-full cursor-pointer items-center rounded px-2 py-1 transition-colors hover:bg-sidebar-accent"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('[role="switch"]')) return;
+            onValueChange(propKey, !(value === true || value === "true"));
+          }}
+        >
+          <Switch
+            size="sm"
+            checked={value === true || value === "true"}
+            onCheckedChange={(checked) => onValueChange(propKey, checked)}
+          />
+        </button>
+        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
+      </div>
     );
   }
 
   if (type === "date") {
     return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+      <div className="relative min-w-0 w-full">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+            {isEmpty ? (
+              <span className="text-muted-foreground">Empty</span>
+            ) : (
+              <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
+            )}
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="start" className="w-auto p-2">
+            <input
+              type="date"
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                onValueChange(propKey, e.target.value);
+                setOpen(false);
+              }}
+              className="rounded border border-input bg-transparent px-2 py-1 text-sm text-sidebar-foreground outline-none focus:ring-1 focus:ring-ring"
+              ref={(el) => {
+                if (el) el.focus();
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
+      </div>
+    );
+  }
+
+  // text / number
+  return (
+    <div className="relative min-w-0 w-full">
+      <Popover
+        open={open}
+        onOpenChange={(val) => {
+          setOpen(val);
+          if (!val) commitDraft();
+        }}
+      >
+        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {isEmpty ? (
             <span className="text-muted-foreground">Empty</span>
           ) : (
-            <span className="text-sidebar-foreground">{toDisplayString(value)}</span>
+            <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
           )}
         </PopoverTrigger>
-        <PopoverContent side="bottom" align="start" className="w-auto p-2">
-          <input
-            type="date"
+        <PopoverContent side="bottom" align="start" className="w-52 p-2">
+          <Input
+            type={type === "number" ? "number" : "text"}
             value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              onValueChange(propKey, e.target.value);
-              setOpen(false);
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                commitDraft();
+                setOpen(false);
+              }
+              if (e.key === "Escape") {
+                setDraft(toDisplayString(value));
+                setOpen(false);
+              }
             }}
-            className="rounded border border-input bg-transparent px-2 py-1 text-sm text-sidebar-foreground outline-none focus:ring-1 focus:ring-ring"
+            className="h-7 text-sm"
             ref={(el) => {
               if (el) el.focus();
             }}
           />
         </PopoverContent>
       </Popover>
-    );
-  }
-
-  // text / number
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(val) => {
-        setOpen(val);
-        if (!val) commitDraft();
-      }}
-    >
-      <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-        {isEmpty ? (
-          <span className="text-muted-foreground">Empty</span>
-        ) : (
-          <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
-        )}
-      </PopoverTrigger>
-      <PopoverContent side="bottom" align="start" className="w-52 p-2">
-        <Input
-          type={type === "number" ? "number" : "text"}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              commitDraft();
-              setOpen(false);
-            }
-            if (e.key === "Escape") {
-              setDraft(toDisplayString(value));
-              setOpen(false);
-            }
-          }}
-          className="h-7 text-sm"
-          ref={(el) => {
-            if (el) el.focus();
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+      {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
+    </div>
   );
 }
 
@@ -405,15 +470,11 @@ export function PropertiesPanel({
   async function handleAddProperty(type: PropertyType): Promise<void> {
     const label = PROPERTY_TYPES.find((t) => t.value === type)?.label ?? "Text";
     const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-    const key = firstUniqueName(
-      label,
-      (k) => reserved.has(k) || k in localFrontmatter,
-      {
-        suffixStyle: "spaceNumbered",
-        maxCandidates: 1000,
-        fallback: (b) => `${b} ${Date.now()}`
-      }
-    );
+    const key = firstUniqueName(label, (k) => reserved.has(k) || k in localFrontmatter, {
+      suffixStyle: "spaceNumbered",
+      maxCandidates: 1000,
+      fallback: (b) => `${b} ${Date.now()}`
+    });
     const value = defaultValueForType(type);
     const newOrder = [...orderedKeys, key];
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));

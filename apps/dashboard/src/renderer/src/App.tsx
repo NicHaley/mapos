@@ -9,7 +9,13 @@ import { PhotonSearchPopover } from "./components/PhotonSearchPopover";
 import { PlaceCard } from "./components/PlaceCard";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
-import { SidebarProvider } from "./components/ui/sidebar";
+import { Kbd, KbdGroup } from "./components/ui/kbd";
+import {
+  SidebarProvider,
+  type SidebarKeyboardShortcutConfig
+} from "./components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
+import { modSymbol } from "./hooks/useShortcuts";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
 import type { PhotonSearchResult } from "./lib/photon";
 
@@ -18,6 +24,9 @@ const PLACE_CARD_WIDTH = 320;
 const CHAT_SIDEBAR_WIDTH = 360;
 const TOP_BAR_HEIGHT = 40;
 const FIT_BUFFER = 40;
+
+const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
+const SIDEBAR_KB_CHAT: SidebarKeyboardShortcutConfig = { shift: true };
 
 /** File basename (no extension) from Photon/OSM place name — keeps casing and spacing; only strips illegal path chars. */
 function filenameBaseFromPlaceTitle(title: string): string {
@@ -619,14 +628,27 @@ function App(): React.JSX.Element {
         className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border"
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setProjectSidebarOpen((o) => !o)}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <PanelLeftIcon className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setProjectSidebarOpen((o) => !o)}
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              >
+                <PanelLeftIcon className="size-4" />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">
+            Project
+            <KbdGroup>
+              <Kbd>{modSymbol}</Kbd>
+              <Kbd>{"\\"}</Kbd>
+            </KbdGroup>
+          </TooltipContent>
+        </Tooltip>
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <PhotonSearchPopover onSelectResult={handlePhotonSearchResult} />
         </div>
@@ -645,14 +667,28 @@ function App(): React.JSX.Element {
             onForward={handleNavForward}
           />
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setChatSidebarOpen((o) => !o)}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <MessageCircleIcon className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setChatSidebarOpen((o) => !o)}
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              >
+                <MessageCircleIcon className="size-4" />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">
+            Chat
+            <KbdGroup>
+              <Kbd>{modSymbol}</Kbd>
+              <Kbd>⇧</Kbd>
+              <Kbd>{"\\"}</Kbd>
+            </KbdGroup>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Content wrapper: top offset + transform creates a new containing block
@@ -741,6 +777,7 @@ function App(): React.JSX.Element {
           name="sidebar-left"
           open={projectSidebarOpen}
           onOpenChange={setProjectSidebarOpen}
+          keyboardShortcut={SIDEBAR_KB_PROJECT}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
           style={{ "--sidebar-width": `${PROJECT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
@@ -760,6 +797,7 @@ function App(): React.JSX.Element {
           name="sidebar-right"
           open={chatSidebarOpen}
           onOpenChange={setChatSidebarOpen}
+          keyboardShortcut={SIDEBAR_KB_CHAT}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
           style={{ "--sidebar-width": `${CHAT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >

@@ -28,7 +28,12 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
-const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+
+/** Toggle shortcut: physical key (default backslash, US: \ next to Return). */
+export type SidebarKeyboardShortcutConfig = {
+  code?: string
+  shift?: boolean
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -59,12 +64,15 @@ function SidebarProvider({
   style,
   children,
   name = SIDEBAR_COOKIE_NAME,
+  keyboardShortcut,
   ...props
 }: React.ComponentProps<"div"> & {
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
   name?: string
+  /** When set, Cmd/Ctrl + \ (optional Shift) toggles this sidebar. Omit to disable. */
+  keyboardShortcut?: SidebarKeyboardShortcutConfig | null
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
@@ -93,21 +101,36 @@ function SidebarProvider({
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
   }, [isMobile, setOpen, setOpenMobile])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
+  // Cmd/Ctrl + \ (optional Shift) — skipped while typing in inputs or rich text.
   React.useEffect(() => {
+    if (keyboardShortcut == null) return
+
+    const code = keyboardShortcut.code ?? "Backslash"
+    const wantShift = !!keyboardShortcut.shift
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        event.preventDefault()
-        toggleSidebar()
+      const target = event.target as HTMLElement | null
+      if (target) {
+        const tag = target.tagName
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return
+        }
       }
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (!!event.shiftKey !== wantShift) return
+      if (event.code !== code) return
+      event.preventDefault()
+      toggleSidebar()
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleSidebar])
+  }, [toggleSidebar, keyboardShortcut])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.

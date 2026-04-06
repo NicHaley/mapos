@@ -283,6 +283,8 @@ export const MessageResponse = memo(
       className={cn(
         "prose prose-sm dark:prose-invert max-w-none",
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        // Streamdown list items use py-1; prose still applies paragraph margins to nested <p>.
+        "[&_[data-streamdown=list-item]_p:first-child]:!mt-0 [&_[data-streamdown=list-item]_p:last-child]:!mb-0",
         className
       )}
       plugins={streamdownPlugins}

@@ -97,6 +97,10 @@ export type UndoEntry = {
   operations: VaultOperation[];
 };
 
+export type PropertyType = "text" | "number" | "date" | "checkbox";
+export type PropertyTypes = Record<string, PropertyType>;
+export const RESERVED_PROPERTY_KEYS = ["geometry", "tags", "color"] as const;
+
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {
   messages: PersistedMessage[];

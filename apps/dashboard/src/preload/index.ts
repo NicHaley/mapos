@@ -3,7 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
-  MapOverlayPayload
+  MapOverlayPayload,
+  PropertyTypes
 } from "../shared/types";
 
 // Custom APIs for renderer
@@ -68,6 +69,11 @@ const api = {
         success: boolean;
         error?: string;
       }>,
+    writeFrontmatterProperty: (filePath: string, key: string, value: unknown) =>
+      ipcRenderer.invoke("fs:write-frontmatter-property", filePath, key, value) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     renameFile: (oldPath: string, newName: string) =>
       ipcRenderer.invoke("fs:rename-file", oldPath, newName) as Promise<
         { success: true; newPath: string } | { success: false; error: string }
@@ -92,6 +98,15 @@ const api = {
       >,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
+  },
+  properties: {
+    readTypes: () => ipcRenderer.invoke("properties:read-types") as Promise<PropertyTypes>,
+    writeTypes: (types: PropertyTypes) =>
+      ipcRenderer.invoke("properties:write-types", types) as Promise<{ success: boolean }>,
+    listAllKeys: () => ipcRenderer.invoke("properties:list-all-keys") as Promise<string[]>,
+    readOrder: () => ipcRenderer.invoke("properties:read-order") as Promise<string[]>,
+    writeOrder: (order: string[]) =>
+      ipcRenderer.invoke("properties:write-order", order) as Promise<{ success: boolean }>
   },
   chat: {
     send: (message: string) => ipcRenderer.send("chat:send", message),

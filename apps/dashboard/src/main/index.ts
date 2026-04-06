@@ -24,9 +24,11 @@ import type {
   MapOverlayPayload,
   PersistedMessage,
   PlaceRecord,
+  PropertyTypes,
   UndoEntry,
   VaultOperation
 } from "../shared/types";
+import { RESERVED_PROPERTY_KEYS } from "../shared/types";
 import {
   getFeatureCount,
   indexFeatures,
@@ -84,10 +86,20 @@ function uniquePathInDir(
   return candidate;
 }
 
-async function parsePlaceFile(filePath: string): Promise<PlaceRecord | null> {
+async function parsePlaceFile(
+  filePath: string,
+  keyCollector?: Set<string>
+): Promise<PlaceRecord | null> {
   try {
     const raw = await readFile(filePath, "utf-8");
     const { data } = matter(raw);
+    if (keyCollector) {
+      for (const key of Object.keys(data)) {
+        if (!(RESERVED_PROPERTY_KEYS as readonly string[]).includes(key)) {
+          keyCollector.add(key);
+        }
+      }
+    }
     if (data.type === "collection") return null;
     const geo = parseWkt(data.geometry);
     const basename = filePath.split(sep).pop() ?? filePath;
@@ -139,6 +151,45 @@ function readDirTree(dirPath: string): FileNode[] {
 
 /** Canonical vault root (same path the renderer gets from `fs:get-vault-root`). */
 const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
+const MAPOS_INTERNALS_DIR = join(MAPOS_DIR, ".mapos");
+const TYPES_JSON_PATH = join(MAPOS_INTERNALS_DIR, "types.json");
+
+type TypesFileSchema = { types: PropertyTypes; order: string[] };
+
+function readTypesFile(): TypesFileSchema {
+  try {
+    const raw = JSON.parse(readFileSync(TYPES_JSON_PATH, "utf-8")) as unknown;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const obj = raw as Record<string, unknown>;
+      if ("types" in obj) return raw as TypesFileSchema;
+      // Legacy: whole object is the types map
+      return { types: raw as PropertyTypes, order: [] };
+    }
+    return { types: {}, order: [] };
+  } catch {
+    return { types: {}, order: [] };
+  }
+}
+
+function readPropertyTypes(): PropertyTypes {
+  return readTypesFile().types;
+}
+
+function writePropertyTypes(types: PropertyTypes): void {
+  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
+  const existing = readTypesFile();
+  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, types }, null, 2), "utf-8");
+}
+
+function readPropertyOrder(): string[] {
+  return readTypesFile().order;
+}
+
+function writePropertyOrder(order: string[]): void {
+  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
+  const existing = readTypesFile();
+  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, order }, null, 2), "utf-8");
+}
 
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   if (!existsSync(MAPOS_DIR)) {
@@ -148,6 +199,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   initDb(MAPOS_DIR);
 
   const places = new Map<string, PlaceRecord>();
+  const knownPropertyKeys = new Set<string>();
   let initialScanDone = false;
   let pendingInitialSenders: Electron.WebContents[] = [];
 
@@ -159,7 +211,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   watcher.on("add", async (filePath) => {
     console.log("[main] file added:", filePath);
-    const place = await parsePlaceFile(filePath);
+    const place = await parsePlaceFile(filePath, knownPropertyKeys);
     console.log("[main] parsed:", place);
     if (place) {
       places.set(filePath, place);
@@ -172,7 +224,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   });
 
   watcher.on("change", async (filePath) => {
-    const place = await parsePlaceFile(filePath);
+    const place = await parsePlaceFile(filePath, knownPropertyKeys);
     if (place) {
       places.set(filePath, place);
       if (place.geometry) {
@@ -239,8 +291,14 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       return { error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
-      const { content } = matter(raw);
-      return { raw, body: content.trimStart() };
+      const { content, data } = matter(raw);
+      const frontmatter: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(data)) {
+        if (!(RESERVED_PROPERTY_KEYS as readonly string[]).includes(key)) {
+          frontmatter[key] = val;
+        }
+      }
+      return { raw, body: content.trimStart(), frontmatter };
     } catch (err) {
       return { error: String(err) };
     }
@@ -273,6 +331,54 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       // Ensure a blank line between front matter and body (standard Obsidian format)
       const newContent = fm + (body.trim() ? `\n${body.trim()}\n` : "");
       writeFileSync(filePath, newContent, "utf-8");
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // Update or delete a single frontmatter property, preserving the rest.
+  // Uses matter.stringify for clean round-trip serialization.
+  ipcMain.handle(
+    "fs:write-frontmatter-property",
+    async (_event, filePath: string, key: string, value: unknown) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+        return { success: false, error: "Path outside vault" };
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        const parsed = matter(raw);
+        if (value === null || value === undefined) {
+          delete parsed.data[key];
+        } else {
+          parsed.data[key] = value;
+        }
+        writeFileSync(filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    }
+  );
+
+  ipcMain.handle("properties:read-types", () => readPropertyTypes());
+
+  ipcMain.handle("properties:write-types", (_event, types: PropertyTypes) => {
+    try {
+      writePropertyTypes(types);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle("properties:list-all-keys", () => Array.from(knownPropertyKeys).sort());
+
+  ipcMain.handle("properties:read-order", () => readPropertyOrder());
+
+  ipcMain.handle("properties:write-order", (_event, order: string[]) => {
+    try {
+      writePropertyOrder(order);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };

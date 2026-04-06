@@ -8,7 +8,8 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { FileNode, PlaceRecord } from "../../../shared/types";
+import type { FileNode, PlaceRecord, PropertyTypes } from "../../../shared/types";
+import { PropertiesPanel } from "./PropertiesPanel";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
 
@@ -54,6 +55,10 @@ export function PlaceCard({
   const isDark = useDarkMode();
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
+  const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
+  const [propertyTypes, setPropertyTypes] = useState<PropertyTypes>({});
+  const [allKnownKeys, setAllKnownKeys] = useState<string[]>([]);
+  const [propertyOrder, setPropertyOrder] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
@@ -141,6 +146,7 @@ export function PlaceCard({
         return;
       }
       editor.commands.setContent(result.body, { contentType: "markdown" });
+      setFrontmatter(result.frontmatter);
       setLoading(false);
       isLoadingRef.current = false;
     });
@@ -149,6 +155,18 @@ export function PlaceCard({
   useEffect(() => {
     window.api.fs.listDir().then((nodes) => {
       vaultFilesRef.current = flattenMdFiles(nodes);
+    });
+  }, []);
+
+  useEffect(() => {
+    Promise.all([
+      window.api.properties.readTypes(),
+      window.api.properties.listAllKeys(),
+      window.api.properties.readOrder()
+    ]).then(([types, keys, order]) => {
+      setPropertyTypes(types);
+      setAllKnownKeys(keys);
+      setPropertyOrder(order);
     });
   }, []);
 
@@ -326,6 +344,19 @@ export function PlaceCard({
               </span>
             ))}
           </div>
+        )}
+
+        {/* Properties */}
+        {place.previewMarkdown === undefined && (
+          <PropertiesPanel
+            filePath={currentFilePath}
+            frontmatter={frontmatter}
+            propertyTypes={propertyTypes}
+            propertyOrder={propertyOrder}
+            allKnownKeys={allKnownKeys}
+            onTypesChange={setPropertyTypes}
+            onOrderChange={setPropertyOrder}
+          />
         )}
 
         {/* Body content */}

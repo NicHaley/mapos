@@ -30,7 +30,7 @@ import {
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
@@ -88,23 +88,21 @@ function expectedTypeLabel(type: PropertyType): string {
 
 function TypeMismatchAlert({ type }: { type: PropertyType }): React.JSX.Element {
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`Type mismatch, expected ${expectedTypeLabel(type)}`}
-            />
-          }
-        >
-          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
-        </TooltipTrigger>
-        <TooltipContent>Type mismatch, expected {expectedTypeLabel(type)}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Type mismatch, expected ${expectedTypeLabel(type)}`}
+          />
+        }
+      >
+        <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
+      </TooltipTrigger>
+      <TooltipContent>Type mismatch, expected {expectedTypeLabel(type)}</TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -990,7 +990,10 @@ function createMaposMcpServer(
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+                  text: JSON.stringify({
+                    success: false,
+                    error: `Path must be within vault (${maposDir})`
+                  })
                 }
               ]
             };
@@ -1038,7 +1041,10 @@ function createMaposMcpServer(
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+                  text: JSON.stringify({
+                    success: false,
+                    error: `Path must be within vault (${maposDir})`
+                  })
                 }
               ]
             };
@@ -1085,18 +1091,31 @@ function createMaposMcpServer(
           const toUnder = args.toPath === maposDir || args.toPath.startsWith(vaultPrefix);
           if (!fromUnder || !toUnder) {
             return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Both paths must be within vault" }) }]
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ success: false, error: "Both paths must be within vault" })
+                }
+              ]
             };
           }
           if (!existsSync(args.fromPath)) {
             return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Source file not found" }) }]
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ success: false, error: "Source file not found" })
+                }
+              ]
             };
           }
           const content = readFileSync(args.fromPath, "utf-8");
           // Track both sides for undo
           onVaultWrite({ path: args.fromPath, previousContent: content });
-          onVaultWrite({ path: args.toPath, previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null });
+          onVaultWrite({
+            path: args.toPath,
+            previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null
+          });
           mkdirSync(dirname(args.toPath), { recursive: true });
           renameSync(args.fromPath, args.toPath);
           removeFeatures([args.fromPath]);
@@ -1297,7 +1316,14 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
     );
   }
 
-  const maposServer = createMaposMcpServer(mainWindow, places, MAPOS_DIR, onVaultWrite, onOverlayUpdate, () => currentConversation?.overlay);
+  const maposServer = createMaposMcpServer(
+    mainWindow,
+    places,
+    MAPOS_DIR,
+    onVaultWrite,
+    onOverlayUpdate,
+    () => currentConversation?.overlay
+  );
 
   ipcMain.handle("chat:load-history", () => {
     return {
@@ -1325,7 +1351,12 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
       });
       const meta = readConversationIndex().find((e) => e.id === id);
       const state = loadConvState(id);
-      currentConversation = { id, messages, sdkSessionId: meta?.sdkSessionId, overlay: state.overlay };
+      currentConversation = {
+        id,
+        messages,
+        sdkSessionId: meta?.sdkSessionId,
+        overlay: state.overlay
+      };
       return { messages, overlay: state.overlay };
     } catch {
       return { messages: [], overlay: null };
@@ -1391,7 +1422,13 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
       let fullText = "";
       let fullThinking = "";
-      const fullToolCalls: Array<{ id: string; name: string; input: unknown; result?: string; isError?: boolean }> = [];
+      const fullToolCalls: Array<{
+        id: string;
+        name: string;
+        input: unknown;
+        result?: string;
+        isError?: boolean;
+      }> = [];
 
       for await (const msg of q) {
         if (mainWindow.isDestroyed()) break;
@@ -1458,9 +1495,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
                   typeof block.content === "string"
                     ? block.content
                     : Array.isArray(block.content)
-                      ? (
-                          block.content as Array<{ type?: string; text?: string }>
-                        )
+                      ? (block.content as Array<{ type?: string; text?: string }>)
                           .filter((b) => b.type === "text")
                           .map((b) => b.text ?? "")
                           .join("")

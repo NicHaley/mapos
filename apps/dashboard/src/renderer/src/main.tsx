@@ -7,11 +7,11 @@ const applyTheme = (dark: boolean) => document.documentElement.classList.toggle(
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
 applyTheme(mq.matches);
 mq.addEventListener("change", (e) => applyTheme(e.matches));
-import { TooltipProvider } from "./components/ui/tooltip";
 import App from "./App";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
-  <TooltipProvider>
+  <TooltipProvider delay={300}>
     <App />
   </TooltipProvider>
 );

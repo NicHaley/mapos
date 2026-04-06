@@ -31,13 +31,7 @@ import {
 } from "./ui/context-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { Sidebar, SidebarContent, SidebarHeader } from "./ui/sidebar";
-import {
-  ErrorTooltip,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "./ui/tooltip";
+import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const MAPOS_DRAG_MIME = "application/x-mapos-node";
 
@@ -528,29 +522,27 @@ export function ProjectSidebar({
         <span className="text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase">
           MapOS
         </span>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => void createNoteIn(vaultRoot)}
-                  // className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                />
-              }
-            >
-              <SquarePenIcon className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              New Note
-              <KbdGroup>
-                <Kbd>{modSymbol}</Kbd>
-                <Kbd>N</Kbd>
-              </KbdGroup>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void createNoteIn(vaultRoot)}
+                // className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              />
+            }
+          >
+            <SquarePenIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            New Note
+            <KbdGroup>
+              <Kbd>{modSymbol}</Kbd>
+              <Kbd>N</Kbd>
+            </KbdGroup>
+          </TooltipContent>
+        </Tooltip>
       </SidebarHeader>
       <SidebarContent className="flex min-h-0 flex-1 flex-col px-1 py-2">
         {moveError ? (

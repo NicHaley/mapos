@@ -208,6 +208,7 @@ export function useNavTabs({
   }, [nav]);
 
   // Restore persisted tabs on mount (history is not restored, only the current entry)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only restore; openEntry matches initial layout for fit padding
   useEffect(() => {
     const saved = localStorage.getItem(NAV_STORAGE_KEY);
     if (!saved) {
@@ -243,15 +244,17 @@ export function useNavTabs({
     ).then((results) => {
       const validTabs = results.filter(Boolean) as NavTab[];
       if (validTabs.length > 0) {
+        const activeIdx = Math.min(parsed.activeTab, validTabs.length - 1);
+        const entry = validTabs[activeIdx].history[validTabs[activeIdx].cursor];
         dispatchNav({
           type: "restore",
           tabs: validTabs,
-          activeTab: Math.min(parsed.activeTab, validTabs.length - 1)
+          activeTab: activeIdx
         });
+        openEntry(entry);
       }
       navRestoredRef.current = true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleNavTabActivate = useCallback(

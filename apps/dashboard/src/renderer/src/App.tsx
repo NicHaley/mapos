@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip
 import { modSymbol } from "./hooks/useShortcuts";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
 import type { PhotonSearchResult } from "./lib/photon";
+import { uniqueNameCandidates } from "./lib/unique-name";
 
 const PROJECT_SIDEBAR_WIDTH = 256;
 const PLACE_CARD_WIDTH = 320;
@@ -41,9 +42,13 @@ async function renameCreatedPlaceToSlug(
   initialPath: string,
   baseSlug: string
 ): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
-  const candidates = [baseSlug, ...Array.from({ length: 30 }, (_, i) => `${baseSlug}-${i + 2}`)];
   const current = initialPath;
-  for (const slug of candidates) {
+  let n = 0;
+  const maxCandidates = 31;
+  for (const slug of uniqueNameCandidates(baseSlug, "hyphenNumbered")) {
+    if (++n > maxCandidates) {
+      return { ok: false, error: "Could not find an available filename" };
+    }
     const r = await window.api.fs.renameFile(current, slug);
     if (r.success) return { ok: true, filePath: r.newPath };
     if (r.error !== "A file or folder with that name already exists") {

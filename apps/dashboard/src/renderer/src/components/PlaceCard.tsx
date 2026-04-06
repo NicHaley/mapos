@@ -138,7 +138,11 @@ export function PlaceCard({
       isLoadingRef.current = false;
       return;
     }
-    window.api.fs.readFile(place.filePath).then((result) => {
+    Promise.all([
+      window.api.fs.readFile(place.filePath),
+      window.api.properties.readTypes(),
+      window.api.properties.readOrder()
+    ]).then(([result, types, order]) => {
       if ("error" in result) {
         setLoading(false);
         isLoadingRef.current = false;
@@ -146,6 +150,8 @@ export function PlaceCard({
       }
       editor.commands.setContent(result.body, { contentType: "markdown" });
       setFrontmatter(result.frontmatter);
+      setPropertyTypes(types);
+      setPropertyOrder(order);
       setLoading(false);
       isLoadingRef.current = false;
     });
@@ -155,15 +161,6 @@ export function PlaceCard({
     window.api.fs.listDir().then((nodes) => {
       vaultFilesRef.current = flattenMdFiles(nodes);
     });
-  }, []);
-
-  useEffect(() => {
-    Promise.all([window.api.properties.readTypes(), window.api.properties.readOrder()]).then(
-      ([types, order]) => {
-        setPropertyTypes(types);
-        setPropertyOrder(order);
-      }
-    );
   }, []);
 
   useEffect(() => {
@@ -342,8 +339,8 @@ export function PlaceCard({
           </div>
         )}
 
-        {/* Properties */}
-        {place.previewMarkdown === undefined && (
+        {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
+        {place.previewMarkdown === undefined && !loading && (
           <PropertiesPanel
             filePath={currentFilePath}
             frontmatter={frontmatter}

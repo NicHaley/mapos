@@ -12,6 +12,7 @@ import { Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { PropertyType, PropertyTypes } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import { firstUniqueName } from "@renderer/lib/unique-name";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,20 +56,6 @@ function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] 
   const ordered = order.filter((k) => k in fm);
   const rest = fmKeys.filter((k) => !order.includes(k));
   return [...ordered, ...rest];
-}
-
-/** Same candidate pattern as `renameCreatedPlaceToSlug` in App.tsx: base, base-2, base-3, … */
-function allocateUniquePropertyKey(
-  base: string,
-  fm: Record<string, unknown>,
-  reserved: Set<string>
-): string {
-  const candidates = [base, ...Array.from({ length: 30 }, (_, i) => `${base}-${i + 2}`)];
-  for (const k of candidates) {
-    if (reserved.has(k)) continue;
-    if (!(k in fm)) return k;
-  }
-  return `${base}-fallback`;
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
@@ -314,24 +301,21 @@ export function PropertiesPanel({
   onOrderChange
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
-  const localFrontmatterRef = useRef(localFrontmatter);
-  localFrontmatterRef.current = localFrontmatter;
 
   const [orderedKeys, setOrderedKeys] = useState<string[]>(() =>
     getOrderedKeys(propertyOrder, frontmatter)
   );
 
-  // Sync when file changes (frontmatter prop is replaced on navigation)
+  // Replace local FM only when the file reloads (prop updates). Do not tie this to
+  // `propertyOrder` alone — parent order updates after add/delete before `frontmatter`
+  // prop catches up, which would overwrite local state and drop new keys.
   useEffect(() => {
     setLocalFrontmatter(frontmatter);
-    setOrderedKeys(getOrderedKeys(propertyOrder, frontmatter));
-  }, [frontmatter, propertyOrder]);
+  }, [frontmatter]);
 
-  // Sync order when propertyOrder prop loads from disk (initial mount)
   useEffect(() => {
-    setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatterRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyOrder]);
+    setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatter));
+  }, [propertyOrder, localFrontmatter]);
 
   async function handleValueChange(key: string, value: unknown): Promise<void> {
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
@@ -394,7 +378,15 @@ export function PropertiesPanel({
   async function handleAddProperty(type: PropertyType): Promise<void> {
     const label = PROPERTY_TYPES.find((t) => t.value === type)?.label ?? "Text";
     const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-    const key = allocateUniquePropertyKey(label, localFrontmatter, reserved);
+    const key = firstUniqueName(
+      label,
+      (k) => reserved.has(k) || k in localFrontmatter,
+      {
+        suffixStyle: "spaceNumbered",
+        maxCandidates: 1000,
+        fallback: (b) => `${b} ${Date.now()}`
+      }
+    );
     const value = defaultValueForType(type);
     const newOrder = [...orderedKeys, key];
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));

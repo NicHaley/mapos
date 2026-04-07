@@ -33,6 +33,7 @@ import {
   getFeatureCount,
   indexFeatures,
   initDb,
+  getOrphanedPropertyKeys,
   queryDistinctValuesForKey,
   queryFolderAll,
   querySpatialIndex,
@@ -207,6 +208,19 @@ function writePropertyOrder(order: string[]): void {
   writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, order }, null, 2), "utf-8");
 }
 
+/** Remove types.json entries for property keys that no longer exist anywhere in the vault. */
+function pruneOrphanedPropertyTypes(): void {
+  const { types, order } = readTypesFile();
+  const candidates = Object.keys(types);
+  if (candidates.length === 0) return;
+  const orphaned = new Set(getOrphanedPropertyKeys(candidates));
+  if (orphaned.size === 0) return;
+  const newTypes = Object.fromEntries(Object.entries(types).filter(([k]) => !orphaned.has(k)));
+  const newOrder = order.filter((k) => !orphaned.has(k));
+  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
+  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ types: newTypes, order: newOrder }, null, 2), "utf-8");
+}
+
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   if (!existsSync(MAPOS_DIR)) {
     mkdirSync(MAPOS_DIR, { recursive: true });
@@ -241,6 +255,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   watcher.on("change", async (filePath) => {
     const place = await parsePlaceFile(filePath, knownPropertyKeys);
+    pruneOrphanedPropertyTypes();
     if (place) {
       places.set(filePath, place);
       if (place.geometry) {
@@ -271,6 +286,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     places.delete(filePath);
     removeFeatures([filePath]);
     removeFeaturePropertiesForFile(filePath);
+    pruneOrphanedPropertyTypes();
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
@@ -289,6 +305,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     if (propReconciled > 0) {
       console.log("[main] reconciled feature_properties, removed stale rows:", propReconciled);
     }
+    pruneOrphanedPropertyTypes();
     console.log("[main] watcher ready, places found:", places.size);
     console.log("[main] features indexed:", getFeatureCount());
     const allPlaces = Array.from(places.values());
@@ -1085,6 +1102,7 @@ function createMaposMcpServer(
           // Remove from spatial index and EAV, then delete
           removeFeatures([args.path]);
           removeFeaturePropertiesForFile(args.path);
+          pruneOrphanedPropertyTypes();
           rmSync(args.path);
           return {
             content: [
@@ -1144,6 +1162,7 @@ function createMaposMcpServer(
           renameSync(args.fromPath, args.toPath);
           removeFeatures([args.fromPath]);
           removeFeaturePropertiesForFile(args.fromPath);
+          pruneOrphanedPropertyTypes();
           try {
             const record = await parsePlaceFile(args.toPath);
             if (record) indexFeatures([record]);

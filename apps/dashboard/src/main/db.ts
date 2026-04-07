@@ -321,6 +321,18 @@ export function removeFeaturePropertiesForFile(featureId: string): void {
   db.delete(featureProperties).where(eq(featureProperties.feature_id, featureId)).run();
 }
 
+/** Which of the candidate keys have zero rows in feature_properties (vault-wide). */
+export function getOrphanedPropertyKeys(candidates: string[]): string[] {
+  if (candidates.length === 0) return [];
+  const sqlite = getSqlite();
+  const placeholders = candidates.map(() => "?").join(",");
+  const present = sqlite
+    .prepare(`SELECT DISTINCT key FROM feature_properties WHERE key IN (${placeholders})`)
+    .all(...candidates) as Array<{ key: string }>;
+  const presentSet = new Set(present.map((r) => r.key));
+  return candidates.filter((k) => !presentSet.has(k));
+}
+
 /** Distinct string facet values for a frontmatter key (multi-select suggestions). */
 export function queryDistinctValuesForKey(propKey: string): string[] {
   const db = getDb();

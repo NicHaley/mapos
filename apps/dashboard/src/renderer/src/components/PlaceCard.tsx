@@ -58,6 +58,7 @@ export function PlaceCard({
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
   const [propertyTypes, setPropertyTypes] = useState<PropertyTypes>({});
   const [propertyOrder, setPropertyOrder] = useState<string[]>([]);
+  const [allVaultKeys, setAllVaultKeys] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
@@ -141,8 +142,9 @@ export function PlaceCard({
     Promise.all([
       window.api.fs.readFile(place.filePath),
       window.api.properties.readTypes(),
-      window.api.properties.readOrder()
-    ]).then(([result, types, order]) => {
+      window.api.properties.readOrder(),
+      window.api.properties.listAllKeys()
+    ]).then(([result, types, order, vaultKeys]) => {
       if ("error" in result) {
         setLoading(false);
         isLoadingRef.current = false;
@@ -152,6 +154,7 @@ export function PlaceCard({
       setFrontmatter(result.frontmatter);
       setPropertyTypes(types);
       setPropertyOrder(order);
+      setAllVaultKeys(vaultKeys);
       setLoading(false);
       isLoadingRef.current = false;
     });
@@ -332,6 +335,7 @@ export function PlaceCard({
             frontmatter={frontmatter}
             propertyTypes={propertyTypes}
             propertyOrder={propertyOrder}
+            allVaultKeys={allVaultKeys}
             onTypesChange={setPropertyTypes}
             onOrderChange={setPropertyOrder}
           />

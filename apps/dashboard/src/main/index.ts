@@ -33,6 +33,7 @@ import {
   getFeatureCount,
   indexFeatures,
   initDb,
+  getAllPropertyKeys,
   getOrphanedPropertyKeys,
   queryDistinctValuesForKey,
   queryFolderAll,
@@ -305,7 +306,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     if (propReconciled > 0) {
       console.log("[main] reconciled feature_properties, removed stale rows:", propReconciled);
     }
-    pruneOrphanedPropertyTypes();
     console.log("[main] watcher ready, places found:", places.size);
     console.log("[main] features indexed:", getFeatureCount());
     const allPlaces = Array.from(places.values());
@@ -410,7 +410,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   });
 
-  ipcMain.handle("properties:list-all-keys", () => Array.from(knownPropertyKeys).sort());
+  ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeys());
 
   ipcMain.handle("properties:read-order", () => readPropertyOrder());
 

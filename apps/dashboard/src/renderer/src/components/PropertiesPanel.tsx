@@ -1,4 +1,5 @@
 import { firstUniqueName } from "@renderer/lib/unique-name";
+import { z } from "zod";
 import {
   CalendarIcon,
   CheckIcon,
@@ -54,9 +55,18 @@ function defaultValueForType(type: PropertyType): unknown {
   return "";
 }
 
+const inferenceRules: Array<[PropertyType, z.ZodType]> = [
+  ["multi_select", z.array(z.unknown())],
+  ["checkbox", z.boolean()],
+  ["number", z.number()],
+  ["date", z.string().regex(/^\d{4}-\d{2}-\d{2}$/)],
+];
+
 /** When `types.json` has no entry, infer editor type from YAML shape. */
 function inferPropertyType(value: unknown): PropertyType | null {
-  if (Array.isArray(value) && value.every((x) => typeof x === "string")) return "multi_select";
+  for (const [type, schema] of inferenceRules) {
+    if (schema.safeParse(value).success) return type;
+  }
   return null;
 }
 
@@ -135,15 +145,15 @@ function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] 
   return [...ordered, ...rest];
 }
 
-/** Keys registered in the vault catalog but not yet on this file, in a sensible order. */
+/** Keys present anywhere in the vault but not yet on this file, in a sensible order. */
 function existingPropertyKeysNotOnFile(
-  propertyTypes: PropertyTypes,
+  allVaultKeys: string[],
   orderedKeys: string[],
   globalOrder: string[]
 ): string[] {
   const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
   const onFile = new Set(orderedKeys);
-  const raw = Object.keys(propertyTypes).filter((k) => !onFile.has(k) && !reserved.has(k));
+  const raw = allVaultKeys.filter((k) => !onFile.has(k) && !reserved.has(k));
   const orderIndex = new Map(globalOrder.map((k, i) => [k, i]));
   return raw.sort((a, b) => {
     const ia = orderIndex.get(a);
@@ -558,6 +568,7 @@ interface PropertiesPanelProps {
   frontmatter: Record<string, unknown>;
   propertyTypes: PropertyTypes;
   propertyOrder: string[];
+  allVaultKeys: string[];
   onTypesChange: (newTypes: PropertyTypes) => void;
   onOrderChange: (newOrder: string[]) => void;
 }
@@ -567,6 +578,7 @@ export function PropertiesPanel({
   frontmatter,
   propertyTypes,
   propertyOrder,
+  allVaultKeys,
   onTypesChange,
   onOrderChange
 }: PropertiesPanelProps): React.JSX.Element {
@@ -588,8 +600,8 @@ export function PropertiesPanel({
   }, [propertyOrder, localFrontmatter]);
 
   const existingKeysToAdd = useMemo(
-    () => existingPropertyKeysNotOnFile(propertyTypes, orderedKeys, propertyOrder),
-    [propertyTypes, orderedKeys, propertyOrder]
+    () => existingPropertyKeysNotOnFile(allVaultKeys, orderedKeys, propertyOrder),
+    [allVaultKeys, orderedKeys, propertyOrder]
   );
 
   async function handleValueChange(key: string, value: unknown): Promise<void> {

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bbox } from "@turf/bbox";
 import Database from "better-sqlite3";
-import { asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -297,20 +297,23 @@ export function replaceFeaturePropertiesForFile(
     tx.delete(featureProperties).where(eq(featureProperties.feature_id, featureId)).run();
     for (const [k, v] of Object.entries(data)) {
       if (reservedFrontmatterKeys.has(k)) continue;
-      if (typeof v === "string") {
-        const t = v.trim();
-        if (t) {
-          tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: t }).onConflictDoNothing().run();
+      const toStr = (raw: unknown): string | null => {
+        if (typeof raw === "string") return raw.trim() || null;
+        if (typeof raw === "number") return Number.isFinite(raw) ? String(raw) : null;
+        if (typeof raw === "boolean") return String(raw);
+        return null;
+      };
+      let inserted = false;
+      for (const item of Array.isArray(v) ? v : [v]) {
+        const s = toStr(item);
+        if (s) {
+          tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: s }).onConflictDoNothing().run();
+          inserted = true;
         }
-      } else if (Array.isArray(v)) {
-        for (const item of v) {
-          if (typeof item === "string") {
-            const t = item.trim();
-            if (t) {
-              tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: t }).onConflictDoNothing().run();
-            }
-          }
-        }
+      }
+      // Key exists but has no indexable values — sentinel row so the key remains discoverable
+      if (!inserted) {
+        tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: "" }).onConflictDoNothing().run();
       }
     }
   });
@@ -319,6 +322,17 @@ export function replaceFeaturePropertiesForFile(
 export function removeFeaturePropertiesForFile(featureId: string): void {
   const db = getDb();
   db.delete(featureProperties).where(eq(featureProperties.feature_id, featureId)).run();
+}
+
+/** All distinct frontmatter keys present anywhere in the vault. */
+export function getAllPropertyKeys(): string[] {
+  const db = getDb();
+  return db
+    .selectDistinct({ key: featureProperties.key })
+    .from(featureProperties)
+    .orderBy(asc(featureProperties.key))
+    .all()
+    .map((r) => r.key);
 }
 
 /** Which of the candidate keys have zero rows in feature_properties (vault-wide). */
@@ -339,7 +353,7 @@ export function queryDistinctValuesForKey(propKey: string): string[] {
   const rows = db
     .selectDistinct({ value: featureProperties.value })
     .from(featureProperties)
-    .where(eq(featureProperties.key, propKey))
+    .where(and(eq(featureProperties.key, propKey), ne(featureProperties.value, "")))
     .orderBy(asc(sql`${featureProperties.value} COLLATE NOCASE`))
     .all();
   return rows.map((r) => r.value);
@@ -355,7 +369,10 @@ export function reconcileFeatureProperties(): number {
   let deleted = 0;
   for (const { feature_id } of ids) {
     if (!existsSync(feature_id)) {
-      const r = db.delete(featureProperties).where(eq(featureProperties.feature_id, feature_id)).run();
+      const r = db
+        .delete(featureProperties)
+        .where(eq(featureProperties.feature_id, feature_id))
+        .run();
       deleted += r.changes;
     }
   }

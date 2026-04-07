@@ -907,7 +907,7 @@ function createMaposMcpServer(
           filters: z
             .object({
               folderPath: z.string().optional(),
-              properties: z.record(z.array(z.string())).optional()
+              properties: z.record(z.string(), z.array(z.string())).optional()
             })
             .optional()
         },

@@ -105,6 +105,7 @@ declare global {
         listAllKeys: () => Promise<string[]>;
         readOrder: () => Promise<string[]>;
         writeOrder: (order: string[]) => Promise<{ success: boolean }>;
+        valuesForKey: (key: string) => Promise<string[]>;
       };
       chat: {
         send: (message: string) => void;

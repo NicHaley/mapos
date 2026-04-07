@@ -1,18 +1,19 @@
 import { firstUniqueName } from "@renderer/lib/unique-name";
-import { cn } from "@renderer/lib/utils";
 import {
   CalendarIcon,
   CheckIcon,
   GripVerticalIcon,
   HashIcon,
   PlusIcon,
+  TagsIcon,
   TextIcon,
   ToggleLeftIcon,
   Trash2Icon,
-  TriangleAlertIcon
+  TriangleAlertIcon,
+  XIcon
 } from "lucide-react";
 import { Reorder } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PropertyType, PropertyTypes } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
 import {
@@ -29,6 +30,7 @@ import {
 } from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -36,7 +38,8 @@ const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNod
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
   { value: "number", label: "Number", icon: <HashIcon className="size-4" /> },
   { value: "date", label: "Date", icon: <CalendarIcon className="size-4" /> },
-  { value: "checkbox", label: "Checkbox", icon: <ToggleLeftIcon className="size-4" /> }
+  { value: "checkbox", label: "Checkbox", icon: <ToggleLeftIcon className="size-4" /> },
+  { value: "multi_select", label: "Multi-select", icon: <TagsIcon className="size-4" /> }
 ];
 
 function typeIcon(type: PropertyType): React.ReactNode {
@@ -47,7 +50,22 @@ function defaultValueForType(type: PropertyType): unknown {
   if (type === "number") return 0;
   if (type === "date") return new Date().toISOString().slice(0, 10);
   if (type === "checkbox") return false;
+  if (type === "multi_select") return [];
   return "";
+}
+
+/** When `types.json` has no entry, infer editor type from YAML shape. */
+function inferPropertyType(value: unknown): PropertyType | null {
+  if (Array.isArray(value) && value.every((x) => typeof x === "string")) return "multi_select";
+  return null;
+}
+
+function effectivePropertyType(
+  key: string,
+  value: unknown,
+  propertyTypes: PropertyTypes
+): PropertyType {
+  return propertyTypes[key] ?? inferPropertyType(value) ?? "text";
 }
 
 function toDisplayString(value: unknown): string {
@@ -57,7 +75,9 @@ function toDisplayString(value: unknown): string {
 }
 
 function isEmptyPropertyValue(value: unknown): boolean {
-  return value === null || value === undefined || value === "";
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
 }
 
 /** Whether frontmatter value matches the declared property type (empty values are ok). */
@@ -77,6 +97,8 @@ function isValueAlignedWithType(value: unknown, type: PropertyType): boolean {
         typeof value === "boolean" ||
         (typeof value === "string" && (value === "true" || value === "false"))
       );
+    case "multi_select":
+      return Array.isArray(value) && value.every((x) => typeof x === "string");
     default:
       return true;
   }
@@ -137,7 +159,8 @@ function existingPropertyKeysNotOnFile(
 
 interface PropertyKeyProps {
   propKey: string;
-  type: PropertyType;
+  /** Current frontmatter value (used to infer type when not in types.json). */
+  value: unknown;
   propertyTypes: PropertyTypes;
   onTypeChange: (key: string, type: PropertyType) => void;
   onRename: (oldKey: string, newKey: string) => void;
@@ -146,7 +169,7 @@ interface PropertyKeyProps {
 
 function PropertyKey({
   propKey,
-  type,
+  value,
   propertyTypes,
   onTypeChange,
   onRename,
@@ -159,13 +182,20 @@ function PropertyKey({
   useEffect(() => {
     if (open) {
       setDraftKey(propKey);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open, propKey]);
 
+  const systemKeys = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+
   function commitRename(): void {
     const trimmed = draftKey.trim();
-    if (trimmed && trimmed !== propKey) onRename(propKey, trimmed);
+    if (!trimmed || trimmed === propKey) return;
+    if (systemKeys.has(trimmed)) {
+      setDraftKey(propKey);
+      return;
+    }
+    onRename(propKey, trimmed);
   }
 
   function handleOpenChange(val: boolean): void {
@@ -173,14 +203,14 @@ function PropertyKey({
     if (!val) commitRename();
   }
 
-  const activeType = propertyTypes[propKey] ?? "text";
+  const effective = effectivePropertyType(propKey, value, propertyTypes);
 
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+    <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted outline-none">
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
-            {typeIcon(type)}
+            {typeIcon(effective)}
           </span>
           <GripVerticalIcon
             className="pointer-events-none absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground/50"
@@ -190,12 +220,18 @@ function PropertyKey({
         <span className="truncate">{propKey}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="start" className="w-48">
-        <div className="px-1.5 py-1">
+        <div
+          className="px-1.5 py-1"
+          onKeyDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <Input
             ref={inputRef}
             value={draftKey}
             onChange={(e) => setDraftKey(e.target.value)}
             onKeyDown={(e) => {
+              // Menu steals printable keys for typeahead / roving focus unless we isolate the field.
+              e.stopPropagation();
               if (e.key === "Enter") {
                 commitRename();
                 setOpen(false);
@@ -211,7 +247,7 @@ function PropertyKey({
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            {typeIcon(type)}
+            {typeIcon(effective)}
             Type
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -219,7 +255,7 @@ function PropertyKey({
               <DropdownMenuItem key={t.value} onClick={() => onTypeChange(propKey, t.value)}>
                 {t.icon}
                 {t.label}
-                {activeType === t.value && <CheckIcon className="ml-auto size-4" />}
+                {effective === t.value && <CheckIcon className="ml-auto size-4" />}
               </DropdownMenuItem>
             ))}
           </DropdownMenuSubContent>
@@ -231,6 +267,149 @@ function PropertyKey({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function normalizeMultiSelectValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((x): x is string => typeof x === "string");
+}
+
+// ─── MultiSelectPropertyValue ────────────────────────────────────────────────
+
+function MultiSelectPropertyValue({
+  propKey,
+  value,
+  onValueChange
+}: {
+  propKey: string;
+  value: unknown;
+  onValueChange: (key: string, value: unknown) => void;
+}): React.JSX.Element {
+  const items = normalizeMultiSelectValue(value);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  const loadSuggestions = useCallback(async () => {
+    const vals = await window.api.properties.valuesForKey(propKey);
+    setSuggestions(vals);
+  }, [propKey]);
+
+  useEffect(() => {
+    void loadSuggestions();
+  }, [loadSuggestions]);
+
+  useEffect(() => {
+    if (open) void loadSuggestions();
+  }, [open, loadSuggestions]);
+
+  function setItems(next: string[]): void {
+    onValueChange(propKey, next);
+  }
+
+  function addToken(raw: string): void {
+    const t = raw.trim();
+    if (!t || items.includes(t)) return;
+    setItems([...items, t]);
+  }
+
+  function removeToken(t: string): void {
+    setItems(items.filter((x) => x !== t));
+  }
+
+  const q = draft.trim().toLowerCase();
+  const filtered = suggestions.filter(
+    (s) => !items.includes(s) && (q === "" || s.toLowerCase().includes(q))
+  );
+
+  const typeMismatch = !isValueAlignedWithType(value, "multi_select");
+
+  return (
+    <div className="relative min-w-0 w-full">
+      <Popover
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (v) setDraft("");
+        }}
+      >
+        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent min-h-8">
+          {items.length === 0 ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            <span className="truncate text-sidebar-foreground">{items.join(", ")}</span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="start" className="w-72 p-2">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-1">
+              {items.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-[11px] text-sidebar-foreground/80"
+                >
+                  <span className="truncate">{t}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-sidebar-border/60 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0"
+                    aria-label={`Remove ${t}`}
+                    onClick={() => removeToken(t)}
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  const part =
+                    e.key === ","
+                      ? (draft.split(",")[0]?.trim() ?? "")
+                      : draft.trim();
+                  if (part) addToken(part);
+                  setDraft("");
+                }
+                if (e.key === "Backspace" && draft === "") {
+                  const last = items.at(-1);
+                  if (last !== undefined) removeToken(last);
+                }
+              }}
+              placeholder="Add value…"
+              className="h-7 text-sm"
+            />
+            <ScrollArea className="h-28 rounded-md border border-sidebar-border">
+              <div className="flex flex-col p-1">
+                {filtered.length === 0 ? (
+                  <span className="text-xs text-muted-foreground px-1 py-1">
+                    {suggestions.length === 0 ? "No other values in vault yet" : "No matches"}
+                  </span>
+                ) : (
+                  filtered.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="rounded px-2 py-1.5 text-left text-xs text-sidebar-foreground hover:bg-sidebar-accent truncate"
+                      onClick={() => {
+                        addToken(s);
+                        setDraft("");
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </PopoverContent>
+      </Popover>
+      {typeMismatch ? <TypeMismatchAlert type="multi_select" /> : null}
+    </div>
   );
 }
 
@@ -267,6 +446,12 @@ function PropertyValue({
 
   const isEmpty = isEmptyPropertyValue(value);
   const typeMismatch = !isValueAlignedWithType(value, type);
+
+  if (type === "multi_select") {
+    return (
+      <MultiSelectPropertyValue propKey={propKey} value={value} onValueChange={onValueChange} />
+    );
+  }
 
   if (type === "checkbox") {
     return (
@@ -432,6 +617,11 @@ export function PropertiesPanel({
   }
 
   async function handleRename(oldKey: string, newKey: string): Promise<void> {
+    const trimmed = newKey.trim();
+    const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+    if (reserved.has(trimmed)) return;
+    if (trimmed !== oldKey && Object.hasOwn(localFrontmatter, trimmed)) return;
+
     const value = localFrontmatter[oldKey];
     const type = propertyTypes[oldKey];
 
@@ -518,7 +708,7 @@ export function PropertiesPanel({
             <div className="min-w-0">
               <PropertyKey
                 propKey={key}
-                type={propertyTypes[key] ?? "text"}
+                value={localFrontmatter[key]}
                 propertyTypes={propertyTypes}
                 onTypeChange={handleTypeChange}
                 onRename={handleRename}
@@ -528,7 +718,7 @@ export function PropertiesPanel({
             <PropertyValue
               propKey={key}
               value={localFrontmatter[key]}
-              type={propertyTypes[key] ?? "text"}
+              type={effectivePropertyType(key, localFrontmatter[key], propertyTypes)}
               onValueChange={handleValueChange}
             />
           </Reorder.Item>

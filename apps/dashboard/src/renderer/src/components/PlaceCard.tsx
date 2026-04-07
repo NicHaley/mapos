@@ -325,20 +325,6 @@ export function PlaceCard({
           </button>
         </div>
 
-        {/* Tags */}
-        {place.tags && place.tags.length > 0 && (
-          <div className="px-4 pb-3 flex flex-wrap gap-1 shrink-0">
-            {place.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center rounded-full bg-sidebar-accent px-2 py-0.5 text-[11px] text-sidebar-foreground/60"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
         {place.previewMarkdown === undefined && !loading && (
           <PropertiesPanel

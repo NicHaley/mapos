@@ -3,7 +3,6 @@ export type PlaceRecord = {
   title: string;
   color?: string;
   type: string;
-  tags?: string[];
   // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;
   /** When set, PlaceCard shows preview content without reading the file; no save/rename. */
@@ -97,9 +96,10 @@ export type UndoEntry = {
   operations: VaultOperation[];
 };
 
-export type PropertyType = "text" | "number" | "date" | "checkbox";
+export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
 export type PropertyTypes = Record<string, PropertyType>;
-export const RESERVED_PROPERTY_KEYS = ["geometry", "tags", "color"] as const;
+/** Frontmatter keys managed by the map; not shown as generic properties. */
+export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
 
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {

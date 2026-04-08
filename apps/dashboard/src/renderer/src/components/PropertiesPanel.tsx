@@ -217,13 +217,13 @@ function PropertyKey({
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
-      <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted outline-none">
+      <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent outline-none">
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
             {typeIcon(effective)}
           </span>
           <GripVerticalIcon
-            className="pointer-events-none absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground/50"
+            className="pointer-events-none absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 text-sidebar-foreground/50"
             aria-hidden
           />
         </span>
@@ -344,7 +344,7 @@ function MultiSelectPropertyValue({
       >
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {items.length === 0 ? (
-            <span className="text-muted-foreground">Empty</span>
+            <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
             <span className="truncate text-sidebar-foreground">{items.join(", ")}</span>
           )}
@@ -390,7 +390,7 @@ function MultiSelectPropertyValue({
             <ScrollArea className="h-28 rounded-md border border-sidebar-border">
               <div className="flex flex-col p-1">
                 {filtered.length === 0 ? (
-                  <span className="text-xs text-muted-foreground px-1 py-1">
+                  <span className="text-xs text-sidebar-foreground/60 px-1 py-1">
                     {suggestions.length === 0 ? "No other values in vault yet" : "No matches"}
                   </span>
                 ) : (
@@ -468,9 +468,9 @@ function DatePropertyValue({
     <div className="relative flex h-7 min-w-0 w-full items-center">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-          <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden />
           {isEmpty || !hasDate ? (
-            <span className="text-muted-foreground">Empty</span>
+            <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
             <span className="truncate text-sidebar-foreground">
               {selected &&
@@ -504,12 +504,12 @@ function DatePropertyValue({
               className="bg-transparent"
             />
             {selected ? (
-              <div className="border-t border-border">
+              <div className="border-t border-sidebar-border">
                 <div
                   className="flex items-center justify-between gap-3 px-3 py-2"
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <span className="text-xs text-muted-foreground">Time</span>
+                  <span className="text-xs text-sidebar-foreground/60">Time</span>
                   <Switch size="sm" checked={timeEnabled} onCheckedChange={handleTimeToggle} />
                 </div>
                 {timeEnabled ? (
@@ -626,7 +626,7 @@ function PropertyValue({
       >
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {isEmpty ? (
-            <span className="text-muted-foreground">Empty</span>
+            <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
             <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
           )}
@@ -790,7 +790,7 @@ export function PropertiesPanel({
       <div className="grid h-7 grid-cols-2 items-center">
         <div className="flex min-h-0 min-w-0 items-center">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
+            <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none">
               <PlusIcon className="size-4" />
               Add property
             </DropdownMenuTrigger>

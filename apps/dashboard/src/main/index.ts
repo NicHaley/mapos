@@ -24,7 +24,6 @@ import type {
   MapOverlayPayload,
   PersistedMessage,
   PlaceRecord,
-  PropertyTypes,
   UndoEntry,
   VaultOperation
 } from "../shared/types";
@@ -34,7 +33,6 @@ import {
   indexFeatures,
   initDb,
   getAllPropertyKeys,
-  getOrphanedPropertyKeys,
   queryDistinctValuesForKey,
   queryFolderAll,
   querySpatialIndex,
@@ -170,57 +168,6 @@ function readDirTree(dirPath: string): FileNode[] {
 /** Canonical vault root (same path the renderer gets from `fs:get-vault-root`). */
 const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
 const MAPOS_INTERNALS_DIR = join(MAPOS_DIR, ".mapos");
-const TYPES_JSON_PATH = join(MAPOS_INTERNALS_DIR, "types.json");
-
-type TypesFileSchema = { types: PropertyTypes; order: string[] };
-
-function readTypesFile(): TypesFileSchema {
-  try {
-    const raw = JSON.parse(readFileSync(TYPES_JSON_PATH, "utf-8")) as unknown;
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const obj = raw as Record<string, unknown>;
-      if ("types" in obj) return raw as TypesFileSchema;
-      // Legacy: whole object is the types map
-      return { types: raw as PropertyTypes, order: [] };
-    }
-    return { types: {}, order: [] };
-  } catch {
-    return { types: {}, order: [] };
-  }
-}
-
-function readPropertyTypes(): PropertyTypes {
-  return readTypesFile().types;
-}
-
-function writePropertyTypes(types: PropertyTypes): void {
-  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
-  const existing = readTypesFile();
-  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, types }, null, 2), "utf-8");
-}
-
-function readPropertyOrder(): string[] {
-  return readTypesFile().order;
-}
-
-function writePropertyOrder(order: string[]): void {
-  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
-  const existing = readTypesFile();
-  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, order }, null, 2), "utf-8");
-}
-
-/** Remove types.json entries for property keys that no longer exist anywhere in the vault. */
-function pruneOrphanedPropertyTypes(): void {
-  const { types, order } = readTypesFile();
-  const candidates = Object.keys(types);
-  if (candidates.length === 0) return;
-  const orphaned = new Set(getOrphanedPropertyKeys(candidates));
-  if (orphaned.size === 0) return;
-  const newTypes = Object.fromEntries(Object.entries(types).filter(([k]) => !orphaned.has(k)));
-  const newOrder = order.filter((k) => !orphaned.has(k));
-  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
-  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ types: newTypes, order: newOrder }, null, 2), "utf-8");
-}
 
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   if (!existsSync(MAPOS_DIR)) {
@@ -256,7 +203,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   watcher.on("change", async (filePath) => {
     const place = await parsePlaceFile(filePath, knownPropertyKeys);
-    pruneOrphanedPropertyTypes();
     if (place) {
       places.set(filePath, place);
       if (place.geometry) {
@@ -287,7 +233,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     places.delete(filePath);
     removeFeatures([filePath]);
     removeFeaturePropertiesForFile(filePath);
-    pruneOrphanedPropertyTypes();
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
@@ -399,29 +344,33 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   );
 
-  ipcMain.handle("properties:read-types", () => readPropertyTypes());
-
-  ipcMain.handle("properties:write-types", (_event, types: PropertyTypes) => {
-    try {
-      writePropertyTypes(types);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: String(err) };
+  // Rewrite frontmatter with keys in the given order, preserving all values and the body.
+  ipcMain.handle(
+    "fs:reorder-frontmatter",
+    async (_event, filePath: string, keyOrder: string[]) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+        return { success: false, error: "Path outside vault" };
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        const parsed = matter(raw);
+        const reordered: Record<string, unknown> = {};
+        for (const key of keyOrder) {
+          if (Object.hasOwn(parsed.data, key)) reordered[key] = parsed.data[key];
+        }
+        // Append any keys not in keyOrder (shouldn't happen, but be safe)
+        for (const key of Object.keys(parsed.data)) {
+          if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
+        }
+        writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
     }
-  });
+  );
 
   ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeys());
-
-  ipcMain.handle("properties:read-order", () => readPropertyOrder());
-
-  ipcMain.handle("properties:write-order", (_event, order: string[]) => {
-    try {
-      writePropertyOrder(order);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: String(err) };
-    }
-  });
 
   ipcMain.handle("properties:values-for-key", (_event, key: string) => {
     if (typeof key !== "string" || !key.trim()) return [] as string[];
@@ -1102,7 +1051,6 @@ function createMaposMcpServer(
           // Remove from spatial index and EAV, then delete
           removeFeatures([args.path]);
           removeFeaturePropertiesForFile(args.path);
-          pruneOrphanedPropertyTypes();
           rmSync(args.path);
           return {
             content: [
@@ -1162,7 +1110,6 @@ function createMaposMcpServer(
           renameSync(args.fromPath, args.toPath);
           removeFeatures([args.fromPath]);
           removeFeaturePropertiesForFile(args.fromPath);
-          pruneOrphanedPropertyTypes();
           try {
             const record = await parsePlaceFile(args.toPath);
             if (record) indexFeatures([record]);

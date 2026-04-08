@@ -3,8 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
-  MapOverlayPayload,
-  PropertyTypes
+  MapOverlayPayload
 } from "../shared/types";
 
 // Custom APIs for renderer
@@ -75,6 +74,11 @@ const api = {
         success: boolean;
         error?: string;
       }>,
+    reorderFrontmatter: (filePath: string, keyOrder: string[]) =>
+      ipcRenderer.invoke("fs:reorder-frontmatter", filePath, keyOrder) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     renameFile: (oldPath: string, newName: string) =>
       ipcRenderer.invoke("fs:rename-file", oldPath, newName) as Promise<
         { success: true; newPath: string } | { success: false; error: string }
@@ -101,13 +105,7 @@ const api = {
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },
   properties: {
-    readTypes: () => ipcRenderer.invoke("properties:read-types") as Promise<PropertyTypes>,
-    writeTypes: (types: PropertyTypes) =>
-      ipcRenderer.invoke("properties:write-types", types) as Promise<{ success: boolean }>,
     listAllKeys: () => ipcRenderer.invoke("properties:list-all-keys") as Promise<string[]>,
-    readOrder: () => ipcRenderer.invoke("properties:read-order") as Promise<string[]>,
-    writeOrder: (order: string[]) =>
-      ipcRenderer.invoke("properties:write-order", order) as Promise<{ success: boolean }>,
     valuesForKey: (key: string) =>
       ipcRenderer.invoke("properties:values-for-key", key) as Promise<string[]>
   },

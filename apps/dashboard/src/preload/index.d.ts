@@ -11,8 +11,7 @@ import type {
   OverlayPolygon,
   PersistedMessage,
   PlaceRecord,
-  PlaceUpdate,
-  PropertyTypes
+  PlaceUpdate
 } from "../shared/types";
 
 type ViewportState = {
@@ -74,6 +73,10 @@ declare global {
           key: string,
           value: unknown
         ) => Promise<{ success: boolean; error?: string }>;
+        reorderFrontmatter: (
+          filePath: string,
+          keyOrder: string[]
+        ) => Promise<{ success: boolean; error?: string }>;
         renameFile: (
           oldPath: string,
           newName: string
@@ -100,11 +103,7 @@ declare global {
         removeListeners: () => void;
       };
       properties: {
-        readTypes: () => Promise<PropertyTypes>;
-        writeTypes: (types: PropertyTypes) => Promise<{ success: boolean }>;
         listAllKeys: () => Promise<string[]>;
-        readOrder: () => Promise<string[]>;
-        writeOrder: (order: string[]) => Promise<{ success: boolean }>;
         valuesForKey: (key: string) => Promise<string[]>;
       };
       chat: {

@@ -97,7 +97,6 @@ export type UndoEntry = {
 };
 
 export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
-export type PropertyTypes = Record<string, PropertyType>;
 /** Frontmatter keys managed by the map; not shown as generic properties. */
 export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
 

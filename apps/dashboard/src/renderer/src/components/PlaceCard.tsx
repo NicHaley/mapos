@@ -8,7 +8,7 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { FileNode, PlaceRecord, PropertyTypes } from "../../../shared/types";
+import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
@@ -56,8 +56,6 @@ export function PlaceCard({
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
-  const [propertyTypes, setPropertyTypes] = useState<PropertyTypes>({});
-  const [propertyOrder, setPropertyOrder] = useState<string[]>([]);
   const [allVaultKeys, setAllVaultKeys] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
@@ -141,10 +139,8 @@ export function PlaceCard({
     }
     Promise.all([
       window.api.fs.readFile(place.filePath),
-      window.api.properties.readTypes(),
-      window.api.properties.readOrder(),
       window.api.properties.listAllKeys()
-    ]).then(([result, types, order, vaultKeys]) => {
+    ]).then(([result, vaultKeys]) => {
       if ("error" in result) {
         setLoading(false);
         isLoadingRef.current = false;
@@ -152,8 +148,6 @@ export function PlaceCard({
       }
       editor.commands.setContent(result.body, { contentType: "markdown" });
       setFrontmatter(result.frontmatter);
-      setPropertyTypes(types);
-      setPropertyOrder(order);
       setAllVaultKeys(vaultKeys);
       setLoading(false);
       isLoadingRef.current = false;
@@ -333,11 +327,7 @@ export function PlaceCard({
           <PropertiesPanel
             filePath={currentFilePath}
             frontmatter={frontmatter}
-            propertyTypes={propertyTypes}
-            propertyOrder={propertyOrder}
             allVaultKeys={allVaultKeys}
-            onTypesChange={setPropertyTypes}
-            onOrderChange={setPropertyOrder}
           />
         )}
 

@@ -10,12 +10,11 @@ import {
   TextIcon,
   ToggleLeftIcon,
   Trash2Icon,
-  TriangleAlertIcon,
   XIcon
 } from "lucide-react";
 import { Reorder } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PropertyType, PropertyTypes } from "../../../shared/types";
+import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
 import {
   DropdownMenu,
@@ -33,7 +32,6 @@ import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
@@ -62,7 +60,6 @@ const inferenceRules: Array<[PropertyType, z.ZodType]> = [
   ["date", z.string().regex(/^\d{4}-\d{2}-\d{2}$/)],
 ];
 
-/** When `types.json` has no entry, infer editor type from YAML shape. */
 function inferPropertyType(value: unknown): PropertyType | null {
   for (const [type, schema] of inferenceRules) {
     if (schema.safeParse(value).success) return type;
@@ -70,12 +67,38 @@ function inferPropertyType(value: unknown): PropertyType | null {
   return null;
 }
 
-function effectivePropertyType(
-  key: string,
-  value: unknown,
-  propertyTypes: PropertyTypes
-): PropertyType {
-  return propertyTypes[key] ?? inferPropertyType(value) ?? "text";
+function effectivePropertyType(value: unknown): PropertyType {
+  return inferPropertyType(value) ?? "text";
+}
+
+function coerceToType(value: unknown, type: PropertyType): unknown {
+  switch (type) {
+    case "text":
+      if (typeof value === "string") return value;
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+      if (Array.isArray(value)) return value.join(", ");
+      break;
+    case "number":
+      if (typeof value === "number") return value;
+      if (typeof value === "string") {
+        const n = Number(value);
+        if (!Number.isNaN(n)) return n;
+      }
+      break;
+    case "date":
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      break;
+    case "checkbox":
+      if (typeof value === "boolean") return value;
+      if (value === "true") return true;
+      if (value === "false") return false;
+      break;
+    case "multi_select":
+      if (Array.isArray(value)) return value.filter((x): x is string => typeof x === "string");
+      if (typeof value === "string" && value.trim()) return [value.trim()];
+      break;
+  }
+  return defaultValueForType(type);
 }
 
 function toDisplayString(value: unknown): string {
@@ -90,88 +113,24 @@ function isEmptyPropertyValue(value: unknown): boolean {
   return false;
 }
 
-/** Whether frontmatter value matches the declared property type (empty values are ok). */
-function isValueAlignedWithType(value: unknown, type: PropertyType): boolean {
-  if (isEmptyPropertyValue(value)) return true;
-  switch (type) {
-    case "text":
-      return typeof value === "string";
-    case "number":
-      return typeof value === "number" && Number.isFinite(value);
-    case "date": {
-      if (typeof value !== "string") return false;
-      return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
-    }
-    case "checkbox":
-      return (
-        typeof value === "boolean" ||
-        (typeof value === "string" && (value === "true" || value === "false"))
-      );
-    case "multi_select":
-      return Array.isArray(value) && value.every((x) => typeof x === "string");
-    default:
-      return true;
-  }
-}
 
-function expectedTypeLabel(type: PropertyType): string {
-  return PROPERTY_TYPES.find((t) => t.value === type)?.label.toLowerCase() ?? type;
-}
-
-function TypeMismatchAlert({ type }: { type: PropertyType }): React.JSX.Element {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            onClick={(e) => e.stopPropagation()}
-            aria-label={`Type mismatch, expected ${expectedTypeLabel(type)}`}
-          />
-        }
-      >
-        <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
-      </TooltipTrigger>
-      <TooltipContent>Type mismatch, expected {expectedTypeLabel(type)}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] {
-  const fmKeys = Object.keys(fm);
-  const ordered = order.filter((k) => k in fm);
-  const rest = fmKeys.filter((k) => !order.includes(k));
-  return [...ordered, ...rest];
-}
-
-/** Keys present anywhere in the vault but not yet on this file, in a sensible order. */
+/** Keys present anywhere in the vault but not yet on this file, sorted alphabetically. */
 function existingPropertyKeysNotOnFile(
   allVaultKeys: string[],
-  orderedKeys: string[],
-  globalOrder: string[]
+  fileKeys: string[]
 ): string[] {
   const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-  const onFile = new Set(orderedKeys);
-  const raw = allVaultKeys.filter((k) => !onFile.has(k) && !reserved.has(k));
-  const orderIndex = new Map(globalOrder.map((k, i) => [k, i]));
-  return raw.sort((a, b) => {
-    const ia = orderIndex.get(a);
-    const ib = orderIndex.get(b);
-    if (ia !== undefined && ib !== undefined) return ia - ib;
-    if (ia !== undefined) return -1;
-    if (ib !== undefined) return 1;
-    return a.localeCompare(b);
-  });
+  const onFile = new Set(fileKeys);
+  return allVaultKeys
+    .filter((k) => !onFile.has(k) && !reserved.has(k))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
 
 interface PropertyKeyProps {
   propKey: string;
-  /** Current frontmatter value (used to infer type when not in types.json). */
   value: unknown;
-  propertyTypes: PropertyTypes;
   onTypeChange: (key: string, type: PropertyType) => void;
   onRename: (oldKey: string, newKey: string) => void;
   onDelete: (key: string) => void;
@@ -180,7 +139,6 @@ interface PropertyKeyProps {
 function PropertyKey({
   propKey,
   value,
-  propertyTypes,
   onTypeChange,
   onRename,
   onDelete
@@ -213,7 +171,7 @@ function PropertyKey({
     if (!val) commitRename();
   }
 
-  const effective = effectivePropertyType(propKey, value, propertyTypes);
+  const effective = effectivePropertyType(value);
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
@@ -333,8 +291,6 @@ function MultiSelectPropertyValue({
     (s) => !items.includes(s) && (q === "" || s.toLowerCase().includes(q))
   );
 
-  const typeMismatch = !isValueAlignedWithType(value, "multi_select");
-
   return (
     <div className="relative min-w-0 w-full">
       <Popover
@@ -418,7 +374,6 @@ function MultiSelectPropertyValue({
           </div>
         </PopoverContent>
       </Popover>
-      {typeMismatch ? <TypeMismatchAlert type="multi_select" /> : null}
     </div>
   );
 }
@@ -455,7 +410,6 @@ function PropertyValue({
   }
 
   const isEmpty = isEmptyPropertyValue(value);
-  const typeMismatch = !isValueAlignedWithType(value, type);
 
   if (type === "multi_select") {
     return (
@@ -480,7 +434,6 @@ function PropertyValue({
             onCheckedChange={(checked) => onValueChange(propKey, checked)}
           />
         </button>
-        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
       </div>
     );
   }
@@ -512,7 +465,6 @@ function PropertyValue({
             />
           </PopoverContent>
         </Popover>
-        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
       </div>
     );
   }
@@ -556,7 +508,6 @@ function PropertyValue({
           />
         </PopoverContent>
       </Popover>
-      {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
     </div>
   );
 }
@@ -566,42 +517,25 @@ function PropertyValue({
 interface PropertiesPanelProps {
   filePath: string;
   frontmatter: Record<string, unknown>;
-  propertyTypes: PropertyTypes;
-  propertyOrder: string[];
   allVaultKeys: string[];
-  onTypesChange: (newTypes: PropertyTypes) => void;
-  onOrderChange: (newOrder: string[]) => void;
 }
 
 export function PropertiesPanel({
   filePath,
   frontmatter,
-  propertyTypes,
-  propertyOrder,
-  allVaultKeys,
-  onTypesChange,
-  onOrderChange
+  allVaultKeys
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
 
-  const [orderedKeys, setOrderedKeys] = useState<string[]>(() =>
-    getOrderedKeys(propertyOrder, frontmatter)
-  );
-
-  // Replace local FM only when the file reloads (prop updates). Do not tie this to
-  // `propertyOrder` alone — parent order updates after add/delete before `frontmatter`
-  // prop catches up, which would overwrite local state and drop new keys.
   useEffect(() => {
     setLocalFrontmatter(frontmatter);
   }, [frontmatter]);
 
-  useEffect(() => {
-    setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatter));
-  }, [propertyOrder, localFrontmatter]);
+  const fileKeys = useMemo(() => Object.keys(localFrontmatter), [localFrontmatter]);
 
   const existingKeysToAdd = useMemo(
-    () => existingPropertyKeysNotOnFile(allVaultKeys, orderedKeys, propertyOrder),
-    [allVaultKeys, orderedKeys, propertyOrder]
+    () => existingPropertyKeysNotOnFile(allVaultKeys, fileKeys),
+    [allVaultKeys, fileKeys]
   );
 
   async function handleValueChange(key: string, value: unknown): Promise<void> {
@@ -615,17 +549,22 @@ export function PropertiesPanel({
       delete next[key];
       return next;
     });
-    const newOrder = orderedKeys.filter((k) => k !== key);
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-    await window.api.properties.writeOrder(newOrder);
     await window.api.fs.writeFrontmatterProperty(filePath, key, null);
   }
 
   async function handleTypeChange(key: string, type: PropertyType): Promise<void> {
-    const newTypes = { ...propertyTypes, [key]: type };
-    onTypesChange(newTypes);
-    await window.api.properties.writeTypes(newTypes);
+    await handleValueChange(key, coerceToType(localFrontmatter[key], type));
+  }
+
+  function handleReorder(newOrder: string[]): void {
+    setLocalFrontmatter((prev) => {
+      const next: Record<string, unknown> = {};
+      for (const key of newOrder) {
+        if (Object.hasOwn(prev, key)) next[key] = prev[key];
+      }
+      return next;
+    });
+    void window.api.fs.reorderFrontmatter(filePath, newOrder);
   }
 
   async function handleRename(oldKey: string, newKey: string): Promise<void> {
@@ -635,7 +574,6 @@ export function PropertiesPanel({
     if (trimmed !== oldKey && Object.hasOwn(localFrontmatter, trimmed)) return;
 
     const value = localFrontmatter[oldKey];
-    const type = propertyTypes[oldKey];
 
     setLocalFrontmatter((prev) => {
       const next = { ...prev };
@@ -644,27 +582,8 @@ export function PropertiesPanel({
       return next;
     });
 
-    const newOrder = orderedKeys.map((k) => (k === oldKey ? newKey : k));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-
     await window.api.fs.writeFrontmatterProperty(filePath, oldKey, null);
     await window.api.fs.writeFrontmatterProperty(filePath, newKey, value);
-    await window.api.properties.writeOrder(newOrder);
-
-    if (type) {
-      const newTypes = { ...propertyTypes };
-      delete newTypes[oldKey];
-      newTypes[newKey] = type;
-      onTypesChange(newTypes);
-      await window.api.properties.writeTypes(newTypes);
-    }
-  }
-
-  function handleReorder(newOrder: string[]): void {
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-    void window.api.properties.writeOrder(newOrder);
   }
 
   async function handleAddProperty(type: PropertyType): Promise<void> {
@@ -676,41 +595,26 @@ export function PropertiesPanel({
       fallback: (b) => `${b} ${Date.now()}`
     });
     const value = defaultValueForType(type);
-    const newOrder = [...orderedKeys, key];
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-
-    if (type !== "text") {
-      const newTypes = { ...propertyTypes, [key]: type };
-      onTypesChange(newTypes);
-      await window.api.properties.writeTypes(newTypes);
-    }
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
-    await window.api.properties.writeOrder(newOrder);
   }
 
   async function handleAddExistingProperty(key: string): Promise<void> {
-    const type = propertyTypes[key] ?? "text";
-    const value = defaultValueForType(type);
-    const newOrder = [...orderedKeys, key];
+    const value = defaultValueForType("text");
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
-    await window.api.properties.writeOrder(newOrder);
   }
 
   return (
     <div className="px-2 py-1 text-sidebar-foreground">
       <Reorder.Group
         axis="y"
-        values={orderedKeys}
+        values={fileKeys}
         onReorder={handleReorder}
         className="flex flex-col"
         as="div"
       >
-        {orderedKeys.map((key) => (
+        {fileKeys.map((key) => (
           <Reorder.Item
             key={key}
             value={key}
@@ -721,7 +625,6 @@ export function PropertiesPanel({
               <PropertyKey
                 propKey={key}
                 value={localFrontmatter[key]}
-                propertyTypes={propertyTypes}
                 onTypeChange={handleTypeChange}
                 onRename={handleRename}
                 onDelete={handleDelete}
@@ -730,7 +633,7 @@ export function PropertiesPanel({
             <PropertyValue
               propKey={key}
               value={localFrontmatter[key]}
-              type={effectivePropertyType(key, localFrontmatter[key], propertyTypes)}
+              type={effectivePropertyType(localFrontmatter[key])}
               onValueChange={handleValueChange}
             />
           </Reorder.Item>
@@ -755,7 +658,7 @@ export function PropertiesPanel({
                         onClick={() => void handleAddExistingProperty(key)}
                         className="gap-2"
                       >
-                        {typeIcon(propertyTypes[key] ?? "text")}
+                        {typeIcon("text")}
                         <span className="truncate">{key}</span>
                       </DropdownMenuItem>
                     ))}

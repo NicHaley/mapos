@@ -2,52 +2,66 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bbox } from "@turf/bbox";
 import Database from "better-sqlite3";
-import { count, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { PlaceRecord } from "../shared/types";
+import { RESERVED_PROPERTY_KEYS } from "../shared/types";
 
-// Inline DDL — CURRENT_SCHEMA_VERSION must be bumped on any schema change
-const CURRENT_SCHEMA_VERSION = 2;
+/** Bump when the DDL below changes; local dev — no incremental upgrades. */
+const CURRENT_SCHEMA_VERSION = 1;
 
 export const features = sqliteTable("features", {
   rowid: integer("rowid").primaryKey({ autoIncrement: true }),
-  file_path: text("file_path").notNull(),
+  file_path: text("file_path").notNull().unique(),
   geometry_type: text("geometry_type").notNull(),
   geometry: text("geometry").notNull(),
   color: text("color"),
-  tags: text("tags"),
   indexed_at: text("indexed_at").notNull()
 });
 
-const schema = { features };
+export const featureProperties = sqliteTable(
+  "feature_properties",
+  {
+    feature_id: text("feature_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.feature_id, t.key, t.value] }),
+    index("idx_fp_key_value").on(t.key, t.value),
+    index("idx_fp_feature").on(t.feature_id)
+  ]
+);
+
+const schema = { features, featureProperties };
 
 function applyMigrations(sqlite: Database.Database): void {
   const row = sqlite.prepare("PRAGMA user_version").get() as { user_version: number };
   if (row.user_version >= CURRENT_SCHEMA_VERSION) return;
 
-  if (row.user_version === 0) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS features (
-        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path TEXT NOT NULL UNIQUE,
-        geometry_type TEXT NOT NULL,
-        geometry TEXT NOT NULL,
-        color TEXT,
-        tags TEXT,
-        indexed_at TEXT NOT NULL
-      );
-      CREATE VIRTUAL TABLE IF NOT EXISTS features_rtree USING rtree(
-        id, min_lat, max_lat, min_lng, max_lng
-      );
-    `);
-  }
-
-  if (row.user_version < 2) {
-    // Upgrading from v1: add color column (status column left in place, no longer used)
-    try { sqlite.exec("ALTER TABLE features ADD COLUMN color TEXT"); } catch { /* already exists */ }
-  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS features (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_path TEXT NOT NULL UNIQUE,
+      geometry_type TEXT NOT NULL,
+      geometry TEXT NOT NULL,
+      color TEXT,
+      indexed_at TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS features_rtree USING rtree(
+      id, min_lat, max_lat, min_lng, max_lng
+    );
+    CREATE TABLE IF NOT EXISTS feature_properties (
+      feature_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (feature_id, key, value)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fp_key_value ON feature_properties(key, value);
+    CREATE INDEX IF NOT EXISTS idx_fp_feature ON feature_properties(feature_id);
+  `);
 
   sqlite.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
 }
@@ -82,7 +96,6 @@ export interface FeatureRecord {
   geometry_type: string;
   geometry: string;
   color: string | null;
-  tags: string[] | null;
 }
 
 export type { PlaceRecord };
@@ -93,7 +106,6 @@ export function indexFeature(record: PlaceRecord): void {
   const sqlite = getSqlite();
   const geoObj = JSON.parse(record.geometry);
   const geometryType = (geoObj.type as string).toLowerCase();
-  const tagsJson = record.tags ? JSON.stringify(record.tags) : null;
   const now = new Date().toISOString();
   const [minLng, minLat, maxLng, maxLat] = bbox(geoObj);
 
@@ -104,7 +116,6 @@ export function indexFeature(record: PlaceRecord): void {
       geometry_type: geometryType,
       geometry: record.geometry,
       color: record.color ?? null,
-      tags: tagsJson,
       indexed_at: now
     })
     .onConflictDoUpdate({
@@ -113,7 +124,6 @@ export function indexFeature(record: PlaceRecord): void {
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
         color: sql`excluded.color`,
-        tags: sql`excluded.tags`,
         indexed_at: sql`excluded.indexed_at`
       }
     })
@@ -137,7 +147,9 @@ export function reconcileIndexWithPlaces(places: Map<string, PlaceRecord>): numb
 }
 
 export function indexFeatures(records: PlaceRecord[]): void {
-  const withGeo = records.filter((r): r is PlaceRecord & { geometry: string } => Boolean(r.geometry));
+  const withGeo = records.filter((r): r is PlaceRecord & { geometry: string } =>
+    Boolean(r.geometry)
+  );
   if (withGeo.length === 0) return;
   const db = getDb();
   const sqlite = getSqlite();
@@ -153,7 +165,6 @@ export function indexFeatures(records: PlaceRecord[]): void {
           geometry_type: (geoObj.type as string).toLowerCase(),
           geometry: r.geometry,
           color: r.color ?? null,
-          tags: r.tags ? JSON.stringify(r.tags) : null,
           indexed_at: now
         };
       })
@@ -164,7 +175,6 @@ export function indexFeatures(records: PlaceRecord[]): void {
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
         color: sql`excluded.color`,
-        tags: sql`excluded.tags`,
         indexed_at: sql`excluded.indexed_at`
       }
     })
@@ -180,7 +190,9 @@ export function indexFeatures(records: PlaceRecord[]): void {
     return [row.rowid, minLat, maxLat, minLng, maxLng];
   });
   sqlite
-    .prepare(`INSERT OR REPLACE INTO features_rtree (id,min_lat,max_lat,min_lng,max_lng) VALUES ${placeholders}`)
+    .prepare(
+      `INSERT OR REPLACE INTO features_rtree (id,min_lat,max_lat,min_lng,max_lng) VALUES ${placeholders}`
+    )
     .run(...params);
 }
 
@@ -190,19 +202,21 @@ export function removeFeatures(filePaths: string[]): void {
   const sqlite = getSqlite();
   const placeholders = filePaths.map(() => "?").join(",");
   sqlite
-    .prepare(`DELETE FROM features_rtree WHERE id IN (SELECT rowid FROM features WHERE file_path IN (${placeholders}))`)
+    .prepare(
+      `DELETE FROM features_rtree WHERE id IN (SELECT rowid FROM features WHERE file_path IN (${placeholders}))`
+    )
     .run(...filePaths);
   db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
 export function querySpatialIndex(
   bounds: Bounds,
-  filters?: { tags?: string[]; folderPath?: string }
+  filters?: { properties?: Record<string, string[]>; folderPath?: string }
 ): FeatureRecord[] {
   const sqlite = getSqlite();
 
-  let sql = `
-    SELECT f.file_path, f.geometry_type, f.geometry, f.color, f.tags
+  let sqlStr = `
+    SELECT f.file_path, f.geometry_type, f.geometry, f.color
     FROM features f
     JOIN features_rtree r ON r.id = f.rowid
     WHERE r.min_lat <= ? AND r.max_lat >= ?
@@ -211,28 +225,28 @@ export function querySpatialIndex(
   const params: unknown[] = [bounds.north, bounds.south, bounds.east, bounds.west];
 
   if (filters?.folderPath) {
-    const prefix = filters.folderPath.endsWith("/")
-      ? filters.folderPath
-      : `${filters.folderPath}/`;
-    sql += " AND f.file_path LIKE ?";
+    const prefix = filters.folderPath.endsWith("/") ? filters.folderPath : `${filters.folderPath}/`;
+    sqlStr += " AND f.file_path LIKE ?";
     params.push(`${prefix}%`);
   }
 
-  const rows = sqlite.prepare(sql).all(...params) as Array<{
+  if (filters?.properties) {
+    for (const [key, values] of Object.entries(filters.properties)) {
+      if (!values.length) continue;
+      const placeholders = values.map(() => "?").join(",");
+      sqlStr += ` AND (SELECT COUNT(DISTINCT value) FROM feature_properties WHERE feature_id = f.file_path AND key = ? AND value IN (${placeholders})) = ?`;
+      params.push(key, ...values, values.length);
+    }
+  }
+
+  const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
-    tags: string | null;
   }>;
 
-  return rows
-    .filter((r) => {
-      if (!filters?.tags?.length) return true;
-      const rowTags: string[] = r.tags ? JSON.parse(r.tags) : [];
-      return filters.tags?.every((t) => rowTags.includes(t));
-    })
-    .map((r) => ({ ...r, tags: r.tags ? JSON.parse(r.tags) : null }));
+  return rows.map((r) => ({ ...r }));
 }
 
 export function queryFolderAll(folderPath: string): FeatureRecord[] {
@@ -240,16 +254,15 @@ export function queryFolderAll(folderPath: string): FeatureRecord[] {
   const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
   const rows = sqlite
     .prepare(
-      "SELECT file_path, geometry_type, geometry, color, tags FROM features WHERE file_path LIKE ?"
+      "SELECT file_path, geometry_type, geometry, color FROM features WHERE file_path LIKE ?"
     )
     .all(`${prefix}%`) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
-    tags: string | null;
   }>;
-  return rows.map((r) => ({ ...r, tags: r.tags ? JSON.parse(r.tags) : null }));
+  return rows.map((r) => ({ ...r }));
 }
 
 export function getFeatureCount(): number {
@@ -270,4 +283,98 @@ export function rebuildIndexFromPlaces(places: Map<string, PlaceRecord>): number
   const records = [...places.values()].filter((r) => r.geometry);
   indexFeatures(records);
   return records.length;
+}
+
+const reservedFrontmatterKeys = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+
+/** Replace all EAV rows for one vault file from parsed frontmatter `data`. */
+export function replaceFeaturePropertiesForFile(
+  featureId: string,
+  data: Record<string, unknown>
+): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.delete(featureProperties).where(eq(featureProperties.feature_id, featureId)).run();
+    for (const [k, v] of Object.entries(data)) {
+      if (reservedFrontmatterKeys.has(k)) continue;
+      const toStr = (raw: unknown): string | null => {
+        if (typeof raw === "string") return raw.trim() || null;
+        if (typeof raw === "number") return Number.isFinite(raw) ? String(raw) : null;
+        if (typeof raw === "boolean") return String(raw);
+        return null;
+      };
+      let inserted = false;
+      for (const item of Array.isArray(v) ? v : [v]) {
+        const s = toStr(item);
+        if (s) {
+          tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: s }).onConflictDoNothing().run();
+          inserted = true;
+        }
+      }
+      // Key exists but has no indexable values — sentinel row so the key remains discoverable
+      if (!inserted) {
+        tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: "" }).onConflictDoNothing().run();
+      }
+    }
+  });
+}
+
+export function removeFeaturePropertiesForFile(featureId: string): void {
+  const db = getDb();
+  db.delete(featureProperties).where(eq(featureProperties.feature_id, featureId)).run();
+}
+
+/** All distinct frontmatter keys present anywhere in the vault. */
+export function getAllPropertyKeys(): string[] {
+  const db = getDb();
+  return db
+    .selectDistinct({ key: featureProperties.key })
+    .from(featureProperties)
+    .orderBy(asc(featureProperties.key))
+    .all()
+    .map((r) => r.key);
+}
+
+/** Which of the candidate keys have zero rows in feature_properties (vault-wide). */
+export function getOrphanedPropertyKeys(candidates: string[]): string[] {
+  if (candidates.length === 0) return [];
+  const sqlite = getSqlite();
+  const placeholders = candidates.map(() => "?").join(",");
+  const present = sqlite
+    .prepare(`SELECT DISTINCT key FROM feature_properties WHERE key IN (${placeholders})`)
+    .all(...candidates) as Array<{ key: string }>;
+  const presentSet = new Set(present.map((r) => r.key));
+  return candidates.filter((k) => !presentSet.has(k));
+}
+
+/** Distinct string facet values for a frontmatter key (multi-select suggestions). */
+export function queryDistinctValuesForKey(propKey: string): string[] {
+  const db = getDb();
+  const rows = db
+    .selectDistinct({ value: featureProperties.value })
+    .from(featureProperties)
+    .where(and(eq(featureProperties.key, propKey), ne(featureProperties.value, "")))
+    .orderBy(asc(sql`${featureProperties.value} COLLATE NOCASE`))
+    .all();
+  return rows.map((r) => r.value);
+}
+
+/** Remove EAV rows whose file no longer exists on disk. Returns number of rows deleted. */
+export function reconcileFeatureProperties(): number {
+  const db = getDb();
+  const ids = db
+    .selectDistinct({ feature_id: featureProperties.feature_id })
+    .from(featureProperties)
+    .all();
+  let deleted = 0;
+  for (const { feature_id } of ids) {
+    if (!existsSync(feature_id)) {
+      const r = db
+        .delete(featureProperties)
+        .where(eq(featureProperties.feature_id, feature_id))
+        .run();
+      deleted += r.changes;
+    }
+  }
+  return deleted;
 }

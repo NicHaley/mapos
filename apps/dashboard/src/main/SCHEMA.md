@@ -20,7 +20,7 @@ The function currently handles version 0 → 1. To add a new migration:
 
 ```ts
 // db.ts
-const CURRENT_SCHEMA_VERSION = 2; // bump this
+const CURRENT_SCHEMA_VERSION = 3; // bump this
 
 function applyMigrations(sqlite: Database.Database): void {
   const row = sqlite.prepare("PRAGMA user_version").get() as { user_version: number };
@@ -100,7 +100,29 @@ This pushes the current drizzle schema definition directly to the DB, bypassing 
 There is no deploy step. The app ships with `db.ts` compiled in. When a user opens a new version of the app, `applyMigrations()` runs automatically and applies any pending steps based on the stored `user_version`.
 
 **Rules:**
+
 - Never drop a column or table in a migration — old data may matter to the user.
 - `ALTER TABLE ADD COLUMN` is always safe. For anything more complex (rename, type change), create a new table and copy data.
 - Always bump `CURRENT_SCHEMA_VERSION` — even for additive changes. If you forget, the migration block runs but `user_version` is never written, and the migration re-runs on every launch.
 - The R-tree virtual table (`features_rtree`) cannot be altered with `ALTER TABLE`. To change its structure, drop and recreate it, then repopulate from `features`. Call `rebuildIndexFromPlaces()` after.
+
+---
+
+## `feature_properties` (EAV, schema v3+)
+
+Normal SQLite table for **vault-wide frontmatter facets** (not the spatial `features` row). One row per atomic string value; YAML lists become multiple rows with the same `key`.
+
+
+| Column       | Meaning                                               |
+| ------------ | ----------------------------------------------------- |
+| `feature_id` | Absolute path to the vault `.md` file                 |
+| `key`        | Frontmatter property name                             |
+| `value`      | Trimmed non-empty string (scalar or one list element) |
+
+
+**Primary key:** `(feature_id, key, value)`.
+
+**Indexes:** `idx_fp_key_value` on `(key, value)` for `SELECT DISTINCT value WHERE key = ?`; `idx_fp_feature` on `(feature_id)` for per-file deletes.
+
+**Maintenance:** `replaceFeaturePropertiesForFile` / `removeFeaturePropertiesForFile` run from the markdown watcher and `parsePlaceFile` (same read as spatial place parsing). `reconcileFeatureProperties()` removes rows whose `feature_id` no longer exists on disk (called on watcher `ready`).
+

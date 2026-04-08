@@ -24,7 +24,6 @@ import type {
   MapOverlayPayload,
   PersistedMessage,
   PlaceRecord,
-  PropertyTypes,
   UndoEntry,
   VaultOperation
 } from "../shared/types";
@@ -33,11 +32,16 @@ import {
   getFeatureCount,
   indexFeatures,
   initDb,
+  getAllPropertyKeys,
+  queryDistinctValuesForKey,
   queryFolderAll,
   querySpatialIndex,
   rebuildIndexFromPlaces,
+  reconcileFeatureProperties,
   reconcileIndexWithPlaces,
-  removeFeatures
+  removeFeaturePropertiesForFile,
+  removeFeatures,
+  replaceFeaturePropertiesForFile
 } from "./db";
 import { parseWkt } from "./wkt";
 
@@ -86,6 +90,32 @@ function uniquePathInDir(
   return candidate;
 }
 
+function collectPropertyKeysFromData(data: Record<string, unknown>, keyCollector: Set<string>): void {
+  for (const key of Object.keys(data)) {
+    if (!(RESERVED_PROPERTY_KEYS as readonly string[]).includes(key)) {
+      keyCollector.add(key);
+    }
+  }
+}
+
+function placeRecordFromMatterData(
+  data: Record<string, unknown>,
+  filePath: string
+): PlaceRecord | null {
+  if (data.type === "collection") return null;
+  const geo = parseWkt(data.geometry);
+  const base = filePath.split(sep).pop() ?? filePath;
+  const title = base.replace(/\.md$/i, "");
+  return {
+    geometry: geo ? JSON.stringify(geo) : undefined,
+    title,
+    color: typeof data.color === "string" ? data.color : undefined,
+    type: (data.type as string) ?? "place",
+    filePath
+  };
+}
+
+/** Read markdown once: update EAV + optional property-key catalog, return place or null. */
 async function parsePlaceFile(
   filePath: string,
   keyCollector?: Set<string>
@@ -93,26 +123,12 @@ async function parsePlaceFile(
   try {
     const raw = await readFile(filePath, "utf-8");
     const { data } = matter(raw);
-    if (keyCollector) {
-      for (const key of Object.keys(data)) {
-        if (!(RESERVED_PROPERTY_KEYS as readonly string[]).includes(key)) {
-          keyCollector.add(key);
-        }
-      }
-    }
-    if (data.type === "collection") return null;
-    const geo = parseWkt(data.geometry);
-    const basename = filePath.split(sep).pop() ?? filePath;
-    const title = basename.replace(/\.md$/i, "");
-    return {
-      geometry: geo ? JSON.stringify(geo) : undefined,
-      title,
-      color: typeof data.color === "string" ? data.color : undefined,
-      type: data.type ?? "place",
-      tags: data.tags,
-      filePath
-    };
+    const rec = data as Record<string, unknown>;
+    if (keyCollector) collectPropertyKeysFromData(rec, keyCollector);
+    replaceFeaturePropertiesForFile(filePath, rec);
+    return placeRecordFromMatterData(rec, filePath);
   } catch {
+    removeFeaturePropertiesForFile(filePath);
     return null;
   }
 }
@@ -152,44 +168,6 @@ function readDirTree(dirPath: string): FileNode[] {
 /** Canonical vault root (same path the renderer gets from `fs:get-vault-root`). */
 const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
 const MAPOS_INTERNALS_DIR = join(MAPOS_DIR, ".mapos");
-const TYPES_JSON_PATH = join(MAPOS_INTERNALS_DIR, "types.json");
-
-type TypesFileSchema = { types: PropertyTypes; order: string[] };
-
-function readTypesFile(): TypesFileSchema {
-  try {
-    const raw = JSON.parse(readFileSync(TYPES_JSON_PATH, "utf-8")) as unknown;
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const obj = raw as Record<string, unknown>;
-      if ("types" in obj) return raw as TypesFileSchema;
-      // Legacy: whole object is the types map
-      return { types: raw as PropertyTypes, order: [] };
-    }
-    return { types: {}, order: [] };
-  } catch {
-    return { types: {}, order: [] };
-  }
-}
-
-function readPropertyTypes(): PropertyTypes {
-  return readTypesFile().types;
-}
-
-function writePropertyTypes(types: PropertyTypes): void {
-  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
-  const existing = readTypesFile();
-  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, types }, null, 2), "utf-8");
-}
-
-function readPropertyOrder(): string[] {
-  return readTypesFile().order;
-}
-
-function writePropertyOrder(order: string[]): void {
-  mkdirSync(MAPOS_INTERNALS_DIR, { recursive: true });
-  const existing = readTypesFile();
-  writeFileSync(TYPES_JSON_PATH, JSON.stringify({ ...existing, order }, null, 2), "utf-8");
-}
 
 function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
   if (!existsSync(MAPOS_DIR)) {
@@ -254,6 +232,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   watcher.on("unlink", (filePath) => {
     places.delete(filePath);
     removeFeatures([filePath]);
+    removeFeaturePropertiesForFile(filePath);
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
@@ -268,6 +247,10 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     initialScanDone = true;
     const reconciled = reconcileIndexWithPlaces(places);
     if (reconciled > 0) console.log("[main] reconciled index, removed stale features:", reconciled);
+    const propReconciled = reconcileFeatureProperties();
+    if (propReconciled > 0) {
+      console.log("[main] reconciled feature_properties, removed stale rows:", propReconciled);
+    }
     console.log("[main] watcher ready, places found:", places.size);
     console.log("[main] features indexed:", getFeatureCount());
     const allPlaces = Array.from(places.values());
@@ -361,28 +344,37 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     }
   );
 
-  ipcMain.handle("properties:read-types", () => readPropertyTypes());
-
-  ipcMain.handle("properties:write-types", (_event, types: PropertyTypes) => {
-    try {
-      writePropertyTypes(types);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: String(err) };
+  // Rewrite frontmatter with keys in the given order, preserving all values and the body.
+  ipcMain.handle(
+    "fs:reorder-frontmatter",
+    async (_event, filePath: string, keyOrder: string[]) => {
+      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+        return { success: false, error: "Path outside vault" };
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        const parsed = matter(raw);
+        const reordered: Record<string, unknown> = {};
+        for (const key of keyOrder) {
+          if (Object.hasOwn(parsed.data, key)) reordered[key] = parsed.data[key];
+        }
+        // Append any keys not in keyOrder (shouldn't happen, but be safe)
+        for (const key of Object.keys(parsed.data)) {
+          if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
+        }
+        writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
     }
-  });
+  );
 
-  ipcMain.handle("properties:list-all-keys", () => Array.from(knownPropertyKeys).sort());
+  ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeys());
 
-  ipcMain.handle("properties:read-order", () => readPropertyOrder());
-
-  ipcMain.handle("properties:write-order", (_event, order: string[]) => {
-    try {
-      writePropertyOrder(order);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: String(err) };
-    }
+  ipcMain.handle("properties:values-for-key", (_event, key: string) => {
+    if (typeof key !== "string" || !key.trim()) return [] as string[];
+    return queryDistinctValuesForKey(key.trim());
   });
 
   ipcMain.handle("fs:rename-file", async (_event, oldPath: string, newName: string) => {
@@ -576,7 +568,16 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle(
     "fs:create-place-file",
-    async (_event, args: { parentFolderPath: string | null; lat?: number; lng?: number }) => {
+    async (
+      _event,
+      args: {
+        parentFolderPath: string | null;
+        lat?: number;
+        lng?: number;
+        /** When false with lat/lng, only writes `geometry` (no `type` / `status`). Default true. */
+        includePlaceFrontmatterDefaults?: boolean;
+      }
+    ) => {
       const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
       let dir: string;
       if (args.parentFolderPath) {
@@ -589,9 +590,12 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         dir = MAPOS_DIR;
       }
       const candidate = uniquePathInDir(dir, "Untitled.md", false);
+      const includeDefaults = args.includePlaceFrontmatterDefaults !== false;
       const content =
         args.lat != null && args.lng != null
-          ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
+          ? includeDefaults
+            ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
+            : `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
           : "";
       try {
         writeFileSync(candidate, content, "utf-8");
@@ -613,7 +617,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",
-          tags: r.tags ?? undefined,
           filePath: r.file_path
         };
       });
@@ -629,7 +632,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",
-          tags: r.tags ?? undefined,
           filePath: r.file_path
         };
       });
@@ -649,7 +651,6 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
           title: titleFallback,
           color: r.color ?? undefined,
           type: "place",
-          tags: r.tags ?? undefined,
           filePath: r.file_path
         };
       });
@@ -680,7 +681,19 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 The MapOS vault root on this machine is: ${MAPOS_DIR}
 The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in Bash). For Glob, Grep, Read, Bash, and any file search or listing tools, search only under this path (e.g. ${MAPOS_DIR}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts or use patterns like /Users/*/Documents/MapOS — always use the absolute path above.
 
-Place files use Markdown with YAML frontmatter. Required frontmatter: geometry (WKT string).
+## Place files and frontmatter
+
+Place files use Markdown with YAML frontmatter. Required frontmatter: `geometry` (WKT string). `geometry` and `color` have special meaning to the map renderer — do not reuse those key names for other purposes.
+
+Write frontmatter values using the correct YAML type so they round-trip properly:
+
+- **number** — bare numeric literal: `rating: 4`
+- **boolean** — bare literal: `visited: true`
+- **date** — unquoted ISO string: `date: 2026-01-15` or `date: 2026-01-15T14:00`
+- **array** (tag-style fields like `tags`, `cuisine`) — YAML array: `tags: [ramen, tokyo]`
+- **text** — anything else
+
+`query_spatial_index` can filter by any array or text property via `filters.properties`.
 
 Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.
 
@@ -873,7 +886,7 @@ function createMaposMcpServer(
       ),
       tool(
         "query_spatial_index",
-        "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds.",
+        "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key.",
         {
           bounds: z.object({
             north: z.number(),
@@ -883,8 +896,8 @@ function createMaposMcpServer(
           }),
           filters: z
             .object({
-              status: z.string().optional(),
-              tags: z.array(z.string()).optional()
+              folderPath: z.string().optional(),
+              properties: z.record(z.string(), z.array(z.string())).optional()
             })
             .optional()
         },
@@ -1059,8 +1072,9 @@ function createMaposMcpServer(
           // Snapshot for undo
           const previousContent = readFileSync(args.path, "utf-8");
           onVaultWrite({ path: args.path, previousContent });
-          // Remove from spatial index, then delete
+          // Remove from spatial index and EAV, then delete
           removeFeatures([args.path]);
+          removeFeaturePropertiesForFile(args.path);
           rmSync(args.path);
           return {
             content: [
@@ -1119,6 +1133,7 @@ function createMaposMcpServer(
           mkdirSync(dirname(args.toPath), { recursive: true });
           renameSync(args.fromPath, args.toPath);
           removeFeatures([args.fromPath]);
+          removeFeaturePropertiesForFile(args.fromPath);
           try {
             const record = await parsePlaceFile(args.toPath);
             if (record) indexFeatures([record]);

@@ -1,20 +1,23 @@
 import { firstUniqueName } from "@renderer/lib/unique-name";
-import { cn } from "@renderer/lib/utils";
+import { format } from "date-fns";
 import {
   CalendarIcon,
   CheckIcon,
   GripVerticalIcon,
   HashIcon,
   PlusIcon,
+  TagsIcon,
   TextIcon,
   ToggleLeftIcon,
   Trash2Icon,
-  TriangleAlertIcon
+  XIcon
 } from "lucide-react";
 import { Reorder } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { PropertyType, PropertyTypes } from "../../../shared/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
+import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import { Calendar } from "./ui/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,14 +32,59 @@ import {
 } from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/;
+
+function isDatePropertyString(s: string): boolean {
+  return DATE_ONLY_RE.test(s) || DATE_TIME_RE.test(s);
+}
+
+/** Parse stored YYYY-MM-DD or local YYYY-MM-DDTHH:mm(:ss)? into a Date in local time. */
+function parseDatePropertyString(s: string): Date {
+  if (DATE_ONLY_RE.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (DATE_TIME_RE.test(s)) {
+    const [datePart, rest] = s.split("T");
+    const [y, mo, d] = datePart.split("-").map(Number);
+    const timePart = rest.replace(/Z$/, "");
+    const parts = timePart.split(":");
+    const h = Number.parseInt(parts[0] ?? "0", 10);
+    const mi = Number.parseInt(parts[1] ?? "0", 10);
+    const sec = Number.parseInt(parts[2] ?? "0", 10);
+    return new Date(y, mo - 1, d, h, mi, sec);
+  }
+  return new Date();
+}
+
+/** Serialize: date-only when midnight; otherwise local datetime without timezone. */
+function serializeDateProperty(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const h = d.getHours();
+  const mi = d.getMinutes();
+  const s = d.getSeconds();
+  if (h === 0 && mi === 0 && s === 0) return `${y}-${mo}-${da}`;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(mi).padStart(2, "0");
+  if (s !== 0) {
+    const ss = String(s).padStart(2, "0");
+    return `${y}-${mo}-${da}T${hh}:${mm}:${ss}`;
+  }
+  return `${y}-${mo}-${da}T${hh}:${mm}`;
+}
 
 const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
   { value: "number", label: "Number", icon: <HashIcon className="size-4" /> },
   { value: "date", label: "Date", icon: <CalendarIcon className="size-4" /> },
-  { value: "checkbox", label: "Checkbox", icon: <ToggleLeftIcon className="size-4" /> }
+  { value: "checkbox", label: "Checkbox", icon: <ToggleLeftIcon className="size-4" /> },
+  { value: "multi_select", label: "Multi-select", icon: <TagsIcon className="size-4" /> }
 ];
 
 function typeIcon(type: PropertyType): React.ReactNode {
@@ -47,7 +95,56 @@ function defaultValueForType(type: PropertyType): unknown {
   if (type === "number") return 0;
   if (type === "date") return new Date().toISOString().slice(0, 10);
   if (type === "checkbox") return false;
+  if (type === "multi_select") return [];
   return "";
+}
+
+const inferenceRules: Array<[PropertyType, z.ZodType]> = [
+  ["multi_select", z.array(z.unknown())],
+  ["checkbox", z.boolean()],
+  ["number", z.number()],
+  ["date", z.string().regex(/^(?:\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?)$/)]
+];
+
+function inferPropertyType(value: unknown): PropertyType | null {
+  for (const [type, schema] of inferenceRules) {
+    if (schema.safeParse(value).success) return type;
+  }
+  return null;
+}
+
+function effectivePropertyType(value: unknown): PropertyType {
+  return inferPropertyType(value) ?? "text";
+}
+
+function coerceToType(value: unknown, type: PropertyType): unknown {
+  switch (type) {
+    case "text":
+      if (typeof value === "string") return value;
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+      if (Array.isArray(value)) return value.join(", ");
+      break;
+    case "number":
+      if (typeof value === "number") return value;
+      if (typeof value === "string") {
+        const n = Number(value);
+        if (!Number.isNaN(n)) return n;
+      }
+      break;
+    case "date":
+      if (typeof value === "string" && isDatePropertyString(value)) return value;
+      break;
+    case "checkbox":
+      if (typeof value === "boolean") return value;
+      if (value === "true") return true;
+      if (value === "false") return false;
+      break;
+    case "multi_select":
+      if (Array.isArray(value)) return value.filter((x): x is string => typeof x === "string");
+      if (typeof value === "string" && value.trim()) return [value.trim()];
+      break;
+  }
+  return defaultValueForType(type);
 }
 
 function toDisplayString(value: unknown): string {
@@ -57,88 +154,25 @@ function toDisplayString(value: unknown): string {
 }
 
 function isEmptyPropertyValue(value: unknown): boolean {
-  return value === null || value === undefined || value === "";
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
 }
 
-/** Whether frontmatter value matches the declared property type (empty values are ok). */
-function isValueAlignedWithType(value: unknown, type: PropertyType): boolean {
-  if (isEmptyPropertyValue(value)) return true;
-  switch (type) {
-    case "text":
-      return typeof value === "string";
-    case "number":
-      return typeof value === "number" && Number.isFinite(value);
-    case "date": {
-      if (typeof value !== "string") return false;
-      return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
-    }
-    case "checkbox":
-      return (
-        typeof value === "boolean" ||
-        (typeof value === "string" && (value === "true" || value === "false"))
-      );
-    default:
-      return true;
-  }
-}
-
-function expectedTypeLabel(type: PropertyType): string {
-  return PROPERTY_TYPES.find((t) => t.value === type)?.label.toLowerCase() ?? type;
-}
-
-function TypeMismatchAlert({ type }: { type: PropertyType }): React.JSX.Element {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            onClick={(e) => e.stopPropagation()}
-            aria-label={`Type mismatch, expected ${expectedTypeLabel(type)}`}
-          />
-        }
-      >
-        <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
-      </TooltipTrigger>
-      <TooltipContent>Type mismatch, expected {expectedTypeLabel(type)}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function getOrderedKeys(order: string[], fm: Record<string, unknown>): string[] {
-  const fmKeys = Object.keys(fm);
-  const ordered = order.filter((k) => k in fm);
-  const rest = fmKeys.filter((k) => !order.includes(k));
-  return [...ordered, ...rest];
-}
-
-/** Keys registered in the vault catalog but not yet on this file, in a sensible order. */
-function existingPropertyKeysNotOnFile(
-  propertyTypes: PropertyTypes,
-  orderedKeys: string[],
-  globalOrder: string[]
-): string[] {
+/** Keys present anywhere in the vault but not yet on this file, sorted alphabetically. */
+function existingPropertyKeysNotOnFile(allVaultKeys: string[], fileKeys: string[]): string[] {
   const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-  const onFile = new Set(orderedKeys);
-  const raw = Object.keys(propertyTypes).filter((k) => !onFile.has(k) && !reserved.has(k));
-  const orderIndex = new Map(globalOrder.map((k, i) => [k, i]));
-  return raw.sort((a, b) => {
-    const ia = orderIndex.get(a);
-    const ib = orderIndex.get(b);
-    if (ia !== undefined && ib !== undefined) return ia - ib;
-    if (ia !== undefined) return -1;
-    if (ib !== undefined) return 1;
-    return a.localeCompare(b);
-  });
+  const onFile = new Set(fileKeys);
+  return allVaultKeys
+    .filter((k) => !onFile.has(k) && !reserved.has(k))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
 
 interface PropertyKeyProps {
   propKey: string;
-  type: PropertyType;
-  propertyTypes: PropertyTypes;
+  value: unknown;
   onTypeChange: (key: string, type: PropertyType) => void;
   onRename: (oldKey: string, newKey: string) => void;
   onDelete: (key: string) => void;
@@ -146,8 +180,7 @@ interface PropertyKeyProps {
 
 function PropertyKey({
   propKey,
-  type,
-  propertyTypes,
+  value,
   onTypeChange,
   onRename,
   onDelete
@@ -159,13 +192,20 @@ function PropertyKey({
   useEffect(() => {
     if (open) {
       setDraftKey(propKey);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open, propKey]);
 
+  const systemKeys = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+
   function commitRename(): void {
     const trimmed = draftKey.trim();
-    if (trimmed && trimmed !== propKey) onRename(propKey, trimmed);
+    if (!trimmed || trimmed === propKey) return;
+    if (systemKeys.has(trimmed)) {
+      setDraftKey(propKey);
+      return;
+    }
+    onRename(propKey, trimmed);
   }
 
   function handleOpenChange(val: boolean): void {
@@ -173,14 +213,14 @@ function PropertyKey({
     if (!val) commitRename();
   }
 
-  const activeType = propertyTypes[propKey] ?? "text";
+  const effective = effectivePropertyType(value);
 
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted outline-none">
+    <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
+      <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted outline-none">
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
-            {typeIcon(type)}
+            {typeIcon(effective)}
           </span>
           <GripVerticalIcon
             className="pointer-events-none absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground/50"
@@ -190,12 +230,18 @@ function PropertyKey({
         <span className="truncate">{propKey}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="start" className="w-48">
-        <div className="px-1.5 py-1">
+        <div
+          className="px-1.5 py-1"
+          onKeyDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <Input
             ref={inputRef}
             value={draftKey}
             onChange={(e) => setDraftKey(e.target.value)}
             onKeyDown={(e) => {
+              // Menu steals printable keys for typeahead / roving focus unless we isolate the field.
+              e.stopPropagation();
               if (e.key === "Enter") {
                 commitRename();
                 setOpen(false);
@@ -211,7 +257,7 @@ function PropertyKey({
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            {typeIcon(type)}
+            {typeIcon(effective)}
             Type
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -219,7 +265,7 @@ function PropertyKey({
               <DropdownMenuItem key={t.value} onClick={() => onTypeChange(propKey, t.value)}>
                 {t.icon}
                 {t.label}
-                {activeType === t.value && <CheckIcon className="ml-auto size-4" />}
+                {effective === t.value && <CheckIcon className="ml-auto size-4" />}
               </DropdownMenuItem>
             ))}
           </DropdownMenuSubContent>
@@ -231,6 +277,269 @@ function PropertyKey({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function normalizeMultiSelectValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((x): x is string => typeof x === "string");
+}
+
+// ─── MultiSelectPropertyValue ────────────────────────────────────────────────
+
+function MultiSelectPropertyValue({
+  propKey,
+  value,
+  onValueChange
+}: {
+  propKey: string;
+  value: unknown;
+  onValueChange: (key: string, value: unknown) => void;
+}): React.JSX.Element {
+  const items = normalizeMultiSelectValue(value);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  const loadSuggestions = useCallback(async () => {
+    const vals = await window.api.properties.valuesForKey(propKey);
+    setSuggestions(vals);
+  }, [propKey]);
+
+  useEffect(() => {
+    void loadSuggestions();
+  }, [loadSuggestions]);
+
+  useEffect(() => {
+    if (open) void loadSuggestions();
+  }, [open, loadSuggestions]);
+
+  function setItems(next: string[]): void {
+    onValueChange(propKey, next);
+  }
+
+  function addToken(raw: string): void {
+    const t = raw.trim();
+    if (!t || items.includes(t)) return;
+    setItems([...items, t]);
+  }
+
+  function removeToken(t: string): void {
+    setItems(items.filter((x) => x !== t));
+  }
+
+  const q = draft.trim().toLowerCase();
+  const filtered = suggestions.filter(
+    (s) => !items.includes(s) && (q === "" || s.toLowerCase().includes(q))
+  );
+
+  return (
+    <div className="relative flex h-7 min-w-0 w-full items-center">
+      <Popover
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (v) setDraft("");
+        }}
+      >
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+          {items.length === 0 ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            <span className="truncate text-sidebar-foreground">{items.join(", ")}</span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="start" className="w-72 p-2">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-1">
+              {items.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-[11px] text-sidebar-foreground/80"
+                >
+                  <span className="truncate">{t}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-sidebar-border/60 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0"
+                    aria-label={`Remove ${t}`}
+                    onClick={() => removeToken(t)}
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  const part = e.key === "," ? (draft.split(",")[0]?.trim() ?? "") : draft.trim();
+                  if (part) addToken(part);
+                  setDraft("");
+                }
+                if (e.key === "Backspace" && draft === "") {
+                  const last = items.at(-1);
+                  if (last !== undefined) removeToken(last);
+                }
+              }}
+              placeholder="Add value…"
+              className="h-7 text-sm"
+            />
+            <ScrollArea className="h-28 rounded-md border border-sidebar-border">
+              <div className="flex flex-col p-1">
+                {filtered.length === 0 ? (
+                  <span className="text-xs text-muted-foreground px-1 py-1">
+                    {suggestions.length === 0 ? "No other values in vault yet" : "No matches"}
+                  </span>
+                ) : (
+                  filtered.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="rounded px-2 py-1.5 text-left text-xs text-sidebar-foreground hover:bg-sidebar-accent truncate"
+                      onClick={() => {
+                        addToken(s);
+                        setDraft("");
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+// ─── DatePropertyValue ───────────────────────────────────────────────────────
+
+function storedDateHasNonMidnightTime(value: unknown): boolean {
+  if (typeof value !== "string" || !isDatePropertyString(value)) return false;
+  const d = parseDatePropertyString(value);
+  return d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0;
+}
+
+function DatePropertyValue({
+  propKey,
+  value,
+  isEmpty,
+  onValueChange
+}: {
+  propKey: string;
+  value: unknown;
+  isEmpty: boolean;
+  onValueChange: (key: string, value: unknown) => void;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [timeEnabled, setTimeEnabled] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTimeEnabled(storedDateHasNonMidnightTime(value));
+    }
+  }, [open, value]);
+
+  const hasDate = typeof value === "string" && isDatePropertyString(value);
+  const selected = hasDate ? parseDatePropertyString(value) : undefined;
+  const timeInputValue = `${String(selected?.getHours() ?? 0).padStart(2, "0")}:${String(
+    selected?.getMinutes() ?? 0
+  ).padStart(2, "0")}`;
+
+  function commitFromDate(d: Date): void {
+    onValueChange(propKey, serializeDateProperty(d));
+  }
+
+  function handleTimeToggle(checked: boolean): void {
+    setTimeEnabled(checked);
+    if (!checked && selected) {
+      const d = new Date(selected);
+      d.setHours(0, 0, 0, 0);
+      commitFromDate(d);
+    }
+  }
+
+  return (
+    <div className="relative flex h-7 min-w-0 w-full items-center">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+          <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          {isEmpty || !hasDate ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            <span className="truncate text-sidebar-foreground">
+              {selected &&
+                (timeInputValue === "00:00"
+                  ? format(selected, "PPP")
+                  : `${format(selected, "PPP")} · ${format(selected, "p")}`)}
+            </span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="start" className="w-auto p-0">
+          <div className="flex flex-col gap-0">
+            <Calendar
+              mode="single"
+              selected={selected}
+              onSelect={(d) => {
+                if (!d) return;
+                const next = new Date(d);
+                if (timeEnabled && selected) {
+                  next.setHours(
+                    selected.getHours(),
+                    selected.getMinutes(),
+                    selected.getSeconds(),
+                    0
+                  );
+                } else {
+                  next.setHours(0, 0, 0, 0);
+                }
+                commitFromDate(next);
+              }}
+              defaultMonth={selected ?? new Date()}
+              className="bg-transparent"
+            />
+            {selected ? (
+              <div className="border-t border-border">
+                <div
+                  className="flex items-center justify-between gap-3 px-3 py-2"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-xs text-muted-foreground">Time</span>
+                  <Switch size="sm" checked={timeEnabled} onCheckedChange={handleTimeToggle} />
+                </div>
+                {timeEnabled ? (
+                  <div className="px-3 pb-2">
+                    <Input
+                      type="time"
+                      step={60}
+                      value={timeInputValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const [hh, mm] = v.split(":").map((x) => Number.parseInt(x, 10));
+                        const base = new Date(selected);
+                        base.setHours(
+                          Number.isFinite(hh) ? hh : 0,
+                          Number.isFinite(mm) ? mm : 0,
+                          0,
+                          0
+                        );
+                        commitFromDate(base);
+                      }}
+                      className="h-8 w-full bg-transparent text-sm appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -266,14 +575,19 @@ function PropertyValue({
   }
 
   const isEmpty = isEmptyPropertyValue(value);
-  const typeMismatch = !isValueAlignedWithType(value, type);
+
+  if (type === "multi_select") {
+    return (
+      <MultiSelectPropertyValue propKey={propKey} value={value} onValueChange={onValueChange} />
+    );
+  }
 
   if (type === "checkbox") {
     return (
-      <div className="relative min-w-0 w-full flex h-full">
+      <div className="relative flex h-7 min-w-0 w-full items-center">
         <button
           type="button"
-          className="flex w-full cursor-pointer items-center rounded px-2 py-1 transition-colors hover:bg-sidebar-accent"
+          className="flex h-full w-full cursor-pointer items-center rounded px-2 transition-colors hover:bg-sidebar-accent"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('[role="switch"]')) return;
             onValueChange(propKey, !(value === true || value === "true"));
@@ -285,46 +599,24 @@ function PropertyValue({
             onCheckedChange={(checked) => onValueChange(propKey, checked)}
           />
         </button>
-        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
       </div>
     );
   }
 
   if (type === "date") {
     return (
-      <div className="relative min-w-0 w-full">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-            {isEmpty ? (
-              <span className="text-muted-foreground">Empty</span>
-            ) : (
-              <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
-            )}
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="start" className="w-auto p-2">
-            <input
-              type="date"
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                onValueChange(propKey, e.target.value);
-                setOpen(false);
-              }}
-              className="rounded border border-input bg-transparent px-2 py-1 text-sm text-sidebar-foreground outline-none focus:ring-1 focus:ring-ring"
-              ref={(el) => {
-                if (el) el.focus();
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-        {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
-      </div>
+      <DatePropertyValue
+        propKey={propKey}
+        value={value}
+        isEmpty={isEmpty}
+        onValueChange={onValueChange}
+      />
     );
   }
 
   // text / number
   return (
-    <div className="relative min-w-0 w-full">
+    <div className="relative flex h-7 min-w-0 w-full items-center">
       <Popover
         open={open}
         onOpenChange={(val) => {
@@ -332,7 +624,7 @@ function PropertyValue({
           if (!val) commitDraft();
         }}
       >
-        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {isEmpty ? (
             <span className="text-muted-foreground">Empty</span>
           ) : (
@@ -361,7 +653,6 @@ function PropertyValue({
           />
         </PopoverContent>
       </Popover>
-      {typeMismatch ? <TypeMismatchAlert type={type} /> : null}
     </div>
   );
 }
@@ -371,40 +662,25 @@ function PropertyValue({
 interface PropertiesPanelProps {
   filePath: string;
   frontmatter: Record<string, unknown>;
-  propertyTypes: PropertyTypes;
-  propertyOrder: string[];
-  onTypesChange: (newTypes: PropertyTypes) => void;
-  onOrderChange: (newOrder: string[]) => void;
+  allVaultKeys: string[];
 }
 
 export function PropertiesPanel({
   filePath,
   frontmatter,
-  propertyTypes,
-  propertyOrder,
-  onTypesChange,
-  onOrderChange
+  allVaultKeys
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
 
-  const [orderedKeys, setOrderedKeys] = useState<string[]>(() =>
-    getOrderedKeys(propertyOrder, frontmatter)
-  );
-
-  // Replace local FM only when the file reloads (prop updates). Do not tie this to
-  // `propertyOrder` alone — parent order updates after add/delete before `frontmatter`
-  // prop catches up, which would overwrite local state and drop new keys.
   useEffect(() => {
     setLocalFrontmatter(frontmatter);
   }, [frontmatter]);
 
-  useEffect(() => {
-    setOrderedKeys(getOrderedKeys(propertyOrder, localFrontmatter));
-  }, [propertyOrder, localFrontmatter]);
+  const fileKeys = useMemo(() => Object.keys(localFrontmatter), [localFrontmatter]);
 
   const existingKeysToAdd = useMemo(
-    () => existingPropertyKeysNotOnFile(propertyTypes, orderedKeys, propertyOrder),
-    [propertyTypes, orderedKeys, propertyOrder]
+    () => existingPropertyKeysNotOnFile(allVaultKeys, fileKeys),
+    [allVaultKeys, fileKeys]
   );
 
   async function handleValueChange(key: string, value: unknown): Promise<void> {
@@ -418,22 +694,31 @@ export function PropertiesPanel({
       delete next[key];
       return next;
     });
-    const newOrder = orderedKeys.filter((k) => k !== key);
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-    await window.api.properties.writeOrder(newOrder);
     await window.api.fs.writeFrontmatterProperty(filePath, key, null);
   }
 
   async function handleTypeChange(key: string, type: PropertyType): Promise<void> {
-    const newTypes = { ...propertyTypes, [key]: type };
-    onTypesChange(newTypes);
-    await window.api.properties.writeTypes(newTypes);
+    await handleValueChange(key, coerceToType(localFrontmatter[key], type));
+  }
+
+  function handleReorder(newOrder: string[]): void {
+    setLocalFrontmatter((prev) => {
+      const next: Record<string, unknown> = {};
+      for (const key of newOrder) {
+        if (Object.hasOwn(prev, key)) next[key] = prev[key];
+      }
+      return next;
+    });
+    void window.api.fs.reorderFrontmatter(filePath, newOrder);
   }
 
   async function handleRename(oldKey: string, newKey: string): Promise<void> {
+    const trimmed = newKey.trim();
+    const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+    if (reserved.has(trimmed)) return;
+    if (trimmed !== oldKey && Object.hasOwn(localFrontmatter, trimmed)) return;
+
     const value = localFrontmatter[oldKey];
-    const type = propertyTypes[oldKey];
 
     setLocalFrontmatter((prev) => {
       const next = { ...prev };
@@ -442,27 +727,8 @@ export function PropertiesPanel({
       return next;
     });
 
-    const newOrder = orderedKeys.map((k) => (k === oldKey ? newKey : k));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-
     await window.api.fs.writeFrontmatterProperty(filePath, oldKey, null);
     await window.api.fs.writeFrontmatterProperty(filePath, newKey, value);
-    await window.api.properties.writeOrder(newOrder);
-
-    if (type) {
-      const newTypes = { ...propertyTypes };
-      delete newTypes[oldKey];
-      newTypes[newKey] = type;
-      onTypesChange(newTypes);
-      await window.api.properties.writeTypes(newTypes);
-    }
-  }
-
-  function handleReorder(newOrder: string[]): void {
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-    void window.api.properties.writeOrder(newOrder);
   }
 
   async function handleAddProperty(type: PropertyType): Promise<void> {
@@ -474,71 +740,57 @@ export function PropertiesPanel({
       fallback: (b) => `${b} ${Date.now()}`
     });
     const value = defaultValueForType(type);
-    const newOrder = [...orderedKeys, key];
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
-
-    if (type !== "text") {
-      const newTypes = { ...propertyTypes, [key]: type };
-      onTypesChange(newTypes);
-      await window.api.properties.writeTypes(newTypes);
-    }
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
-    await window.api.properties.writeOrder(newOrder);
   }
 
   async function handleAddExistingProperty(key: string): Promise<void> {
-    const type = propertyTypes[key] ?? "text";
-    const value = defaultValueForType(type);
-    const newOrder = [...orderedKeys, key];
+    const value = defaultValueForType("text");
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    setOrderedKeys(newOrder);
-    onOrderChange(newOrder);
     await window.api.fs.writeFrontmatterProperty(filePath, key, value);
-    await window.api.properties.writeOrder(newOrder);
   }
 
   return (
     <div className="px-2 py-1 text-sidebar-foreground">
       <Reorder.Group
         axis="y"
-        values={orderedKeys}
+        values={fileKeys}
         onReorder={handleReorder}
         className="flex flex-col"
         as="div"
       >
-        {orderedKeys.map((key) => (
+        {fileKeys.map((key) => (
           <Reorder.Item
             key={key}
             value={key}
-            className="group grid grid-cols-2 items-center"
+            className="group grid h-7 grid-cols-2 items-center"
             as="div"
           >
-            <div className="min-w-0">
+            <div className="flex min-h-0 min-w-0 items-center">
               <PropertyKey
                 propKey={key}
-                type={propertyTypes[key] ?? "text"}
-                propertyTypes={propertyTypes}
+                value={localFrontmatter[key]}
                 onTypeChange={handleTypeChange}
                 onRename={handleRename}
                 onDelete={handleDelete}
               />
             </div>
-            <PropertyValue
-              propKey={key}
-              value={localFrontmatter[key]}
-              type={propertyTypes[key] ?? "text"}
-              onValueChange={handleValueChange}
-            />
+            <div className="flex min-h-0 min-w-0 items-center">
+              <PropertyValue
+                propKey={key}
+                value={localFrontmatter[key]}
+                type={effectivePropertyType(localFrontmatter[key])}
+                onValueChange={handleValueChange}
+              />
+            </div>
           </Reorder.Item>
         ))}
       </Reorder.Group>
 
-      <div className="grid grid-cols-2 items-center">
-        <div className="min-w-0">
+      <div className="grid h-7 grid-cols-2 items-center">
+        <div className="flex min-h-0 min-w-0 items-center">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
+            <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
               <PlusIcon className="size-4" />
               Add property
             </DropdownMenuTrigger>
@@ -553,7 +805,7 @@ export function PropertiesPanel({
                         onClick={() => void handleAddExistingProperty(key)}
                         className="gap-2"
                       >
-                        {typeIcon(propertyTypes[key] ?? "text")}
+                        {typeIcon("text")}
                         <span className="truncate">{key}</span>
                       </DropdownMenuItem>
                     ))}

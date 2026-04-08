@@ -251,7 +251,7 @@ Structured data the app reads programmatically. Can live anywhere in `~/MapOS/`,
 
 **Filenames** must be human-readable kebab-case slugs. `kinka-izakaya.md`, not `place_1234.md` or `untitled.md`. The filename is the note's identity — Obsidian uses it for `[[wikilinks]]` and MapOS uses it as the stable spatial index key.
 
-**Tags** follow Obsidian conventions: lowercase, no spaces. Use nested tags where helpful (`food/japanese`, `trip/tokyo-2026`). The `tags:` frontmatter field takes a YAML list.
+**Tags** follow Obsidian conventions: lowercase, no spaces. Use nested tags where helpful (`food/japanese`, `trip/tokyo-2026`). The `tags:` frontmatter field takes a YAML list. In the MapOS app, `tags` is a normal editable property (type **Multi-select** in the properties panel). You can add more multi-select fields (e.g. `cuisine`, `visited_with`); the UI suggests values already used under the same property name anywhere in the vault. All multi-select fields are queryable via `query_spatial_index` using `filters.properties` — e.g. `{ tags: ["ramen"], cuisine: ["japanese"] }` returns places that have all listed values under each key.
 
 **Folder names** should be short, lowercase, hyphenated slugs: `want-to-go/`, `tokyo-2026/`, `best-coffee/`.
 

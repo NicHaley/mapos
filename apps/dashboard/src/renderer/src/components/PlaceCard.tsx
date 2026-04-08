@@ -8,7 +8,7 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { FileNode, PlaceRecord, PropertyTypes } from "../../../shared/types";
+import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
@@ -56,8 +56,7 @@ export function PlaceCard({
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
-  const [propertyTypes, setPropertyTypes] = useState<PropertyTypes>({});
-  const [propertyOrder, setPropertyOrder] = useState<string[]>([]);
+  const [allVaultKeys, setAllVaultKeys] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
@@ -138,23 +137,20 @@ export function PlaceCard({
       isLoadingRef.current = false;
       return;
     }
-    Promise.all([
-      window.api.fs.readFile(place.filePath),
-      window.api.properties.readTypes(),
-      window.api.properties.readOrder()
-    ]).then(([result, types, order]) => {
-      if ("error" in result) {
+    Promise.all([window.api.fs.readFile(place.filePath), window.api.properties.listAllKeys()]).then(
+      ([result, vaultKeys]) => {
+        if ("error" in result) {
+          setLoading(false);
+          isLoadingRef.current = false;
+          return;
+        }
+        editor.commands.setContent(result.body, { contentType: "markdown" });
+        setFrontmatter(result.frontmatter);
+        setAllVaultKeys(vaultKeys);
         setLoading(false);
         isLoadingRef.current = false;
-        return;
       }
-      editor.commands.setContent(result.body, { contentType: "markdown" });
-      setFrontmatter(result.frontmatter);
-      setPropertyTypes(types);
-      setPropertyOrder(order);
-      setLoading(false);
-      isLoadingRef.current = false;
-    });
+    );
   }, [place.filePath, place.previewMarkdown, editor]);
 
   useEffect(() => {
@@ -252,7 +248,7 @@ export function PlaceCard({
     >
       <div
         className={cn(
-          "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
+          "bg-sidebar overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
@@ -261,9 +257,6 @@ export function PlaceCard({
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
-              {place.type}
-            </p>
             <ErrorTooltip error={titleError}>
               <input
                 type="text"
@@ -325,29 +318,12 @@ export function PlaceCard({
           </button>
         </div>
 
-        {/* Tags */}
-        {place.tags && place.tags.length > 0 && (
-          <div className="px-4 pb-3 flex flex-wrap gap-1 shrink-0">
-            {place.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center rounded-full bg-sidebar-accent px-2 py-0.5 text-[11px] text-sidebar-foreground/60"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
         {place.previewMarkdown === undefined && !loading && (
           <PropertiesPanel
             filePath={currentFilePath}
             frontmatter={frontmatter}
-            propertyTypes={propertyTypes}
-            propertyOrder={propertyOrder}
-            onTypesChange={setPropertyTypes}
-            onOrderChange={setPropertyOrder}
+            allVaultKeys={allVaultKeys}
           />
         )}
 

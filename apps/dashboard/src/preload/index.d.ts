@@ -93,6 +93,7 @@ declare global {
           parentFolderPath: string | null;
           lat?: number;
           lng?: number;
+          includePlaceFrontmatterDefaults?: boolean;
         }) => Promise<{ success: true; filePath: string } | { success: false; error: string }>;
         getVaultRoot: () => Promise<string>;
         createFolder: (args: {

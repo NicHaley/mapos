@@ -366,7 +366,8 @@ function App(): React.JSX.Element {
     const create = await window.api.fs.createNoteFile({
       parentFolderPath: parentFolderForNewFiles,
       lat,
-      lng
+      lng,
+      includePlaceFrontmatterDefaults: false
     });
     if (!create.success) {
       console.error("[save search]", create.error);

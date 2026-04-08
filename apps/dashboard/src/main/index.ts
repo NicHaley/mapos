@@ -568,7 +568,16 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle(
     "fs:create-place-file",
-    async (_event, args: { parentFolderPath: string | null; lat?: number; lng?: number }) => {
+    async (
+      _event,
+      args: {
+        parentFolderPath: string | null;
+        lat?: number;
+        lng?: number;
+        /** When false with lat/lng, only writes `geometry` (no `type` / `status`). Default true. */
+        includePlaceFrontmatterDefaults?: boolean;
+      }
+    ) => {
       const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
       let dir: string;
       if (args.parentFolderPath) {
@@ -581,9 +590,12 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         dir = MAPOS_DIR;
       }
       const candidate = uniquePathInDir(dir, "Untitled.md", false);
+      const includeDefaults = args.includePlaceFrontmatterDefaults !== false;
       const content =
         args.lat != null && args.lng != null
-          ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
+          ? includeDefaults
+            ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
+            : `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
           : "";
       try {
         writeFileSync(candidate, content, "utf-8");

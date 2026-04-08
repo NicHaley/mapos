@@ -137,21 +137,20 @@ export function PlaceCard({
       isLoadingRef.current = false;
       return;
     }
-    Promise.all([
-      window.api.fs.readFile(place.filePath),
-      window.api.properties.listAllKeys()
-    ]).then(([result, vaultKeys]) => {
-      if ("error" in result) {
+    Promise.all([window.api.fs.readFile(place.filePath), window.api.properties.listAllKeys()]).then(
+      ([result, vaultKeys]) => {
+        if ("error" in result) {
+          setLoading(false);
+          isLoadingRef.current = false;
+          return;
+        }
+        editor.commands.setContent(result.body, { contentType: "markdown" });
+        setFrontmatter(result.frontmatter);
+        setAllVaultKeys(vaultKeys);
         setLoading(false);
         isLoadingRef.current = false;
-        return;
       }
-      editor.commands.setContent(result.body, { contentType: "markdown" });
-      setFrontmatter(result.frontmatter);
-      setAllVaultKeys(vaultKeys);
-      setLoading(false);
-      isLoadingRef.current = false;
-    });
+    );
   }, [place.filePath, place.previewMarkdown, editor]);
 
   useEffect(() => {
@@ -258,9 +257,6 @@ export function PlaceCard({
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-medium text-sidebar-foreground/40 uppercase tracking-widest mb-0.5">
-              {place.type}
-            </p>
             <ErrorTooltip error={titleError}>
               <input
                 type="text"

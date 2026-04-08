@@ -175,7 +175,7 @@ function PropertyKey({
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
-      <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted outline-none">
+      <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted outline-none">
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
             {typeIcon(effective)}
@@ -292,7 +292,7 @@ function MultiSelectPropertyValue({
   );
 
   return (
-    <div className="relative min-w-0 w-full">
+    <div className="relative flex h-7 min-w-0 w-full items-center">
       <Popover
         open={open}
         onOpenChange={(v) => {
@@ -300,7 +300,7 @@ function MultiSelectPropertyValue({
           if (v) setDraft("");
         }}
       >
-        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent min-h-8">
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {items.length === 0 ? (
             <span className="text-muted-foreground">Empty</span>
           ) : (
@@ -419,10 +419,10 @@ function PropertyValue({
 
   if (type === "checkbox") {
     return (
-      <div className="relative min-w-0 w-full flex h-full">
+      <div className="relative flex h-7 min-w-0 w-full items-center">
         <button
           type="button"
-          className="flex w-full cursor-pointer items-center rounded px-2 py-1 transition-colors hover:bg-sidebar-accent"
+          className="flex h-full w-full cursor-pointer items-center rounded px-2 transition-colors hover:bg-sidebar-accent"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('[role="switch"]')) return;
             onValueChange(propKey, !(value === true || value === "true"));
@@ -440,9 +440,9 @@ function PropertyValue({
 
   if (type === "date") {
     return (
-      <div className="relative min-w-0 w-full">
+      <div className="relative flex h-7 min-w-0 w-full items-center">
         <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+          <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
             {isEmpty ? (
               <span className="text-muted-foreground">Empty</span>
             ) : (
@@ -471,7 +471,7 @@ function PropertyValue({
 
   // text / number
   return (
-    <div className="relative min-w-0 w-full">
+    <div className="relative flex h-7 min-w-0 w-full items-center">
       <Popover
         open={open}
         onOpenChange={(val) => {
@@ -479,7 +479,7 @@ function PropertyValue({
           if (!val) commitDraft();
         }}
       >
-        <PopoverTrigger className="flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {isEmpty ? (
             <span className="text-muted-foreground">Empty</span>
           ) : (
@@ -618,10 +618,10 @@ export function PropertiesPanel({
           <Reorder.Item
             key={key}
             value={key}
-            className="group grid grid-cols-2 items-center"
+            className="group grid h-7 grid-cols-2 items-center"
             as="div"
           >
-            <div className="min-w-0">
+            <div className="flex min-h-0 min-w-0 items-center">
               <PropertyKey
                 propKey={key}
                 value={localFrontmatter[key]}
@@ -630,20 +630,22 @@ export function PropertiesPanel({
                 onDelete={handleDelete}
               />
             </div>
-            <PropertyValue
-              propKey={key}
-              value={localFrontmatter[key]}
-              type={effectivePropertyType(localFrontmatter[key])}
-              onValueChange={handleValueChange}
-            />
+            <div className="flex min-h-0 min-w-0 items-center">
+              <PropertyValue
+                propKey={key}
+                value={localFrontmatter[key]}
+                type={effectivePropertyType(localFrontmatter[key])}
+                onValueChange={handleValueChange}
+              />
+            </div>
           </Reorder.Item>
         ))}
       </Reorder.Group>
 
-      <div className="grid grid-cols-2 items-center">
-        <div className="min-w-0">
+      <div className="grid h-7 grid-cols-2 items-center">
+        <div className="flex min-h-0 min-w-0 items-center">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
+            <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-muted-foreground hover:bg-muted transition-colors outline-none">
               <PlusIcon className="size-4" />
               Add property
             </DropdownMenuTrigger>

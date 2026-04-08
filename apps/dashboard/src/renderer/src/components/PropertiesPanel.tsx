@@ -1,5 +1,5 @@
 import { firstUniqueName } from "@renderer/lib/unique-name";
-import { z } from "zod";
+import { format } from "date-fns";
 import {
   CalendarIcon,
   CheckIcon,
@@ -14,8 +14,10 @@ import {
 } from "lucide-react";
 import { Reorder } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
 import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import { Calendar } from "./ui/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +34,50 @@ import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/;
+
+function isDatePropertyString(s: string): boolean {
+  return DATE_ONLY_RE.test(s) || DATE_TIME_RE.test(s);
+}
+
+/** Parse stored YYYY-MM-DD or local YYYY-MM-DDTHH:mm(:ss)? into a Date in local time. */
+function parseDatePropertyString(s: string): Date {
+  if (DATE_ONLY_RE.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (DATE_TIME_RE.test(s)) {
+    const [datePart, rest] = s.split("T");
+    const [y, mo, d] = datePart.split("-").map(Number);
+    const timePart = rest.replace(/Z$/, "");
+    const parts = timePart.split(":");
+    const h = Number.parseInt(parts[0] ?? "0", 10);
+    const mi = Number.parseInt(parts[1] ?? "0", 10);
+    const sec = Number.parseInt(parts[2] ?? "0", 10);
+    return new Date(y, mo - 1, d, h, mi, sec);
+  }
+  return new Date();
+}
+
+/** Serialize: date-only when midnight; otherwise local datetime without timezone. */
+function serializeDateProperty(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const h = d.getHours();
+  const mi = d.getMinutes();
+  const s = d.getSeconds();
+  if (h === 0 && mi === 0 && s === 0) return `${y}-${mo}-${da}`;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(mi).padStart(2, "0");
+  if (s !== 0) {
+    const ss = String(s).padStart(2, "0");
+    return `${y}-${mo}-${da}T${hh}:${mm}:${ss}`;
+  }
+  return `${y}-${mo}-${da}T${hh}:${mm}`;
+}
 
 const PROPERTY_TYPES: { value: PropertyType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <TextIcon className="size-4" /> },
@@ -57,7 +103,7 @@ const inferenceRules: Array<[PropertyType, z.ZodType]> = [
   ["multi_select", z.array(z.unknown())],
   ["checkbox", z.boolean()],
   ["number", z.number()],
-  ["date", z.string().regex(/^\d{4}-\d{2}-\d{2}$/)],
+  ["date", z.string().regex(/^(?:\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?)$/)]
 ];
 
 function inferPropertyType(value: unknown): PropertyType | null {
@@ -86,7 +132,7 @@ function coerceToType(value: unknown, type: PropertyType): unknown {
       }
       break;
     case "date":
-      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      if (typeof value === "string" && isDatePropertyString(value)) return value;
       break;
     case "checkbox":
       if (typeof value === "boolean") return value;
@@ -113,12 +159,8 @@ function isEmptyPropertyValue(value: unknown): boolean {
   return false;
 }
 
-
 /** Keys present anywhere in the vault but not yet on this file, sorted alphabetically. */
-function existingPropertyKeysNotOnFile(
-  allVaultKeys: string[],
-  fileKeys: string[]
-): string[] {
+function existingPropertyKeysNotOnFile(allVaultKeys: string[], fileKeys: string[]): string[] {
   const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
   const onFile = new Set(fileKeys);
   return allVaultKeys
@@ -333,10 +375,7 @@ function MultiSelectPropertyValue({
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === ",") {
                   e.preventDefault();
-                  const part =
-                    e.key === ","
-                      ? (draft.split(",")[0]?.trim() ?? "")
-                      : draft.trim();
+                  const part = e.key === "," ? (draft.split(",")[0]?.trim() ?? "") : draft.trim();
                   if (part) addToken(part);
                   setDraft("");
                 }
@@ -371,6 +410,132 @@ function MultiSelectPropertyValue({
                 )}
               </div>
             </ScrollArea>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+// ─── DatePropertyValue ───────────────────────────────────────────────────────
+
+function storedDateHasNonMidnightTime(value: unknown): boolean {
+  if (typeof value !== "string" || !isDatePropertyString(value)) return false;
+  const d = parseDatePropertyString(value);
+  return d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0;
+}
+
+function DatePropertyValue({
+  propKey,
+  value,
+  isEmpty,
+  onValueChange
+}: {
+  propKey: string;
+  value: unknown;
+  isEmpty: boolean;
+  onValueChange: (key: string, value: unknown) => void;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [timeEnabled, setTimeEnabled] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTimeEnabled(storedDateHasNonMidnightTime(value));
+    }
+  }, [open, value]);
+
+  const hasDate = typeof value === "string" && isDatePropertyString(value);
+  const selected = hasDate ? parseDatePropertyString(value) : undefined;
+  const timeInputValue = `${String(selected?.getHours() ?? 0).padStart(2, "0")}:${String(
+    selected?.getMinutes() ?? 0
+  ).padStart(2, "0")}`;
+
+  function commitFromDate(d: Date): void {
+    onValueChange(propKey, serializeDateProperty(d));
+  }
+
+  function handleTimeToggle(checked: boolean): void {
+    setTimeEnabled(checked);
+    if (!checked && selected) {
+      const d = new Date(selected);
+      d.setHours(0, 0, 0, 0);
+      commitFromDate(d);
+    }
+  }
+
+  return (
+    <div className="relative flex h-7 min-w-0 w-full items-center">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+          <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          {isEmpty || !hasDate ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            <span className="truncate text-sidebar-foreground">
+              {selected &&
+                (timeInputValue === "00:00"
+                  ? format(selected, "PPP")
+                  : `${format(selected, "PPP")} · ${format(selected, "p")}`)}
+            </span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="start" className="w-auto p-0">
+          <div className="flex flex-col gap-0">
+            <Calendar
+              mode="single"
+              selected={selected}
+              onSelect={(d) => {
+                if (!d) return;
+                const next = new Date(d);
+                if (timeEnabled && selected) {
+                  next.setHours(
+                    selected.getHours(),
+                    selected.getMinutes(),
+                    selected.getSeconds(),
+                    0
+                  );
+                } else {
+                  next.setHours(0, 0, 0, 0);
+                }
+                commitFromDate(next);
+              }}
+              defaultMonth={selected ?? new Date()}
+              className="bg-transparent"
+            />
+            {selected ? (
+              <div className="border-t border-border">
+                <div
+                  className="flex items-center justify-between gap-3 px-3 py-2"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-xs text-muted-foreground">Time</span>
+                  <Switch size="sm" checked={timeEnabled} onCheckedChange={handleTimeToggle} />
+                </div>
+                {timeEnabled ? (
+                  <div className="px-3 pb-2">
+                    <Input
+                      type="time"
+                      step={60}
+                      value={timeInputValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const [hh, mm] = v.split(":").map((x) => Number.parseInt(x, 10));
+                        const base = new Date(selected);
+                        base.setHours(
+                          Number.isFinite(hh) ? hh : 0,
+                          Number.isFinite(mm) ? mm : 0,
+                          0,
+                          0
+                        );
+                        commitFromDate(base);
+                      }}
+                      className="h-8 w-full bg-transparent text-sm appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </PopoverContent>
       </Popover>
@@ -440,32 +605,12 @@ function PropertyValue({
 
   if (type === "date") {
     return (
-      <div className="relative flex h-7 min-w-0 w-full items-center">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-            {isEmpty ? (
-              <span className="text-muted-foreground">Empty</span>
-            ) : (
-              <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
-            )}
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="start" className="w-auto p-2">
-            <input
-              type="date"
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                onValueChange(propKey, e.target.value);
-                setOpen(false);
-              }}
-              className="rounded border border-input bg-transparent px-2 py-1 text-sm text-sidebar-foreground outline-none focus:ring-1 focus:ring-ring"
-              ref={(el) => {
-                if (el) el.focus();
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
+      <DatePropertyValue
+        propKey={propKey}
+        value={value}
+        isEmpty={isEmpty}
+        onValueChange={onValueChange}
+      />
     );
   }
 

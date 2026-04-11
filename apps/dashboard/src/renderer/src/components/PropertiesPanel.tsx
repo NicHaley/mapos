@@ -351,24 +351,26 @@ function MultiSelectPropertyValue({
         </PopoverTrigger>
         <PopoverContent side="bottom" align="start" className="w-72 p-2">
           <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap gap-1">
-              {items.map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-[11px] text-sidebar-foreground/80"
-                >
-                  <span className="truncate">{t}</span>
-                  <button
-                    type="button"
-                    className="rounded p-0.5 hover:bg-sidebar-border/60 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0"
-                    aria-label={`Remove ${t}`}
-                    onClick={() => removeToken(t)}
+            {items.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {items.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-[11px] text-sidebar-foreground/80"
                   >
-                    <XIcon className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
+                    <span className="truncate">{t}</span>
+                    <button
+                      type="button"
+                      className="rounded p-0.5 hover:bg-sidebar-border/60 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0"
+                      aria-label={`Remove ${t}`}
+                      onClick={() => removeToken(t)}
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <Input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -387,7 +389,7 @@ function MultiSelectPropertyValue({
               placeholder="Add value…"
               className="h-7 text-sm"
             />
-            <ScrollArea className="h-28 rounded-md border border-sidebar-border">
+            <ScrollArea className="h-28 rounded-md">
               <div className="flex flex-col p-1">
                 {filtered.length === 0 ? (
                   <span className="text-xs text-sidebar-foreground/60 px-1 py-1">
@@ -468,7 +470,7 @@ function DatePropertyValue({
     <div className="relative flex h-7 min-w-0 w-full items-center">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-          <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden />
+          {/* <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden /> */}
           {isEmpty || !hasDate ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (

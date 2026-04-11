@@ -1,15 +1,17 @@
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { useDebouncedCallback } from "@renderer/hooks/useDebouncedCallback";
 import { cn } from "@renderer/lib/utils";
+import type { Editor } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
-import { AutoSizeTextArea } from "./autosize-text-area";
 import { PropertiesPanel } from "./PropertiesPanel";
+import { AutoSizeTextArea } from "./autosize-text-area";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
 
@@ -25,43 +27,44 @@ function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
   return result;
 }
 
-export function PlaceCard({
-  place,
-  onClose,
-  mode = "mini",
-  onExpand,
-  onNavigate,
-  onSaveSearchToVault
-}: {
-  place: PlaceRecord;
-  onClose: () => void;
-  mode?: "mini" | "full";
-  onExpand?: () => void;
+type LoadedDoc =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "vault"; body: string; frontmatter: Record<string, unknown>; keys: string[] }
+  | { kind: "preview"; body: string };
+
+type PlaceCardMarkdownPaneProps = {
+  filePath: string;
+  initialMarkdown: string;
+  isPreview: boolean;
+  mode: "mini" | "full";
+  isDark: boolean;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
-  /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
-  onSaveSearchToVault?: () => Promise<void>;
-}): React.JSX.Element {
-  const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
-  const [loading, setLoading] = useState(false);
-  const [savingSearch, setSavingSearch] = useState(false);
-  const [titleError, setTitleError] = useState<string | null>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const isLoadingRef = useRef(false);
+  onEditorReady: (editor: Editor | null) => void;
+};
+
+function PlaceCardMarkdownPane({
+  filePath,
+  initialMarkdown,
+  isPreview,
+  mode,
+  isDark,
+  onNavigate,
+  onEditorReady
+}: PlaceCardMarkdownPaneProps): React.JSX.Element {
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
-  const currentFilePathRef = useRef(currentFilePath);
-  currentFilePathRef.current = currentFilePath;
+  const currentPathRef = useRef(filePath);
+  currentPathRef.current = filePath;
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
-  const isDark = useDarkMode();
+
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
-  const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({});
-  const [allVaultKeys, setAllVaultKeys] = useState<string[]>([]);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
-  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
-  const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
-  const [titleInput, setTitleInput] = useState(currentTitle);
+  const debouncedPersist = useDebouncedCallback((markdown: string) => {
+    void window.api.fs.writePlaceBody(filePath, markdown);
+  }, 600);
 
   const editor = useEditor({
     extensions: [
@@ -81,8 +84,7 @@ export function PlaceCard({
             const q = query.toLowerCase();
             return vaultFilesRef.current
               .filter(
-                (f) =>
-                  f.filePath !== currentFilePathRef.current && f.title.toLowerCase().includes(q)
+                (f) => f.filePath !== currentPathRef.current && f.title.toLowerCase().includes(q)
               )
               .slice(0, 20);
           }
@@ -94,12 +96,214 @@ export function PlaceCard({
         class:
           "prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground min-h-[4rem] focus:outline-none"
       }
-    },
-    onUpdate({ editor: e }) {
-      if (isLoadingRef.current) return;
-      handleEditorChange(e.getMarkdown());
     }
   });
+
+  useEffect(() => {
+    void window.api.fs.listDir().then((nodes) => {
+      vaultFilesRef.current = flattenMdFiles(nodes);
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!editor) return;
+    editor.commands.setContent(initialMarkdown, { contentType: "markdown" });
+  }, [editor, initialMarkdown]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!isPreview);
+  }, [editor, isPreview]);
+
+  useEffect(() => {
+    onEditorReady(editor);
+    return () => onEditorReady(null);
+  }, [editor, onEditorReady]);
+
+  useEffect(() => {
+    if (!editor || isPreview) return;
+    const onDocUpdate = () => {
+      debouncedPersist(editor.getMarkdown());
+    };
+    editor.on("update", onDocUpdate);
+    return () => {
+      editor.off("update", onDocUpdate);
+    };
+  }, [editor, isPreview, debouncedPersist]);
+
+  function openLinkInput() {
+    const existing = editor?.getAttributes("link").href as string | undefined;
+    setLinkUrl(existing ?? "");
+    setShowLinkInput(true);
+    setTimeout(() => linkInputRef.current?.focus(), 0);
+  }
+
+  function applyLink() {
+    if (!editor) return;
+    const url = linkUrl.trim();
+    if (url) {
+      editor.chain().focus().setLink({ href: url }).run();
+    } else {
+      editor.chain().focus().unsetLink().run();
+    }
+    setShowLinkInput(false);
+    setLinkUrl("");
+  }
+
+  function handleLinkKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") applyLink();
+    if (e.key === "Escape") {
+      setShowLinkInput(false);
+      setLinkUrl("");
+    }
+  }
+
+  return (
+    <ScrollArea className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
+      {editor && (
+        <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
+          {showLinkInput ? (
+            <div className="flex items-center gap-1.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg px-2.5 py-1.5">
+              <Link2Icon className="size-3 text-sidebar-foreground/40 shrink-0" />
+              <input
+                ref={linkInputRef}
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={handleLinkKeyDown}
+                placeholder="https://…"
+                className="text-xs bg-transparent outline-none text-sidebar-foreground w-44 placeholder:text-sidebar-foreground/30"
+              />
+              <button
+                type="button"
+                onClick={applyLink}
+                className="text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+              >
+                Apply
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-0.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg p-1">
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBold().run()}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
+                  editor.isActive("bold")
+                    ? "bg-sidebar-accent text-sidebar-foreground"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                )}
+              >
+                B
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleItalic().run()}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-xs italic transition-colors",
+                  editor.isActive("italic")
+                    ? "bg-sidebar-accent text-sidebar-foreground"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                )}
+              >
+                I
+              </button>
+              <div className="w-px h-3.5 bg-sidebar-border mx-0.5" />
+              {editor.isActive("link") ? (
+                <button
+                  type="button"
+                  onClick={() => editor.chain().focus().unsetLink().run()}
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  title="Remove link"
+                >
+                  <Link2OffIcon className="size-3" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openLinkInput}
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  title="Add link"
+                >
+                  <Link2Icon className="size-3" />
+                </button>
+              )}
+            </div>
+          )}
+        </BubbleMenu>
+      )}
+      <EditorContent editor={editor} className={cn(isDark && "dark")} />
+    </ScrollArea>
+  );
+}
+
+export function PlaceCard({
+  place,
+  onClose,
+  mode = "mini",
+  onExpand,
+  onNavigate,
+  onSaveSearchToVault
+}: {
+  place: PlaceRecord;
+  onClose: () => void;
+  mode?: "mini" | "full";
+  onExpand?: () => void;
+  onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
+  /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
+  onSaveSearchToVault?: () => Promise<void>;
+}): React.JSX.Element {
+  const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
+  const [doc, setDoc] = useState<LoadedDoc>(() =>
+    place.previewMarkdown !== undefined
+      ? { kind: "preview", body: place.previewMarkdown ?? "" }
+      : { kind: "loading" }
+  );
+  const [savingSearch, setSavingSearch] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const isDark = useDarkMode();
+
+  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
+  const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
+  const [titleInput, setTitleInput] = useState(currentTitle);
+
+  const loading = doc.kind === "loading";
+
+  const onEditorReady = useCallback((ed: Editor | null) => {
+    editorRef.current = ed;
+  }, []);
+
+  useEffect(() => {
+    setCurrentFilePath(place.filePath);
+  }, [place.filePath]);
+
+  useEffect(() => {
+    if (place.previewMarkdown !== undefined) {
+      setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
+      return;
+    }
+    setDoc({ kind: "loading" });
+    let cancelled = false;
+    void Promise.all([
+      window.api.fs.readFile(place.filePath),
+      window.api.properties.listAllKeys()
+    ]).then(([result, vaultKeys]) => {
+      if (cancelled) return;
+      if ("error" in result) {
+        setDoc({ kind: "error", message: result.error });
+        return;
+      }
+      setDoc({
+        kind: "vault",
+        body: result.body,
+        frontmatter: result.frontmatter,
+        keys: vaultKeys
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [place.filePath, place.previewMarkdown]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -121,58 +325,6 @@ export function PlaceCard({
   useEffect(() => {
     setTitleInput(currentTitle);
   }, [currentTitle]);
-
-  useEffect(() => {
-    if (!editor) return;
-    editor.setEditable(place.previewMarkdown === undefined);
-  }, [editor, place.previewMarkdown]);
-
-  useEffect(() => {
-    if (!editor) return;
-    setCurrentFilePath(place.filePath);
-    setLoading(true);
-    isLoadingRef.current = true;
-    if (place.previewMarkdown !== undefined) {
-      editor.commands.setContent(place.previewMarkdown || "", { contentType: "markdown" });
-      setLoading(false);
-      isLoadingRef.current = false;
-      return;
-    }
-    Promise.all([window.api.fs.readFile(place.filePath), window.api.properties.listAllKeys()]).then(
-      ([result, vaultKeys]) => {
-        if ("error" in result) {
-          setLoading(false);
-          isLoadingRef.current = false;
-          return;
-        }
-        editor.commands.setContent(result.body, { contentType: "markdown" });
-        setFrontmatter(result.frontmatter);
-        setAllVaultKeys(vaultKeys);
-        setLoading(false);
-        isLoadingRef.current = false;
-      }
-    );
-  }, [place.filePath, place.previewMarkdown, editor]);
-
-  useEffect(() => {
-    window.api.fs.listDir().then((nodes) => {
-      vaultFilesRef.current = flattenMdFiles(nodes);
-    });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, []);
-
-  function handleEditorChange(markdown: string) {
-    if (place.previewMarkdown !== undefined) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      await window.api.fs.writePlaceBody(currentFilePath, markdown);
-    }, 600);
-  }
 
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
@@ -207,34 +359,7 @@ export function PlaceCard({
     setTitleError(error);
     if (!error) {
       (document.activeElement as HTMLElement | null)?.blur();
-      editor?.commands.focus();
-    }
-  }
-
-  function openLinkInput() {
-    const existing = editor?.getAttributes("link").href as string | undefined;
-    setLinkUrl(existing ?? "");
-    setShowLinkInput(true);
-    setTimeout(() => linkInputRef.current?.focus(), 0);
-  }
-
-  function applyLink() {
-    if (!editor) return;
-    const url = linkUrl.trim();
-    if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
-    } else {
-      editor.chain().focus().unsetLink().run();
-    }
-    setShowLinkInput(false);
-    setLinkUrl("");
-  }
-
-  function handleLinkKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") applyLink();
-    if (e.key === "Escape") {
-      setShowLinkInput(false);
-      setLinkUrl("");
+      editorRef.current?.chain().focus().run();
     }
   }
 
@@ -318,92 +443,30 @@ export function PlaceCard({
         </div>
 
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
-        {place.previewMarkdown === undefined && !loading && (
+        {place.previewMarkdown === undefined && doc.kind === "vault" && (
           <PropertiesPanel
             filePath={currentFilePath}
-            frontmatter={frontmatter}
-            allVaultKeys={allVaultKeys}
+            frontmatter={doc.frontmatter}
+            allVaultKeys={doc.keys}
           />
         )}
 
         {/* Body content */}
-        {!loading && (
-          <ScrollArea
-            className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}
-          >
-            {editor && (
-              <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
-                {showLinkInput ? (
-                  <div className="flex items-center gap-1.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg px-2.5 py-1.5">
-                    <Link2Icon className="size-3 text-sidebar-foreground/40 shrink-0" />
-                    <input
-                      ref={linkInputRef}
-                      value={linkUrl}
-                      onChange={(e) => setLinkUrl(e.target.value)}
-                      onKeyDown={handleLinkKeyDown}
-                      placeholder="https://…"
-                      className="text-xs bg-transparent outline-none text-sidebar-foreground w-44 placeholder:text-sidebar-foreground/30"
-                    />
-                    <button
-                      type="button"
-                      onClick={applyLink}
-                      className="text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-0.5 bg-sidebar border border-sidebar-border rounded-lg shadow-lg p-1">
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleBold().run()}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
-                        editor.isActive("bold")
-                          ? "bg-sidebar-accent text-sidebar-foreground"
-                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                      )}
-                    >
-                      B
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleItalic().run()}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-xs italic transition-colors",
-                        editor.isActive("italic")
-                          ? "bg-sidebar-accent text-sidebar-foreground"
-                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                      )}
-                    >
-                      I
-                    </button>
-                    <div className="w-px h-3.5 bg-sidebar-border mx-0.5" />
-                    {editor.isActive("link") ? (
-                      <button
-                        type="button"
-                        onClick={() => editor.chain().focus().unsetLink().run()}
-                        className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                        title="Remove link"
-                      >
-                        <Link2OffIcon className="size-3" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={openLinkInput}
-                        className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                        title="Add link"
-                      >
-                        <Link2Icon className="size-3" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </BubbleMenu>
-            )}
-            <EditorContent editor={editor} className={cn(isDark && "dark")} />
-          </ScrollArea>
+        {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
+        {doc.kind === "error" && (
+          <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
+        )}
+        {!loading && doc.kind !== "error" && (
+          <PlaceCardMarkdownPane
+            key={currentFilePath}
+            filePath={currentFilePath}
+            initialMarkdown={doc.body}
+            isPreview={doc.kind === "preview"}
+            mode={mode}
+            isDark={isDark}
+            onNavigate={onNavigate}
+            onEditorReady={onEditorReady}
+          />
         )}
 
         {/* Footer: coords + file */}

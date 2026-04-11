@@ -9,6 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
+import { AutoSizeTextArea } from "./autosize-text-area";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
@@ -200,15 +201,13 @@ export function PlaceCard({
     }
   }
 
-  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const error = validateTitle(titleInput);
-      setTitleError(error);
-      if (!error) {
-        e.currentTarget.blur();
-        editor?.commands.focus();
-      }
+  function handleTitleEnter() {
+    if (place.previewMarkdown !== undefined) return;
+    const error = validateTitle(titleInput);
+    setTitleError(error);
+    if (!error) {
+      (document.activeElement as HTMLElement | null)?.blur();
+      editor?.commands.focus();
     }
   }
 
@@ -258,23 +257,23 @@ export function PlaceCard({
         <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
           <div className="flex-1 min-w-0">
             <ErrorTooltip error={titleError}>
-              <input
-                type="text"
-                value={titleInput}
-                readOnly={place.previewMarkdown !== undefined}
-                onChange={(e) => {
-                  setTitleInput(e.target.value);
-                  setTitleError(validateTitle(e.target.value));
-                }}
+              <AutoSizeTextArea
                 aria-label="Place name"
-                onBlur={handleTitleBlur}
-                onKeyDown={handleTitleKeyDown}
-                spellCheck={false}
                 className={cn(
-                  "w-full min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors focus:outline-none bg-transparent border-0 p-0 shadow-none",
+                  "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
                   place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
                   titleError && "ring-2 ring-inset ring-destructive"
                 )}
+                onBlur={handleTitleBlur}
+                onChange={(v) => {
+                  const singleLine = v.replace(/\r?\n/g, " ");
+                  setTitleInput(singleLine);
+                  setTitleError(validateTitle(singleLine));
+                }}
+                onEnter={handleTitleEnter}
+                placeholder=""
+                readOnly={place.previewMarkdown !== undefined}
+                value={titleInput}
               />
             </ErrorTooltip>
           </div>

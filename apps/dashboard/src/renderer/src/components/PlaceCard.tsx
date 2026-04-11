@@ -1,7 +1,6 @@
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { cn } from "@renderer/lib/utils";
-import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -66,8 +65,9 @@ export function PlaceCard({
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false }),
+      StarterKit.configure({
+        link: { openOnClick: false }
+      }),
       Markdown,
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {

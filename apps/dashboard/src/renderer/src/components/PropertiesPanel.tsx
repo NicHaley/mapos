@@ -356,7 +356,7 @@ function MultiSelectPropertyValue({
                 {items.map((t) => (
                   <span
                     key={t}
-                    className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-[11px] text-sidebar-foreground/80"
+                    className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-sidebar-accent pl-2 pr-0.5 py-0.5 text-sm text-sidebar-foreground/80"
                   >
                     <span className="truncate">{t}</span>
                     <button
@@ -389,8 +389,8 @@ function MultiSelectPropertyValue({
               placeholder="Add value…"
               className="h-7 text-sm"
             />
-            <ScrollArea className="h-28 rounded-md">
-              <div className="flex flex-col p-1">
+            <ScrollArea className="max-h-28 rounded-md">
+              <div className="flex flex-col">
                 {filtered.length === 0 ? (
                   <span className="text-xs text-sidebar-foreground/60 px-1 py-1">
                     {suggestions.length === 0 ? "No other values in vault yet" : "No matches"}
@@ -400,7 +400,7 @@ function MultiSelectPropertyValue({
                     <button
                       key={s}
                       type="button"
-                      className="rounded px-2 py-1.5 text-left text-xs text-sidebar-foreground hover:bg-sidebar-accent truncate"
+                      className="relative flex w-full cursor-default select-none items-center rounded-md py-1 pl-1.5 pr-2 text-left text-sm text-popover-foreground outline-hidden transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 truncate"
                       onClick={() => {
                         addToken(s);
                         setDraft("");

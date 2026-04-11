@@ -683,17 +683,17 @@ The agent working directory (cwd) for this session is set to that folder. The en
 
 ## Place files and frontmatter
 
-Place files use Markdown with YAML frontmatter. Required frontmatter: `geometry` (WKT string). `geometry` and `color` have special meaning to the map renderer — do not reuse those key names for other purposes.
+Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\` and \`color\` have special meaning to the map renderer — do not reuse those key names for other purposes.
 
 Write frontmatter values using the correct YAML type so they round-trip properly:
 
-- **number** — bare numeric literal: `rating: 4`
-- **boolean** — bare literal: `visited: true`
-- **date** — unquoted ISO string: `date: 2026-01-15` or `date: 2026-01-15T14:00`
-- **array** (tag-style fields like `tags`, `cuisine`) — YAML array: `tags: [ramen, tokyo]`
+- **number** — bare numeric literal: \`rating: 4\`
+- **boolean** — bare literal: \`visited: true\`
+- **date** — unquoted ISO string: \`date: 2026-01-15\` or \`date: 2026-01-15T14:00\`
+- **array** (tag-style fields like \`tags\`, \`cuisine\`) — YAML array: \`tags: [ramen, tokyo]\`
 - **text** — anything else
 
-`query_spatial_index` can filter by any array or text property via `filters.properties`.
+\`query_spatial_index\` can filter by any array or text property via \`filters.properties\`.
 
 Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.
 

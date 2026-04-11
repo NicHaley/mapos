@@ -1,3 +1,5 @@
+import { useDebouncedCallback } from "@renderer/hooks/useDebouncedCallback";
+import { bbox } from "@turf/bbox";
 import {
   forwardRef,
   useCallback,
@@ -7,8 +9,6 @@ import {
   useRef,
   useState
 } from "react";
-import "maplibre-gl/dist/maplibre-gl.css";
-import { bbox } from "@turf/bbox";
 import MapGL, {
   Layer,
   type MapLayerMouseEvent,
@@ -16,6 +16,7 @@ import MapGL, {
   Marker,
   Source
 } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";
@@ -158,7 +159,6 @@ const MapView = forwardRef<
   const mapRef = useRef<MapRef>(null);
   const mapStyle = useDarkMapStyle();
 
-  const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
 
@@ -275,25 +275,32 @@ const MapView = forwardRef<
     [fitToFolder]
   );
 
+  const sendViewport = useDebouncedCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = map.getBounds();
+    if (!b) return;
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    window.api.map.sendViewport({
+      north: b.getNorth(),
+      south: b.getSouth(),
+      east: b.getEast(),
+      west: b.getWest(),
+      centerLat: center.lat,
+      centerLng: center.lng,
+      zoom
+    });
+    localStorage.setItem(
+      "mapos-viewport",
+      JSON.stringify({ longitude: center.lng, latitude: center.lat, zoom })
+    );
+  }, 150);
+
   const debouncedMove = useCallback(() => {
     emitFeaturePosition();
-    if (boundsTimer.current) clearTimeout(boundsTimer.current);
-    boundsTimer.current = setTimeout(() => {
-      const map = mapRef.current;
-      if (!map) return;
-      const b = map.getBounds();
-      if (!b) return;
-      window.api.map.sendViewport({
-        north: b.getNorth(),
-        south: b.getSouth(),
-        east: b.getEast(),
-        west: b.getWest(),
-        centerLat: map.getCenter().lat,
-        centerLng: map.getCenter().lng,
-        zoom: map.getZoom()
-      });
-    }, 150);
-  }, [emitFeaturePosition]);
+    sendViewport();
+  }, [emitFeaturePosition, sendViewport]);
 
   useEffect(() => {
     // File changed on disk — refresh folder places without moving the camera
@@ -308,7 +315,7 @@ const MapView = forwardRef<
     return () => {
       window.api.places.removeListeners();
       window.api.map.removeListeners();
-      if (boundsTimer.current) clearTimeout(boundsTimer.current);
+      sendViewport.cancel();
     };
   }, [loadFolderPlaces]);
 
@@ -487,7 +494,16 @@ const MapView = forwardRef<
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <MapGL
         ref={mapRef}
-        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+        initialViewState={(() => {
+          try {
+            const saved = localStorage.getItem("mapos-viewport");
+            if (saved)
+              return JSON.parse(saved) as { longitude: number; latitude: number; zoom: number };
+          } catch {
+            // ignore
+          }
+          return { longitude: 0, latitude: 20, zoom: 2 };
+        })()}
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
         onMove={debouncedMove}
@@ -577,28 +593,29 @@ const MapView = forwardRef<
             />
           </Source>
         )}
-        {showOverlay && overlay.points.map((p) => (
-          <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-            <button
-              type="button"
-              title={p.title}
-              onPointerDown={(ev) => ev.stopPropagation()}
-              onClick={(ev) => {
-                ev.stopPropagation();
-                onSelectPlace?.(placeFromOverlayPoint(p));
-              }}
-              className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: "50%",
-                backgroundColor: "#8b5cf6",
-                border: "2px dashed white",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.4)"
-              }}
-            />
-          </Marker>
-        ))}
+        {showOverlay &&
+          overlay.points.map((p) => (
+            <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
+              <button
+                type="button"
+                title={p.title}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onSelectPlace?.(placeFromOverlayPoint(p));
+                }}
+                className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: "50%",
+                  backgroundColor: "#8b5cf6",
+                  border: "2px dashed white",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)"
+                }}
+              />
+            </Marker>
+          ))}
         {showOverlay && hasOverlayGeoJSON && (
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>

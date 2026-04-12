@@ -580,38 +580,6 @@ export function PlaceCard({
             onEditorReady={onEditorReady}
           />
         )}
-
-        {/* Footer: coords + file */}
-        <div className="border-t border-sidebar-border px-4 py-2.5 flex items-center justify-between gap-2 shrink-0 mt-auto">
-          <div className="flex items-center gap-1.5 text-[11px] text-sidebar-foreground/40">
-            <MapPinIcon className="size-3 shrink-0" />
-            <span>
-              {(() => {
-                try {
-                  if (!place.geometry) return "—";
-                  const geo = JSON.parse(place.geometry) as {
-                    type: string;
-                    coordinates: [number, number];
-                  };
-                  if (geo.type === "Point") {
-                    return `${geo.coordinates[1].toFixed(4)}, ${geo.coordinates[0].toFixed(4)}`;
-                  }
-                  return geo.type;
-                } catch {
-                  return "—";
-                }
-              })()}
-            </span>
-          </div>
-          {place.previewMarkdown === undefined ? (
-            <span
-              className="text-[11px] text-sidebar-foreground/30 truncate max-w-[100px]"
-              title={currentFilePath}
-            >
-              {fileName}
-            </span>
-          ) : null}
-        </div>
       </div>
     </div>
   );

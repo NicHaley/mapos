@@ -753,7 +753,7 @@ export function PropertiesPanel({
   }
 
   return (
-    <div className="px-2 py-1 text-sidebar-foreground">
+    <div className="px-2 pb-6 text-sidebar-foreground">
       <Reorder.Group
         axis="y"
         values={fileKeys}

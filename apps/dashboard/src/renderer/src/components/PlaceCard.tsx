@@ -22,7 +22,6 @@ import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { PhotonSearchPanel } from "./PhotonSearchPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { AutoSizeTextArea } from "./autosize-text-area";
-import { Button } from "./ui/button";
 import { InputGroupButton } from "./ui/input-group";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
 import { ScrollArea } from "./ui/scroll-area";
@@ -504,7 +503,7 @@ export function PlaceCard({
         </div>
 
         {place.previewMarkdown === undefined && onCommitPointLocation && (
-          <div className="px-2 pb-2 shrink-0">
+          <div className="px-2 pb-4 shrink-0">
             <Popover
               open={addLocationOpen}
               onOpenChange={handleAddLocationOpenChange}
@@ -512,21 +511,19 @@ export function PlaceCard({
             >
               <PopoverTrigger
                 render={
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent dark:hover:bg-sidebar-accent"
+                    className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none"
                   >
                     {place.geometry ? (
-                      <MapPinIcon className="size-3.5 shrink-0" />
+                      <MapPinIcon className="size-4 shrink-0" />
                     ) : (
-                      <MapPinPlus className="size-3.5 shrink-0" />
+                      <MapPinPlus className="size-4 shrink-0" />
                     )}
                     <span className="truncate">
                       {place.geometry ? formatPointLocationShort(place.geometry) : "Add a location"}
                     </span>
-                  </Button>
+                  </button>
                 }
               />
               <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>

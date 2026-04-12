@@ -29,10 +29,10 @@ import type {
 } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
 import {
+  getAllPropertyKeys,
   getFeatureCount,
   indexFeatures,
   initDb,
-  getAllPropertyKeys,
   queryDistinctValuesForKey,
   queryFolderAll,
   querySpatialIndex,
@@ -90,7 +90,10 @@ function uniquePathInDir(
   return candidate;
 }
 
-function collectPropertyKeysFromData(data: Record<string, unknown>, keyCollector: Set<string>): void {
+function collectPropertyKeysFromData(
+  data: Record<string, unknown>,
+  keyCollector: Set<string>
+): void {
   for (const key of Object.keys(data)) {
     if (!(RESERVED_PROPERTY_KEYS as readonly string[]).includes(key)) {
       keyCollector.add(key);
@@ -345,30 +348,27 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   );
 
   // Rewrite frontmatter with keys in the given order, preserving all values and the body.
-  ipcMain.handle(
-    "fs:reorder-frontmatter",
-    async (_event, filePath: string, keyOrder: string[]) => {
-      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-      if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
-        return { success: false, error: "Path outside vault" };
-      try {
-        const raw = await readFile(filePath, "utf-8");
-        const parsed = matter(raw);
-        const reordered: Record<string, unknown> = {};
-        for (const key of keyOrder) {
-          if (Object.hasOwn(parsed.data, key)) reordered[key] = parsed.data[key];
-        }
-        // Append any keys not in keyOrder (shouldn't happen, but be safe)
-        for (const key of Object.keys(parsed.data)) {
-          if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
-        }
-        writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
-        return { success: true };
-      } catch (err) {
-        return { success: false, error: String(err) };
+  ipcMain.handle("fs:reorder-frontmatter", async (_event, filePath: string, keyOrder: string[]) => {
+    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+      return { success: false, error: "Path outside vault" };
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const parsed = matter(raw);
+      const reordered: Record<string, unknown> = {};
+      for (const key of keyOrder) {
+        if (Object.hasOwn(parsed.data, key)) reordered[key] = parsed.data[key];
       }
+      // Append any keys not in keyOrder (shouldn't happen, but be safe)
+      for (const key of Object.keys(parsed.data)) {
+        if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
+      }
+      writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
     }
-  );
+  });
 
   ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeys());
 

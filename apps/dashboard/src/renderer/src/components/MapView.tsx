@@ -131,7 +131,8 @@ const MapView = forwardRef<
   {
     onSelectPlace?: (place: PlaceRecord) => void;
     onCreatePlace?: (place: PlaceRecord) => void;
-    onMapClickEmpty?: () => void;
+    /** Fired when the user clicks the map background (no place/overlay feature). */
+    onMapClickEmpty?: (pos: { lng: number; lat: number }) => void;
     selectedPlace?: PlaceRecord | null;
     selectedFolder?: string | null;
     /** Where new notes are created (context menu): explicit folder, or parent of last vault file. */
@@ -475,7 +476,7 @@ const MapView = forwardRef<
           /* invalid */
         }
       }
-      onMapClickEmpty?.();
+      onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     },
     [folderPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
   );
@@ -489,6 +490,9 @@ const MapView = forwardRef<
     }
     return ids;
   }, [folderGeoJSON, selectedGeoJSON, hasOverlayGeoJSON]);
+
+  /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
+  const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -508,7 +512,7 @@ const MapView = forwardRef<
         mapStyle={mapStyle}
         onMove={debouncedMove}
         onContextMenu={handleContextMenu}
-        interactiveLayerIds={interactiveLayerIds}
+        interactiveLayerIds={interactiveLayerIdsProp}
         onClick={handleLayerClick}
       >
         {folderGeoJSON && (

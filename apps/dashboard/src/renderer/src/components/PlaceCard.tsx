@@ -1,19 +1,49 @@
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/useDebouncedCallback";
+import type { PhotonSearchResult } from "@renderer/lib/photon";
 import { cn } from "@renderer/lib/utils";
 import type { Editor } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
-import { Link2Icon, Link2OffIcon, MapPinIcon, Maximize2Icon, PlusIcon, XIcon } from "lucide-react";
+import {
+  Link2Icon,
+  Link2OffIcon,
+  MapPinIcon,
+  MapPinPlus,
+  Maximize2Icon,
+  PlusIcon,
+  XIcon
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
+import { PhotonSearchPanel } from "./PhotonSearchPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { AutoSizeTextArea } from "./autosize-text-area";
+import { Button } from "./ui/button";
+import { InputGroupButton } from "./ui/input-group";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
 import { ScrollArea } from "./ui/scroll-area";
 import { ErrorTooltip } from "./ui/tooltip";
+
+function formatPointLocationShort(geometryJson: string | undefined): string {
+  if (!geometryJson) return "";
+  try {
+    const geo = JSON.parse(geometryJson) as {
+      type: string;
+      coordinates: [number, number];
+    };
+    if (geo.type === "Point" && Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+      const [lng, lat] = geo.coordinates;
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return "Location";
+}
 
 function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
   const result: WikilinkItem[] = [];
@@ -242,7 +272,9 @@ export function PlaceCard({
   mode = "mini",
   onExpand,
   onNavigate,
-  onSaveSearchToVault
+  onSaveSearchToVault,
+  onCommitPointLocation,
+  onClearPointLocation
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -251,6 +283,10 @@ export function PlaceCard({
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
   /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
   onSaveSearchToVault?: () => Promise<void>;
+  /** Persist a point to the vault file; return whether the write succeeded. */
+  onCommitPointLocation?: (filePath: string, lat: number, lng: number) => Promise<boolean>;
+  /** Remove `geometry` from the vault file. */
+  onClearPointLocation?: (filePath: string) => Promise<boolean>;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [doc, setDoc] = useState<LoadedDoc>(() =>
@@ -260,6 +296,7 @@ export function PlaceCard({
   );
   const [savingSearch, setSavingSearch] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
+  const [addLocationOpen, setAddLocationOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
   const isDark = useDarkMode();
 
@@ -278,6 +315,7 @@ export function PlaceCard({
   }, [place.filePath]);
 
   useEffect(() => {
+    void place.geometry;
     if (place.previewMarkdown !== undefined) {
       setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
       return;
@@ -303,7 +341,7 @@ export function PlaceCard({
     return () => {
       cancelled = true;
     };
-  }, [place.filePath, place.previewMarkdown]);
+  }, [place.filePath, place.previewMarkdown, place.geometry]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -325,6 +363,29 @@ export function PlaceCard({
   useEffect(() => {
     setTitleInput(currentTitle);
   }, [currentTitle]);
+
+  useEffect(() => {
+    if (place.geometry) setAddLocationOpen(false);
+  }, [place.geometry]);
+
+  const handleAddLocationOpenChange = useCallback((open: boolean) => {
+    setAddLocationOpen(open);
+  }, []);
+
+  const handleAddLocationSearchSelect = useCallback(
+    async (r: PhotonSearchResult) => {
+      if (!onCommitPointLocation) return;
+      const ok = await onCommitPointLocation(currentFilePath, r.lat, r.lng);
+      if (ok) setAddLocationOpen(false);
+    },
+    [currentFilePath, onCommitPointLocation]
+  );
+
+  const handleClearLocation = useCallback(async () => {
+    if (!onClearPointLocation) return;
+    const ok = await onClearPointLocation(currentFilePath);
+    if (ok) setAddLocationOpen(false);
+  }, [currentFilePath, onClearPointLocation]);
 
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
@@ -441,6 +502,57 @@ export function PlaceCard({
             <XIcon className="size-3.5" />
           </button>
         </div>
+
+        {place.previewMarkdown === undefined && onCommitPointLocation && (
+          <div className="px-2 pb-2 shrink-0">
+            <Popover
+              open={addLocationOpen}
+              onOpenChange={handleAddLocationOpenChange}
+              modal={false}
+            >
+              <PopoverTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent dark:hover:bg-sidebar-accent"
+                  >
+                    {place.geometry ? (
+                      <MapPinIcon className="size-3.5 shrink-0" />
+                    ) : (
+                      <MapPinPlus className="size-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">
+                      {place.geometry ? formatPointLocationShort(place.geometry) : "Add a location"}
+                    </span>
+                  </Button>
+                }
+              />
+              <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                <PopoverTitle className="sr-only">
+                  {place.geometry ? "Change location" : "Add a location"}
+                </PopoverTitle>
+                <PhotonSearchPanel
+                  active={addLocationOpen}
+                  placeholder="Search for a location"
+                  onSelectResult={handleAddLocationSearchSelect}
+                  inputEndSlot={
+                    place.geometry && onClearPointLocation ? (
+                      <InputGroupButton
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleClearLocation()}
+                      >
+                        Clear
+                      </InputGroupButton>
+                    ) : null
+                  }
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
         {place.previewMarkdown === undefined && doc.kind === "vault" && (

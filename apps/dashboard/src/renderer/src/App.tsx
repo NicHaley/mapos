@@ -10,13 +10,10 @@ import { PlaceCard } from "./components/PlaceCard";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Button } from "./components/ui/button";
 import { Kbd, KbdGroup } from "./components/ui/kbd";
-import {
-  SidebarProvider,
-  type SidebarKeyboardShortcutConfig
-} from "./components/ui/sidebar";
+import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "./components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
-import { modSymbol } from "./hooks/useShortcuts";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
+import { modSymbol } from "./hooks/useShortcuts";
 import type { PhotonSearchResult } from "./lib/photon";
 import { uniqueNameCandidates } from "./lib/unique-name";
 
@@ -357,6 +354,55 @@ function App(): React.JSX.Element {
     [projectSidebarOpen, chatSidebarOpen]
   );
 
+  const commitVaultPointLocation = useCallback(
+    async (filePath: string, lat: number, lng: number): Promise<boolean> => {
+      const wkt = `POINT(${lng} ${lat})`;
+      const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", wkt);
+      if (!write.success) {
+        console.error("[commit location]", write.error);
+        return false;
+      }
+      // `places.getByPath` reads the in-memory index updated by the file watcher, which uses
+      // awaitWriteFinish — so it is often still stale immediately after a write. Merge the
+      // geometry we know we just persisted instead of trusting getByPath alone.
+      const geometryJson = JSON.stringify({ type: "Point", coordinates: [lng, lat] });
+      const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
+      const updated: PlaceRecord = {
+        ...(fromIndex ?? {
+          filePath,
+          title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
+          type: "place"
+        }),
+        geometry: geometryJson
+      };
+      setSelectedPlace(updated);
+      mapRef.current?.fitToPlace(
+        updated,
+        mapPadding(projectSidebarOpen, chatSidebarOpen, placeMode === "full")
+      );
+      return true;
+    },
+    [projectSidebarOpen, chatSidebarOpen, placeMode]
+  );
+
+  const clearVaultPointLocation = useCallback(async (filePath: string): Promise<boolean> => {
+    const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", null);
+    if (!write.success) {
+      console.error("[clear location]", write.error);
+      return false;
+    }
+    const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
+    const base: PlaceRecord =
+      fromIndex ??
+      ({
+        filePath,
+        title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
+        type: "note"
+      } satisfies PlaceRecord);
+    setSelectedPlace({ ...base, geometry: undefined });
+    return true;
+  }, []);
+
   const handleSaveSearchToVault = useCallback(async () => {
     const place = selectedPlace;
     if (place?.previewMarkdown === undefined || !place.geometry) return;
@@ -596,6 +642,10 @@ function App(): React.JSX.Element {
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
 
+  const handleMapClickEmpty = useCallback(() => {
+    if (isMini) clearPlace();
+  }, [isMini, clearPlace]);
+
   /** Sidebar tree highlight: follow the active tab's place, not `selectedPlace` (Photon replaces that in mini mode). */
   const selectedFilePathForSidebar = useMemo(() => {
     const tab = nav.tabs[nav.activeTab];
@@ -615,7 +665,7 @@ function App(): React.JSX.Element {
           ref={mapRef}
           onSelectPlace={handleSelectPlaceFromMap}
           onCreatePlace={handleCreatePlace}
-          onMapClickEmpty={isMini ? clearPlace : undefined}
+          onMapClickEmpty={isMini ? handleMapClickEmpty : undefined}
           selectedPlace={selectedPlace}
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
@@ -718,6 +768,8 @@ function App(): React.JSX.Element {
               mode="full"
               onClose={clearPlace}
               onNavigate={handleSelectPlaceFromSidebar}
+              onCommitPointLocation={commitVaultPointLocation}
+              onClearPointLocation={clearVaultPointLocation}
             />
           </div>
         )}
@@ -754,6 +806,8 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={clearPlace}
               onNavigate={handleSelectPlaceFromSidebar}
+              onCommitPointLocation={commitVaultPointLocation}
+              onClearPointLocation={clearVaultPointLocation}
               onSaveSearchToVault={
                 selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
               }

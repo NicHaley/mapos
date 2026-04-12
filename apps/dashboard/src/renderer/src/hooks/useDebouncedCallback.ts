@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
   fn: T,
@@ -15,8 +15,6 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
       timer.current = null;
     }
   }, []);
-
-  useEffect(() => cancel, [cancel]);
 
   const debounced = useCallback(
     (...args: Parameters<T>) => {

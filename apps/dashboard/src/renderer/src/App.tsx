@@ -18,11 +18,13 @@ import { modSymbol } from "./hooks/useShortcuts";
 import type { PhotonSearchResult } from "./lib/photon";
 import { uniqueNameCandidates } from "./lib/unique-name";
 
-const PROJECT_SIDEBAR_WIDTH = 256;
-const PLACE_CARD_WIDTH = 320;
-const CHAT_SIDEBAR_WIDTH = 360;
-const TOP_BAR_HEIGHT = 40;
-const FIT_BUFFER = 40;
+const BASE_UNITS = 16;
+
+const PROJECT_SIDEBAR_WIDTH = 14 * BASE_UNITS;
+const PLACE_CARD_WIDTH = 22 * BASE_UNITS;
+const CHAT_SIDEBAR_WIDTH = 22 * BASE_UNITS;
+const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
+const FIT_BUFFER = 2.5 * BASE_UNITS;
 
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 const SIDEBAR_KB_CHAT: SidebarKeyboardShortcutConfig = { shift: true };
@@ -763,8 +765,7 @@ function App(): React.JSX.Element {
             className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
             style={{
               left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
-              width: PLACE_CARD_WIDTH,
-              transition: "left 200ms linear"
+              width: PLACE_CARD_WIDTH
             }}
           >
             <PlaceCard

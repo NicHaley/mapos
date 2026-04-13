@@ -6,6 +6,8 @@ import {
   FileTextIcon,
   FolderIcon,
   FolderOpenIcon,
+  MessageCirclePlusIcon,
+  SettingsIcon,
   SquarePenIcon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,7 +32,16 @@ import {
   ContextMenuTrigger
 } from "./ui/context-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
-import { Sidebar, SidebarContent, SidebarHeader } from "./ui/sidebar";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem
+} from "./ui/sidebar";
 import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const MAPOS_DRAG_MIME = "application/x-mapos-node";
@@ -518,95 +529,134 @@ export function ProjectSidebar({
 
   return (
     <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
-      <SidebarHeader className="flex-row items-center justify-between px-3 py-2 border-b border-sidebar-border">
-        <span className="text-xs font-semibold tracking-widest text-sidebar-foreground/60 uppercase">
-          MapOS
-        </span>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void createNoteIn(vaultRoot)}
-                // className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-              />
-            }
-          >
-            <SquarePenIcon className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            New Note
-            <KbdGroup>
-              <Kbd>{modSymbol}</Kbd>
-              <Kbd>N</Kbd>
-            </KbdGroup>
-          </TooltipContent>
-        </Tooltip>
-      </SidebarHeader>
+      {/* <SidebarHeader>
+
+      </SidebarHeader> */}
       <SidebarContent className="flex min-h-0 flex-1 flex-col px-1 py-2">
-        {moveError ? (
-          <p className="mx-1 mb-2 text-xs text-destructive" role="alert">
-            {moveError}
-          </p>
-        ) : null}
-        <div className="flex min-h-0 flex-1 flex-col">
-          <ContextMenu>
-            <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="shrink-0 rounded -mx-1 px-1">
-                  {tree.map((node) => (
-                    <FileTreeNode
-                      key={node.path}
-                      node={node}
-                      depth={0}
-                      selectedFilePath={selectedFilePath}
-                      selectedFolderPath={selectedFolderPath}
-                      autoRenamePath={pendingRenamePath}
-                      onAutoRenameConsumed={() => setPendingRenamePath(null)}
-                      onSelectPlace={onSelectPlace}
-                      onSelectFolder={onSelectFolder}
-                      onRequestDelete={(node) => {
-                        setDeleteError(null);
-                        setPendingDelete(node);
+        <SidebarGroup>
+          <SidebarMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <SidebarMenuItem>
+                    <SidebarMenuButton onClick={() => void createNoteIn(vaultRoot)}>
+                      <SquarePenIcon /> New Note
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                }
+              />
+              <TooltipContent side="right">
+                Create a local note
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>N</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <SidebarMenuItem>
+                    <SidebarMenuButton>
+                      <MessageCirclePlusIcon /> New Chat
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                }
+              />
+              <TooltipContent side="right">
+                Start a chat with the agent
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>⇧</Kbd>
+                  <Kbd>{"\\"}</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <SidebarMenuItem>
+                    <SidebarMenuButton>
+                      <SettingsIcon /> Settings
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                }
+              />
+              <TooltipContent side="right">
+                Manage configurations
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>,</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Files</SidebarGroupLabel>
+          {moveError ? (
+            <p className="mx-1 mb-2 text-xs text-destructive" role="alert">
+              {moveError}
+            </p>
+          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ContextMenu>
+              <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="shrink-0 rounded -mx-1 px-1">
+                    {tree.map((node) => (
+                      <FileTreeNode
+                        key={node.path}
+                        node={node}
+                        depth={0}
+                        selectedFilePath={selectedFilePath}
+                        selectedFolderPath={selectedFolderPath}
+                        autoRenamePath={pendingRenamePath}
+                        onAutoRenameConsumed={() => setPendingRenamePath(null)}
+                        onSelectPlace={onSelectPlace}
+                        onSelectFolder={onSelectFolder}
+                        onRequestDelete={(node) => {
+                          setDeleteError(null);
+                          setPendingDelete(node);
+                        }}
+                        onRenameComplete={onRenamePath}
+                        onCreateFolderIn={(path) => void createFolderIn(path)}
+                        onCreateNoteIn={(path) => void createNoteIn(path)}
+                        dnd={dndBridge}
+                      />
+                    ))}
+                  </div>
+                  {vaultRoot && dndBridge ? (
+                    <div
+                      aria-hidden
+                      className="min-h-8 flex-1"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDragOverTarget(vaultRoot);
                       }}
-                      onRenameComplete={onRenamePath}
-                      onCreateFolderIn={(path) => void createFolderIn(path)}
-                      onCreateNoteIn={(path) => void createNoteIn(path)}
-                      dnd={dndBridge}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverTarget(null);
+                        const payload = parseDragPayload(e);
+                        if (!payload) return;
+                        void runMove(payload.path, payload.type, vaultRoot);
+                      }}
                     />
-                  ))}
+                  ) : null}
                 </div>
-                {vaultRoot && dndBridge ? (
-                  <div
-                    aria-hidden
-                    className="min-h-8 flex-1"
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverTarget(vaultRoot);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setDragOverTarget(null);
-                      const payload = parseDragPayload(e);
-                      if (!payload) return;
-                      void runMove(payload.path, payload.type, vaultRoot);
-                    }}
-                  />
-                ) : null}
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
-                New Note
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
-                New Folder
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
+                  New Note
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
+                  New Folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          </div>
+        </SidebarGroup>
       </SidebarContent>
       <AlertDialog
         open={!!pendingDelete}

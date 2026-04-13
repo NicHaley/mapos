@@ -59,6 +59,7 @@ export function NavTabs({
               <Reorder.Item
                 key={tab.id}
                 value={tab.id}
+                layout="position"
                 as="div"
                 role="tab"
                 tabIndex={0}

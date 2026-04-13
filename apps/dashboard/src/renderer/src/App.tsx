@@ -279,6 +279,15 @@ function App(): React.JSX.Element {
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
 
+  function handlePlaceCardClose() {
+    // Full place cards should close exactly like the active top-bar tab.
+    if (placeMode !== "full" || activeTabIndex < 0) {
+      clearPlace();
+      return;
+    }
+    handleNavTabClose(activeTabIndex);
+  }
+
   // Map feature click — show mini card; no-op when full panel is active
   const handleSelectPlaceFromMap = useCallback(
     (place: PlaceRecord) => {
@@ -771,7 +780,7 @@ function App(): React.JSX.Element {
             <PlaceCard
               place={selectedPlace}
               mode="full"
-              onClose={clearPlace}
+              onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -809,7 +818,7 @@ function App(): React.JSX.Element {
             <PlaceCard
               place={selectedPlace}
               mode="mini"
-              onClose={clearPlace}
+              onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}

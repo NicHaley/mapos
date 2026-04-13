@@ -1,6 +1,7 @@
 import type { MapOverlayPayload, OverlayLine, OverlayPolygon } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { MessageCircleIcon, PanelLeftIcon } from "lucide-react";
+import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "./components/ChatSidebar";
 import MapView, { type MapViewHandle, type PlaceRecord } from "./components/MapView";
@@ -271,6 +272,7 @@ function App(): React.JSX.Element {
     canForward,
     handleNavTabActivate,
     handleNavTabClose,
+    handleNavTabReorder,
     handleNavBack,
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
@@ -680,7 +682,8 @@ function App(): React.JSX.Element {
       </div>
 
       {/* Top bar */}
-      <div
+      <motion.div
+        layoutRoot
         className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border"
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
@@ -719,6 +722,7 @@ function App(): React.JSX.Element {
             canForward={canForward}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleNavTabClose}
+            onTabReorder={handleNavTabReorder}
             onBack={handleNavBack}
             onForward={handleNavForward}
           />
@@ -745,7 +749,7 @@ function App(): React.JSX.Element {
             </KbdGroup>
           </TooltipContent>
         </Tooltip>
-      </div>
+      </motion.div>
 
       {/* Content wrapper: top offset + transform creates a new containing block
           so all fixed children are relative to this wrapper, not the viewport */}

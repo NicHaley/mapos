@@ -16,7 +16,8 @@ export type NavAction =
   | { type: "close"; tabIndex: number }
   | { type: "remove_path"; path: string; isFolder: boolean }
   | { type: "restore"; tabs: NavTab[]; activeTab: number }
-  | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean };
+  | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
+  | { type: "reorder"; newOrder: string[] };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -174,6 +175,21 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
+    case "reorder": {
+      if (action.newOrder.length !== state.tabs.length) return state;
+      const byId = new Map(state.tabs.map((t) => [t.id, t]));
+      const reordered = action.newOrder.map((id) => byId.get(id));
+      if (reordered.some((t) => t == null)) return state;
+      const tabs = reordered as NavTab[];
+      if (new Set(tabs.map((t) => t.id)).size !== tabs.length) return state;
+      const activeId = state.tabs[state.activeTab]?.id;
+      const newActive =
+        activeId != null ? tabs.findIndex((t) => t.id === activeId) : state.activeTab;
+      return {
+        tabs,
+        activeTab: newActive >= 0 ? newActive : 0
+      };
+    }
     default:
       return state;
   }
@@ -298,6 +314,10 @@ export function useNavTabs({
     openEntry(tab.history[tab.cursor + 1]);
   }, [nav, openEntry]);
 
+  const handleNavTabReorder = useCallback((newOrder: string[]) => {
+    dispatchNav({ type: "reorder", newOrder });
+  }, []);
+
   const activeTab = nav.tabs[nav.activeTab];
   const navTabsData = nav.tabs.map((tab) => {
     const current = tab.history[tab.cursor];
@@ -316,6 +336,7 @@ export function useNavTabs({
     canForward: activeTab ? activeTab.cursor < activeTab.history.length - 1 : false,
     handleNavTabActivate,
     handleNavTabClose,
+    handleNavTabReorder,
     handleNavBack,
     handleNavForward
   };

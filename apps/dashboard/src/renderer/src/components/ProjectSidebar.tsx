@@ -2,11 +2,13 @@ import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import {
   ChevronRightIcon,
+  ChevronsUpDownIcon,
   FileIcon,
   FileTextIcon,
   FolderIcon,
   FolderOpenIcon,
   MessageCirclePlusIcon,
+  PlusIcon,
   SettingsIcon,
   SquarePenIcon
 } from "lucide-react";
@@ -23,7 +25,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "./ui/alert-dialog";
-import { Button } from "./ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -31,6 +32,16 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "./ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger
+} from "./ui/dropdown-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import {
   Sidebar,
@@ -40,7 +51,8 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
-  SidebarMenuItem
+  SidebarMenuItem,
+  useSidebar
 } from "./ui/sidebar";
 import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -77,6 +89,81 @@ function fileIcon(name: string) {
   if (name.endsWith(".md"))
     return <FileTextIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
   return <FileIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+}
+
+type VaultOption = {
+  name: string;
+  subtitle: string;
+  logo: React.ElementType;
+};
+
+const mockVaults: VaultOption[] = [
+  { name: "MapOS Personal", subtitle: "Default vault", logo: FolderOpenIcon },
+  { name: "Travel Archive", subtitle: "Synced", logo: FolderIcon },
+  { name: "Research Notes", subtitle: "Local-only", logo: FileTextIcon }
+];
+
+function VaultSwitcher() {
+  const { isMobile } = useSidebar();
+  const [activeVault, setActiveVault] = useState<VaultOption>(mockVaults[0]);
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton
+                size="lg"
+                className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+              />
+            }
+          >
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+              <activeVault.logo className="size-4" />
+            </div>
+            <div className="grid flex-1 min-w-0 text-left text-sm leading-tight">
+              <span className="truncate font-medium">{activeVault.name}</span>
+              <span className="truncate text-xs text-sidebar-foreground/70">
+                {activeVault.subtitle}
+              </span>
+            </div>
+            <ChevronsUpDownIcon className="ml-auto size-4 opacity-70" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="w-(--anchor-width) min-w-56 rounded-lg"
+            align="start"
+            side={isMobile ? "bottom" : "right"}
+            sideOffset={4}
+          >
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Vaults</DropdownMenuLabel>
+              {mockVaults.map((vault, index) => (
+                <DropdownMenuItem
+                  key={vault.name}
+                  onClick={() => setActiveVault(vault)}
+                  className="gap-2 p-2"
+                >
+                  <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
+                    <vault.logo className="size-3.5 shrink-0" />
+                  </div>
+                  <span className="truncate">{vault.name}</span>
+                  <DropdownMenuShortcut>{`⌘${index + 1}`}</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 p-2">
+              <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border bg-transparent">
+                <PlusIcon className="size-4" />
+              </div>
+              <div className="font-medium text-muted-foreground">Add vault</div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
 }
 
 function FileTreeNode({
@@ -529,10 +616,12 @@ export function ProjectSidebar({
 
   return (
     <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
-      {/* <SidebarHeader>
-
-      </SidebarHeader> */}
-      <SidebarContent className="flex min-h-0 flex-1 flex-col px-1 py-2">
+      <SidebarHeader>
+        <SidebarGroup className="p-0">
+          <VaultSwitcher />
+        </SidebarGroup>
+      </SidebarHeader>
+      <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
             <Tooltip>

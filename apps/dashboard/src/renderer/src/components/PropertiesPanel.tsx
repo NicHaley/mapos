@@ -62,16 +62,26 @@ function parseDatePropertyString(s: string): Date {
 }
 
 /** Serialize: date-only when midnight; otherwise local datetime without timezone. */
-function serializeDateProperty(d: Date): string {
+function serializeDateProperty(
+  d: Date,
+  opts?: { asLocalDateTime?: boolean }
+): string {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const da = String(d.getDate()).padStart(2, "0");
   const h = d.getHours();
   const mi = d.getMinutes();
   const s = d.getSeconds();
-  if (h === 0 && mi === 0 && s === 0) return `${y}-${mo}-${da}`;
   const hh = String(h).padStart(2, "0");
   const mm = String(mi).padStart(2, "0");
+  if (opts?.asLocalDateTime) {
+    if (s !== 0) {
+      const ss = String(s).padStart(2, "0");
+      return `${y}-${mo}-${da}T${hh}:${mm}:${ss}`;
+    }
+    return `${y}-${mo}-${da}T${hh}:${mm}`;
+  }
+  if (h === 0 && mi === 0 && s === 0) return `${y}-${mo}-${da}`;
   if (s !== 0) {
     const ss = String(s).padStart(2, "0");
     return `${y}-${mo}-${da}T${hh}:${mm}:${ss}`;
@@ -421,10 +431,9 @@ function MultiSelectPropertyValue({
 
 // ─── DatePropertyValue ───────────────────────────────────────────────────────
 
-function storedDateHasNonMidnightTime(value: unknown): boolean {
-  if (typeof value !== "string" || !isDatePropertyString(value)) return false;
-  const d = parseDatePropertyString(value);
-  return d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0;
+/** True when the value was stored with an explicit time (incl. midnight), not date-only. */
+function storedValueHasDateTime(value: unknown): boolean {
+  return typeof value === "string" && DATE_TIME_RE.test(value);
 }
 
 function DatePropertyValue({
@@ -443,7 +452,7 @@ function DatePropertyValue({
 
   useEffect(() => {
     if (open) {
-      setTimeEnabled(storedDateHasNonMidnightTime(value));
+      setTimeEnabled(storedValueHasDateTime(value));
     }
   }, [open, value]);
 
@@ -453,13 +462,16 @@ function DatePropertyValue({
     selected?.getMinutes() ?? 0
   ).padStart(2, "0")}`;
 
-  function commitFromDate(d: Date): void {
-    onValueChange(propKey, serializeDateProperty(d));
+  function commitFromDate(d: Date, options?: { asLocalDateTime?: boolean }): void {
+    onValueChange(propKey, serializeDateProperty(d, options));
   }
 
   function handleTimeToggle(checked: boolean): void {
     setTimeEnabled(checked);
-    if (!checked && selected) {
+    if (!selected) return;
+    if (checked) {
+      commitFromDate(new Date(selected), { asLocalDateTime: true });
+    } else {
       const d = new Date(selected);
       d.setHours(0, 0, 0, 0);
       commitFromDate(d);
@@ -471,12 +483,12 @@ function DatePropertyValue({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {/* <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden /> */}
-          {isEmpty || !hasDate ? (
+            {isEmpty || !hasDate ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
             <span className="truncate text-sidebar-foreground">
               {selected &&
-                (timeInputValue === "00:00"
+                (typeof value === "string" && DATE_ONLY_RE.test(value)
                   ? format(selected, "PPP")
                   : `${format(selected, "PPP")} · ${format(selected, "p")}`)}
             </span>
@@ -497,10 +509,11 @@ function DatePropertyValue({
                     selected.getSeconds(),
                     0
                   );
+                  commitFromDate(next, { asLocalDateTime: true });
                 } else {
                   next.setHours(0, 0, 0, 0);
+                  commitFromDate(next);
                 }
-                commitFromDate(next);
               }}
               defaultMonth={selected ?? new Date()}
               className="bg-transparent"
@@ -530,7 +543,7 @@ function DatePropertyValue({
                           0,
                           0
                         );
-                        commitFromDate(base);
+                        commitFromDate(base, { asLocalDateTime: true });
                       }}
                       className="h-8 w-full bg-transparent text-sm appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
                     />

@@ -123,7 +123,7 @@ function PlaceCardMarkdownPane({
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground min-h-[4rem] focus:outline-none"
+          "prose prose-sm dark:prose-invert max-w-none text-sidebar-foreground h-full min-h-[4rem] focus:outline-none"
       }
     }
   });
@@ -260,7 +260,7 @@ function PlaceCardMarkdownPane({
           )}
         </BubbleMenu>
       )}
-      <EditorContent editor={editor} className={cn(isDark && "dark")} />
+      <EditorContent editor={editor} className={cn("h-full", isDark && "dark")} />
     </ScrollArea>
   );
 }
@@ -422,8 +422,6 @@ export function PlaceCard({
       editorRef.current?.chain().focus().run();
     }
   }
-
-  const fileName = currentFilePath.split(/[/\\]/).pop() ?? currentFilePath;
 
   return (
     <div

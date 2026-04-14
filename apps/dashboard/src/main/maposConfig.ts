@@ -12,8 +12,7 @@ import { join, resolve } from "node:path";
 
 export const MAPOS_CONFIG_FILENAME = "mapos.json";
 
-/** Default vault if none configured (previous MapOS default). */
-export const LEGACY_DEFAULT_VAULT = join(homedir(), "Documents", "MapOS");
+const DEFAULT_VAULT_PATH = join(homedir(), "MapOS");
 
 export type MaposJson = {
   /** Absolute paths to vault roots; the first entry is the active vault for this build. */
@@ -21,7 +20,7 @@ export type MaposJson = {
 };
 
 function defaultConfig(): MaposJson {
-  return { vaults: [LEGACY_DEFAULT_VAULT] };
+  return { vaults: [DEFAULT_VAULT_PATH] };
 }
 
 function parseConfig(raw: string): MaposJson | null {
@@ -39,7 +38,7 @@ function parseConfig(raw: string): MaposJson | null {
 /**
  * Ensures the app state directory exists and returns `mapos.json` (creates default if missing).
  * Pass `app.getPath("userData")` from the Electron main process.
- * Invalid or empty `vaults` is repaired to the legacy default and written back.
+ * Invalid or empty `vaults` is repaired to the default vault path and written back.
  */
 export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
   mkdirSync(appStateDir, { recursive: true });
@@ -60,7 +59,7 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
 
 export function getPrimaryVaultRoot(config: MaposJson): string {
   const first = config.vaults[0]?.trim();
-  const raw = first || LEGACY_DEFAULT_VAULT;
+  const raw = first || DEFAULT_VAULT_PATH;
   return resolve(raw);
 }
 

@@ -308,17 +308,6 @@ function VaultSwitcher() {
                 {addVaultError}
               </p>
             ) : null}
-            <DialogFooter className="sm:justify-stretch">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={addVaultBusy}
-                onClick={() => setAddVaultOpen(false)}
-                className="sm:flex-1"
-              >
-                Close
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </SidebarMenuItem>

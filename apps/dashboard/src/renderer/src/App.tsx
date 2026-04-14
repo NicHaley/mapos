@@ -771,7 +771,7 @@ function App(): React.JSX.Element {
         {/* Full-height place panel */}
         {isFull && selectedPlace && (
           <div
-            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto"
             style={{
               left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
               width: PLACE_CARD_WIDTH

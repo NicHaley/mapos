@@ -603,7 +603,7 @@ export function ChatSidebar({
   const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
 
   return (
-    <Sidebar side="right" collapsible="offcanvas" variant="floating">
+    <Sidebar side="right" collapsible="offcanvas" variant="sidebar">
       <SidebarHeader className="flex-row items-center justify-between px-3 py-2">
         <Select value={currentConvId ?? ""} onValueChange={(id) => id && switchConversation(id)}>
           <SelectTrigger className="min-w-0 max-w-[160px]">

@@ -433,7 +433,7 @@ export function PlaceCard({
           "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
-            : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
+            : "h-full border-r border-sidebar-border"
         )}
       >
         {/* Header */}

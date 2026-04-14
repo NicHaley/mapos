@@ -39,7 +39,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger
 } from "./ui/dropdown-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -93,20 +92,49 @@ function fileIcon(name: string) {
 }
 
 type VaultOption = {
+  path: string;
   name: string;
   subtitle: string;
   logo: React.ElementType;
 };
 
-const mockVaults: VaultOption[] = [
-  { name: "MapOS Personal", subtitle: "Default vault", logo: FolderOpenIcon },
-  { name: "Travel Archive", subtitle: "Synced", logo: FolderIcon },
-  { name: "Research Notes", subtitle: "Local-only", logo: FileTextIcon }
-];
+function vaultBasename(path: string): string {
+  const n = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const s = n >= 0 ? path.slice(n + 1) : path;
+  return (s || path).trim() || path;
+}
 
 function VaultSwitcher() {
   const { isMobile } = useSidebar();
-  const [activeVault, setActiveVault] = useState<VaultOption>(mockVaults[0]);
+  const [vaultOptions, setVaultOptions] = useState<VaultOption[]>([]);
+  const [activeVaultPath, setActiveVaultPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.api.mapos.getVaultsConfig().then(({ vaults, activeVaultPath: active }) => {
+      const trimmed = vaults.map((p) => p.trim()).filter(Boolean);
+      setActiveVaultPath(active);
+      setVaultOptions(
+        trimmed.map((path) => ({
+          path,
+          name: vaultBasename(path),
+          subtitle: path,
+          logo: path === active ? FolderOpenIcon : FolderIcon
+        }))
+      );
+    });
+  }, []);
+
+  const activeVault = useMemo((): VaultOption => {
+    const found = vaultOptions.find((v) => v.path === activeVaultPath);
+    if (found) return found;
+    if (vaultOptions[0]) return vaultOptions[0];
+    return {
+      path: "",
+      name: "Vault",
+      subtitle: "Loading…",
+      logo: FolderOpenIcon
+    };
+  }, [vaultOptions, activeVaultPath]);
 
   return (
     <SidebarMenu>
@@ -139,17 +167,19 @@ function VaultSwitcher() {
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel>Vaults</DropdownMenuLabel>
-              {mockVaults.map((vault, index) => (
+              {vaultOptions.map((vault) => (
                 <DropdownMenuItem
-                  key={vault.name}
-                  onClick={() => setActiveVault(vault)}
+                  key={vault.path}
+                  disabled={vault.path !== activeVaultPath}
                   className="gap-2 p-2"
                 >
                   <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
                     <vault.logo className="size-3.5 shrink-0" />
                   </div>
-                  <span className="truncate">{vault.name}</span>
-                  <DropdownMenuShortcut>{`⌘${index + 1}`}</DropdownMenuShortcut>
+                  <div className="grid min-w-0 flex-1">
+                    <span className="truncate font-medium">{vault.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">{vault.subtitle}</span>
+                  </div>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>

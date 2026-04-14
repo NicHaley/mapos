@@ -69,10 +69,10 @@ function applyMigrations(sqlite: Database.Database): void {
 let _sqlite: Database.Database | null = null;
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
-export function initDb(maposDir: string): void {
-  const dotMapos = join(maposDir, ".mapos");
-  if (!existsSync(dotMapos)) mkdirSync(dotMapos, { recursive: true });
-  const dbPath = join(dotMapos, "index.db");
+/** @param appStateDir Electron `app.getPath("userData")` (MapOS app data), not the vault root. */
+export function initDb(appStateDir: string): void {
+  if (!existsSync(appStateDir)) mkdirSync(appStateDir, { recursive: true });
+  const dbPath = join(appStateDir, "index.db");
   _sqlite = new Database(dbPath);
   _sqlite.pragma("journal_mode = WAL");
   applyMigrations(_sqlite);

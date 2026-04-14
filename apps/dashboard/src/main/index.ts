@@ -11,12 +11,14 @@ import {
   writeFileSync
 } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, extname, join, sep } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
+
+// Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
+app.setName("MapOS");
 import matter from "gray-matter";
 import { z } from "zod";
 import icon from "../../resources/icon.png?asset";
@@ -43,6 +45,11 @@ import {
   removeFeatures,
   replaceFeaturePropertiesForFile
 } from "./db";
+import {
+  getPrimaryVaultRoot,
+  loadOrInitMaposConfig,
+  migrateLegacyVaultInternals
+} from "./maposConfig";
 import { parseWkt } from "./wkt";
 
 /**
@@ -168,23 +175,24 @@ function readDirTree(dirPath: string): FileNode[] {
   }
 }
 
-/** Canonical vault root (same path the renderer gets from `fs:get-vault-root`). */
-const MAPOS_DIR = join(homedir(), "Documents", "MapOS");
-const MAPOS_INTERNALS_DIR = join(MAPOS_DIR, ".mapos");
-
-function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord> {
-  if (!existsSync(MAPOS_DIR)) {
-    mkdirSync(MAPOS_DIR, { recursive: true });
+function setupPlacesWatcher(
+  mainWindow: BrowserWindow,
+  vaultRoot: string,
+  appStateDir: string
+): Map<string, PlaceRecord> {
+  if (!existsSync(vaultRoot)) {
+    mkdirSync(vaultRoot, { recursive: true });
   }
 
-  initDb(MAPOS_DIR);
+  migrateLegacyVaultInternals(vaultRoot, appStateDir);
+  initDb(appStateDir);
 
   const places = new Map<string, PlaceRecord>();
   const knownPropertyKeys = new Set<string>();
   let initialScanDone = false;
   let pendingInitialSenders: Electron.WebContents[] = [];
 
-  const watcher = chokidar.watch(`${MAPOS_DIR}/**/*.md`, {
+  const watcher = chokidar.watch(`${vaultRoot}/**/*.md`, {
     ignoreInitial: false,
     awaitWriteFinish: { stabilityThreshold: 300 },
     ignored: /(^|[/\\])(\.|node_modules)/
@@ -265,15 +273,15 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     pendingInitialSenders = [];
   });
 
-  ipcMain.handle("fs:list-dir", () => readDirTree(MAPOS_DIR));
+  ipcMain.handle("fs:list-dir", () => readDirTree(vaultRoot));
 
   ipcMain.handle("places:get-by-path", (_event, filePath: string) => {
     return places.get(filePath) ?? null;
   });
 
   ipcMain.handle("fs:read-file", async (_event, filePath: string) => {
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
       return { error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
@@ -291,8 +299,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   });
 
   ipcMain.handle("fs:write-file", async (_event, filePath: string, content: string) => {
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
       return { success: false, error: "Path outside vault" };
     try {
       writeFileSync(filePath, content, "utf-8");
@@ -306,8 +314,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   // Reads the current file, regex-extracts the frontmatter block, then writes
   // frontmatter + new body — so the renderer never has to round-trip YAML.
   ipcMain.handle("fs:write-place-body", async (_event, filePath: string, body: string) => {
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
       return { success: false, error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
@@ -328,8 +336,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   ipcMain.handle(
     "fs:write-frontmatter-property",
     async (_event, filePath: string, key: string, value: unknown) => {
-      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-      if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+      if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
         return { success: false, error: "Path outside vault" };
       try {
         const raw = await readFile(filePath, "utf-8");
@@ -349,8 +357,8 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   // Rewrite frontmatter with keys in the given order, preserving all values and the body.
   ipcMain.handle("fs:reorder-frontmatter", async (_event, filePath: string, keyOrder: string[]) => {
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-    if (filePath !== MAPOS_DIR && !filePath.startsWith(vaultPrefix))
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
       return { success: false, error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
@@ -379,7 +387,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle("fs:rename-file", async (_event, oldPath: string, newName: string) => {
     // Ensure we only get files within the vault.
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
 
     if (!oldPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
 
@@ -426,12 +434,12 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   ipcMain.handle(
     "fs:move-into",
     async (_event, sourcePath: string, destinationFolderPath: string) => {
-      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
 
-      if (sourcePath !== MAPOS_DIR && !sourcePath.startsWith(vaultPrefix)) {
+      if (sourcePath !== vaultRoot && !sourcePath.startsWith(vaultPrefix)) {
         return { success: false as const, error: "Path outside vault" };
       }
-      if (destinationFolderPath !== MAPOS_DIR && !destinationFolderPath.startsWith(vaultPrefix)) {
+      if (destinationFolderPath !== vaultRoot && !destinationFolderPath.startsWith(vaultPrefix)) {
         return { success: false as const, error: "Path outside vault" };
       }
 
@@ -519,11 +527,11 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   );
 
   ipcMain.handle("fs:delete-path", async (_event, targetPath: string) => {
-    const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
-    if (targetPath !== MAPOS_DIR && !targetPath.startsWith(vaultPrefix)) {
+    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    if (targetPath !== vaultRoot && !targetPath.startsWith(vaultPrefix)) {
       return { success: false as const, error: "Path outside vault" };
     }
-    if (targetPath === MAPOS_DIR) {
+    if (targetPath === vaultRoot) {
       return { success: false as const, error: "Cannot delete vault root" };
     }
     try {
@@ -538,14 +546,21 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
     shell.showItemInFolder(targetPath);
   });
 
-  ipcMain.handle("fs:get-vault-root", () => MAPOS_DIR);
+  ipcMain.handle("fs:get-vault-root", () => vaultRoot);
+
+  ipcMain.handle("mapos:get-vaults-config", () => {
+    const appStateDir = app.getPath("userData");
+    const cfg = loadOrInitMaposConfig(appStateDir);
+    const vaults = cfg.vaults.map((p) => resolve(p.trim())).filter((p) => p.length > 0);
+    return { vaults, activeVaultPath: vaultRoot };
+  });
 
   ipcMain.handle(
     "fs:create-folder",
     (_event, args: { parentFolderPath: string; folderName: string }) => {
-      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
       const parent = args.parentFolderPath;
-      if (parent !== MAPOS_DIR && !parent.startsWith(vaultPrefix))
+      if (parent !== vaultRoot && !parent.startsWith(vaultPrefix))
         return { success: false as const, error: "Path outside vault" };
 
       const safeName = args.folderName.replace(/[/\\]/g, "").trim();
@@ -578,16 +593,16 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
         includePlaceFrontmatterDefaults?: boolean;
       }
     ) => {
-      const vaultPrefix = MAPOS_DIR.endsWith(sep) ? MAPOS_DIR : MAPOS_DIR + sep;
+      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
       let dir: string;
       if (args.parentFolderPath) {
         const p = args.parentFolderPath;
-        if (p !== MAPOS_DIR && !p.startsWith(vaultPrefix)) {
+        if (p !== vaultRoot && !p.startsWith(vaultPrefix)) {
           return { success: false as const, error: "Path outside vault" };
         }
         dir = p;
       } else {
-        dir = MAPOS_DIR;
+        dir = vaultRoot;
       }
       const candidate = uniquePathInDir(dir, "Untitled.md", false);
       const includeDefaults = args.includePlaceFrontmatterDefaults !== false;
@@ -609,7 +624,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle("places:query-bounds", (_event, bounds) => {
     return querySpatialIndex(bounds)
-      .filter((r) => r.file_path.startsWith(MAPOS_DIR))
+      .filter((r) => r.file_path.startsWith(vaultRoot))
       .map((r) => {
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
@@ -624,7 +639,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
 
   ipcMain.handle("places:query-folder-all", (_event, folderPath: string) => {
     return queryFolderAll(folderPath)
-      .filter((r) => r.file_path.startsWith(MAPOS_DIR))
+      .filter((r) => r.file_path.startsWith(vaultRoot))
       .map((r) => {
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
@@ -643,7 +658,7 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
       bounds: { north: number; south: number; east: number; west: number };
     };
     return querySpatialIndex(bounds, { folderPath })
-      .filter((r) => r.file_path.startsWith(MAPOS_DIR))
+      .filter((r) => r.file_path.startsWith(vaultRoot))
       .map((r) => {
         const titleFallback = (r.file_path.split(sep).pop() ?? r.file_path).replace(/\.md$/i, "");
         return {
@@ -673,13 +688,14 @@ function setupPlacesWatcher(mainWindow: BrowserWindow): Map<string, PlaceRecord>
   return places;
 }
 
-const MAPOS_SYSTEM_PROMPT = `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
+function buildMaposSystemPrompt(vaultRoot: string): string {
+  return `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
 
 MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth.
 
 ## Vault location (authoritative — use exactly this path)
-The MapOS vault root on this machine is: ${MAPOS_DIR}
-The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in Bash). For Glob, Grep, Read, Bash, and any file search or listing tools, search only under this path (e.g. ${MAPOS_DIR}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts or use patterns like /Users/*/Documents/MapOS — always use the absolute path above.
+The MapOS vault root on this machine is: ${vaultRoot}
+The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in Bash). For Glob, Grep, Read, Bash, and any file search or listing tools, search only under this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts — always use the absolute path above.
 
 ## Place files and frontmatter
 
@@ -711,6 +727,7 @@ For any vault file write or delete, use write_vault_file or delete_vault_file �
 
 - If the user asks you to find, show, search, explore, or preview → use render_overlay_on_map for ephemeral display. Do not write files.
 - If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.`;
+}
 
 const ALLOWED_TOOLS = [
   "Bash",
@@ -1174,12 +1191,12 @@ function newConversationId(): string {
   return `${ts}-${rand}`;
 }
 
-const CONVERSATIONS_DIR = join(MAPOS_DIR, ".mapos", "conversations");
-const CONVERSATIONS_INDEX = join(CONVERSATIONS_DIR, "index.jsonl");
+let activeConversationsDir = "";
+let activeConversationsIndex = "";
 
 function loadConvState(id: string): { overlay: MapOverlayPayload | null } {
   try {
-    const p = join(CONVERSATIONS_DIR, `${id}.state.json`);
+    const p = join(activeConversationsDir, `${id}.state.json`);
     if (!existsSync(p)) return { overlay: null };
     return JSON.parse(readFileSync(p, "utf-8")) as { overlay: MapOverlayPayload | null };
   } catch {
@@ -1189,7 +1206,7 @@ function loadConvState(id: string): { overlay: MapOverlayPayload | null } {
 
 function saveConvState(id: string, state: { overlay: MapOverlayPayload | null }): void {
   try {
-    writeFileSync(join(CONVERSATIONS_DIR, `${id}.state.json`), JSON.stringify(state), "utf-8");
+    writeFileSync(join(activeConversationsDir, `${id}.state.json`), JSON.stringify(state), "utf-8");
   } catch (err) {
     console.error("[main] failed to save conv state:", err);
   }
@@ -1218,7 +1235,7 @@ function convToMeta(conv: ActiveConversation): ConversationMeta {
 
 function readConversationIndex(): ConversationMeta[] {
   try {
-    const lines = readFileSync(CONVERSATIONS_INDEX, "utf-8").split("\n").filter(Boolean);
+    const lines = readFileSync(activeConversationsIndex, "utf-8").split("\n").filter(Boolean);
     const map = new Map<string, ConversationMeta>();
     for (const line of lines) {
       try {
@@ -1237,7 +1254,7 @@ function readConversationIndex(): ConversationMeta[] {
 function compactIndex(entries: ConversationMeta[]): void {
   try {
     writeFileSync(
-      CONVERSATIONS_INDEX,
+      activeConversationsIndex,
       `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
       "utf-8"
     );
@@ -1248,15 +1265,15 @@ function compactIndex(entries: ConversationMeta[]): void {
 
 function appendToIndex(conv: ActiveConversation): void {
   try {
-    appendFileSync(CONVERSATIONS_INDEX, `${JSON.stringify(convToMeta(conv))}\n`, "utf-8");
+    appendFileSync(activeConversationsIndex, `${JSON.stringify(convToMeta(conv))}\n`, "utf-8");
   } catch (err) {
     console.error("[main] failed to append to index:", err);
   }
 }
 
 function initConversationsDir(): void {
-  if (!existsSync(CONVERSATIONS_DIR)) {
-    mkdirSync(CONVERSATIONS_DIR, { recursive: true });
+  if (!existsSync(activeConversationsDir)) {
+    mkdirSync(activeConversationsDir, { recursive: true });
   }
   // Compact index on startup to deduplicate accumulated entries
   const entries = readConversationIndex();
@@ -1268,7 +1285,7 @@ function loadMostRecentConversation(): ActiveConversation | null {
     const entries = readConversationIndex();
     if (entries.length === 0) return null;
     const latest = entries[entries.length - 1];
-    const lines = readFileSync(join(CONVERSATIONS_DIR, `${latest.id}.jsonl`), "utf-8")
+    const lines = readFileSync(join(activeConversationsDir, `${latest.id}.jsonl`), "utf-8")
       .split("\n")
       .filter(Boolean);
     const messages = lines.flatMap((line) => {
@@ -1288,7 +1305,7 @@ function loadMostRecentConversation(): ActiveConversation | null {
 function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
   try {
     appendFileSync(
-      join(CONVERSATIONS_DIR, `${conv.id}.jsonl`),
+      join(activeConversationsDir, `${conv.id}.jsonl`),
       `${JSON.stringify(msg)}\n`,
       "utf-8"
     );
@@ -1298,7 +1315,15 @@ function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
   }
 }
 
-function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>): void {
+function setupChat(
+  mainWindow: BrowserWindow,
+  places: Map<string, PlaceRecord>,
+  vaultRoot: string,
+  appStateDir: string
+): void {
+  activeConversationsDir = join(appStateDir, "conversations");
+  activeConversationsIndex = join(activeConversationsDir, "index.jsonl");
+
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
   const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   let currentQuery: { close: () => void } | null = null;
@@ -1334,7 +1359,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
   const maposServer = createMaposMcpServer(
     mainWindow,
     places,
-    MAPOS_DIR,
+    vaultRoot,
     onVaultWrite,
     onOverlayUpdate,
     () => currentConversation?.overlay
@@ -1354,7 +1379,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
   ipcMain.handle("chat:switch-conversation", (_event, id: string) => {
     try {
       currentUndoEntry = null;
-      const lines = readFileSync(join(CONVERSATIONS_DIR, `${id}.jsonl`), "utf-8")
+      const lines = readFileSync(join(activeConversationsDir, `${id}.jsonl`), "utf-8")
         .split("\n")
         .filter(Boolean);
       const messages = lines.flatMap((line) => {
@@ -1407,9 +1432,9 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
         options: {
           ...(currentConversation.sdkSessionId ? { resume: currentConversation.sdkSessionId } : {}),
           abortController,
-          cwd: MAPOS_DIR,
+          cwd: vaultRoot,
           model: "claude-sonnet-4-6",
-          systemPrompt: MAPOS_SYSTEM_PROMPT,
+          systemPrompt: buildMaposSystemPrompt(vaultRoot),
           allowedTools: [...ALLOWED_TOOLS],
           tools: [...ALLOWED_TOOLS],
           includePartialMessages: true,
@@ -1428,7 +1453,7 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
             ...process.env,
             ANTHROPIC_API_KEY: apiKey,
             ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL,
-            MAPOS_VAULT_ROOT: MAPOS_DIR
+            MAPOS_VAULT_ROOT: vaultRoot
           }
         }
       });
@@ -1625,9 +1650,9 @@ function setupChat(mainWindow: BrowserWindow, places: Map<string, PlaceRecord>):
 
   ipcMain.handle("chat:delete-conversation", (_event, id: string) => {
     try {
-      const convFile = join(CONVERSATIONS_DIR, `${id}.jsonl`);
+      const convFile = join(activeConversationsDir, `${id}.jsonl`);
       if (existsSync(convFile)) rmSync(convFile);
-      const stateFile = join(CONVERSATIONS_DIR, `${id}.state.json`);
+      const stateFile = join(activeConversationsDir, `${id}.state.json`);
       if (existsSync(stateFile)) rmSync(stateFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
@@ -1706,8 +1731,11 @@ app.whenReady().then(() => {
   });
 
   const mainWindow = createWindow();
-  const places = setupPlacesWatcher(mainWindow);
-  setupChat(mainWindow, places);
+  const appStateDir = app.getPath("userData");
+  const maposConfig = loadOrInitMaposConfig(appStateDir);
+  const vaultRoot = getPrimaryVaultRoot(maposConfig);
+  const places = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+  setupChat(mainWindow, places, vaultRoot, appStateDir);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

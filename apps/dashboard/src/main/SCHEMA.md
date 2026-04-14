@@ -75,14 +75,14 @@ cd apps/dashboard
 pnpm drizzle-kit studio
 ```
 
-Opens a browser-based table browser at `localhost:4983`. The DB must exist first — launch the app once to create it at `~/Documents/MapOS/.mapos/index.db`.
+Opens a browser-based table browser at `localhost:4983`. The DB must exist first — launch the app once so main creates it under Electron [`app.getPath('userData')`](https://www.electronjs.org/docs/latest/api/app#appgetpathname) (main calls `app.setName('MapOS')`; on macOS that is `~/Library/Application Support/MapOS/index.db`). Vault roots are listed in `mapos.json` beside it. `drizzle-kit` does not load Electron; `drizzle.config.ts` defaults to the same path, or set `MAPOS_APP_STATE_DIR` if yours differs.
 
 ### Resetting the DB during development
 
 Delete the file and relaunch — `initDb()` recreates it from scratch:
 
 ```bash
-rm ~/Documents/MapOS/.mapos/index.db
+rm ~/Library/Application\ Support/MapOS/index.db
 ```
 
 ### Applying your migration without launching the full app

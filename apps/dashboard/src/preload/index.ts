@@ -56,8 +56,7 @@ const api = {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
     readFile: (filePath: string) =>
       ipcRenderer.invoke("fs:read-file", filePath) as Promise<
-        | { raw: string; body: string; frontmatter: Record<string, unknown> }
-        | { error: string }
+        { raw: string; body: string; frontmatter: Record<string, unknown> } | { error: string }
       >,
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke("fs:write-file", filePath, content) as Promise<{
@@ -108,6 +107,13 @@ const api = {
       >,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
+  },
+  mapos: {
+    getVaultsConfig: () =>
+      ipcRenderer.invoke("mapos:get-vaults-config") as Promise<{
+        vaults: string[];
+        activeVaultPath: string;
+      }>
   },
   properties: {
     listAllKeys: () => ipcRenderer.invoke("properties:list-all-keys") as Promise<string[]>,

@@ -103,6 +103,9 @@ declare global {
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };
+      mapos: {
+        getVaultsConfig: () => Promise<{ vaults: string[]; activeVaultPath: string }>;
+      };
       properties: {
         listAllKeys: () => Promise<string[]>;
         valuesForKey: (key: string) => Promise<string[]>;

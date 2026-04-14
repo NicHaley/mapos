@@ -1,6 +1,7 @@
 import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import {
+  CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
   FileIcon,
@@ -230,23 +231,30 @@ function VaultSwitcher() {
             >
               <DropdownMenuGroup>
                 <DropdownMenuLabel>Vaults</DropdownMenuLabel>
-                {vaultOptions.map((vault) => (
-                  <DropdownMenuItem
-                    key={vault.path}
-                    disabled={vault.path !== activeVaultPath}
-                    className="gap-2 p-2"
-                  >
-                    <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
-                      <vault.logo className="size-3.5 shrink-0" />
-                    </div>
-                    <div className="grid min-w-0 flex-1">
-                      <span className="truncate font-medium">{vault.name}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {vault.subtitle}
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
+                {vaultOptions.map((vault) => {
+                  const isActive = vault.path === activeVaultPath;
+                  return (
+                    <DropdownMenuItem
+                      key={vault.path}
+                      className="gap-2 p-2"
+                      onClick={() => {
+                        if (isActive) return;
+                        void window.api.mapos.switchVault(vault.path);
+                      }}
+                    >
+                      <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
+                        <vault.logo className="size-3.5 shrink-0" />
+                      </div>
+                      <div className="grid min-w-0 flex-1">
+                        <span className="truncate font-medium">{vault.name}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {vault.subtitle}
+                        </span>
+                      </div>
+                      {isActive && <CheckIcon className="ml-auto size-4 shrink-0 opacity-70" />}
+                    </DropdownMenuItem>
+                  );
+                })}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -266,8 +274,8 @@ function VaultSwitcher() {
             <DialogHeader>
               <DialogTitle>Add vault</DialogTitle>
               <DialogDescription>
-                Register another folder in MapOS. The app still opens your primary vault until
-                multi-vault switching is supported.
+                Register another folder in MapOS. Select it from the vault switcher to relaunch with
+                that vault active.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-2">

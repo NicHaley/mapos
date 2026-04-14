@@ -79,6 +79,12 @@ export function initDb(appStateDir: string): void {
   _db = drizzle(_sqlite, { schema });
 }
 
+export function closeDb(): void {
+  _sqlite?.close();
+  _sqlite = null;
+  _db = null;
+}
+
 function getDb(): ReturnType<typeof drizzle<typeof schema>> {
   if (!_db) throw new Error("DB not initialised — call initDb() first");
   return _db;

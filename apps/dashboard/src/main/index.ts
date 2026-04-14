@@ -31,6 +31,7 @@ import type {
 } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
 import {
+  closeDb,
   getAllPropertyKeys,
   getFeatureCount,
   indexFeatures,
@@ -49,7 +50,8 @@ import {
   appendVaultToConfig,
   getPrimaryVaultRoot,
   loadOrInitMaposConfig,
-  migrateLegacyVaultInternals
+  migrateLegacyVaultInternals,
+  setActiveVaultInConfig
 } from "./maposConfig";
 import { parseWkt } from "./wkt";
 
@@ -180,7 +182,7 @@ function setupPlacesWatcher(
   mainWindow: BrowserWindow,
   vaultRoot: string,
   appStateDir: string
-): Map<string, PlaceRecord> {
+): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
   if (!existsSync(vaultRoot)) {
     mkdirSync(vaultRoot, { recursive: true });
   }
@@ -731,7 +733,39 @@ function setupPlacesWatcher(
     }
   });
 
-  return places;
+  const WATCHER_HANDLE_CHANNELS = [
+    "fs:list-dir",
+    "places:get-by-path",
+    "fs:read-file",
+    "fs:write-file",
+    "fs:write-place-body",
+    "fs:write-frontmatter-property",
+    "fs:reorder-frontmatter",
+    "properties:list-all-keys",
+    "properties:values-for-key",
+    "fs:rename-file",
+    "fs:move-into",
+    "fs:delete-path",
+    "fs:reveal-in-finder",
+    "fs:get-vault-root",
+    "mapos:get-vaults-config",
+    "mapos:set-folder-as-vault",
+    "mapos:create-new-vault",
+    "fs:create-folder",
+    "fs:create-place-file",
+    "places:query-bounds",
+    "places:query-folder-all",
+    "places:query-folder-bounds"
+  ] as const;
+
+  async function stop(): Promise<void> {
+    await watcher.close();
+    for (const ch of WATCHER_HANDLE_CHANNELS) ipcMain.removeHandler(ch);
+    ipcMain.removeAllListeners("places:request-initial");
+    places.clear();
+  }
+
+  return { places, stop };
 }
 
 function buildMaposSystemPrompt(vaultRoot: string): string {
@@ -1366,7 +1400,7 @@ function setupChat(
   places: Map<string, PlaceRecord>,
   vaultRoot: string,
   appStateDir: string
-): void {
+): () => void {
   activeConversationsDir = join(appStateDir, "conversations");
   activeConversationsIndex = join(activeConversationsDir, "index.jsonl");
 
@@ -1709,6 +1743,24 @@ function setupChat(
       console.error("[main] failed to delete conversation:", err);
     }
   });
+
+  const CHAT_HANDLE_CHANNELS = [
+    "chat:load-history",
+    "chat:list-conversations",
+    "chat:switch-conversation",
+    "chat:undo",
+    "chat:delete-conversation"
+  ] as const;
+  const CHAT_ON_CHANNELS = ["chat:send", "chat:abort", "chat:reset", "chat:clear-overlay"] as const;
+
+  return function stopChat(): void {
+    currentQuery?.close();
+    currentQuery = null;
+    currentConversation = null;
+    currentUndoEntry = null;
+    for (const ch of CHAT_HANDLE_CHANNELS) ipcMain.removeHandler(ch);
+    for (const ch of CHAT_ON_CHANNELS) ipcMain.removeAllListeners(ch);
+  };
 }
 
 function createWindow(): BrowserWindow {
@@ -1778,10 +1830,32 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow();
   const appStateDir = app.getPath("userData");
-  const maposConfig = loadOrInitMaposConfig(appStateDir);
-  const vaultRoot = getPrimaryVaultRoot(maposConfig);
-  const places = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
-  setupChat(mainWindow, places, vaultRoot, appStateDir);
+
+  let maposConfig = loadOrInitMaposConfig(appStateDir);
+  let vaultRoot = getPrimaryVaultRoot(maposConfig);
+  let { places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+  let stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+
+  ipcMain.handle("mapos:switch-vault", async (_event, targetPath: string) => {
+    const result = setActiveVaultInConfig(appStateDir, targetPath);
+    if (!result.ok) return result;
+
+    // Tear down current vault
+    stopChat();
+    await stopWatcher();
+    closeDb();
+
+    // Re-initialize with new vault
+    maposConfig = loadOrInitMaposConfig(appStateDir);
+    vaultRoot = getPrimaryVaultRoot(maposConfig);
+    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+
+    // Reload the renderer (fast — no process restart)
+    mainWindow.webContents.reload();
+
+    return { ok: true as const };
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

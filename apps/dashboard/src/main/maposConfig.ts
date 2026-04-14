@@ -15,8 +15,10 @@ export const MAPOS_CONFIG_FILENAME = "mapos.json";
 const DEFAULT_VAULT_PATH = join(homedir(), "MapOS");
 
 export type MaposJson = {
-  /** Absolute paths to vault roots; the first entry is the active vault for this build. */
+  /** Absolute paths to vault roots. Order is stable; active vault is tracked separately. */
   vaults: string[];
+  /** Absolute path of the currently active vault. Defaults to vaults[0] if absent. */
+  activeVault?: string;
 };
 
 function defaultConfig(): MaposJson {
@@ -29,7 +31,11 @@ function parseConfig(raw: string): MaposJson | null {
     if (!parsed || typeof parsed !== "object") return null;
     const vaults = (parsed as { vaults?: unknown }).vaults;
     if (!Array.isArray(vaults) || vaults.some((v) => typeof v !== "string")) return null;
-    return { vaults: [...vaults] };
+    const activeVault = (parsed as { activeVault?: unknown }).activeVault;
+    return {
+      vaults: [...vaults],
+      ...(typeof activeVault === "string" ? { activeVault } : {})
+    };
   } catch {
     return null;
   }
@@ -58,9 +64,12 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
 }
 
 export function getPrimaryVaultRoot(config: MaposJson): string {
-  const first = config.vaults[0]?.trim();
-  const raw = first || DEFAULT_VAULT_PATH;
-  return resolve(raw);
+  const normalized = config.vaults.map((p) => resolve(p.trim()));
+  if (config.activeVault) {
+    const active = resolve(config.activeVault.trim());
+    if (normalized.includes(active)) return active;
+  }
+  return normalized[0] ?? resolve(DEFAULT_VAULT_PATH);
 }
 
 export function appendVaultToConfig(
@@ -83,13 +92,36 @@ export function appendVaultToConfig(
   if (normalized.includes(resolved)) {
     return { ok: false, error: "This folder is already in your vault list." };
   }
-  const next: MaposJson = { vaults: [...normalized, resolved] };
+  const next: MaposJson = {
+    vaults: [...normalized, resolved],
+    ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {})
+  };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
     `${JSON.stringify(next, null, 2)}\n`,
     "utf-8"
   );
   return { ok: true, config: next };
+}
+
+export function setActiveVaultInConfig(
+  appStateDir: string,
+  vaultPath: string
+): { ok: true } | { ok: false; error: string } {
+  const resolved = resolve(vaultPath.trim());
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const normalized = cfg.vaults.map((p) => resolve(p.trim()));
+  if (!normalized.includes(resolved)) {
+    return { ok: false, error: "Vault not found in config." };
+  }
+  // Keep vaults[] order stable; only update activeVault pointer.
+  const next: MaposJson = { vaults: normalized, activeVault: resolved };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return { ok: true };
 }
 
 /**

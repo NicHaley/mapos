@@ -125,6 +125,13 @@ export function setActiveVaultInConfig(
 }
 
 /**
+ * Returns the path to a vault's per-vault state directory.
+ */
+export function vaultDotDir(vaultRoot: string): string {
+  return join(vaultRoot, ".mapos");
+}
+
+/**
  * One-time move from `<vault>/.mapos/*` into the app state dir when the new layout has no DB yet.
  */
 export function migrateLegacyVaultInternals(vaultRoot: string, appStateDir: string): void {

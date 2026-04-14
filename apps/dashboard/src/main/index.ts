@@ -51,7 +51,8 @@ import {
   getPrimaryVaultRoot,
   loadOrInitMaposConfig,
   migrateLegacyVaultInternals,
-  setActiveVaultInConfig
+  setActiveVaultInConfig,
+  vaultDotDir as vaultDotDirPath
 } from "./maposConfig";
 import { parseWkt } from "./wkt";
 
@@ -178,17 +179,25 @@ function readDirTree(dirPath: string): FileNode[] {
   }
 }
 
+/**
+ * Ensures a vault folder and its `.mapos/` subdirectory exist, and opens (or creates) the
+ * per-vault SQLite database. After this call the DB is open and ready for use.
+ * Callers that are NOT activating the vault (e.g. creating/registering a background vault)
+ * should call `closeDb()` immediately afterwards.
+ */
+function initVaultOnDisk(vaultRoot: string): void {
+  const dotDir = vaultDotDirPath(vaultRoot);
+  mkdirSync(dotDir, { recursive: true }); // also creates vaultRoot if missing
+  initDb(dotDir);
+}
+
 function setupPlacesWatcher(
   mainWindow: BrowserWindow,
   vaultRoot: string,
   appStateDir: string
 ): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
-  if (!existsSync(vaultRoot)) {
-    mkdirSync(vaultRoot, { recursive: true });
-  }
-
   migrateLegacyVaultInternals(vaultRoot, appStateDir);
-  initDb(appStateDir);
+  initVaultOnDisk(vaultRoot);
 
   const places = new Map<string, PlaceRecord>();
   const knownPropertyKeys = new Set<string>();
@@ -568,6 +577,8 @@ function setupPlacesWatcher(
     const appStateDir = app.getPath("userData");
     const result = appendVaultToConfig(appStateDir, picked.filePaths[0]);
     if (!result.ok) return { ok: false as const, error: result.error };
+    initVaultOnDisk(resolve(picked.filePaths[0]));
+    closeDb();
     return { ok: true as const, vaults: result.config.vaults.map((p) => resolve(p.trim())) };
   });
 
@@ -582,7 +593,8 @@ function setupPlacesWatcher(
     let newPath: string;
     try {
       newPath = uniquePathInDir(parent, "MapOS Vault", true);
-      mkdirSync(newPath);
+      initVaultOnDisk(newPath);
+      closeDb();
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

@@ -22,9 +22,17 @@ All user data lives under `~/MapOS/`. The only required directory is `.mapos/` �
 ~/MapOS/
 ├── (any folders the user wants — no prescribed structure)
 └── .mapos/                  # App internals — do not write here directly
-    ├── index.db             # Spatial index (managed by app)
-    ├── thumbnails/          # Cached thumbnails (managed by app)
+    ├── index.db             # Spatial index cache (rebuildable — exclude from sync)
     └── config.json          # App configuration (use update_config tool)
+```
+
+`.mapos/` follows Obsidian's `.obsidian/` convention — app state lives inside the vault so the vault is fully self-contained and portable. `index.db` is a derived cache and can always be rebuilt from vault files; exclude it from cloud sync (iCloud, Dropbox) and version control to avoid SQLite conflicts. `config.json` is canonical user intent and should be synced.
+
+Add to `.obsidianignore` and `.gitignore`:
+```
+.mapos/index.db
+.mapos/index.db-wal
+.mapos/index.db-shm
 ```
 
 A typical vault might look like this — but this is just one example:

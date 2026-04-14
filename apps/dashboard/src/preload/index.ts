@@ -113,7 +113,17 @@ const api = {
       ipcRenderer.invoke("mapos:get-vaults-config") as Promise<{
         vaults: string[];
         activeVaultPath: string;
-      }>
+      }>,
+    setFolderAsVault: () =>
+      ipcRenderer.invoke("mapos:set-folder-as-vault") as Promise<
+        { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
+      >,
+    createNewVault: () =>
+      ipcRenderer.invoke("mapos:create-new-vault") as Promise<
+        | { canceled: true }
+        | { ok: false; error: string }
+        | { ok: true; path: string; vaults: string[] }
+      >
   },
   properties: {
     listAllKeys: () => ipcRenderer.invoke("properties:list-all-keys") as Promise<string[]>,

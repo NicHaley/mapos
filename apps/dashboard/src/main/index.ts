@@ -15,7 +15,7 @@ import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import chokidar from "chokidar";
-import { BrowserWindow, app, ipcMain, session, shell } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, session, shell } from "electron";
 
 // Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
 app.setName("MapOS");
@@ -46,6 +46,7 @@ import {
   replaceFeaturePropertiesForFile
 } from "./db";
 import {
+  appendVaultToConfig,
   getPrimaryVaultRoot,
   loadOrInitMaposConfig,
   migrateLegacyVaultInternals
@@ -553,6 +554,51 @@ function setupPlacesWatcher(
     const cfg = loadOrInitMaposConfig(appStateDir);
     const vaults = cfg.vaults.map((p) => resolve(p.trim())).filter((p) => p.length > 0);
     return { vaults, activeVaultPath: vaultRoot };
+  });
+
+  ipcMain.handle("mapos:set-folder-as-vault", async () => {
+    if (mainWindow.isDestroyed()) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory"],
+      title: "Choose folder to use as a vault"
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+    const appStateDir = app.getPath("userData");
+    const result = appendVaultToConfig(appStateDir, picked.filePaths[0]);
+    if (!result.ok) return { ok: false as const, error: result.error };
+    return { ok: true as const, vaults: result.config.vaults.map((p) => resolve(p.trim())) };
+  });
+
+  ipcMain.handle("mapos:create-new-vault", async () => {
+    if (mainWindow.isDestroyed()) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory", "createDirectory"],
+      title: "Choose where to create the new vault"
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+    const parent = picked.filePaths[0];
+    let newPath: string;
+    try {
+      newPath = uniquePathInDir(parent, "MapOS Vault", true);
+      mkdirSync(newPath);
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+    const appStateDir = app.getPath("userData");
+    const result = appendVaultToConfig(appStateDir, newPath);
+    if (!result.ok) {
+      try {
+        rmSync(newPath, { recursive: true, force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+      return { ok: false as const, error: result.error };
+    }
+    return {
+      ok: true as const,
+      path: newPath,
+      vaults: result.config.vaults.map((p) => resolve(p.trim()))
+    };
   });
 
   ipcMain.handle(

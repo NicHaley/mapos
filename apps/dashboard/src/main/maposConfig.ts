@@ -1,4 +1,12 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -54,6 +62,35 @@ export function getPrimaryVaultRoot(config: MaposJson): string {
   const first = config.vaults[0]?.trim();
   const raw = first || LEGACY_DEFAULT_VAULT;
   return resolve(raw);
+}
+
+export function appendVaultToConfig(
+  appStateDir: string,
+  vaultPath: string
+): { ok: true; config: MaposJson } | { ok: false; error: string } {
+  const resolved = resolve(vaultPath.trim());
+  try {
+    if (!existsSync(resolved)) {
+      return { ok: false, error: "Folder does not exist." };
+    }
+    if (!statSync(resolved).isDirectory()) {
+      return { ok: false, error: "Path is not a folder." };
+    }
+  } catch {
+    return { ok: false, error: "Could not read that path." };
+  }
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const normalized = cfg.vaults.map((p) => resolve(p.trim()));
+  if (normalized.includes(resolved)) {
+    return { ok: false, error: "This folder is already in your vault list." };
+  }
+  const next: MaposJson = { vaults: [...normalized, resolved] };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return { ok: true, config: next };
 }
 
 /**

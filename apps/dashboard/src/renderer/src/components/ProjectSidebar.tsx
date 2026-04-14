@@ -6,7 +6,9 @@ import {
   FileIcon,
   FileTextIcon,
   FolderIcon,
+  FolderInputIcon,
   FolderOpenIcon,
+  FolderPlusIcon,
   MessageCirclePlusIcon,
   PlusIcon,
   SettingsIcon,
@@ -25,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "./ui/alert-dialog";
+import { Button } from "./ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -32,6 +35,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "./ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "./ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,8 +119,11 @@ function VaultSwitcher() {
   const { isMobile } = useSidebar();
   const [vaultOptions, setVaultOptions] = useState<VaultOption[]>([]);
   const [activeVaultPath, setActiveVaultPath] = useState<string | null>(null);
+  const [addVaultOpen, setAddVaultOpen] = useState(false);
+  const [addVaultBusy, setAddVaultBusy] = useState(false);
+  const [addVaultError, setAddVaultError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reloadVaults = useCallback(() => {
     void window.api.mapos.getVaultsConfig().then(({ vaults, activeVaultPath: active }) => {
       const trimmed = vaults.map((p) => p.trim()).filter(Boolean);
       setActiveVaultPath(active);
@@ -124,6 +138,10 @@ function VaultSwitcher() {
     });
   }, []);
 
+  useEffect(() => {
+    reloadVaults();
+  }, [reloadVaults]);
+
   const activeVault = useMemo((): VaultOption => {
     const found = vaultOptions.find((v) => v.path === activeVaultPath);
     if (found) return found;
@@ -136,62 +154,173 @@ function VaultSwitcher() {
     };
   }, [vaultOptions, activeVaultPath]);
 
+  const runCreateNewVault = useCallback(async () => {
+    setAddVaultBusy(true);
+    setAddVaultError(null);
+    try {
+      const r = await window.api.mapos.createNewVault();
+      if ("canceled" in r && r.canceled) return;
+      if ("ok" in r && r.ok === false) {
+        setAddVaultError(r.error);
+        return;
+      }
+      if ("ok" in r && r.ok) {
+        setAddVaultOpen(false);
+        reloadVaults();
+      }
+    } finally {
+      setAddVaultBusy(false);
+    }
+  }, [reloadVaults]);
+
+  const runSetFolderAsVault = useCallback(async () => {
+    setAddVaultBusy(true);
+    setAddVaultError(null);
+    try {
+      const r = await window.api.mapos.setFolderAsVault();
+      if ("canceled" in r && r.canceled) return;
+      if ("ok" in r && r.ok === false) {
+        setAddVaultError(r.error);
+        return;
+      }
+      if ("ok" in r && r.ok) {
+        setAddVaultOpen(false);
+        reloadVaults();
+      }
+    } finally {
+      setAddVaultBusy(false);
+    }
+  }, [reloadVaults]);
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <SidebarMenuButton
-                size="lg"
-                className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
-              />
-            }
-          >
-            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-              <activeVault.logo className="size-4" />
-            </div>
-            <div className="grid flex-1 min-w-0 text-left text-sm leading-tight">
-              <span className="truncate font-medium">{activeVault.name}</span>
-              <span className="truncate text-xs text-sidebar-foreground/70">
-                {activeVault.subtitle}
-              </span>
-            </div>
-            <ChevronsUpDownIcon className="ml-auto size-4 opacity-70" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--anchor-width) min-w-56 rounded-lg"
-            align="start"
-            side={isMobile ? "bottom" : "right"}
-            sideOffset={4}
-          >
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Vaults</DropdownMenuLabel>
-              {vaultOptions.map((vault) => (
-                <DropdownMenuItem
-                  key={vault.path}
-                  disabled={vault.path !== activeVaultPath}
-                  className="gap-2 p-2"
-                >
-                  <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
-                    <vault.logo className="size-3.5 shrink-0" />
-                  </div>
-                  <div className="grid min-w-0 flex-1">
-                    <span className="truncate font-medium">{vault.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{vault.subtitle}</span>
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 p-2">
-              <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border bg-transparent">
-                <PlusIcon className="size-4" />
+        <Dialog
+          open={addVaultOpen}
+          onOpenChange={(open) => {
+            setAddVaultOpen(open);
+            if (!open) setAddVaultError(null);
+          }}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuButton
+                  size="lg"
+                  className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+                />
+              }
+            >
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <activeVault.logo className="size-4" />
               </div>
-              <div className="font-medium text-muted-foreground">Add vault</div>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <div className="grid flex-1 min-w-0 text-left text-sm leading-tight">
+                <span className="truncate font-medium">{activeVault.name}</span>
+                <span className="truncate text-xs text-sidebar-foreground/70">
+                  {activeVault.subtitle}
+                </span>
+              </div>
+              <ChevronsUpDownIcon className="ml-auto size-4 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-(--anchor-width) min-w-56 rounded-lg"
+              align="start"
+              side={isMobile ? "bottom" : "right"}
+              sideOffset={4}
+            >
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Vaults</DropdownMenuLabel>
+                {vaultOptions.map((vault) => (
+                  <DropdownMenuItem
+                    key={vault.path}
+                    disabled={vault.path !== activeVaultPath}
+                    className="gap-2 p-2"
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border">
+                      <vault.logo className="size-3.5 shrink-0" />
+                    </div>
+                    <div className="grid min-w-0 flex-1">
+                      <span className="truncate font-medium">{vault.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {vault.subtitle}
+                      </span>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2 p-2"
+                onClick={() => {
+                  setAddVaultOpen(true);
+                }}
+              >
+                <div className="flex size-6 items-center justify-center rounded-md border border-sidebar-border bg-transparent">
+                  <PlusIcon className="size-4" />
+                </div>
+                <div className="font-medium text-muted-foreground">Add vault</div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DialogContent className="sm:max-w-md" showCloseButton={!addVaultBusy}>
+            <DialogHeader>
+              <DialogTitle>Add vault</DialogTitle>
+              <DialogDescription>
+                Register another folder in MapOS. The app still opens your primary vault until
+                multi-vault switching is supported.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
+                disabled={addVaultBusy}
+                onClick={() => void runCreateNewVault()}
+              >
+                <FolderPlusIcon className="size-5 shrink-0 opacity-80" />
+                <div className="grid min-w-0 gap-0.5">
+                  <span className="font-medium">Create new vault</span>
+                  <span className="text-muted-foreground text-xs font-normal">
+                    Pick a parent location. MapOS creates an empty folder named &quot;MapOS
+                    Vault&quot; (or MapOS Vault 1, …) and adds it to your list.
+                  </span>
+                </div>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
+                disabled={addVaultBusy}
+                onClick={() => void runSetFolderAsVault()}
+              >
+                <FolderInputIcon className="size-5 shrink-0 opacity-80" />
+                <div className="grid min-w-0 gap-0.5">
+                  <span className="font-medium">Set folder as vault</span>
+                  <span className="text-muted-foreground text-xs font-normal">
+                    Choose an existing folder on disk and add its path to your vault list.
+                  </span>
+                </div>
+              </Button>
+            </div>
+            {addVaultError ? (
+              <p className="text-destructive text-sm" role="alert">
+                {addVaultError}
+              </p>
+            ) : null}
+            <DialogFooter className="sm:justify-stretch">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={addVaultBusy}
+                onClick={() => setAddVaultOpen(false)}
+                className="sm:flex-1"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SidebarMenuItem>
     </SidebarMenu>
   );

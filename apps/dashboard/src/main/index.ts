@@ -665,12 +665,9 @@ function setupPlacesWatcher(
         dir = vaultRoot;
       }
       const candidate = uniquePathInDir(dir, "Untitled.md", false);
-      const includeDefaults = args.includePlaceFrontmatterDefaults !== false;
       const content =
         args.lat != null && args.lng != null
-          ? includeDefaults
-            ? `---\ngeometry: POINT(${args.lng} ${args.lat})\ntype: place\nstatus: want-to-go\n---\n`
-            : `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
+          ? `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
           : "";
       try {
         writeFileSync(candidate, content, "utf-8");

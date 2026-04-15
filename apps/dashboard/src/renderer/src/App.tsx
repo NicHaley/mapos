@@ -14,7 +14,7 @@ import { Kbd, KbdGroup } from "./components/ui/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "./components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
-import { modSymbol } from "./hooks/useShortcuts";
+import { modSymbol, useShortcuts } from "./hooks/useShortcuts";
 import type { PhotonSearchResult } from "./lib/photon";
 import { uniqueNameCandidates } from "./lib/unique-name";
 
@@ -278,6 +278,13 @@ function App(): React.JSX.Element {
     handleNavBack,
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
+
+  useShortcuts([
+    {
+      def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
+      handler: () => handleNavTabClose(activeTabIndex)
+    }
+  ]);
 
   function handlePlaceCardClose() {
     // Full place cards should close exactly like the active top-bar tab.

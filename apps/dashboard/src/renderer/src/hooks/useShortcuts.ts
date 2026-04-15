@@ -5,6 +5,7 @@ export type ShortcutDef = {
   meta?: boolean; // Cmd on Mac, Ctrl on Windows/Linux
   shift?: boolean;
   alt?: boolean;
+  enabled?: boolean; // defaults to true; when false, shortcut is skipped (allows native/Electron default)
 };
 
 export type ShortcutEntry = {
@@ -34,7 +35,8 @@ export function useShortcuts(shortcuts: ShortcutEntry[]) {
           e.key.toLowerCase() === def.key.toLowerCase() &&
           metaMatch &&
           !!e.shiftKey === !!def.shift &&
-          !!e.altKey === !!def.alt
+          !!e.altKey === !!def.alt &&
+          def.enabled !== false
         ) {
           e.preventDefault();
           handler();

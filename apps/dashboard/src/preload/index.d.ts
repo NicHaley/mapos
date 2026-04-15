@@ -56,9 +56,10 @@ declare global {
       };
       fs: {
         listDir: () => Promise<FileNode[]>;
-        readFile: (filePath: string) => Promise<
-          | { raw: string; body: string; frontmatter: Record<string, unknown> }
-          | { error: string }
+        readFile: (
+          filePath: string
+        ) => Promise<
+          { raw: string; body: string; frontmatter: Record<string, unknown> } | { error: string }
         >;
         writeFile: (
           filePath: string,

@@ -1,8 +1,11 @@
 import { cn } from "@renderer/lib/utils";
+import { modSymbol } from "@renderer/hooks/useShortcuts";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import { Kbd, KbdGroup } from "./ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 type NavTabsProps = {
   tabs: Array<{ id: string; title: string }>;
@@ -77,23 +80,36 @@ export function NavTabs({
                 )}
               >
                 <span className="truncate">{tab.title}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(i);
-                  }}
-                  className={cn(
-                    "shrink-0 rounded",
-                    isActive
-                      ? "opacity-60 hover:opacity-100"
-                      : "opacity-0 group-hover:opacity-60 hover:opacity-100!"
-                  )}
-                >
-                  <XIcon />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTabClose(i);
+                        }}
+                        className={cn(
+                          "shrink-0 rounded",
+                          isActive
+                            ? "opacity-60 hover:opacity-100"
+                            : "opacity-0 group-hover:opacity-60 hover:opacity-100!"
+                        )}
+                      >
+                        <XIcon />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom">
+                    Close tab
+                    <KbdGroup>
+                      <Kbd>{modSymbol}</Kbd>
+                      <Kbd>W</Kbd>
+                    </KbdGroup>
+                  </TooltipContent>
+                </Tooltip>
               </Reorder.Item>
             );
           })}

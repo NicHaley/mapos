@@ -2,11 +2,18 @@ import "./assets/main.css";
 
 import { createRoot } from "react-dom/client";
 
-// Apply dark mode based on system preference
-const applyTheme = (dark: boolean) => document.documentElement.classList.toggle("dark", dark);
+// Apply dark mode — respects stored preference, falls back to system
+const applyDark = (dark: boolean) => document.documentElement.classList.toggle("dark", dark);
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
-applyTheme(mq.matches);
-mq.addEventListener("change", (e) => applyTheme(e.matches));
+const storedTheme = localStorage.getItem("mapos_theme") as "light" | "dark" | "system" | null;
+if (!storedTheme || storedTheme === "system") {
+  applyDark(mq.matches);
+  mq.addEventListener("change", (e) => {
+    if ((localStorage.getItem("mapos_theme") ?? "system") === "system") applyDark(e.matches);
+  });
+} else {
+  applyDark(storedTheme === "dark");
+}
 import App from "./App";
 import { TooltipProvider } from "./components/ui/tooltip";
 

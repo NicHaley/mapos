@@ -15,6 +15,7 @@ import {
   SettingsIcon,
   SquarePenIcon
 } from "lucide-react";
+import { SettingsDialog } from "./SettingsDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/useShortcuts";
 import type { PlaceRecord } from "./MapView";
@@ -40,7 +41,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle
 } from "./ui/dialog";
@@ -631,6 +631,7 @@ export function ProjectSidebar({
   const [pendingRenamePath, setPendingRenamePath] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
@@ -714,7 +715,10 @@ export function ProjectSidebar({
     await load();
   }
 
-  useShortcuts([{ def: { key: "n", meta: true }, handler: () => void createNoteIn(vaultRoot) }]);
+  useShortcuts([
+    { def: { key: "n", meta: true }, handler: () => void createNoteIn(vaultRoot) },
+    { def: { key: ",", meta: true }, handler: () => setSettingsOpen(true) }
+  ]);
 
   async function createNoteIn(parentPath: string) {
     if (!parentPath) return;
@@ -789,7 +793,7 @@ export function ProjectSidebar({
               <TooltipTrigger
                 render={
                   <SidebarMenuItem>
-                    <SidebarMenuButton>
+                    <SidebarMenuButton onClick={() => setSettingsOpen(true)}>
                       <SettingsIcon /> Settings
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -923,6 +927,7 @@ export function ProjectSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </Sidebar>
   );
 }

@@ -6,8 +6,8 @@ import { defineConfig } from "electron-vite";
 export default defineConfig({
   main: {
     build: {
-      rollupOptions: {
-        external: ['electron', 'better-sqlite3', 'sharp', 'fsevents']
+      externalizeDeps: {
+        exclude: ['chokidar', 'is-glob', 'is-extglob', 'glob-parent', 'readdirp', 'anymatch', 'picomatch', 'braces', 'fill-range', 'to-regex-range']
       }
     }
   },

@@ -154,21 +154,38 @@ type FileNode = {
   children?: FileNode[];
 };
 
+/** Non-directory entries shown in the vault tree (ProjectSidebar / `fs:list-dir`). */
+const VAULT_TREE_LISTED_EXTENSIONS = new Set([
+  ".md",
+  ".geojson",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif"
+]);
+
+function isVaultTreeListedFile(filename: string): boolean {
+  return VAULT_TREE_LISTED_EXTENSIONS.has(extname(filename).toLowerCase());
+}
+
 function readDirTree(dirPath: string): FileNode[] {
   try {
     return readdirSync(dirPath, { withFileTypes: true })
       .filter((e) => !e.name.startsWith("."))
-      .map((entry) => {
+      .flatMap((entry): FileNode[] => {
         const fullPath = join(dirPath, entry.name);
         if (entry.isDirectory()) {
-          return {
-            name: entry.name,
-            path: fullPath,
-            type: "directory" as const,
-            children: readDirTree(fullPath)
-          };
+          return [
+            {
+              name: entry.name,
+              path: fullPath,
+              type: "directory" as const,
+              children: readDirTree(fullPath)
+            }
+          ];
         }
-        return { name: entry.name, path: fullPath, type: "file" as const };
+        if (!isVaultTreeListedFile(entry.name)) return [];
+        return [{ name: entry.name, path: fullPath, type: "file" as const }];
       })
       .sort((a, b) => {
         if (a.type !== b.type) return a.type === "directory" ? -1 : 1;

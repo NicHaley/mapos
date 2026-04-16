@@ -4,7 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        external: ['electron', 'better-sqlite3', 'sharp', 'fsevents']
+      }
+    }
+  },
   preload: {},
   renderer: {
     resolve: {

@@ -456,6 +456,15 @@ function setupPlacesWatcher(
         for (const place of newPlaces) {
           places.set(place.filePath, place);
         }
+      } else {
+        const place = places.get(oldPath);
+        if (place) {
+          places.delete(oldPath);
+          removeFeatures([oldPath]);
+          const moved = { ...place, filePath: newPath };
+          places.set(newPath, moved);
+          if (moved.geometry) indexFeatures([moved]);
+        }
       }
 
       notifyFsChanged();

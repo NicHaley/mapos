@@ -159,7 +159,7 @@ const MapView = forwardRef<
     /** Only render the overlay layer when the chat sidebar is open. */
     showOverlay?: boolean;
     /** GeoJSON files loaded on-demand (not indexed in DB). */
-    geoJsonLayers?: Array<{ filePath: string; data: RawFeatureCollection }>;
+    geoJsonLayers?: Array<{ filePath: string; data: RawFeatureCollection; bbox: [number, number, number, number] }>;
   }
 >(function MapView(
   {
@@ -226,19 +226,32 @@ const MapView = forwardRef<
       const placesWithGeo = places.filter((p): p is PlaceRecord & { geometry: string } =>
         Boolean(p.geometry)
       );
-      if (placesWithGeo.length === 0) return;
+      // Use precomputed bbox corners (SW + NE) for each GeoJSON layer rather than
+      // iterating all features — O(layers) instead of O(total features).
+      const gjBboxCorners = geoJsonLayers
+        .filter((l) => l.filePath.startsWith(folderPath))
+        .flatMap(({ bbox: b }) => [
+          { type: "Feature" as const, geometry: { type: "Point" as const, coordinates: [b[0], b[1]] }, properties: {} },
+          { type: "Feature" as const, geometry: { type: "Point" as const, coordinates: [b[2], b[3]] }, properties: {} }
+        ]);
+      if (placesWithGeo.length === 0 && gjBboxCorners.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
       const collection = {
         type: "FeatureCollection" as const,
-        features: placesWithGeo.map((p) => ({
-          type: "Feature" as const,
-          geometry: parseGeometry(p.geometry),
-          properties: {}
-        }))
+        features: [
+          ...placesWithGeo.map((p) => ({
+            type: "Feature" as const,
+            geometry: parseGeometry(p.geometry),
+            properties: {}
+          })),
+          ...gjBboxCorners
+        ]
       };
       const [minLng, minLat, maxLng, maxLat] = bbox(collection);
-      if (placesWithGeo.length === 1 && minLng === maxLng && minLat === maxLat) {
+      const hasGjLayers = gjBboxCorners.length > 0;
+      const totalFeatures = placesWithGeo.length + (hasGjLayers ? 1 : 0);
+      if (totalFeatures === 1 && minLng === maxLng && minLat === maxLat) {
         map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
       } else {
         const cam = cameraForBounds(
@@ -252,7 +265,7 @@ const MapView = forwardRef<
         if (cam) map.flyTo({ ...cam, duration: 600, padding });
       }
     },
-    [loadFolderPlaces]
+    [loadFolderPlaces, geoJsonLayers]
   );
 
   useImperativeHandle(

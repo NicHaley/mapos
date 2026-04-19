@@ -175,7 +175,7 @@ function App(): React.JSX.Element {
   const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
   const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
   const [activeGeoJsonLayers, setActiveGeoJsonLayers] = useState<
-    Array<{ filePath: string; data: Record<string, unknown> }>
+    Array<{ filePath: string; data: Record<string, unknown>; bbox: [number, number, number, number] }>
   >([]);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
@@ -349,7 +349,7 @@ function App(): React.JSX.Element {
       void window.api.fs.geoJsonFilesInFolder(folderPath).then(async (paths) => {
         const results = await Promise.all(paths.map((p) => window.api.fs.readGeoJson(p)));
         const layers = results.flatMap((data, i) =>
-          data ? [{ filePath: paths[i], data }] : []
+          data ? [{ filePath: paths[i], data, bbox: bbox(data as unknown as Parameters<typeof bbox>[0]) as [number, number, number, number] }] : []
         );
         setActiveGeoJsonLayers(layers);
       });
@@ -361,8 +361,8 @@ function App(): React.JSX.Element {
     async (filePath: string) => {
       const data = await window.api.fs.readGeoJson(filePath);
       if (!data) return;
-      const layer = { filePath, data };
-      setActiveGeoJsonLayers([layer]);
+      const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [number, number, number, number];
+      setActiveGeoJsonLayers([{ filePath, data, bbox: layerBbox }]);
       // @ts-expect-error - data shape matches RawFeatureCollection
       mapRef.current?.fitToGeoJson(data, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
     },

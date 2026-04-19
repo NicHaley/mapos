@@ -15,10 +15,10 @@ import {
   SettingsIcon,
   SquarePenIcon
 } from "lucide-react";
-import { SettingsDialog } from "./SettingsDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/useShortcuts";
 import type { PlaceRecord } from "./MapView";
+import { SettingsDialog } from "./SettingsDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,13 +37,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "./ui/context-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -484,10 +478,13 @@ function FileTreeNode({
         <ContextMenu>
           <ContextMenuTrigger
             render={
-              <SidebarMenuButton
-                // size="sm"
-                isActive={isActive}
-                className={folderDropZone ? "bg-sidebar-accent" : undefined}
+              <div
+                className={cn(
+                  "flex min-h-8 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md pl-1 pr-2 ring-sidebar-ring outline-hidden transition-[color,background-color,box-shadow]",
+                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+                  folderDropZone && "bg-sidebar-accent"
+                )}
                 draggable={Boolean(dnd) && !isRenaming}
                 onDragStart={(e) => {
                   if (!dnd || isRenaming) return;
@@ -508,26 +505,53 @@ function FileTreeNode({
                   e.stopPropagation();
                   dnd.onFolderDrop(e, node.path);
                 }}
-                onClick={() => {
-                  if (isRenaming) return;
-                  setOpen((o) => !o);
-                  onSelectFolder?.(node.path);
-                }}
               />
             }
           >
-            <ChevronRightIcon
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={open ? "Collapse folder" : "Expand folder"}
               className={cn(
-                "size-3.5 shrink-0 text-sidebar-foreground/50 transition-transform",
-                open && "rotate-90"
+                "my-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-[color,background-color]",
+                "text-sidebar-foreground/50 hover:text-sidebar-accent-foreground",
+                "hover:bg-sidebar-accent-foreground/10",
+                "focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-0"
               )}
-            />
-            {open ? (
-              <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-            ) : (
-              <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-            )}
-            {isRenaming ? renameInput : <span className="truncate">{node.name}</span>}
+              onClick={() => {
+                if (isRenaming) return;
+                setOpen((o) => !o);
+              }}
+            >
+              <ChevronRightIcon
+                className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+              />
+            </button>
+            <SidebarMenuButton
+              isActive={isActive}
+              className={cn(
+                "min-h-8 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 shadow-none",
+                "hover:bg-transparent focus-visible:bg-transparent active:bg-transparent",
+                "data-active:bg-transparent data-active:hover:bg-transparent",
+                folderDropZone && "bg-transparent"
+              )}
+              onClick={() => {
+                if (isRenaming) return;
+                onSelectFolder?.(node.path);
+              }}
+              onDoubleClick={(e) => {
+                if (isRenaming) return;
+                e.preventDefault();
+                setOpen((o) => !o);
+              }}
+            >
+              {open ? (
+                <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+              ) : (
+                <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+              )}
+              {isRenaming ? renameInput : <span className="truncate">{node.name}</span>}
+            </SidebarMenuButton>
           </ContextMenuTrigger>
           <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
         </ContextMenu>

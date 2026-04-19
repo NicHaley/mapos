@@ -370,6 +370,18 @@ function setupPlacesWatcher(
           parsed.data[key] = value;
         }
         writeFileSync(filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
+        // Immediately update the in-memory places map so getByPath returns fresh data
+        // before the file watcher fires (which has a 300ms awaitWriteFinish delay).
+        void parsePlaceFile(filePath, knownPropertyKeys).then((place) => {
+          if (place) {
+            places.set(filePath, place);
+            if (place.geometry) indexFeatures([place]);
+            else removeFeatures([filePath]);
+          } else {
+            places.delete(filePath);
+            removeFeatures([filePath]);
+          }
+        });
         return { success: true };
       } catch (err) {
         return { success: false, error: String(err) };

@@ -432,13 +432,14 @@ function App(): React.JSX.Element {
         geometry: geometryJson
       };
       setSelectedPlace(updated);
+      dispatchNav({ type: "update-entry", filePath: updated.filePath, place: updated });
       mapRef.current?.fitToPlace(
         updated,
         mapPadding(projectSidebarOpen, chatSidebarOpen, placeMode === "full")
       );
       return true;
     },
-    [projectSidebarOpen, chatSidebarOpen, placeMode]
+    [projectSidebarOpen, chatSidebarOpen, placeMode, dispatchNav]
   );
 
   const clearVaultPointLocation = useCallback(async (filePath: string): Promise<boolean> => {
@@ -455,9 +456,11 @@ function App(): React.JSX.Element {
         title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
         type: "note"
       } satisfies PlaceRecord);
-    setSelectedPlace({ ...base, geometry: undefined });
+    const cleared = { ...base, geometry: undefined };
+    setSelectedPlace(cleared);
+    dispatchNav({ type: "update-entry", filePath, place: cleared });
     return true;
-  }, []);
+  }, [dispatchNav]);
 
   const handleSaveSearchToVault = useCallback(async () => {
     const place = selectedPlace;

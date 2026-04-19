@@ -17,7 +17,8 @@ export type NavAction =
   | { type: "remove_path"; path: string; isFolder: boolean }
   | { type: "restore"; tabs: NavTab[]; activeTab: number }
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
-  | { type: "reorder"; newOrder: string[] };
+  | { type: "reorder"; newOrder: string[] }
+  | { type: "update-entry"; filePath: string; place: PlaceRecord };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -188,6 +189,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
       return {
         tabs,
         activeTab: newActive >= 0 ? newActive : 0
+      };
+    }
+    case "update-entry": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "place" && entry.place.filePath === action.filePath
+              ? { ...entry, place: action.place }
+              : entry
+          )
+        }))
       };
     }
     default:

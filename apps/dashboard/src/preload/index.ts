@@ -109,6 +109,11 @@ const api = {
       ipcRenderer.invoke("fs:read-geojson", filePath) as Promise<Record<string, unknown> | null>,
     geoJsonFilesInFolder: (folderPath: string) =>
       ipcRenderer.invoke("fs:geojson-files-in-folder", folderPath) as Promise<string[]>,
+    writeGeoJsonProperty: (filePath: string, key: string, value: unknown) =>
+      ipcRenderer.invoke("fs:write-geojson-property", filePath, key, value) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },

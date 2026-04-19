@@ -60,7 +60,8 @@ type LoadedDoc =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "vault"; body: string; frontmatter: Record<string, unknown>; keys: string[] }
-  | { kind: "preview"; body: string };
+  | { kind: "preview"; body: string }
+  | { kind: "geojson-layer"; properties: Record<string, unknown>; featureCount: number; geometryTypes: string[] };
 
 type PlaceCardMarkdownPaneProps = {
   filePath: string;
@@ -70,6 +71,8 @@ type PlaceCardMarkdownPaneProps = {
   isDark: boolean;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
   onEditorReady: (editor: Editor | null) => void;
+  /** Override the default writePlaceBody persistence. */
+  onPersist?: (content: string) => void;
 };
 
 function PlaceCardMarkdownPane({
@@ -79,7 +82,8 @@ function PlaceCardMarkdownPane({
   mode,
   isDark,
   onNavigate,
-  onEditorReady
+  onEditorReady,
+  onPersist
 }: PlaceCardMarkdownPaneProps): React.JSX.Element {
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
   const currentPathRef = useRef(filePath);
@@ -91,8 +95,15 @@ function PlaceCardMarkdownPane({
   const [showLinkInput, setShowLinkInput] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
 
+  const onPersistRef = useRef(onPersist);
+  onPersistRef.current = onPersist;
+
   const debouncedPersist = useDebouncedCallback((markdown: string) => {
-    void window.api.fs.writePlaceBody(filePath, markdown);
+    if (onPersistRef.current) {
+      onPersistRef.current(markdown);
+    } else {
+      void window.api.fs.writePlaceBody(filePath, markdown);
+    }
   }, 600);
 
   const editor = useEditor({
@@ -300,7 +311,12 @@ export function PlaceCard({
   const isDark = useDarkMode();
 
   const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
-  const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
+  const currentTitle =
+    place.previewMarkdown !== undefined
+      ? place.title
+      : place.type === "GeoJsonLayer"
+        ? String(doc.kind === "geojson-layer" ? (doc.properties.name ?? place.title) : place.title)
+        : filePathBaseName;
   const [titleInput, setTitleInput] = useState(currentTitle);
 
   const loading = doc.kind === "loading";
@@ -318,6 +334,27 @@ export function PlaceCard({
     if (place.previewMarkdown !== undefined) {
       setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
       return;
+    }
+    if (place.type === "GeoJsonLayer") {
+      setDoc({ kind: "loading" });
+      let cancelled = false;
+      void window.api.fs.readGeoJson(place.filePath).then((data) => {
+        if (cancelled || !data) return;
+        const features = (data.features as unknown[]) ?? [];
+        const featureCount = features.length;
+        const geometryTypes = [
+          ...new Set(
+            features
+              .map((f) => (f as { geometry?: { type?: string } }).geometry?.type)
+              .filter((t): t is string => Boolean(t))
+          )
+        ];
+        const { type: _t, features: _f, ...properties } = data as Record<string, unknown>;
+        setDoc({ kind: "geojson-layer", properties, featureCount, geometryTypes });
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     setDoc({ kind: "loading" });
     let cancelled = false;
@@ -340,7 +377,7 @@ export function PlaceCard({
     return () => {
       cancelled = true;
     };
-  }, [place.filePath, place.previewMarkdown, place.geometry]);
+  }, [place.filePath, place.previewMarkdown, place.geometry, place.type]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -404,6 +441,11 @@ export function PlaceCard({
       setTitleError(null);
       return;
     }
+    if (place.type === "GeoJsonLayer") {
+      await window.api.fs.writeGeoJsonProperty(currentFilePath, "name", newName);
+      setTitleError(null);
+      return;
+    }
     const result = await window.api.fs.renameFile(currentFilePath, newName);
     if (result.success) {
       setCurrentFilePath(result.newPath);
@@ -459,6 +501,12 @@ export function PlaceCard({
                 value={titleInput}
               />
             </ErrorTooltip>
+            {doc.kind === "geojson-layer" && (
+              <div className="mt-0.5 text-xs text-sidebar-foreground/50">
+                {doc.featureCount} feature{doc.featureCount !== 1 ? "s" : ""}
+                {doc.geometryTypes.length > 0 && ` · ${doc.geometryTypes.join(", ")}`}
+              </div>
+            )}
           </div>
           {place.previewMarkdown !== undefined && onSaveSearchToVault && (
             <button
@@ -500,7 +548,7 @@ export function PlaceCard({
           </button>
         </div>
 
-        {place.previewMarkdown === undefined && onCommitPointLocation && (
+        {place.previewMarkdown === undefined && place.type !== "GeoJsonLayer" && onCommitPointLocation && (
           <div className="px-2 pb-4 shrink-0">
             <Popover
               open={addLocationOpen}
@@ -557,6 +605,23 @@ export function PlaceCard({
             allVaultKeys={doc.keys}
           />
         )}
+        {doc.kind === "geojson-layer" && (() => {
+          const GJ_EXCLUDED = new Set(["name", "description"]);
+          const gjFrontmatter = Object.fromEntries(
+            Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
+          );
+          return (
+            <PropertiesPanel
+              filePath={currentFilePath}
+              frontmatter={gjFrontmatter}
+              allVaultKeys={[]}
+              onWriteProperty={async (key, value) => {
+                await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+              }}
+              reorderable={false}
+            />
+          );
+        })()}
 
         {/* Body content */}
         {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
@@ -567,12 +632,22 @@ export function PlaceCard({
           <PlaceCardMarkdownPane
             key={currentFilePath}
             filePath={currentFilePath}
-            initialMarkdown={doc.body}
+            initialMarkdown={
+              doc.kind === "geojson-layer"
+                ? String(doc.properties.description ?? "")
+                : doc.body
+            }
             isPreview={doc.kind === "preview"}
             mode={mode}
             isDark={isDark}
             onNavigate={onNavigate}
             onEditorReady={onEditorReady}
+            onPersist={
+              doc.kind === "geojson-layer"
+                ? (content) =>
+                    void window.api.fs.writeGeoJsonProperty(currentFilePath, "description", content)
+                : undefined
+            }
           />
         )}
       </div>

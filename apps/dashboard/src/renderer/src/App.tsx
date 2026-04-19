@@ -363,10 +363,23 @@ function App(): React.JSX.Element {
       if (!data) return;
       const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [number, number, number, number];
       setActiveGeoJsonLayers([{ filePath, data, bbox: layerBbox }]);
+
+      const title = String(
+        (data as Record<string, unknown>).name ??
+          filePath.split("/").pop()?.replace(/\.geojson$/i, "") ??
+          filePath
+      );
+      const place: PlaceRecord = { filePath, type: "GeoJsonLayer", title };
+      setSelectedPlace(place);
+      setPlaceMode("full");
+      setSelectedFolder(null);
+      setFeatureScreenPos(null);
+      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
+
       // @ts-expect-error - data shape matches RawFeatureCollection
-      mapRef.current?.fitToGeoJson(data, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+      mapRef.current?.fitToGeoJson(data, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
     },
-    [projectSidebarOpen, chatSidebarOpen]
+    [projectSidebarOpen, chatSidebarOpen, dispatchNav]
   );
 
   // New place file created from map context menu

@@ -103,6 +103,11 @@ declare global {
         }) => Promise<{ success: true; folderPath: string } | { success: false; error: string }>;
         readGeoJson: (filePath: string) => Promise<Record<string, unknown> | null>;
         geoJsonFilesInFolder: (folderPath: string) => Promise<string[]>;
+        writeGeoJsonProperty: (
+          filePath: string,
+          key: string,
+          value: unknown
+        ) => Promise<{ success: boolean; error?: string }>;
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };

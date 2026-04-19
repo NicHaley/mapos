@@ -762,6 +762,25 @@ function setupPlacesWatcher(
     }
   });
 
+  ipcMain.handle(
+    "fs:write-geojson-property",
+    async (_event, filePath: string, key: string, value: unknown) => {
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        const data = JSON.parse(raw) as Record<string, unknown>;
+        if (value === null || value === undefined) {
+          delete data[key];
+        } else {
+          data[key] = value;
+        }
+        await writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+  );
+
   ipcMain.on("places:request-initial", (event) => {
     console.log(
       "[main] places:request-initial received, scanDone:",
@@ -800,7 +819,8 @@ function setupPlacesWatcher(
     "places:query-folder-all",
     "places:query-folder-bounds",
     "fs:read-geojson",
-    "fs:geojson-files-in-folder"
+    "fs:geojson-files-in-folder",
+    "fs:write-geojson-property"
   ] as const;
 
   async function stop(): Promise<void> {

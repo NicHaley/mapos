@@ -678,12 +678,18 @@ interface PropertiesPanelProps {
   filePath: string;
   frontmatter: Record<string, unknown>;
   allVaultKeys: string[];
+  /** Override the default write implementation (which uses YAML frontmatter). */
+  onWriteProperty?: (key: string, value: unknown) => Promise<void>;
+  /** Whether drag-to-reorder persists. Default true. */
+  reorderable?: boolean;
 }
 
 export function PropertiesPanel({
   filePath,
   frontmatter,
-  allVaultKeys
+  allVaultKeys,
+  onWriteProperty,
+  reorderable = true
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
 
@@ -698,9 +704,17 @@ export function PropertiesPanel({
     [allVaultKeys, fileKeys]
   );
 
+  async function writeProperty(key: string, value: unknown): Promise<void> {
+    if (onWriteProperty) {
+      await onWriteProperty(key, value);
+    } else {
+      await window.api.fs.writeFrontmatterProperty(filePath, key, value);
+    }
+  }
+
   async function handleValueChange(key: string, value: unknown): Promise<void> {
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    await window.api.fs.writeFrontmatterProperty(filePath, key, value);
+    await writeProperty(key, value);
   }
 
   async function handleDelete(key: string): Promise<void> {
@@ -709,7 +723,7 @@ export function PropertiesPanel({
       delete next[key];
       return next;
     });
-    await window.api.fs.writeFrontmatterProperty(filePath, key, null);
+    await writeProperty(key, null);
   }
 
   async function handleTypeChange(key: string, type: PropertyType): Promise<void> {
@@ -724,7 +738,7 @@ export function PropertiesPanel({
       }
       return next;
     });
-    void window.api.fs.reorderFrontmatter(filePath, newOrder);
+    if (reorderable) void window.api.fs.reorderFrontmatter(filePath, newOrder);
   }
 
   async function handleRename(oldKey: string, newKey: string): Promise<void> {
@@ -742,8 +756,8 @@ export function PropertiesPanel({
       return next;
     });
 
-    await window.api.fs.writeFrontmatterProperty(filePath, oldKey, null);
-    await window.api.fs.writeFrontmatterProperty(filePath, newKey, value);
+    await writeProperty(oldKey, null);
+    await writeProperty(newKey, value);
   }
 
   async function handleAddProperty(type: PropertyType): Promise<void> {
@@ -756,13 +770,13 @@ export function PropertiesPanel({
     });
     const value = defaultValueForType(type);
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    await window.api.fs.writeFrontmatterProperty(filePath, key, value);
+    await writeProperty(key, value);
   }
 
   async function handleAddExistingProperty(key: string): Promise<void> {
     const value = defaultValueForType("text");
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
-    await window.api.fs.writeFrontmatterProperty(filePath, key, value);
+    await writeProperty(key, value);
   }
 
   return (

@@ -101,6 +101,8 @@ declare global {
           parentFolderPath: string;
           folderName: string;
         }) => Promise<{ success: true; folderPath: string } | { success: false; error: string }>;
+        readGeoJson: (filePath: string) => Promise<Record<string, unknown> | null>;
+        geoJsonFilesInFolder: (folderPath: string) => Promise<string[]>;
         onChange: (cb: () => void) => void;
         removeListeners: () => void;
       };

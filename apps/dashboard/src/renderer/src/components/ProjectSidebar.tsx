@@ -332,6 +332,7 @@ function FileTreeNode({
   onAutoRenameConsumed,
   onSelectPlace,
   onSelectFolder,
+  onSelectGeoJson,
   onRequestDelete,
   onRenameComplete,
   onCreateFolderIn,
@@ -346,6 +347,7 @@ function FileTreeNode({
   onAutoRenameConsumed?: () => void;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
+  onSelectGeoJson?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string) => void;
   onCreateFolderIn?: (path: string) => void;
@@ -542,6 +544,7 @@ function FileTreeNode({
                 onAutoRenameConsumed={onAutoRenameConsumed}
                 onSelectPlace={onSelectPlace}
                 onSelectFolder={onSelectFolder}
+                onSelectGeoJson={onSelectGeoJson}
                 onRequestDelete={onRequestDelete}
                 onRenameComplete={onRenameComplete}
                 onCreateFolderIn={onCreateFolderIn}
@@ -587,6 +590,10 @@ function FileTreeNode({
               }}
               onClick={async (e) => {
                 if (isRenaming) return;
+                if (node.path.toLowerCase().endsWith(".geojson")) {
+                  onSelectGeoJson?.(node.path);
+                  return;
+                }
                 const place = await window.api.places.getByPath(node.path);
                 if (place) onSelectPlace?.(place, e.metaKey || e.ctrlKey);
               }}
@@ -611,6 +618,7 @@ export function ProjectSidebar({
   selectedFolderPath,
   onSelectPlace,
   onSelectFolder,
+  onSelectGeoJson,
   onDeletePath,
   onRenamePath,
   onMoved
@@ -619,6 +627,7 @@ export function ProjectSidebar({
   selectedFolderPath?: string;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
+  onSelectGeoJson?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
@@ -832,6 +841,7 @@ export function ProjectSidebar({
                         onAutoRenameConsumed={() => setPendingRenamePath(null)}
                         onSelectPlace={onSelectPlace}
                         onSelectFolder={onSelectFolder}
+                        onSelectGeoJson={onSelectGeoJson}
                         onRequestDelete={(node) => {
                           setDeleteError(null);
                           setPendingDelete(node);

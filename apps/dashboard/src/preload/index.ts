@@ -105,6 +105,10 @@ const api = {
       ipcRenderer.invoke("fs:create-folder", args) as Promise<
         { success: true; folderPath: string } | { success: false; error: string }
       >,
+    readGeoJson: (filePath: string) =>
+      ipcRenderer.invoke("fs:read-geojson", filePath) as Promise<Record<string, unknown> | null>,
+    geoJsonFilesInFolder: (folderPath: string) =>
+      ipcRenderer.invoke("fs:geojson-files-in-folder", folderPath) as Promise<string[]>,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },

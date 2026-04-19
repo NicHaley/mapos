@@ -174,6 +174,9 @@ function App(): React.JSX.Element {
   /** Bumps when a non-empty overlay is pushed so chat can re-show "Add all". */
   const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
   const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
+  const [activeGeoJsonLayers, setActiveGeoJsonLayers] = useState<
+    Array<{ filePath: string; data: Record<string, unknown> }>
+  >([]);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
@@ -333,6 +336,7 @@ function App(): React.JSX.Element {
       setSelectedPlace(null);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
+      setActiveGeoJsonLayers([]);
       dispatchNav({
         type: "navigate",
         entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
@@ -342,8 +346,27 @@ function App(): React.JSX.Element {
         folderPath,
         mapPadding(projectSidebarOpen, chatSidebarOpen, false)
       );
+      void window.api.fs.geoJsonFilesInFolder(folderPath).then(async (paths) => {
+        const results = await Promise.all(paths.map((p) => window.api.fs.readGeoJson(p)));
+        const layers = results.flatMap((data, i) =>
+          data ? [{ filePath: paths[i], data }] : []
+        );
+        setActiveGeoJsonLayers(layers);
+      });
     },
     [projectSidebarOpen, chatSidebarOpen, dispatchNav]
+  );
+
+  const handleSelectGeoJson = useCallback(
+    async (filePath: string) => {
+      const data = await window.api.fs.readGeoJson(filePath);
+      if (!data) return;
+      const layer = { filePath, data };
+      setActiveGeoJsonLayers([layer]);
+      // @ts-expect-error - data shape matches RawFeatureCollection
+      mapRef.current?.fitToGeoJson(data, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+    },
+    [projectSidebarOpen, chatSidebarOpen]
   );
 
   // New place file created from map context menu
@@ -696,6 +719,8 @@ function App(): React.JSX.Element {
             polygons: mapOverlay.polygons
           }}
           showOverlay={chatSidebarOpen}
+          // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
+          geoJsonLayers={activeGeoJsonLayers}
         />
       </div>
 
@@ -867,6 +892,7 @@ function App(): React.JSX.Element {
             selectedFolderPath={selectedFolder ?? undefined}
             onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}
+            onSelectGeoJson={(p) => void handleSelectGeoJson(p)}
             onDeletePath={handleDeletedPath}
             onRenamePath={handleRenamePath}
             onMoved={handlePathRelocated}

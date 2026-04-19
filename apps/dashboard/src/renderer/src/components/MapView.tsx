@@ -92,10 +92,26 @@ const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
 
 type FitPadding = { left: number; right: number; top: number; bottom: number };
 
+type RawFeatureCollection = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    geometry: Record<string, unknown> | null;
+    properties: Record<string, unknown> | null;
+  }>;
+};
+
+function formatGeoJsonProperties(props: Record<string, unknown>): string {
+  const entries = Object.entries(props);
+  if (entries.length === 0) return "";
+  return entries.map(([k, v]) => `**${k}:** ${String(v ?? "")}`).join("\n\n");
+}
+
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
+  fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
 };
 
 /**
@@ -142,6 +158,8 @@ const MapView = forwardRef<
     mapOverlay?: OverlayRenderData;
     /** Only render the overlay layer when the chat sidebar is open. */
     showOverlay?: boolean;
+    /** GeoJSON files loaded on-demand (not indexed in DB). */
+    geoJsonLayers?: Array<{ filePath: string; data: RawFeatureCollection }>;
   }
 >(function MapView(
   {
@@ -153,7 +171,8 @@ const MapView = forwardRef<
     parentFolderForNewFiles,
     onSelectedFeaturePosition,
     mapOverlay = EMPTY_OVERLAY,
-    showOverlay = false
+    showOverlay = false,
+    geoJsonLayers = []
   },
   ref
 ) {
@@ -266,6 +285,22 @@ const MapView = forwardRef<
               ],
               padding
             );
+            if (cam) map.flyTo({ ...cam, duration: 600, padding });
+          }
+        } catch {
+          /* invalid geometry */
+        }
+      },
+      fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => {
+        const map = mapRef.current;
+        if (!map || data.features.length === 0) return;
+        try {
+          // @ts-expect-error - bbox accepts FeatureCollection; our internal type is compatible
+          const [minLng, minLat, maxLng, maxLat] = bbox(data);
+          if (minLng === maxLng && minLat === maxLat) {
+            map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
+          } else {
+            const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
             if (cam) map.flyTo({ ...cam, duration: 600, padding });
           }
         } catch {
@@ -448,6 +483,22 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, toFeature]);
 
+  const augmentedGeoJsonLayers = useMemo(
+    () =>
+      geoJsonLayers.map((layer) => {
+        const sourceId = layer.filePath.replace(/[^a-zA-Z0-9]/g, "-");
+        // Inject internal marker properties so the click handler can identify which
+        // file and which feature index was clicked. These are stripped before the
+        // feature properties are shown to the user.
+        const features = layer.data.features.map((f, i) => ({
+          ...f,
+          properties: { ...f.properties, _gjFilePath: layer.filePath, _gjIndex: i }
+        }));
+        return { sourceId, filePath: layer.filePath, data: { type: "FeatureCollection" as const, features } };
+      }),
+    [geoJsonLayers]
+  );
+
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
       const feats = e.features ?? [];
@@ -461,6 +512,22 @@ const MapView = forwardRef<
             onSelectPlace?.(place);
             return;
           }
+        }
+      }
+      for (const feature of feats) {
+        const gjFilePath = feature.properties?._gjFilePath;
+        const gjIndex = feature.properties?._gjIndex;
+        if (typeof gjFilePath === "string" && gjIndex !== undefined && feature.geometry) {
+          const { _gjFilePath: _fp, _gjIndex: _idx, ...props } = feature.properties ?? {};
+          const title = String(props.name ?? props.title ?? props.Name ?? "Feature");
+          onSelectPlace?.({
+            filePath: `geojson-feature:${gjFilePath}#${String(gjIndex)}`,
+            type: "Preview",
+            title,
+            geometry: JSON.stringify(feature.geometry),
+            previewMarkdown: formatGeoJsonProperties(props)
+          });
+          return;
         }
       }
       for (const feature of feats) {
@@ -488,8 +555,11 @@ const MapView = forwardRef<
     if (hasOverlayGeoJSON) {
       ids.push("overlay-polygons", "overlay-lines-hit", "overlay-lines");
     }
+    for (const { sourceId } of augmentedGeoJsonLayers) {
+      ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
+    }
     return ids;
-  }, [folderGeoJSON, selectedGeoJSON, hasOverlayGeoJSON]);
+  }, [folderGeoJSON, selectedGeoJSON, hasOverlayGeoJSON, augmentedGeoJsonLayers]);
 
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
@@ -620,6 +690,44 @@ const MapView = forwardRef<
               />
             </Marker>
           ))}
+        {augmentedGeoJsonLayers.map(({ sourceId, data }) => (
+          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+          <Source key={sourceId} id={sourceId} type="geojson" data={data}>
+            <Layer
+              id={`${sourceId}-circle`}
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 6,
+                "circle-color": "#6b7280",
+                "circle-stroke-width": 1.5,
+                "circle-stroke-color": "white"
+              }}
+            />
+            <Layer
+              id={`${sourceId}-fill`}
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "fill-color": "#6b7280", "fill-opacity": 0.25 }}
+            />
+            <Layer
+              id={`${sourceId}-fill-outline`}
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+            />
+            <Layer
+              id={`${sourceId}-line`}
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+            />
+          </Source>
+        ))}
         {showOverlay && hasOverlayGeoJSON && (
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>

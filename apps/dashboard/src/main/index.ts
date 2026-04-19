@@ -155,14 +155,7 @@ type FileNode = {
 };
 
 /** Non-directory entries shown in the vault tree (ProjectSidebar / `fs:list-dir`). */
-const VAULT_TREE_LISTED_EXTENSIONS = new Set([
-  ".md",
-  ".geojson",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif"
-]);
+const VAULT_TREE_LISTED_EXTENSIONS = new Set([".md", ".geojson", ".png", ".jpg", ".jpeg", ".gif"]);
 
 function isVaultTreeListedFile(filename: string): boolean {
   return VAULT_TREE_LISTED_EXTENSIONS.has(extname(filename).toLowerCase());
@@ -745,6 +738,30 @@ function setupPlacesWatcher(
       });
   });
 
+  ipcMain.handle("fs:read-geojson", async (_event, filePath: string) => {
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      if (data.type === "FeatureCollection") return data;
+      if (data.type === "Feature") return { type: "FeatureCollection", features: [data] };
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle("fs:geojson-files-in-folder", (_event, folderPath: string) => {
+    try {
+      const entries = readdirSync(folderPath, { recursive: true }) as string[];
+      return entries
+        .filter((e) => extname(e).toLowerCase() === ".geojson")
+        .map((e) => join(folderPath, e))
+        .filter((p) => p.startsWith(vaultRoot));
+    } catch {
+      return [];
+    }
+  });
+
   ipcMain.on("places:request-initial", (event) => {
     console.log(
       "[main] places:request-initial received, scanDone:",
@@ -781,7 +798,9 @@ function setupPlacesWatcher(
     "fs:create-place-file",
     "places:query-bounds",
     "places:query-folder-all",
-    "places:query-folder-bounds"
+    "places:query-folder-bounds",
+    "fs:read-geojson",
+    "fs:geojson-files-in-folder"
   ] as const;
 
   async function stop(): Promise<void> {

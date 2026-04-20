@@ -467,6 +467,7 @@ function App(): React.JSX.Element {
     const cleared = { ...base, geometry: undefined };
     setSelectedPlace(cleared);
     dispatchNav({ type: "update-entry", filePath, place: cleared });
+    mapRef.current?.invalidateFolderPlace(filePath);
     return true;
   }, [dispatchNav]);
 

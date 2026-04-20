@@ -112,6 +112,7 @@ export type MapViewHandle = {
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
+  invalidateFolderPlace: (filePath: string) => void;
 };
 
 /**
@@ -338,6 +339,9 @@ const MapView = forwardRef<
         } catch {
           /* invalid geometry */
         }
+      },
+      invalidateFolderPlace: (filePath: string) => {
+        setFolderPlaces((prev) => prev.filter((p) => p.filePath !== filePath));
       }
     }),
     [fitToFolder]

@@ -555,7 +555,7 @@ function FileTreeNode({
           </ContextMenuTrigger>
           <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
         </ContextMenu>
-        {open && node.children && (
+        {open && node.children && node.children.length > 0 && (
           <SidebarMenuSub>
             {node.children.map((child) => (
               <FileTreeNode
@@ -853,7 +853,7 @@ export function ProjectSidebar({
             <ContextMenu>
               <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <SidebarMenu className="shrink-0">
+                  <SidebarMenu className="shrink-0 gap-0.5">
                     {tree.map((node) => (
                       <FileTreeNode
                         key={node.path}

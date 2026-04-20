@@ -310,13 +310,8 @@ export function PlaceCard({
   const editorRef = useRef<Editor | null>(null);
   const isDark = useDarkMode();
 
-  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.md$/i, "") ?? "";
-  const currentTitle =
-    place.previewMarkdown !== undefined
-      ? place.title
-      : place.type === "GeoJsonLayer"
-        ? String(doc.kind === "geojson-layer" ? (doc.properties.name ?? place.title) : place.title)
-        : filePathBaseName;
+  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.(md|geojson)$/i, "") ?? "";
+  const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
   const [titleInput, setTitleInput] = useState(currentTitle);
 
   const loading = doc.kind === "loading";
@@ -438,11 +433,6 @@ export function PlaceCard({
     const error = validateTitle(newName);
     if (error || newName === currentTitle) {
       setTitleInput(currentTitle);
-      setTitleError(null);
-      return;
-    }
-    if (place.type === "GeoJsonLayer") {
-      await window.api.fs.writeGeoJsonProperty(currentFilePath, "name", newName);
       setTitleError(null);
       return;
     }

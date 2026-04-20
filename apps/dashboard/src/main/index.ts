@@ -431,7 +431,8 @@ function setupPlacesWatcher(
 
     const dir = oldPath.split(sep).slice(0, -1).join(sep);
     const isDir = statSync(oldPath).isDirectory();
-    const finalName = isDir || safeName.endsWith(".md") ? safeName : `${safeName}.md`;
+    const oldExt = oldPath.match(/\.[^./\\]+$/)?.[0] ?? ".md";
+    const finalName = isDir || safeName.includes(".") ? safeName : `${safeName}${oldExt}`;
     const newPath = uniquePathInDir(dir, finalName, isDir, oldPath);
 
     if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
@@ -794,7 +795,7 @@ function setupPlacesWatcher(
         } else {
           data[key] = value;
         }
-        await writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
+        writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
         return { success: true };
       } catch (e) {
         return { success: false, error: String(e) };

@@ -17,8 +17,10 @@ import {
   Loader2Icon,
   PencilIcon,
   SquarePenIcon,
-  Undo2Icon
+  Undo2Icon,
+  XIcon
 } from "lucide-react";
+import { nanoid } from "nanoid";
 import { useEffect, useReducer, useState } from "react";
 import {
   Conversation,
@@ -45,6 +47,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from ".
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "./ui/sidebar";
 
 type ChatMessage = {
+  id: string;
   role: "user" | "assistant" | "error";
   content: string;
   thinking?: string;
@@ -101,24 +104,25 @@ type FileChangeResult = {
 };
 
 type DiffLineItem =
-  | { kind: "added"; text: string }
-  | { kind: "removed"; text: string }
-  | { kind: "context"; text: string }
-  | { kind: "ellipsis" };
+  | { id: number; kind: "added"; text: string }
+  | { id: number; kind: "removed"; text: string }
+  | { id: number; kind: "context"; text: string }
+  | { id: number; kind: "ellipsis" };
 
 function flattenDiffParts(parts: ReturnType<typeof diffLines>): DiffLineItem[] {
   const items: DiffLineItem[] = [];
+  let nextId = 0;
   for (const part of parts) {
     const lines = part.value.replace(/\n$/, "").split("\n");
     if (part.added) {
-      for (const line of lines) items.push({ kind: "added", text: line });
+      for (const line of lines) items.push({ id: nextId++, kind: "added", text: line });
     } else if (part.removed) {
-      for (const line of lines) items.push({ kind: "removed", text: line });
+      for (const line of lines) items.push({ id: nextId++, kind: "removed", text: line });
     } else {
       // Unchanged section — collapse to separator, avoiding consecutive ellipses
       const hasContent = lines.some((l) => l !== "");
       if (hasContent && items.length > 0 && items[items.length - 1].kind !== "ellipsis") {
-        items.push({ kind: "ellipsis" });
+        items.push({ id: nextId++, kind: "ellipsis" });
       }
     }
   }
@@ -262,8 +266,8 @@ function FileChangeRow({
       {showDiff && (
         <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 overflow-hidden">
           <pre className="font-mono text-[11px] leading-relaxed !m-0">
-            {visibleLines.map((item, i) => (
-              <DiffLineView key={i} item={item} />
+            {visibleLines.map((item) => (
+              <DiffLineView key={item.id} item={item} />
             ))}
           </pre>
           {hasOverflow && (
@@ -374,7 +378,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         canUndo: false,
-        messages: [...state.messages, { role: "user", content: action.content }]
+        messages: [...state.messages, { id: nanoid(), role: "user", content: action.content }]
       };
     case "chunk":
       return { ...state, streamingContent: state.streamingContent + action.text };
@@ -409,6 +413,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? [
               ...state.messages,
               {
+                id: nanoid(),
                 role: "assistant" as const,
                 content: streamingContent,
                 thinking: streamingThinking || undefined,
@@ -428,7 +433,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, canUndo: false };
     case "error":
       return {
-        messages: [...state.messages, { role: "error", content: `Error: ${action.message}` }],
+        messages: [
+          ...state.messages,
+          { id: nanoid(), role: "error", content: `Error: ${action.message}` }
+        ],
         streamingContent: "",
         streamingThinking: "",
         activeToolCalls: [],
@@ -476,6 +484,7 @@ export function ChatSidebar({
         dispatch({
           type: "load_history",
           messages: messages.map((msg) => ({
+            id: nanoid(),
             role: msg.role,
             content: msg.content,
             thinking: msg.thinking,
@@ -565,6 +574,7 @@ export function ChatSidebar({
     dispatch({
       type: "load_history",
       messages: messages.map((msg) => ({
+        id: nanoid(),
         role: msg.role,
         content: msg.content,
         thinking: msg.thinking,
@@ -662,16 +672,16 @@ export function ChatSidebar({
               />
             )}
 
-            {messages.map((msg, i) => {
+            {messages.map((msg) => {
               return msg.role === "error" ? (
                 <div
-                  key={i}
+                  key={msg.id}
                   className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
                 >
                   {msg.content}
                 </div>
               ) : (
-                <Message key={i} from={msg.role}>
+                <Message key={msg.id} from={msg.role}>
                   {msg.thinking && (
                     <Reasoning>
                       <ReasoningTrigger />

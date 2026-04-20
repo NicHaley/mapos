@@ -89,13 +89,13 @@ function SidebarProvider({
       // This sets the cookie to keep the sidebar state.
       document.cookie = `${name}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
-    [setOpenProp, open]
+    [setOpenProp, open, name]
   );
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen, setOpenMobile]);
+  }, [isMobile, setOpen]);
 
   // Cmd/Ctrl + \ (optional Shift) — skipped while typing in inputs or rich text.
   React.useEffect(() => {
@@ -137,7 +137,7 @@ function SidebarProvider({
       setOpenMobile,
       toggleSidebar
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, toggleSidebar]
   );
 
   return (

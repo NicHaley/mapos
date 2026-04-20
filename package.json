@@ -7,7 +7,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check --write .",
-    "check-types": "turbo run check-types"
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -19,10 +19,6 @@
     "node": ">=18"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "electron",
-      "esbuild"
-    ]
+    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild"]
   }
 }

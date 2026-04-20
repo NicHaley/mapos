@@ -159,7 +159,11 @@ const MapView = forwardRef<
     /** Only render the overlay layer when the chat sidebar is open. */
     showOverlay?: boolean;
     /** GeoJSON files loaded on-demand (not indexed in DB). */
-    geoJsonLayers?: Array<{ filePath: string; data: RawFeatureCollection; bbox: [number, number, number, number] }>;
+    geoJsonLayers?: Array<{
+      filePath: string;
+      data: RawFeatureCollection;
+      bbox: [number, number, number, number];
+    }>;
   }
 >(function MapView(
   {
@@ -231,8 +235,16 @@ const MapView = forwardRef<
       const gjBboxCorners = geoJsonLayers
         .filter((l) => l.filePath.startsWith(folderPath))
         .flatMap(({ bbox: b }) => [
-          { type: "Feature" as const, geometry: { type: "Point" as const, coordinates: [b[0], b[1]] }, properties: {} },
-          { type: "Feature" as const, geometry: { type: "Point" as const, coordinates: [b[2], b[3]] }, properties: {} }
+          {
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [b[0], b[1]] },
+            properties: {}
+          },
+          {
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [b[2], b[3]] },
+            properties: {}
+          }
         ]);
       if (placesWithGeo.length === 0 && gjBboxCorners.length === 0) return;
       const map = mapRef.current;
@@ -313,7 +325,14 @@ const MapView = forwardRef<
           if (minLng === maxLng && minLat === maxLat) {
             map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
           } else {
-            const cam = cameraForBounds(map, [[minLng, minLat], [maxLng, maxLat]], padding);
+            const cam = cameraForBounds(
+              map,
+              [
+                [minLng, minLat],
+                [maxLng, maxLat]
+              ],
+              padding
+            );
             if (cam) map.flyTo({ ...cam, duration: 600, padding });
           }
         } catch {
@@ -366,7 +385,7 @@ const MapView = forwardRef<
       window.api.map.removeListeners();
       sendViewport.cancel();
     };
-  }, [loadFolderPlaces]);
+  }, [loadFolderPlaces, sendViewport.cancel]);
 
   useEffect(() => {
     if (selectedFolder) {
@@ -507,7 +526,11 @@ const MapView = forwardRef<
           ...f,
           properties: { ...f.properties, _gjFilePath: layer.filePath, _gjIndex: i }
         }));
-        return { sourceId, filePath: layer.filePath, data: { type: "FeatureCollection" as const, features } };
+        return {
+          sourceId,
+          filePath: layer.filePath,
+          data: { type: "FeatureCollection" as const, features }
+        };
       }),
     [geoJsonLayers]
   );

@@ -194,6 +194,14 @@ function App(): React.JSX.Element {
     }
   }, [selectedPlace]);
 
+  // MapView.emitFeaturePosition returns early when there is no geometry, so the ping would
+  // otherwise keep the last screen position after a clear (or any selection without geometry).
+  useEffect(() => {
+    if (!selectedPlace?.geometry) {
+      setFeatureScreenPos(null);
+    }
+  }, [selectedPlace]);
+
   const parentFolderForNewFiles = useMemo(
     () => selectedFolder ?? (lastVaultFilePath ? parentFolderOfVaultFile(lastVaultFilePath) : null),
     [selectedFolder, lastVaultFilePath]
@@ -204,38 +212,6 @@ function App(): React.JSX.Element {
     setPlaceMode("mini");
     setFeatureScreenPos(null);
   }, []);
-
-  // Close the place card if the currently open file is deleted externally (e.g. by undo)
-  useEffect(() => {
-    window.api.places.onUpdated((update) => {
-      if (update.event === "unlink" && update.filePath === selectedPlaceRef.current?.filePath) {
-        clearPlace();
-      }
-    });
-  }, [clearPlace]);
-
-  useEffect(() => {
-    window.api.map.onOverlay((data) => {
-      const points = data.points ?? [];
-      const lines = data.lines ?? [];
-      const polygons = data.polygons ?? [];
-      setMapOverlay({
-        layerName: data.layerName,
-        points,
-        lines,
-        polygons
-      });
-      if (points.length + lines.length + polygons.length > 0) {
-        setMapOverlayNonce((n) => n + 1);
-      }
-    });
-    window.api.map.onOverlayClear(() => {
-      setMapOverlay(EMPTY_MAP_OVERLAY);
-      const fp = selectedPlaceRef.current?.filePath;
-      if (fp?.startsWith("map-overlay:")) clearPlace();
-    });
-    return () => window.api.map.removeOverlayListeners();
-  }, [clearPlace]);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
   const openEntry = useCallback(
@@ -281,6 +257,38 @@ function App(): React.JSX.Element {
     handleNavBack,
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
+
+  // Close the place card if the currently open file is deleted externally (e.g. by undo)
+  useEffect(() => {
+    window.api.places.onUpdated((update) => {
+      if (update.event === "unlink" && update.filePath === selectedPlaceRef.current?.filePath) {
+        clearPlace();
+      }
+    });
+  }, [clearPlace]);
+
+  useEffect(() => {
+    window.api.map.onOverlay((data) => {
+      const points = data.points ?? [];
+      const lines = data.lines ?? [];
+      const polygons = data.polygons ?? [];
+      setMapOverlay({
+        layerName: data.layerName,
+        points,
+        lines,
+        polygons
+      });
+      if (points.length + lines.length + polygons.length > 0) {
+        setMapOverlayNonce((n) => n + 1);
+      }
+    });
+    window.api.map.onOverlayClear(() => {
+      setMapOverlay(EMPTY_MAP_OVERLAY);
+      const fp = selectedPlaceRef.current?.filePath;
+      if (fp?.startsWith("map-overlay:")) clearPlace();
+    });
+    return () => window.api.map.removeOverlayListeners();
+  }, [clearPlace]);
 
   useShortcuts([
     {

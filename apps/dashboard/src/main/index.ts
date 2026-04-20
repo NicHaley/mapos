@@ -217,7 +217,10 @@ function setupPlacesWatcher(
   const watcher = chokidar.watch(`${vaultRoot}/**/*.md`, {
     ignoreInitial: false,
     awaitWriteFinish: { stabilityThreshold: 300 },
-    ignored: /(^|[/\\])(\.|node_modules)/
+    ignored: /(^|[/\\])(\.|node_modules)/,
+    // `fsevents` is native; it is built for the system Node ABI. Under Electron the .node
+    // binary can load but break (e.g. Native.flags undefined → Cannot read 'SinceNow').
+    ...(process.versions.electron ? { useFsEvents: false as const } : {})
   });
 
   watcher.on("add", async (filePath) => {

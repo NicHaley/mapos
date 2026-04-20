@@ -4,12 +4,12 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
-  FileIcon,
   FileTextIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  Layers2Icon,
   MessageCirclePlusIcon,
   PlusIcon,
   SettingsIcon,
@@ -94,7 +94,7 @@ function parseDragPayload(e: React.DragEvent): { path: string; type: FileNode["t
 function fileIcon(name: string) {
   if (name.endsWith(".md"))
     return <FileTextIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
-  return <FileIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+  return <Layers2Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
 }
 
 type VaultOption = {

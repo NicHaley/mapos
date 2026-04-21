@@ -3,7 +3,7 @@ import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
 import { cn } from "@renderer/lib/utils";
-import { Extension, type Editor } from "@tiptap/core";
+import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -518,12 +518,12 @@ export function PlaceCard({
                 value={titleInput}
               />
             </ErrorTooltip>
-            {doc.kind === "geojson-layer" && (
+            {/* {doc.kind === "geojson-layer" && (
               <div className="mt-0.5 text-xs text-sidebar-foreground/50">
                 {doc.featureCount} feature{doc.featureCount !== 1 ? "s" : ""}
                 {doc.geometryTypes.length > 0 && ` · ${doc.geometryTypes.join(", ")}`}
               </div>
-            )}
+            )} */}
           </div>
           {place.previewMarkdown !== undefined && onSaveSearchToVault && (
             <button

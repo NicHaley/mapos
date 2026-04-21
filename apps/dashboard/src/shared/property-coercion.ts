@@ -6,17 +6,17 @@ export type FrontmatterValue = FrontmatterPrimitive | FrontmatterPrimitive[];
 // ─── Patterns ────────────────────────────────────────────────────────────────
 
 const PATTERNS = {
-  quotedString: /^"((?:[^"\\]|\\.)*)"$/,           // "hello"
-  integer:      /^-?\d+$/,                           // 42, -7
-  float:        /^-?\d+\.\d+$/,                      // 3.14
-  boolean:      /^(true|false)$/i,                   // true / false
-  list:         /^\[(.*)?\]$/,                       // [a, b, c]
+  quotedString: /^"((?:[^"\\]|\\.)*)"$/, // "hello"
+  integer: /^-?\d+$/, // 42, -7
+  float: /^-?\d+\.\d+$/, // 3.14
+  boolean: /^(true|false)$/i, // true / false
+  list: /^\[(.*)?\]$/, // [a, b, c]
 
   // Unquoted dates (no surrounding quotes = Date type)
-  dateOnly:     /^\d{4}-\d{2}-\d{2}$/,              // 1991-01-10
-  dateTime:     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/, // 1991-01-10T12:00
-  dateSlash:    /^\d{4}\/\d{2}\/\d{2}$/,            // 1991/01/10
-  dateLong:     /^\d{1,2} \w+ \d{4}$/,              // 10 January 1991
+  dateOnly: /^\d{4}-\d{2}-\d{2}$/, // 1991-01-10
+  dateTime: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/, // 1991-01-10T12:00
+  dateSlash: /^\d{4}\/\d{2}\/\d{2}$/, // 1991/01/10
+  dateLong: /^\d{1,2} \w+ \d{4}$/ // 10 January 1991
 } as const;
 
 // ─── Parse a single primitive value ──────────────────────────────────────────
@@ -92,11 +92,14 @@ function splitList(inner: string): string[] {
 
 export type DateFormat = "date" | "datetime" | "datetime-seconds";
 
-export function serializePrimitive(value: FrontmatterPrimitive, dateFormat: DateFormat = "date"): string {
+export function serializePrimitive(
+  value: FrontmatterPrimitive,
+  dateFormat: DateFormat = "date"
+): string {
   if (value instanceof Date) {
     if (dateFormat === "datetime-seconds") return value.toISOString().slice(0, 19); // 1991-01-10T12:00:00
-    if (dateFormat === "datetime") return value.toISOString().slice(0, 16);          // 1991-01-10T12:00
-    return value.toISOString().slice(0, 10);                                         // 1991-01-10
+    if (dateFormat === "datetime") return value.toISOString().slice(0, 16); // 1991-01-10T12:00
+    return value.toISOString().slice(0, 10); // 1991-01-10
   }
   if (typeof value === "string") return `"${value.replace(/"/g, '\\"')}"`;
   return String(value); // number, boolean

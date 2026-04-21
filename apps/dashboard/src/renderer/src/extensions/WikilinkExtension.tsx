@@ -78,16 +78,19 @@ function getSuggestionRenderCallbacks() {
 
   return {
     onStart(props: SuggestionProps<WikilinkItem>) {
-      renderer = new ReactRenderer<WikilinkSuggestionRef, WikilinkSuggestionProps>(WikilinkSuggestion, {
-        props: {
-          ...props,
-          onDismiss: () => {
-            renderer?.destroy();
-            renderer = null;
+      renderer = new ReactRenderer<WikilinkSuggestionRef, WikilinkSuggestionProps>(
+        WikilinkSuggestion,
+        {
+          props: {
+            ...props,
+            onDismiss: () => {
+              renderer?.destroy();
+              renderer = null;
+            }
           },
-        },
-        editor: props.editor,
-      });
+          editor: props.editor
+        }
+      );
     },
     onUpdate(props: SuggestionProps<WikilinkItem>) {
       renderer?.updateProps(props);

@@ -62,10 +62,7 @@ function parseDatePropertyString(s: string): Date {
 }
 
 /** Serialize: date-only when midnight; otherwise local datetime without timezone. */
-function serializeDateProperty(
-  d: Date,
-  opts?: { asLocalDateTime?: boolean }
-): string {
+function serializeDateProperty(d: Date, opts?: { asLocalDateTime?: boolean }): string {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const da = String(d.getDate()).padStart(2, "0");
@@ -483,7 +480,7 @@ function DatePropertyValue({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
           {/* <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden /> */}
-            {isEmpty || !hasDate ? (
+          {isEmpty || !hasDate ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
             <span className="truncate text-sidebar-foreground">

@@ -61,7 +61,12 @@ type LoadedDoc =
   | { kind: "error"; message: string }
   | { kind: "vault"; body: string; frontmatter: Record<string, unknown>; keys: string[] }
   | { kind: "preview"; body: string }
-  | { kind: "geojson-layer"; properties: Record<string, unknown>; featureCount: number; geometryTypes: string[] };
+  | {
+      kind: "geojson-layer";
+      properties: Record<string, unknown>;
+      featureCount: number;
+      geometryTypes: string[];
+    };
 
 type PlaceCardMarkdownPaneProps = {
   filePath: string;
@@ -310,7 +315,11 @@ export function PlaceCard({
   const editorRef = useRef<Editor | null>(null);
   const isDark = useDarkMode();
 
-  const filePathBaseName = currentFilePath.split(/[/\\]/).pop()?.replace(/\.(md|geojson)$/i, "") ?? "";
+  const filePathBaseName =
+    currentFilePath
+      .split(/[/\\]/)
+      .pop()
+      ?.replace(/\.(md|geojson)$/i, "") ?? "";
   const currentTitle = place.previewMarkdown !== undefined ? place.title : filePathBaseName;
   const [titleInput, setTitleInput] = useState(currentTitle);
 
@@ -538,54 +547,58 @@ export function PlaceCard({
           </button>
         </div>
 
-        {place.previewMarkdown === undefined && place.type !== "GeoJsonLayer" && onCommitPointLocation && (
-          <div className="px-2 pb-4 shrink-0">
-            <Popover
-              open={addLocationOpen}
-              onOpenChange={handleAddLocationOpenChange}
-              modal={false}
-            >
-              <PopoverTrigger
-                render={
-                  <button
-                    type="button"
-                    className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none"
-                  >
-                    {place.geometry ? (
-                      <MapPinIcon className="size-4 shrink-0" />
-                    ) : (
-                      <MapPinPlus className="size-4 shrink-0" />
-                    )}
-                    <span className="truncate">
-                      {place.geometry ? formatPointLocationShort(place.geometry) : "Add a location"}
-                    </span>
-                  </button>
-                }
-              />
-              <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
-                <PopoverTitle className="sr-only">
-                  {place.geometry ? "Change location" : "Add a location"}
-                </PopoverTitle>
-                <PhotonSearchPanel
-                  active={addLocationOpen}
-                  placeholder="Search for a location"
-                  onSelectResult={handleAddLocationSearchSelect}
-                  inputEndSlot={
-                    place.geometry && onClearPointLocation ? (
-                      <InputGroupButton
-                        type="button"
-                        size="sm"
-                        onClick={() => void handleClearLocation()}
-                      >
-                        Clear
-                      </InputGroupButton>
-                    ) : null
+        {place.previewMarkdown === undefined &&
+          place.type !== "GeoJsonLayer" &&
+          onCommitPointLocation && (
+            <div className="px-2 pb-4 shrink-0">
+              <Popover
+                open={addLocationOpen}
+                onOpenChange={handleAddLocationOpenChange}
+                modal={false}
+              >
+                <PopoverTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none"
+                    >
+                      {place.geometry ? (
+                        <MapPinIcon className="size-4 shrink-0" />
+                      ) : (
+                        <MapPinPlus className="size-4 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {place.geometry
+                          ? formatPointLocationShort(place.geometry)
+                          : "Add a location"}
+                      </span>
+                    </button>
                   }
                 />
-              </PopoverContent>
-            </Popover>
-          </div>
-        )}
+                <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                  <PopoverTitle className="sr-only">
+                    {place.geometry ? "Change location" : "Add a location"}
+                  </PopoverTitle>
+                  <PhotonSearchPanel
+                    active={addLocationOpen}
+                    placeholder="Search for a location"
+                    onSelectResult={handleAddLocationSearchSelect}
+                    inputEndSlot={
+                      place.geometry && onClearPointLocation ? (
+                        <InputGroupButton
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleClearLocation()}
+                        >
+                          Clear
+                        </InputGroupButton>
+                      ) : null
+                    }
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
 
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
         {place.previewMarkdown === undefined && doc.kind === "vault" && (
@@ -595,23 +608,24 @@ export function PlaceCard({
             allVaultKeys={doc.keys}
           />
         )}
-        {doc.kind === "geojson-layer" && (() => {
-          const GJ_EXCLUDED = new Set(["name", "description"]);
-          const gjFrontmatter = Object.fromEntries(
-            Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
-          );
-          return (
-            <PropertiesPanel
-              filePath={currentFilePath}
-              frontmatter={gjFrontmatter}
-              allVaultKeys={[]}
-              onWriteProperty={async (key, value) => {
-                await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
-              }}
-              reorderable={false}
-            />
-          );
-        })()}
+        {doc.kind === "geojson-layer" &&
+          (() => {
+            const GJ_EXCLUDED = new Set(["name", "description"]);
+            const gjFrontmatter = Object.fromEntries(
+              Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
+            );
+            return (
+              <PropertiesPanel
+                filePath={currentFilePath}
+                frontmatter={gjFrontmatter}
+                allVaultKeys={[]}
+                onWriteProperty={async (key, value) => {
+                  await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+                }}
+                reorderable={false}
+              />
+            );
+          })()}
 
         {/* Body content */}
         {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
@@ -623,9 +637,7 @@ export function PlaceCard({
             key={currentFilePath}
             filePath={currentFilePath}
             initialMarkdown={
-              doc.kind === "geojson-layer"
-                ? String(doc.properties.description ?? "")
-                : doc.body
+              doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
             }
             isPreview={doc.kind === "preview"}
             mode={mode}

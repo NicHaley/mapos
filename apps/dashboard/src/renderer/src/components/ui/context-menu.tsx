@@ -1,20 +1,17 @@
-import * as React from "react"
-import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
+import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
+import * as React from "react";
 
-import { cn } from "@renderer/lib/utils"
+import { cn } from "@renderer/lib/utils";
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
+  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
 }
 
 function ContextMenuTrigger({ ...props }: ContextMenuPrimitive.Trigger.Props) {
-  return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />
+  return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />;
 }
 
-function ContextMenuContent({
-  className,
-  ...props
-}: ContextMenuPrimitive.Popup.Props) {
+function ContextMenuContent({ className, ...props }: ContextMenuPrimitive.Popup.Props) {
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner className="isolate z-50 outline-none">
@@ -28,7 +25,7 @@ function ContextMenuContent({
         />
       </ContextMenuPrimitive.Positioner>
     </ContextMenuPrimitive.Portal>
-  )
+  );
 }
 
 function ContextMenuItem({
@@ -37,8 +34,8 @@ function ContextMenuItem({
   variant = "default",
   ...props
 }: ContextMenuPrimitive.Item.Props & {
-  inset?: boolean
-  variant?: "default" | "destructive"
+  inset?: boolean;
+  variant?: "default" | "destructive";
 }) {
   return (
     <ContextMenuPrimitive.Item
@@ -51,20 +48,17 @@ function ContextMenuItem({
       )}
       {...props}
     />
-  )
+  );
 }
 
-function ContextMenuSeparator({
-  className,
-  ...props
-}: ContextMenuPrimitive.Separator.Props) {
+function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Separator.Props) {
   return (
     <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
       className={cn("-mx-1 my-1 h-px bg-border", className)}
       {...props}
     />
-  )
+  );
 }
 
 export {
@@ -72,5 +66,5 @@ export {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
-}
+  ContextMenuSeparator
+};

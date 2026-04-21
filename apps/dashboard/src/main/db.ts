@@ -313,13 +313,19 @@ export function replaceFeaturePropertiesForFile(
       for (const item of Array.isArray(v) ? v : [v]) {
         const s = toStr(item);
         if (s) {
-          tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: s }).onConflictDoNothing().run();
+          tx.insert(featureProperties)
+            .values({ feature_id: featureId, key: k, value: s })
+            .onConflictDoNothing()
+            .run();
           inserted = true;
         }
       }
       // Key exists but has no indexable values — sentinel row so the key remains discoverable
       if (!inserted) {
-        tx.insert(featureProperties).values({ feature_id: featureId, key: k, value: "" }).onConflictDoNothing().run();
+        tx.insert(featureProperties)
+          .values({ feature_id: featureId, key: k, value: "" })
+          .onConflictDoNothing()
+          .run();
       }
     }
   });

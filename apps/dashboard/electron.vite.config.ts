@@ -7,7 +7,18 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: {
-        exclude: ['chokidar', 'is-glob', 'is-extglob', 'glob-parent', 'readdirp', 'anymatch', 'picomatch', 'braces', 'fill-range', 'to-regex-range']
+        exclude: [
+          "chokidar",
+          "is-glob",
+          "is-extglob",
+          "glob-parent",
+          "readdirp",
+          "anymatch",
+          "picomatch",
+          "braces",
+          "fill-range",
+          "to-regex-range"
+        ]
       }
     }
   },

@@ -114,7 +114,17 @@ export function usePathSync({
         }
       }
     },
-    [selectedPlace, selectedFolder, nav, dispatchNav, setSelectedFolder, setSelectedPlace, openEntry, clearPlace, onNavEmpty]
+    [
+      selectedPlace,
+      selectedFolder,
+      nav,
+      dispatchNav,
+      setSelectedFolder,
+      setSelectedPlace,
+      openEntry,
+      clearPlace,
+      onNavEmpty
+    ]
   );
 
   return { handleRenamePath, handlePathRelocated, handleDeletedPath };

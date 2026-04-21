@@ -13,14 +13,14 @@ import { Button } from "./components/ui/button";
 import { Kbd, KbdGroup } from "./components/ui/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "./components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
-import { type NavEntry, folderLabel, useNavTabs } from "./hooks/useNavTabs";
 import { useMapOverlaySync } from "./hooks/useMapOverlaySync";
+import { type NavEntry, folderLabel, useNavTabs } from "./hooks/useNavTabs";
 import { useOverlayVaultSync } from "./hooks/useOverlayVaultSync";
 import { usePathSync } from "./hooks/usePathSync";
 import { usePlacesWatcher } from "./hooks/usePlacesWatcher";
 import { modSymbol, useShortcuts } from "./hooks/useShortcuts";
-import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import type { PhotonSearchResult } from "./lib/photon";
+import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 
 const BASE_UNITS = 16;
 
@@ -124,7 +124,11 @@ function App(): React.JSX.Element {
   const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
   const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
   const [activeGeoJsonLayers, setActiveGeoJsonLayers] = useState<
-    Array<{ filePath: string; data: Record<string, unknown>; bbox: [number, number, number, number] }>
+    Array<{
+      filePath: string;
+      data: Record<string, unknown>;
+      bbox: [number, number, number, number];
+    }>
   >([]);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
@@ -277,7 +281,20 @@ function App(): React.JSX.Element {
       void window.api.fs.geoJsonFilesInFolder(folderPath).then(async (paths) => {
         const results = await Promise.all(paths.map((p) => window.api.fs.readGeoJson(p)));
         const layers = results.flatMap((data, i) =>
-          data ? [{ filePath: paths[i], data, bbox: bbox(data as unknown as Parameters<typeof bbox>[0]) as [number, number, number, number] }] : []
+          data
+            ? [
+                {
+                  filePath: paths[i],
+                  data,
+                  bbox: bbox(data as unknown as Parameters<typeof bbox>[0]) as [
+                    number,
+                    number,
+                    number,
+                    number
+                  ]
+                }
+              ]
+            : []
         );
         setActiveGeoJsonLayers(layers);
       });
@@ -289,12 +306,20 @@ function App(): React.JSX.Element {
     async (filePath: string) => {
       const data = await window.api.fs.readGeoJson(filePath);
       if (!data) return;
-      const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [number, number, number, number];
+      const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [
+        number,
+        number,
+        number,
+        number
+      ];
       setActiveGeoJsonLayers([{ filePath, data, bbox: layerBbox }]);
 
       const title = String(
         (data as Record<string, unknown>).name ??
-          filePath.split("/").pop()?.replace(/\.geojson$/i, "") ??
+          filePath
+            .split("/")
+            .pop()
+            ?.replace(/\.geojson$/i, "") ??
           filePath
       );
       const place: PlaceRecord = { filePath, type: "GeoJsonLayer", title };
@@ -370,26 +395,29 @@ function App(): React.JSX.Element {
     [projectSidebarOpen, chatSidebarOpen, placeMode, dispatchNav]
   );
 
-  const clearVaultPointLocation = useCallback(async (filePath: string): Promise<boolean> => {
-    const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", null);
-    if (!write.success) {
-      console.error("[clear location]", write.error);
-      return false;
-    }
-    const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
-    const base: PlaceRecord =
-      fromIndex ??
-      ({
-        filePath,
-        title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
-        type: "note"
-      } satisfies PlaceRecord);
-    const cleared = { ...base, geometry: undefined };
-    setSelectedPlace(cleared);
-    dispatchNav({ type: "update-entry", filePath, place: cleared });
-    mapRef.current?.invalidateFolderPlace(filePath);
-    return true;
-  }, [dispatchNav]);
+  const clearVaultPointLocation = useCallback(
+    async (filePath: string): Promise<boolean> => {
+      const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", null);
+      if (!write.success) {
+        console.error("[clear location]", write.error);
+        return false;
+      }
+      const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
+      const base: PlaceRecord =
+        fromIndex ??
+        ({
+          filePath,
+          title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
+          type: "note"
+        } satisfies PlaceRecord);
+      const cleared = { ...base, geometry: undefined };
+      setSelectedPlace(cleared);
+      dispatchNav({ type: "update-entry", filePath, place: cleared });
+      mapRef.current?.invalidateFolderPlace(filePath);
+      return true;
+    },
+    [dispatchNav]
+  );
 
   const handleSaveSearchToVault = useCallback(async () => {
     const place = selectedPlace;

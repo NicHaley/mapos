@@ -9,6 +9,7 @@ import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
   ArrowRightIcon,
+  BrainIcon,
   CheckIcon,
   ChevronDownIcon,
   EllipsisIcon,
@@ -36,6 +37,7 @@ import {
   PromptInputTextarea
 } from "./ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "./ai-elements/reasoning";
+import { Shimmer } from "./ai-elements/shimmer";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -347,6 +349,8 @@ type ChatState = {
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ActiveToolCall[];
+  /** True after submit until done/error/reset/stop — covers pre-chunk gap (not represented by stream fields). */
+  assistantPending: boolean;
   canUndo: boolean;
 };
 
@@ -360,24 +364,27 @@ type ChatAction =
   | { type: "done"; canUndo: boolean }
   | { type: "undo_confirmed" }
   | { type: "error"; message: string }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "abort" };
 
 const initialChatState: ChatState = {
   messages: [],
   streamingContent: "",
   streamingThinking: "",
   activeToolCalls: [],
+  assistantPending: false,
   canUndo: false
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "load_history":
-      return { ...state, messages: action.messages, canUndo: false };
+      return { ...state, messages: action.messages, canUndo: false, assistantPending: false };
     case "user_message":
       return {
         ...state,
         canUndo: false,
+        assistantPending: true,
         messages: [...state.messages, { id: nanoid(), role: "user", content: action.content }]
       };
     case "chunk":
@@ -426,6 +433,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         streamingContent: "",
         streamingThinking: "",
         activeToolCalls: [],
+        assistantPending: false,
         canUndo: action.canUndo
       };
     }
@@ -440,7 +448,16 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         streamingContent: "",
         streamingThinking: "",
         activeToolCalls: [],
+        assistantPending: false,
         canUndo: false
+      };
+    case "abort":
+      return {
+        ...state,
+        streamingContent: "",
+        streamingThinking: "",
+        activeToolCalls: [],
+        assistantPending: false
       };
     case "reset":
       return initialChatState;
@@ -469,9 +486,15 @@ export function ChatSidebar({
   addAllOverlayBusy: boolean;
   onOverlayRestore: (overlay: MapOverlayPayload | null) => void;
 }): React.JSX.Element {
-  const [{ messages, streamingContent, streamingThinking, activeToolCalls, canUndo }, dispatch] =
-    useReducer(chatReducer, initialChatState);
-  const [loading, setLoading] = useState(false);
+  const [
+    { messages, streamingContent, streamingThinking, activeToolCalls, assistantPending, canUndo },
+    dispatch
+  ] = useReducer(chatReducer, initialChatState);
+  const loading =
+    assistantPending ||
+    streamingContent !== "" ||
+    streamingThinking !== "" ||
+    activeToolCalls.length > 0;
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
@@ -524,7 +547,6 @@ export function ChatSidebar({
 
     window.api.chat.onDone(({ canUndo: hasVaultOps }) => {
       dispatch({ type: "done", canUndo: hasVaultOps });
-      setLoading(false);
       window.api.chat.listConversations().then((convos) => {
         const sorted = convos.slice().reverse();
         setConversations(sorted);
@@ -536,7 +558,6 @@ export function ChatSidebar({
 
     window.api.chat.onError((msg) => {
       dispatch({ type: "error", message: msg });
-      setLoading(false);
     });
 
     return () => {
@@ -548,7 +569,6 @@ export function ChatSidebar({
     if (!text.trim() || loading) return;
     dispatch({ type: "user_message", content: text });
     setAddAllHiddenAfterUserMessage(true);
-    setLoading(true);
     window.api.chat.send(text);
   }
 
@@ -559,13 +579,12 @@ export function ChatSidebar({
 
   function handleStop(): void {
     window.api.chat.abort();
-    setLoading(false);
+    dispatch({ type: "abort" });
   }
 
   function clear(): void {
     window.api.chat.reset();
     dispatch({ type: "reset" });
-    setLoading(false);
     setAddAllHiddenAfterUserMessage(false);
   }
 
@@ -584,7 +603,6 @@ export function ChatSidebar({
       }))
     });
     setCurrentConvId(id);
-    setLoading(false);
     setAddAllHiddenAfterUserMessage(false);
     onOverlayRestore(overlay);
   }
@@ -611,6 +629,12 @@ export function ChatSidebar({
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
   const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
   const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
+  /** Pre-chunk gap: request is in flight but nothing has appeared in the transcript yet. */
+  const awaitingFirstToken =
+    assistantPending &&
+    streamingThinking === "" &&
+    streamingContent === "" &&
+    activeToolCalls.length === 0;
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -665,7 +689,10 @@ export function ChatSidebar({
       <SidebarContent className="overflow-hidden p-0">
         <Conversation className="prose prose-sm">
           <ConversationContent>
-            {messages.length === 0 && !streamingThinking && !streamingContent && (
+            {messages.length === 0 &&
+              !awaitingFirstToken &&
+              !streamingThinking &&
+              !streamingContent && (
               <ConversationEmptyState
                 title=""
                 description="Ask about your saved places, notes, or get help organizing your map."
@@ -707,6 +734,20 @@ export function ChatSidebar({
                 </Message>
               );
             })}
+
+            {awaitingFirstToken && (
+              <Message from="assistant">
+                <div
+                  className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
+                  aria-live="polite"
+                >
+                  <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+                  <Shimmer as="span" duration={1}>
+                    Working on it…
+                  </Shimmer>
+                </div>
+              </Message>
+            )}
 
             {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
               <Message from="assistant">

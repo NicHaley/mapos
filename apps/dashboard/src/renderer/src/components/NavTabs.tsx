@@ -1,10 +1,10 @@
-import { cn } from "@renderer/lib/utils";
 import { modSymbol } from "@renderer/hooks/useShortcuts";
+import { cn } from "@renderer/lib/utils";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { Button } from "./ui/button";
-import { Separator } from "./ui/separator";
 import { Kbd, KbdGroup } from "./ui/kbd";
+import { Separator } from "./ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 type NavTabsProps = {

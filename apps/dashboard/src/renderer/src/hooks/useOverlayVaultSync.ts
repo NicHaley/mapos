@@ -1,13 +1,18 @@
-import type { MapOverlayPayload, OverlayLine, OverlayPolygon } from "@shared/types";
+import type { MapOverlayPayload } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { useCallback } from "react";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "../lib/place-utils";
 
-function lngLatFromOverlayLine(line: OverlayLine): [number, number] | null {
+/** BBox center in [lng, lat] order (same as split for createNoteFile). */
+function lngLatFromOverlayGeometry(
+  geometry:
+    | { type: "LineString"; coordinates: [number, number][] }
+    | { type: "Polygon"; coordinates: [number, number][][] }
+): [number, number] | null {
   try {
     const [minLng, minLat, maxLng, maxLat] = bbox({
       type: "Feature",
-      geometry: { type: "LineString", coordinates: line.coordinates },
+      geometry,
       properties: {}
     });
     return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
@@ -16,17 +21,33 @@ function lngLatFromOverlayLine(line: OverlayLine): [number, number] | null {
   }
 }
 
-function lngLatFromOverlayPolygon(poly: OverlayPolygon): [number, number] | null {
-  try {
-    const [minLng, minLat, maxLng, maxLat] = bbox({
-      type: "Feature",
-      geometry: { type: "Polygon", coordinates: poly.coordinates },
-      properties: {}
-    });
-    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-  } catch {
-    return null;
-  }
+function overlayVaultFeatures(mapOverlay: MapOverlayPayload) {
+  const { points, lines, polygons } = mapOverlay;
+  return [
+    ...points.map((p) => ({
+      lngLat: [p.lng, p.lat] as [number, number],
+      title: p.title,
+      preview_markdown: p.preview_markdown
+    })),
+    ...lines.flatMap((l) => {
+      const lngLat = lngLatFromOverlayGeometry({
+        type: "LineString",
+        coordinates: l.coordinates
+      });
+      return lngLat
+        ? [{ lngLat, title: l.title ?? "Route", preview_markdown: l.preview_markdown }]
+        : [];
+    }),
+    ...polygons.flatMap((poly) => {
+      const lngLat = lngLatFromOverlayGeometry({
+        type: "Polygon",
+        coordinates: poly.coordinates
+      });
+      return lngLat
+        ? [{ lngLat, title: poly.title ?? "Area", preview_markdown: poly.preview_markdown }]
+        : [];
+    })
+  ];
 }
 
 export function useOverlayVaultSync({
@@ -39,36 +60,12 @@ export function useOverlayVaultSync({
   setAddAllOverlayBusy: (busy: boolean) => void;
 }): { handleAddAllOverlayToVault: () => Promise<void> } {
   const handleAddAllOverlayToVault = useCallback(async () => {
-    const { points, lines, polygons } = mapOverlay;
-    const n = points.length + lines.length + polygons.length;
-    if (n === 0) return;
+    const features = overlayVaultFeatures(mapOverlay);
+    if (features.length === 0) return;
     setAddAllOverlayBusy(true);
     try {
-      for (const p of points) {
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat: p.lat,
-          lng: p.lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(p.title);
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (p.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, p.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
-      for (const l of lines) {
-        const ll = lngLatFromOverlayLine(l);
-        if (!ll) continue;
-        const [lng, lat] = ll;
+      for (const f of features) {
+        const [lng, lat] = f.lngLat;
         const create = await window.api.fs.createNoteFile({
           parentFolderPath: parentFolderForNewFiles,
           lat,
@@ -78,38 +75,14 @@ export function useOverlayVaultSync({
           console.error("[add all overlay]", create.error);
           continue;
         }
-        const baseName = filenameBaseFromPlaceTitle(l.title ?? "Route");
+        const baseName = filenameBaseFromPlaceTitle(f.title);
         const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
         if (!renamed.ok) {
           console.error("[add all overlay]", renamed.error);
           continue;
         }
-        if (l.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, l.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
-      for (const poly of polygons) {
-        const ll = lngLatFromOverlayPolygon(poly);
-        if (!ll) continue;
-        const [lng, lat] = ll;
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat,
-          lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(poly.title ?? "Area");
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (poly.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, poly.preview_markdown);
+        if (f.preview_markdown?.trim()) {
+          const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
           if (!w.success) console.error("[add all overlay] write body", w.error);
         }
       }

@@ -71,7 +71,7 @@ export function AutoSizeTextArea({
       placeholder={placeholder}
       ref={ref}
       spellCheck={false}
-      // rows={1}
+      rows={1}
       value={value}
       // biome-ignore lint/a11y/noAutofocus: <explanation>
       autoFocus={autoFocus}

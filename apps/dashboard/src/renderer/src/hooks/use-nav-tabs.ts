@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { PlaceRecord } from "../components/MapView";
+import type { PlaceRecord } from "../components/map-view";
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }

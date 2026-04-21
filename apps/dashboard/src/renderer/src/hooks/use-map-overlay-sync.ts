@@ -1,6 +1,6 @@
 import type { MapOverlayPayload } from "@shared/types";
 import { useEffect } from "react";
-import type { PlaceRecord } from "../components/MapView";
+import type { PlaceRecord } from "../components/map-view";
 
 const EMPTY_MAP_OVERLAY: MapOverlayPayload = {
   layerName: "",

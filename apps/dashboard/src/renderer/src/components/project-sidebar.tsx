@@ -16,9 +16,9 @@ import {
   SquarePenIcon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { modSymbol, useShortcuts } from "../hooks/useShortcuts";
-import type { PlaceRecord } from "./MapView";
-import { SettingsDialog } from "./SettingsDialog";
+import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import type { PlaceRecord } from "./map-view";
+import { SettingsDialog } from "./settings-dialog";
 import {
   AlertDialog,
   AlertDialogAction,

@@ -36,7 +36,7 @@ import {
   loadOrInitMaposConfig,
   migrateLegacyVaultInternals,
   vaultDotDir as vaultDotDirPath
-} from "./maposConfig";
+} from "./mapos-config";
 import { parseWkt } from "./wkt";
 
 /**

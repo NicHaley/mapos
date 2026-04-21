@@ -1,4 +1,4 @@
-import { useDebouncedCallback } from "@renderer/hooks/useDebouncedCallback";
+import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { bbox } from "@turf/bbox";
 import {
   forwardRef,

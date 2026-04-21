@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import type { PlaceRecord } from "../components/MapView";
-import { type NavEntry, type NavState, navReducer, type useNavTabs } from "./useNavTabs";
+import type { PlaceRecord } from "../components/map-view";
+import { type NavEntry, type NavState, navReducer, type useNavTabs } from "./use-nav-tabs";
 
 export function usePathSync({
   nav,

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { PlaceRecord } from "../components/MapView";
+import type { PlaceRecord } from "../components/map-view";
 
 export function usePlacesWatcher({
   selectedPlaceRef,

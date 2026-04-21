@@ -14,7 +14,7 @@ if (!storedTheme || storedTheme === "system") {
 } else {
   applyDark(storedTheme === "dark");
 }
-import App from "./App";
+import App from "./app";
 import { TooltipProvider } from "./components/ui/tooltip";
 
 createRoot(document.getElementById("root") as HTMLElement).render(

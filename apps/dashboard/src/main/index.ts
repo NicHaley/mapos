@@ -7,7 +7,7 @@ app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { setupChat } from "./chat";
 import { closeDb } from "./db";
-import { getPrimaryVaultRoot, loadOrInitMaposConfig, setActiveVaultInConfig } from "./maposConfig";
+import { getPrimaryVaultRoot, loadOrInitMaposConfig, setActiveVaultInConfig } from "./mapos-config";
 import { setupPlacesWatcher } from "./watcher";
 
 function createWindow(): BrowserWindow {

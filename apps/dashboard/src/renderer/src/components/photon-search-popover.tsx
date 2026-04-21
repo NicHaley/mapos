@@ -1,9 +1,9 @@
 import { SearchIcon } from "lucide-react";
 import { type CSSProperties, type ReactElement, useCallback, useState } from "react";
 
-import { modSymbol, useShortcuts } from "@renderer/hooks/useShortcuts";
+import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
-import { PhotonSearchPanel } from "./PhotonSearchPanel";
+import { PhotonSearchPanel } from "./photon-search-panel";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";

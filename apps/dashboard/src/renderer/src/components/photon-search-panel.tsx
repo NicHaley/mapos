@@ -1,7 +1,7 @@
 import { Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { useDebounce } from "@renderer/hooks/useDebounce";
+import { useDebounce } from "@renderer/hooks/use-debounce";
 import { type PhotonSearchResult, searchPhoton } from "@renderer/lib/photon";
 import { cn } from "@renderer/lib/utils";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";

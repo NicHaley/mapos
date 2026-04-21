@@ -1,4 +1,4 @@
-import { modSymbol } from "@renderer/hooks/useShortcuts";
+import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { cn } from "@renderer/lib/utils";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";

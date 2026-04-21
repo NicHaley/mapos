@@ -3,7 +3,7 @@ import {
   WikilinkSuggestion,
   type WikilinkSuggestionProps,
   type WikilinkSuggestionRef
-} from "@renderer/components/WikilinkSuggestion";
+} from "@renderer/components/wikilink-suggestion";
 import { cn } from "@renderer/lib/utils";
 import {
   type JSONContent,

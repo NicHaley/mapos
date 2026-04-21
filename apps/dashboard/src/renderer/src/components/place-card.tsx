@@ -1,6 +1,6 @@
-import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/WikilinkExtension";
+import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
-import { useDebouncedCallback } from "@renderer/hooks/useDebouncedCallback";
+import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
 import { cn } from "@renderer/lib/utils";
 import type { Editor } from "@tiptap/core";
@@ -19,8 +19,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
-import { PhotonSearchPanel } from "./PhotonSearchPanel";
-import { PropertiesPanel } from "./PropertiesPanel";
+import { PhotonSearchPanel } from "./photon-search-panel";
+import { PropertiesPanel } from "./properties-panel";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { InputGroupButton } from "./ui/input-group";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";

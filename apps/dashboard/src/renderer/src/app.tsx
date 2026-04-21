@@ -225,6 +225,63 @@ function App(): React.JSX.Element {
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
   useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
 
+  /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */
+  const geoJsonLayerPlacePath =
+    selectedPlace?.type === "GeoJsonLayer" ? selectedPlace.filePath : null;
+
+  useEffect(() => {
+    if (geoJsonLayerPlacePath) {
+      let cancelled = false;
+      setActiveGeoJsonLayers([]);
+      void (async () => {
+        const data = await window.api.fs.readGeoJson(geoJsonLayerPlacePath);
+        if (cancelled || !data) return;
+        const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [
+          number,
+          number,
+          number,
+          number
+        ];
+        setActiveGeoJsonLayers([{ filePath: geoJsonLayerPlacePath, data, bbox: layerBbox }]);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (selectedFolder) {
+      let cancelled = false;
+      setActiveGeoJsonLayers([]);
+      void window.api.fs.geoJsonFilesInFolder(selectedFolder).then(async (paths) => {
+        if (cancelled) return;
+        const results = await Promise.all(paths.map((p) => window.api.fs.readGeoJson(p)));
+        if (cancelled) return;
+        const layers = results.flatMap((data, i) =>
+          data
+            ? [
+                {
+                  filePath: paths[i],
+                  data,
+                  bbox: bbox(data as unknown as Parameters<typeof bbox>[0]) as [
+                    number,
+                    number,
+                    number,
+                    number
+                  ]
+                }
+              ]
+            : []
+        );
+        setActiveGeoJsonLayers(layers);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setActiveGeoJsonLayers([]);
+  }, [geoJsonLayerPlacePath, selectedFolder]);
+
   const handlePlaceRename = useCallback(
     (oldPath: string, newPath: string) => {
       dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory: false });
@@ -296,7 +353,6 @@ function App(): React.JSX.Element {
       setSelectedPlace(null);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      setActiveGeoJsonLayers([]);
       dispatchNav({
         type: "navigate",
         entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
@@ -306,26 +362,6 @@ function App(): React.JSX.Element {
         folderPath,
         mapPadding(projectSidebarOpen, chatSidebarOpen, false)
       );
-      void window.api.fs.geoJsonFilesInFolder(folderPath).then(async (paths) => {
-        const results = await Promise.all(paths.map((p) => window.api.fs.readGeoJson(p)));
-        const layers = results.flatMap((data, i) =>
-          data
-            ? [
-                {
-                  filePath: paths[i],
-                  data,
-                  bbox: bbox(data as unknown as Parameters<typeof bbox>[0]) as [
-                    number,
-                    number,
-                    number,
-                    number
-                  ]
-                }
-              ]
-            : []
-        );
-        setActiveGeoJsonLayers(layers);
-      });
     },
     [projectSidebarOpen, chatSidebarOpen, dispatchNav]
   );
@@ -335,13 +371,6 @@ function App(): React.JSX.Element {
       setMapPeekPlace(null);
       const data = await window.api.fs.readGeoJson(filePath);
       if (!data) return;
-      const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [
-        number,
-        number,
-        number,
-        number
-      ];
-      setActiveGeoJsonLayers([{ filePath, data, bbox: layerBbox }]);
 
       const title = String(
         (data as Record<string, unknown>).name ??
@@ -679,23 +708,6 @@ function App(): React.JSX.Element {
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
             />
-          </div>
-        )}
-
-        {/* Ping dot — shown for both mini and full modes whenever we have a screen position */}
-        {placeForMapHighlight && featureScreenPos && (
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: featureScreenPos.x,
-              top: featureScreenPos.y - TOP_BAR_HEIGHT,
-              transform: "translate(-50%, -50%)"
-            }}
-          >
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-white shadow-sm" />
-            </span>
           </div>
         )}
 

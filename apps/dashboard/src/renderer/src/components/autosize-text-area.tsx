@@ -9,6 +9,7 @@ interface AutoSizeTextAreaProps {
   className?: string;
   onChange: (value: string) => void;
   onEnter?: () => void;
+  onTab?: () => void;
   onBlur?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
@@ -21,6 +22,7 @@ export function AutoSizeTextArea({
   value,
   onChange,
   onEnter,
+  onTab,
   onBlur,
   className,
   placeholder = "Untitled",
@@ -61,6 +63,9 @@ export function AutoSizeTextArea({
         if (e.key === "Enter") {
           e.preventDefault();
           onEnter?.();
+        } else if (e.key === "Tab" && onTab) {
+          e.preventDefault();
+          onTab();
         }
       }}
       placeholder={placeholder}

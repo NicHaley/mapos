@@ -214,6 +214,13 @@ function App(): React.JSX.Element {
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
   useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
 
+  const handlePlaceRename = useCallback(
+    (oldPath: string, newPath: string) => {
+      dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory: false });
+    },
+    [dispatchNav]
+  );
+
   useShortcuts([
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
@@ -638,6 +645,7 @@ function App(): React.JSX.Element {
               mode="full"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
             />
@@ -677,6 +685,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
               onSaveSearchToVault={

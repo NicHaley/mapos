@@ -19,9 +19,9 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord } from "../../../shared/types";
+import { AutoSizeTextArea } from "./autosize-text-area";
 import { PhotonSearchPanel } from "./photon-search-panel";
 import { PropertiesPanel } from "./properties-panel";
-import { AutoSizeTextArea } from "./autosize-text-area";
 import { InputGroupButton } from "./ui/input-group";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
 import { ScrollArea } from "./ui/scroll-area";
@@ -107,7 +107,7 @@ function PlaceCardMarkdownPane({
     if (onPersistRef.current) {
       onPersistRef.current(markdown);
     } else {
-      void window.api.fs.writePlaceBody(filePath, markdown);
+      void window.api.fs.writePlaceBody(currentPathRef.current, markdown);
     }
   }, 600);
 
@@ -289,7 +289,8 @@ export function PlaceCard({
   onNavigate,
   onSaveSearchToVault,
   onCommitPointLocation,
-  onClearPointLocation
+  onClearPointLocation,
+  onRename
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -302,6 +303,8 @@ export function PlaceCard({
   onCommitPointLocation?: (filePath: string, lat: number, lng: number) => Promise<boolean>;
   /** Remove `geometry` from the vault file. */
   onClearPointLocation?: (filePath: string) => Promise<boolean>;
+  /** Called after a successful file rename with the old and new paths. */
+  onRename?: (oldPath: string, newPath: string) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [doc, setDoc] = useState<LoadedDoc>(() =>
@@ -439,6 +442,7 @@ export function PlaceCard({
     }
     const result = await window.api.fs.renameFile(currentFilePath, newName);
     if (result.success) {
+      onRename?.(currentFilePath, result.newPath);
       setCurrentFilePath(result.newPath);
       setTitleError(null);
     } else {
@@ -487,6 +491,7 @@ export function PlaceCard({
                   setTitleError(validateTitle(singleLine));
                 }}
                 onEnter={handleTitleEnter}
+                onTab={handleTitleEnter}
                 placeholder=""
                 readOnly={place.previewMarkdown !== undefined}
                 value={titleInput}
@@ -626,7 +631,6 @@ export function PlaceCard({
         )}
         {!loading && doc.kind !== "error" && (
           <PlaceCardMarkdownPane
-            key={currentFilePath}
             filePath={currentFilePath}
             initialMarkdown={
               doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body

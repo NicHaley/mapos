@@ -194,6 +194,7 @@ export function setupPlacesWatcher(
 
   const places = new Map<string, PlaceRecord>();
   const knownPropertyKeys = new Set<string>();
+  const pendingRenameOldPaths = new Set<string>();
   let initialScanDone = false;
   let pendingInitialSenders: Electron.WebContents[] = [];
 
@@ -252,6 +253,10 @@ export function setupPlacesWatcher(
     places.delete(filePath);
     removeFeatures([filePath]);
     removeFeaturePropertiesForFile(filePath);
+    if (pendingRenameOldPaths.has(filePath)) {
+      pendingRenameOldPaths.delete(filePath);
+      return;
+    }
     if (initialScanDone && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
@@ -424,6 +429,7 @@ export function setupPlacesWatcher(
     if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
 
     try {
+      pendingRenameOldPaths.add(oldPath);
       renameSync(oldPath, newPath);
 
       if (isDir) {
@@ -457,6 +463,7 @@ export function setupPlacesWatcher(
       notifyFsChanged();
       return { success: true, newPath };
     } catch (err) {
+      pendingRenameOldPaths.delete(oldPath);
       return { success: false, error: String(err) };
     }
   });

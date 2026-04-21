@@ -105,6 +105,16 @@ function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boo
   return false;
 }
 
+/** Pure transition for closing a tab; shared by {@link navReducer} and {@link useNavTabs} when the next state is needed before dispatch. */
+function applyCloseTab(state: NavState, tabIndex: number): NavState {
+  const newTabs = state.tabs.filter((_, i) => i !== tabIndex);
+  if (newTabs.length === 0) return { tabs: [], activeTab: -1 };
+  let active = state.activeTab;
+  if (tabIndex < active) active--;
+  else if (tabIndex === active) active = Math.min(active, newTabs.length - 1);
+  return { tabs: newTabs, activeTab: active };
+}
+
 export function navReducer(state: NavState, action: NavAction): NavState {
   switch (action.type) {
     case "navigate": {
@@ -142,14 +152,8 @@ export function navReducer(state: NavState, action: NavAction): NavState {
     }
     case "activate":
       return { ...state, activeTab: action.tabIndex };
-    case "close": {
-      const newTabs = state.tabs.filter((_, i) => i !== action.tabIndex);
-      if (newTabs.length === 0) return { tabs: [], activeTab: -1 };
-      let active = state.activeTab;
-      if (action.tabIndex < active) active--;
-      else if (action.tabIndex === active) active = Math.min(active, newTabs.length - 1);
-      return { tabs: newTabs, activeTab: active };
-    }
+    case "close":
+      return applyCloseTab(state, action.tabIndex);
     case "remove_path": {
       const newTabs = state.tabs
         .map((tab) => {
@@ -300,7 +304,7 @@ export function useNavTabs({
   const handleNavTabClose = useCallback(
     (index: number) => {
       const wasActive = index === nav.activeTab;
-      const nextState = navReducer(nav, { type: "close", tabIndex: index });
+      const nextState = applyCloseTab(nav, index);
       dispatchNav({ type: "close", tabIndex: index });
       if (wasActive) {
         if (nextState.tabs.length === 0) {

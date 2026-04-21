@@ -20,6 +20,7 @@ type NavTabsProps = {
 };
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
+const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
 
 export function NavTabs({
   tabs,
@@ -35,26 +36,29 @@ export function NavTabs({
   if (tabs.length === 0) return null;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 items-center gap-0.5" style={noDrag}>
-      <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
-        <ChevronLeftIcon />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
-        <ChevronRightIcon />
-      </Button>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-0.5" style={noDrag}>
+        <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
+          <ChevronLeftIcon />
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
+          <ChevronRightIcon />
+        </Button>
 
-      <Separator orientation="vertical" className="mx-0.5 h-4! self-auto" />
+        <Separator orientation="vertical" className="mx-0.5 h-4! self-auto" />
+      </div>
 
       <motion.div
         layoutScroll
-        className="flex min-h-0 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-h-0 min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ ...noDrag, flex: "0 1 auto" } as React.CSSProperties}
       >
         <Reorder.Group
           axis="x"
           values={tabs.map((t) => t.id)}
           onReorder={onTabReorder}
           as="div"
-          className="flex w-max items-center gap-0.5"
+          className="flex w-max max-w-full items-center gap-0.5"
         >
           {tabs.map((tab, i) => {
             const isActive = i === activeTabIndex;
@@ -70,6 +74,7 @@ export function NavTabs({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") onTabActivate(i);
                 }}
+                style={noDrag}
                 className={cn(
                   // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
                   "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding pr-1 pl-2.5 text-[0.8rem] font-medium outline-none select-none transition-colors",
@@ -115,6 +120,9 @@ export function NavTabs({
           })}
         </Reorder.Group>
       </motion.div>
+
+      {/* Fills remaining top-bar width so the window can be dragged beside the tab strip */}
+      <div className="min-h-0 min-w-0 flex-1 self-stretch" style={dragRegion} aria-hidden />
     </div>
   );
 }

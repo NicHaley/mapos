@@ -1,9 +1,9 @@
 import { useCallback, useRef } from "react";
 
-export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
-  fn: T,
+export function useDebouncedCallback<A extends unknown[]>(
+  fn: (...args: A) => void,
   delay: number
-): T & { cancel: () => void } {
+): ((...args: A) => void) & { cancel: () => void } {
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
@@ -17,14 +17,16 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
   }, []);
 
   const debounced = useCallback(
-    (...args: Parameters<T>) => {
+    (...args: A) => {
       cancel();
       timer.current = setTimeout(() => {
         fnRef.current(...args);
       }, delay);
     },
     [cancel, delay]
-  ) as T;
+  ) as (...args: A) => void;
 
-  return Object.assign(debounced, { cancel });
+  return Object.assign(debounced, { cancel }) as ((...args: A) => void) & {
+    cancel: () => void;
+  };
 }

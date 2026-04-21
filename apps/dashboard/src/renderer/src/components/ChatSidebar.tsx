@@ -693,11 +693,11 @@ export function ChatSidebar({
               !awaitingFirstToken &&
               !streamingThinking &&
               !streamingContent && (
-              <ConversationEmptyState
-                title=""
-                description="Ask about your saved places, notes, or get help organizing your map."
-              />
-            )}
+                <ConversationEmptyState
+                  title=""
+                  description="Ask about your saved places, notes, or get help organizing your map."
+                />
+              )}
 
             {messages.map((msg) => {
               return msg.role === "error" ? (

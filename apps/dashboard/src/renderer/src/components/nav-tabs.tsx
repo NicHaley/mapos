@@ -36,7 +36,7 @@ export function NavTabs({
   if (tabs.length === 0) return null;
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5" style={dragRegion}>
       <div className="flex shrink-0 items-center gap-0.5" style={noDrag}>
         <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
           <ChevronLeftIcon />

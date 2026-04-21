@@ -711,6 +711,23 @@ function App(): React.JSX.Element {
           </div>
         )}
 
+        {/* Ping dot — shown for both mini and full modes whenever we have a screen position */}
+        {placeForMapHighlight && featureScreenPos && (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: featureScreenPos.x,
+              top: featureScreenPos.y - TOP_BAR_HEIGHT,
+              transform: "translate(-50%, -50%)"
+            }}
+          >
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-white shadow-sm" />
+            </span>
+          </div>
+        )}
+
         {/* Mini place card — floats above the selected map feature */}
         {isMini && featureScreenPos && (
           <div

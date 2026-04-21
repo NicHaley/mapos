@@ -373,7 +373,8 @@ function FileTreeNode({
   }, [autoRenamePath, node.path, node.type, onAutoRenameConsumed]);
 
   function startRename() {
-    const displayName = node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
+    const displayName =
+      node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
     setRenameDraft(displayName);
     setRenameError(null);
     setIsRenaming(true);
@@ -386,7 +387,8 @@ function FileTreeNode({
       inputRef.current?.focus();
       return;
     }
-    const originalDisplay = node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
+    const originalDisplay =
+      node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
     if (draft === originalDisplay) {
       setIsRenaming(false);
       setRenameError(null);

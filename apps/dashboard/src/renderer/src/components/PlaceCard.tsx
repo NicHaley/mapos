@@ -330,10 +330,6 @@ export function PlaceCard({
   }, []);
 
   useEffect(() => {
-    setCurrentFilePath(place.filePath);
-  }, [place.filePath]);
-
-  useEffect(() => {
     void place.geometry;
     if (place.previewMarkdown !== undefined) {
       setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
@@ -399,10 +395,6 @@ export function PlaceCard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, currentTitle]);
-
-  useEffect(() => {
-    setTitleInput(currentTitle);
-  }, [currentTitle]);
 
   useEffect(() => {
     if (place.geometry) setAddLocationOpen(false);

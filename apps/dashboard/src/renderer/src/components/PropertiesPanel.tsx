@@ -681,7 +681,7 @@ interface PropertiesPanelProps {
   reorderable?: boolean;
 }
 
-export function PropertiesPanel({
+function PropertiesPanelInner({
   filePath,
   frontmatter,
   allVaultKeys,
@@ -689,10 +689,6 @@ export function PropertiesPanel({
   reorderable = true
 }: PropertiesPanelProps): React.JSX.Element {
   const [localFrontmatter, setLocalFrontmatter] = useState(frontmatter);
-
-  useEffect(() => {
-    setLocalFrontmatter(frontmatter);
-  }, [frontmatter]);
 
   const fileKeys = useMemo(() => Object.keys(localFrontmatter), [localFrontmatter]);
 
@@ -855,4 +851,8 @@ export function PropertiesPanel({
       </div>
     </div>
   );
+}
+
+export function PropertiesPanel(props: PropertiesPanelProps): React.JSX.Element {
+  return <PropertiesPanelInner key={props.filePath} {...props} />;
 }

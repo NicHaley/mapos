@@ -633,6 +633,7 @@ function App(): React.JSX.Element {
             }}
           >
             <PlaceCard
+              key={selectedPlace.filePath}
               place={selectedPlace}
               mode="full"
               onClose={handlePlaceCardClose}
@@ -671,6 +672,7 @@ function App(): React.JSX.Element {
             }}
           >
             <PlaceCard
+              key={selectedPlace.filePath}
               place={selectedPlace}
               mode="mini"
               onClose={handlePlaceCardClose}

@@ -1,4 +1,4 @@
-import type { MapOverlayPayload, OverlayLine, OverlayPolygon } from "@shared/types";
+import type { MapOverlayPayload } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { MessageCircleIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
@@ -13,10 +13,14 @@ import { Button } from "./components/ui/button";
 import { Kbd, KbdGroup } from "./components/ui/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "./components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
-import { type NavEntry, folderLabel, navReducer, useNavTabs } from "./hooks/useNavTabs";
+import { type NavEntry, folderLabel, useNavTabs } from "./hooks/useNavTabs";
+import { useMapOverlaySync } from "./hooks/useMapOverlaySync";
+import { useOverlayVaultSync } from "./hooks/useOverlayVaultSync";
+import { usePathSync } from "./hooks/usePathSync";
+import { usePlacesWatcher } from "./hooks/usePlacesWatcher";
 import { modSymbol, useShortcuts } from "./hooks/useShortcuts";
+import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import type { PhotonSearchResult } from "./lib/photon";
-import { uniqueNameCandidates } from "./lib/unique-name";
 
 const BASE_UNITS = 16;
 
@@ -28,35 +32,6 @@ const FIT_BUFFER = 2.5 * BASE_UNITS;
 
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 const SIDEBAR_KB_CHAT: SidebarKeyboardShortcutConfig = { shift: true };
-
-/** File basename (no extension) from Photon/OSM place name — keeps casing and spacing; only strips illegal path chars. */
-function filenameBaseFromPlaceTitle(title: string): string {
-  const s = title
-    .trim()
-    .replace(/[/\\:*?"<>|]/g, "")
-    .trim();
-  return s || "place";
-}
-
-async function renameCreatedPlaceToSlug(
-  initialPath: string,
-  baseSlug: string
-): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
-  const current = initialPath;
-  let n = 0;
-  const maxCandidates = 31;
-  for (const slug of uniqueNameCandidates(baseSlug, "hyphenNumbered")) {
-    if (++n > maxCandidates) {
-      return { ok: false, error: "Could not find an available filename" };
-    }
-    const r = await window.api.fs.renameFile(current, slug);
-    if (r.success) return { ok: true, filePath: r.newPath };
-    if (r.error !== "A file or folder with that name already exists") {
-      return { ok: false, error: r.error };
-    }
-  }
-  return { ok: false, error: "Could not find an available filename" };
-}
 
 const EMPTY_MAP_OVERLAY: MapOverlayPayload = {
   layerName: "",
@@ -98,32 +73,6 @@ function representativeLngLatFromGeometryJson(geometryJson: string): [number, nu
     return null;
   }
   return null;
-}
-
-function lngLatFromOverlayLine(line: OverlayLine): [number, number] | null {
-  try {
-    const [minLng, minLat, maxLng, maxLat] = bbox({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: line.coordinates },
-      properties: {}
-    });
-    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-  } catch {
-    return null;
-  }
-}
-
-function lngLatFromOverlayPolygon(poly: OverlayPolygon): [number, number] | null {
-  try {
-    const [minLng, minLat, maxLng, maxLat] = bbox({
-      type: "Feature",
-      geometry: { type: "Polygon", coordinates: poly.coordinates },
-      properties: {}
-    });
-    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-  } catch {
-    return null;
-  }
 }
 
 function placeFromPhotonSearchResult(r: PhotonSearchResult): PlaceRecord {
@@ -258,37 +207,8 @@ function App(): React.JSX.Element {
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
 
-  // Close the place card if the currently open file is deleted externally (e.g. by undo)
-  useEffect(() => {
-    window.api.places.onUpdated((update) => {
-      if (update.event === "unlink" && update.filePath === selectedPlaceRef.current?.filePath) {
-        clearPlace();
-      }
-    });
-  }, [clearPlace]);
-
-  useEffect(() => {
-    window.api.map.onOverlay((data) => {
-      const points = data.points ?? [];
-      const lines = data.lines ?? [];
-      const polygons = data.polygons ?? [];
-      setMapOverlay({
-        layerName: data.layerName,
-        points,
-        lines,
-        polygons
-      });
-      if (points.length + lines.length + polygons.length > 0) {
-        setMapOverlayNonce((n) => n + 1);
-      }
-    });
-    window.api.map.onOverlayClear(() => {
-      setMapOverlay(EMPTY_MAP_OVERLAY);
-      const fp = selectedPlaceRef.current?.filePath;
-      if (fp?.startsWith("map-overlay:")) clearPlace();
-    });
-    return () => window.api.map.removeOverlayListeners();
-  }, [clearPlace]);
+  usePlacesWatcher({ selectedPlaceRef, clearPlace });
+  useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
 
   useShortcuts([
     {
@@ -539,173 +459,23 @@ function App(): React.JSX.Element {
     }
   }, []);
 
-  const handleAddAllOverlayToVault = useCallback(async () => {
-    const { points, lines, polygons } = mapOverlay;
-    const n = points.length + lines.length + polygons.length;
-    if (n === 0) return;
-    setAddAllOverlayBusy(true);
-    try {
-      for (const p of points) {
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat: p.lat,
-          lng: p.lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(p.title);
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (p.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, p.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
-      for (const l of lines) {
-        const ll = lngLatFromOverlayLine(l);
-        if (!ll) continue;
-        const [lng, lat] = ll;
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat,
-          lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(l.title ?? "Route");
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (l.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, l.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
-      for (const poly of polygons) {
-        const ll = lngLatFromOverlayPolygon(poly);
-        if (!ll) continue;
-        const [lng, lat] = ll;
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat,
-          lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(poly.title ?? "Area");
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (poly.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, poly.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
-    } finally {
-      setAddAllOverlayBusy(false);
-    }
-  }, [mapOverlay, parentFolderForNewFiles]);
+  const { handleAddAllOverlayToVault } = useOverlayVaultSync({
+    mapOverlay,
+    parentFolderForNewFiles,
+    setAddAllOverlayBusy
+  });
 
-  const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
-    setSelectedFolder((prev) => {
-      if (!prev) return prev;
-      if (prev === oldPath) return newPath;
-      if (prev.startsWith(`${oldPath}/`) || prev.startsWith(`${oldPath}\\`))
-        return newPath + prev.slice(oldPath.length);
-      return prev;
-    });
-  }, []);
-
-  /** After drag-and-drop or cross-folder move: sync nav tabs, selection, and open place paths. */
-  const handlePathRelocated = useCallback(
-    (oldPath: string, newPath: string, isDirectory: boolean) => {
-      dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory });
-
-      setSelectedFolder((prev) => {
-        if (!prev) return prev;
-        if (prev === oldPath) return newPath;
-        if (prev.startsWith(`${oldPath}/`) || prev.startsWith(`${oldPath}\\`))
-          return newPath + prev.slice(oldPath.length);
-        return prev;
-      });
-
-      setSelectedPlace((prev) => {
-        if (
-          !prev ||
-          prev.filePath.startsWith("photon-search:") ||
-          prev.filePath.startsWith("map-overlay:")
-        )
-          return prev;
-        const fp = prev.filePath;
-        if (!isDirectory) {
-          if (fp !== oldPath) return prev;
-          const base = newPath.split(/[/\\]/).pop() ?? newPath;
-          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
-        }
-        if (fp === oldPath) {
-          const base = newPath.split(/[/\\]/).pop() ?? newPath;
-          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
-        }
-        if (fp.startsWith(`${oldPath}/`) || fp.startsWith(`${oldPath}\\`)) {
-          const nextPath = newPath + fp.slice(oldPath.length);
-          const base = nextPath.split(/[/\\]/).pop() ?? nextPath;
-          return { ...prev, filePath: nextPath, title: base.replace(/\.md$/i, "") };
-        }
-        return prev;
-      });
-    },
-    [dispatchNav]
-  );
-
-  const handleDeletedPath = useCallback(
-    (deletedPath: string, type: "file" | "directory") => {
-      const isSameOrChildPath = (currentPath: string, parentPath: string) =>
-        currentPath === parentPath ||
-        currentPath.startsWith(`${parentPath}/`) ||
-        currentPath.startsWith(`${parentPath}\\`);
-
-      const isFolder = type === "directory";
-      const nextNavState = navReducer(nav, { type: "remove_path", path: deletedPath, isFolder });
-      dispatchNav({ type: "remove_path", path: deletedPath, isFolder });
-
-      if (isFolder) {
-        const wasAffected =
-          (selectedFolder && isSameOrChildPath(selectedFolder, deletedPath)) ||
-          (selectedPlace && isSameOrChildPath(selectedPlace.filePath, deletedPath));
-        setSelectedFolder((prev) => (prev && isSameOrChildPath(prev, deletedPath) ? null : prev));
-        setSelectedPlace((prev) =>
-          prev && isSameOrChildPath(prev.filePath, deletedPath) ? null : prev
-        );
-        if (wasAffected) {
-          const nextTab = nextNavState.tabs[nextNavState.activeTab];
-          const nextEntry = nextTab?.history[nextTab.cursor];
-          if (nextEntry) openEntry(nextEntry);
-          else onNavEmpty();
-        }
-      } else {
-        if (selectedPlace?.filePath === deletedPath) {
-          const nextTab = nextNavState.tabs[nextNavState.activeTab];
-          const nextEntry = nextTab?.history[nextTab.cursor];
-          if (nextEntry) openEntry(nextEntry);
-          else clearPlace();
-        }
-      }
-    },
-    [selectedPlace, selectedFolder, nav, dispatchNav, openEntry, clearPlace, onNavEmpty]
-  );
+  const { handleRenamePath, handlePathRelocated, handleDeletedPath } = usePathSync({
+    nav,
+    dispatchNav,
+    selectedPlace,
+    selectedFolder,
+    setSelectedFolder,
+    setSelectedPlace,
+    openEntry,
+    clearPlace,
+    onNavEmpty
+  });
 
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";

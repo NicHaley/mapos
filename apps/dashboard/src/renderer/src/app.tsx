@@ -117,6 +117,8 @@ function App(): React.JSX.Element {
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
   const [chatSidebarOpen, setChatSidebarOpen] = useState(false);
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
+  /** Map selection while full PlaceCard is open (floating mini card + highlight). */
+  const [mapPeekPlace, setMapPeekPlace] = useState<PlaceRecord | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
   const [mapOverlay, setMapOverlay] = useState<MapOverlayPayload>(EMPTY_MAP_OVERLAY);
@@ -150,10 +152,16 @@ function App(): React.JSX.Element {
   // MapView.emitFeaturePosition returns early when there is no geometry, so the ping would
   // otherwise keep the last screen position after a clear (or any selection without geometry).
   useEffect(() => {
-    if (!selectedPlace?.geometry) {
+    const placeForMap = mapPeekPlace ?? selectedPlace;
+    if (!placeForMap?.geometry) {
       setFeatureScreenPos(null);
     }
-  }, [selectedPlace]);
+  }, [selectedPlace, mapPeekPlace]);
+
+  const placeForMapHighlight = useMemo(
+    () => mapPeekPlace ?? selectedPlace,
+    [mapPeekPlace, selectedPlace]
+  );
 
   const parentFolderForNewFiles = useMemo(
     () => selectedFolder ?? (lastVaultFilePath ? parentFolderOfVaultFile(lastVaultFilePath) : null),
@@ -164,6 +172,7 @@ function App(): React.JSX.Element {
     setSelectedPlace(null);
     setPlaceMode("mini");
     setFeatureScreenPos(null);
+    setMapPeekPlace(null);
   }, []);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
@@ -174,6 +183,7 @@ function App(): React.JSX.Element {
         setPlaceMode("full");
         setSelectedFolder(null);
         setFeatureScreenPos(null);
+        setMapPeekPlace(null);
         mapRef.current?.fitToPlace(
           entry.place,
           mapPadding(projectSidebarOpen, chatSidebarOpen, true)
@@ -183,6 +193,7 @@ function App(): React.JSX.Element {
         setSelectedPlace(null);
         setPlaceMode("mini");
         setFeatureScreenPos(null);
+        setMapPeekPlace(null);
         mapRef.current?.fitToFolder(
           entry.folderPath,
           mapPadding(projectSidebarOpen, chatSidebarOpen, false)
@@ -217,6 +228,9 @@ function App(): React.JSX.Element {
   const handlePlaceRename = useCallback(
     (oldPath: string, newPath: string) => {
       dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory: false });
+      setActiveGeoJsonLayers((prev) =>
+        prev.map((layer) => (layer.filePath === oldPath ? { ...layer, filePath: newPath } : layer))
+      );
     },
     [dispatchNav]
   );
@@ -229,6 +243,7 @@ function App(): React.JSX.Element {
   ]);
 
   function handlePlaceCardClose() {
+    setMapPeekPlace(null);
     // Full place cards should close exactly like the active top-bar tab.
     if (placeMode !== "full" || activeTabIndex < 0) {
       clearPlace();
@@ -237,10 +252,14 @@ function App(): React.JSX.Element {
     handleNavTabClose(activeTabIndex);
   }
 
-  // Map feature click — show mini card; no-op when full panel is active
+  // Map feature click — mini card, or peek mini while full panel stays open
   const handleSelectPlaceFromMap = useCallback(
     (place: PlaceRecord) => {
-      if (placeMode === "full") return;
+      if (placeMode === "full") {
+        setMapPeekPlace(place);
+        setFeatureScreenPos(null);
+        return;
+      }
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
@@ -255,6 +274,7 @@ function App(): React.JSX.Element {
   // Sidebar file click — navigate within active tab (or new tab on cmd/ctrl+click)
   const handleSelectPlaceFromSidebar = useCallback(
     (place: PlaceRecord, newTab = false) => {
+      setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
       setSelectedPlace(place);
       setPlaceMode("full");
@@ -271,6 +291,7 @@ function App(): React.JSX.Element {
   // Sidebar folder click — navigate within active tab
   const handleSelectFolder = useCallback(
     (folderPath: string) => {
+      setMapPeekPlace(null);
       setSelectedFolder(folderPath);
       setSelectedPlace(null);
       setPlaceMode("mini");
@@ -311,6 +332,7 @@ function App(): React.JSX.Element {
 
   const handleSelectGeoJson = useCallback(
     async (filePath: string) => {
+      setMapPeekPlace(null);
       const data = await window.api.fs.readGeoJson(filePath);
       if (!data) return;
       const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [
@@ -345,6 +367,7 @@ function App(): React.JSX.Element {
   // New place file created from map context menu
   const handleCreatePlace = useCallback(
     (place: PlaceRecord) => {
+      setMapPeekPlace(null);
       if (selectedFolder) {
         setSelectedPlace(place);
         setPlaceMode("mini");
@@ -361,6 +384,7 @@ function App(): React.JSX.Element {
 
   const handlePhotonSearchResult = useCallback(
     (r: PhotonSearchResult) => {
+      setMapPeekPlace(null);
       const place = placeFromPhotonSearchResult(r);
       setSelectedPlace(place);
       setPlaceMode("mini");
@@ -391,6 +415,7 @@ function App(): React.JSX.Element {
         }),
         geometry: geometryJson
       };
+      setMapPeekPlace(null);
       setSelectedPlace(updated);
       dispatchNav({ type: "update-entry", filePath: updated.filePath, place: updated });
       mapRef.current?.fitToPlace(
@@ -418,6 +443,7 @@ function App(): React.JSX.Element {
           type: "note"
         } satisfies PlaceRecord);
       const cleared = { ...base, geometry: undefined };
+      setMapPeekPlace(null);
       setSelectedPlace(cleared);
       dispatchNav({ type: "update-entry", filePath, place: cleared });
       mapRef.current?.invalidateFolderPlace(filePath);
@@ -426,64 +452,64 @@ function App(): React.JSX.Element {
     [dispatchNav]
   );
 
-  const handleSaveSearchToVault = useCallback(async () => {
-    const place = selectedPlace;
-    if (place?.previewMarkdown === undefined || !place.geometry) return;
-    const lngLat = representativeLngLatFromGeometryJson(place.geometry);
-    if (!lngLat) return;
-    const [lng, lat] = lngLat;
-    const create = await window.api.fs.createNoteFile({
-      parentFolderPath: parentFolderForNewFiles,
-      lat,
-      lng,
-      includePlaceFrontmatterDefaults: false
-    });
-    if (!create.success) {
-      console.error("[save search]", create.error);
-      return;
-    }
-    const baseName = filenameBaseFromPlaceTitle(place.title);
-    const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-    if (!renamed.ok) {
-      console.error("[save search]", renamed.error);
-      return;
-    }
-    if (place.previewMarkdown.trim()) {
-      const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
-      if (!w.success) console.error("[save search] write body", w.error);
-    }
-    const created =
-      (await window.api.places.getByPath(renamed.filePath)) ??
-      ({
-        filePath: renamed.filePath,
-        title: place.title,
-        type: "place",
-        geometry: place.geometry
-      } satisfies PlaceRecord);
-    if (selectedFolder) {
-      setSelectedPlace(created);
-      setPlaceMode("mini");
-      setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
-    } else {
-      setSelectedPlace(created);
-      setPlaceMode("full");
-      setFeatureScreenPos(null);
-      dispatchNav({
-        type: "navigate",
-        entry: { kind: "place", place: created },
-        newTab: false
+  const savePreviewPlaceToVault = useCallback(
+    async (place: PlaceRecord | null) => {
+      if (place?.previewMarkdown === undefined || !place.geometry) return;
+      const lngLat = representativeLngLatFromGeometryJson(place.geometry);
+      if (!lngLat) return;
+      const [lng, lat] = lngLat;
+      const create = await window.api.fs.createNoteFile({
+        parentFolderPath: parentFolderForNewFiles,
+        lat,
+        lng,
+        includePlaceFrontmatterDefaults: false
       });
-      mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
-    }
-  }, [
-    parentFolderForNewFiles,
-    selectedFolder,
-    selectedPlace,
-    projectSidebarOpen,
-    chatSidebarOpen,
-    dispatchNav
-  ]);
+      if (!create.success) {
+        console.error("[save search]", create.error);
+        return;
+      }
+      const baseName = filenameBaseFromPlaceTitle(place.title);
+      const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+      if (!renamed.ok) {
+        console.error("[save search]", renamed.error);
+        return;
+      }
+      if (place.previewMarkdown.trim()) {
+        const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
+        if (!w.success) console.error("[save search] write body", w.error);
+      }
+      const created =
+        (await window.api.places.getByPath(renamed.filePath)) ??
+        ({
+          filePath: renamed.filePath,
+          title: place.title,
+          type: "place",
+          geometry: place.geometry
+        } satisfies PlaceRecord);
+      setMapPeekPlace(null);
+      if (selectedFolder) {
+        setSelectedPlace(created);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, false));
+      } else {
+        setSelectedPlace(created);
+        setPlaceMode("full");
+        setFeatureScreenPos(null);
+        dispatchNav({
+          type: "navigate",
+          entry: { kind: "place", place: created },
+          newTab: false
+        });
+        mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
+      }
+    },
+    [parentFolderForNewFiles, selectedFolder, projectSidebarOpen, chatSidebarOpen, dispatchNav]
+  );
+
+  const handleSaveSearchToVault = useCallback(async () => {
+    await savePreviewPlaceToVault(selectedPlace);
+  }, [selectedPlace, savePreviewPlaceToVault]);
 
   const handleOverlayRestore = useCallback((overlay: MapOverlayPayload | null) => {
     if (overlay) {
@@ -516,8 +542,12 @@ function App(): React.JSX.Element {
   const isFull = selectedPlace !== null && placeMode === "full";
 
   const handleMapClickEmpty = useCallback(() => {
-    if (isMini) clearPlace();
-  }, [isMini, clearPlace]);
+    if (isMini) {
+      clearPlace();
+      return;
+    }
+    if (mapPeekPlace) setMapPeekPlace(null);
+  }, [isMini, mapPeekPlace, clearPlace]);
 
   /** Sidebar tree highlight: follow the active tab's place, not `selectedPlace` (Photon replaces that in mini mode). */
   const selectedFilePathForSidebar = useMemo(() => {
@@ -538,8 +568,8 @@ function App(): React.JSX.Element {
           ref={mapRef}
           onSelectPlace={handleSelectPlaceFromMap}
           onCreatePlace={handleCreatePlace}
-          onMapClickEmpty={isMini ? handleMapClickEmpty : undefined}
-          selectedPlace={selectedPlace}
+          onMapClickEmpty={isMini || mapPeekPlace ? handleMapClickEmpty : undefined}
+          selectedPlace={placeForMapHighlight}
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
@@ -653,7 +683,7 @@ function App(): React.JSX.Element {
         )}
 
         {/* Ping dot — shown for both mini and full modes whenever we have a screen position */}
-        {selectedPlace && featureScreenPos && (
+        {placeForMapHighlight && featureScreenPos && (
           <div
             className="absolute pointer-events-none"
             style={{
@@ -712,6 +742,44 @@ function App(): React.JSX.Element {
           </div>
         )}
 
+        {/* Peek mini card — map selection while full PlaceCard is open */}
+        {isFull && mapPeekPlace && featureScreenPos && (
+          <div
+            className="absolute pointer-events-none z-30"
+            style={{
+              left: featureScreenPos.x,
+              top: featureScreenPos.y - TOP_BAR_HEIGHT,
+              transform: "translate(-50%, calc(-100% - 16px))"
+            }}
+          >
+            <PlaceCard
+              key={mapPeekPlace.filePath}
+              place={mapPeekPlace}
+              mode="mini"
+              onClose={() => setMapPeekPlace(null)}
+              onNavigate={handleSelectPlaceFromSidebar}
+              onRename={handlePlaceRename}
+              onCommitPointLocation={commitVaultPointLocation}
+              onClearPointLocation={clearVaultPointLocation}
+              onSaveSearchToVault={
+                mapPeekPlace.previewMarkdown !== undefined
+                  ? async () => {
+                      await savePreviewPlaceToVault(mapPeekPlace);
+                    }
+                  : undefined
+              }
+              onExpand={
+                mapPeekPlace.previewMarkdown !== undefined
+                  ? undefined
+                  : () => {
+                      setMapPeekPlace(null);
+                      handleSelectPlaceFromSidebar(mapPeekPlace, false);
+                    }
+              }
+            />
+          </div>
+        )}
+
         {/* Left sidebar overlay */}
         <SidebarProvider
           name="sidebar-left"
@@ -728,7 +796,7 @@ function App(): React.JSX.Element {
             onSelectFolder={handleSelectFolder}
             onSelectGeoJson={(p) => void handleSelectGeoJson(p)}
             onDeletePath={handleDeletedPath}
-            onRenamePath={handleRenamePath}
+            onRenamePath={handlePathRelocated}
             onMoved={handlePathRelocated}
           />
         </SidebarProvider>

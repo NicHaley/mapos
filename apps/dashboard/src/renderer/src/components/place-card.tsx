@@ -445,7 +445,7 @@ export function PlaceCard({
 
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
-    if (/[/\\:*?"<>|]/.test(name)) return "Name contains invalid characters";
+    if (/[/\\]/.test(name)) return "Name cannot contain slashes";
     return null;
   }
 

@@ -343,7 +343,7 @@ function FileTreeNode({
   onSelectFolder?: (path: string) => void;
   onSelectGeoJson?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
-  onRenameComplete?: (oldPath: string, newPath: string) => void;
+  onRenameComplete?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
   dnd?: SidebarDndBridge;
@@ -373,7 +373,7 @@ function FileTreeNode({
   }, [autoRenamePath, node.path, node.type, onAutoRenameConsumed]);
 
   function startRename() {
-    const displayName = node.type === "file" ? node.name.replace(/\.md$/, "") : node.name;
+    const displayName = node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
     setRenameDraft(displayName);
     setRenameError(null);
     setIsRenaming(true);
@@ -386,7 +386,7 @@ function FileTreeNode({
       inputRef.current?.focus();
       return;
     }
-    const originalDisplay = node.type === "file" ? node.name.replace(/\.md$/, "") : node.name;
+    const originalDisplay = node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
     if (draft === originalDisplay) {
       setIsRenaming(false);
       setRenameError(null);
@@ -400,7 +400,7 @@ function FileTreeNode({
     }
     setIsRenaming(false);
     setRenameError(null);
-    onRenameComplete?.(node.path, result.newPath);
+    onRenameComplete?.(node.path, result.newPath, node.type === "directory");
   }
 
   function cancelRename() {
@@ -653,7 +653,7 @@ export function ProjectSidebar({
   onSelectFolder?: (path: string) => void;
   onSelectGeoJson?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
-  onRenamePath?: (oldPath: string, newPath: string) => void;
+  onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);

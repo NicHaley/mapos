@@ -31,7 +31,7 @@ function relocateFilePath(path: string, oldRoot: string, newRoot: string): strin
 
 function placeTitleFromPath(filePath: string): string {
   const base = filePath.split(/[/\\]/).pop() ?? filePath;
-  return base.replace(/\.md$/i, "");
+  return base.replace(/\.(md|geojson)$/i, "");
 }
 
 function relocateEntry(

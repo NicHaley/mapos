@@ -63,16 +63,16 @@ export function usePathSync({
         if (!isDirectory) {
           if (fp !== oldPath) return prev;
           const base = newPath.split(/[/\\]/).pop() ?? newPath;
-          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
+          return { ...prev, filePath: newPath, title: base.replace(/\.(md|geojson)$/i, "") };
         }
         if (fp === oldPath) {
           const base = newPath.split(/[/\\]/).pop() ?? newPath;
-          return { ...prev, filePath: newPath, title: base.replace(/\.md$/i, "") };
+          return { ...prev, filePath: newPath, title: base.replace(/\.(md|geojson)$/i, "") };
         }
         if (fp.startsWith(`${oldPath}/`) || fp.startsWith(`${oldPath}\\`)) {
           const nextPath = newPath + fp.slice(oldPath.length);
           const base = nextPath.split(/[/\\]/).pop() ?? nextPath;
-          return { ...prev, filePath: nextPath, title: base.replace(/\.md$/i, "") };
+          return { ...prev, filePath: nextPath, title: base.replace(/\.(md|geojson)$/i, "") };
         }
         return prev;
       });

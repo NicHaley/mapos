@@ -64,28 +64,30 @@ export function useOverlayVaultSync({
     if (features.length === 0) return;
     setAddAllOverlayBusy(true);
     try {
-      for (const f of features) {
-        const [lng, lat] = f.lngLat;
-        const create = await window.api.fs.createNoteFile({
-          parentFolderPath: parentFolderForNewFiles,
-          lat,
-          lng
-        });
-        if (!create.success) {
-          console.error("[add all overlay]", create.error);
-          continue;
-        }
-        const baseName = filenameBaseFromPlaceTitle(f.title);
-        const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-        if (!renamed.ok) {
-          console.error("[add all overlay]", renamed.error);
-          continue;
-        }
-        if (f.preview_markdown?.trim()) {
-          const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
-          if (!w.success) console.error("[add all overlay] write body", w.error);
-        }
-      }
+      await Promise.all(
+        features.map(async (f) => {
+          const [lng, lat] = f.lngLat;
+          const create = await window.api.fs.createNoteFile({
+            parentFolderPath: parentFolderForNewFiles,
+            lat,
+            lng
+          });
+          if (!create.success) {
+            console.error("[add all overlay]", create.error);
+            return;
+          }
+          const baseName = filenameBaseFromPlaceTitle(f.title);
+          const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+          if (!renamed.ok) {
+            console.error("[add all overlay]", renamed.error);
+            return;
+          }
+          if (f.preview_markdown?.trim()) {
+            const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
+            if (!w.success) console.error("[add all overlay] write body", w.error);
+          }
+        })
+      );
     } finally {
       setAddAllOverlayBusy(false);
     }

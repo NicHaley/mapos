@@ -584,10 +584,7 @@ function App(): React.JSX.Element {
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <PhotonSearchPopover onSelectResult={handlePhotonSearchResult} />
         </div>
-        <div
-          className="flex-1 min-w-0 flex items-center h-full"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
+        <div className="flex-1 min-w-0 flex items-center h-full min-h-0">
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}

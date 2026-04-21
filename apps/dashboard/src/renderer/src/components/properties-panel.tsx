@@ -195,6 +195,7 @@ function PropertyKey({
   const [open, setOpen] = useState(false);
   const [draftKey, setDraftKey] = useState(propKey);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -215,16 +216,37 @@ function PropertyKey({
     onRename(propKey, trimmed);
   }
 
-  function handleOpenChange(val: boolean): void {
+  function handleOpenChange(val: boolean, eventDetails?: { reason?: string }): void {
+    const reason = eventDetails?.reason;
+    if (!val && (reason === "focus-out" || reason === "trigger-hover")) return;
     setOpen(val);
     if (!val) commitRename();
+  }
+
+  function handleTriggerPointerDown(e: React.PointerEvent): void {
+    e.preventDefault();
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+  }
+
+  function handleTriggerPointerUp(e: React.PointerEvent): void {
+    if (!pointerDownPos.current) return;
+    const dx = Math.abs(e.clientX - pointerDownPos.current.x);
+    const dy = Math.abs(e.clientY - pointerDownPos.current.y);
+    pointerDownPos.current = null;
+    if (dx < 5 && dy < 5) {
+      setOpen((prev) => !prev);
+    }
   }
 
   const effective = effectivePropertyType(value);
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
-      <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent outline-none">
+      <DropdownMenuTrigger
+        onPointerDown={handleTriggerPointerDown}
+        onPointerUp={handleTriggerPointerUp}
+        className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent outline-none"
+      >
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
             {typeIcon(effective)}

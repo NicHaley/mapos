@@ -3,7 +3,7 @@ import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
 import { cn } from "@renderer/lib/utils";
-import type { Editor } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -80,6 +80,26 @@ type PlaceCardMarkdownPaneProps = {
   onPersist?: (content: string) => void;
 };
 
+const TabIndent = Extension.create({
+  name: "tabIndent",
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        if (this.editor.can().sinkListItem("listItem")) {
+          return this.editor.commands.sinkListItem("listItem");
+        }
+        return this.editor.commands.insertContent("  ");
+      },
+      "Shift-Tab": () => {
+        if (this.editor.can().liftListItem("listItem")) {
+          return this.editor.commands.liftListItem("listItem");
+        }
+        return false;
+      }
+    };
+  }
+});
+
 function PlaceCardMarkdownPane({
   filePath,
   initialMarkdown,
@@ -117,6 +137,7 @@ function PlaceCardMarkdownPane({
         link: { openOnClick: false }
       }),
       Markdown,
+      TabIndent,
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {
           const item = vaultFilesRef.current.find((f) => f.title === title);

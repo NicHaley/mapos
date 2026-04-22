@@ -630,6 +630,56 @@ export function PlaceCard({
           )}
 
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
+        {place.previewMarkdown === undefined && doc.kind === "vault" && (
+          <PropertiesPanel
+            filePath={currentFilePath}
+            frontmatter={doc.frontmatter}
+            allVaultKeys={doc.keys}
+          />
+        )}
+        {doc.kind === "geojson-layer" &&
+          (() => {
+            const GJ_EXCLUDED = new Set(["name", "description"]);
+            const gjFrontmatter = Object.fromEntries(
+              Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
+            );
+            return (
+              <PropertiesPanel
+                filePath={currentFilePath}
+                frontmatter={gjFrontmatter}
+                allVaultKeys={[]}
+                onWriteProperty={async (key, value) => {
+                  await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+                }}
+                reorderable={false}
+              />
+            );
+          })()}
+
+        {/* Body content */}
+        {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
+        {doc.kind === "error" && (
+          <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
+        )}
+        {!loading && doc.kind !== "error" && (
+          <PlaceCardMarkdownPane
+            filePath={currentFilePath}
+            initialMarkdown={
+              doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
+            }
+            isPreview={doc.kind === "preview"}
+            mode={mode}
+            isDark={isDark}
+            onNavigate={onNavigate}
+            onEditorReady={onEditorReady}
+            onPersist={
+              doc.kind === "geojson-layer"
+                ? (content) =>
+                    void window.api.fs.writeGeoJsonProperty(currentFilePath, "description", content)
+                : undefined
+            }
+          />
+        )}
       </div>
     </div>
   );

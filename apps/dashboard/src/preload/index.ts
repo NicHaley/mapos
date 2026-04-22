@@ -115,6 +115,14 @@ const api = {
         error?: string;
       }>,
     onChange: (cb: () => void) => ipcRenderer.on("fs:changed", cb),
+    /** Returns a cleanup function; call it (e.g. from a useEffect) to unregister. */
+    onFileContentChanged: (cb: (payload: { filePath: string }) => void): (() => void) => {
+      const listener = (_e: unknown, p: { filePath: string }): void => cb(p);
+      ipcRenderer.on("fs:file-content-changed", listener);
+      return () => {
+        ipcRenderer.off("fs:file-content-changed", listener);
+      };
+    },
     removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
   },
   mapos: {

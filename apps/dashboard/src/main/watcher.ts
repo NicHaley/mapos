@@ -199,11 +199,46 @@ export function setupPlacesWatcher(
   let initialScanDone = false;
   let pendingInitialSenders: Electron.WebContents[] = [];
 
-  // Paths our IPC handlers just wrote. The handler updates the places Map
-  // synchronously from the data it just serialized, so chokidar's subsequent
-  // `change` event should skip re-parsing. Chokidar still handles *external*
-  // writes (git pull, another editor) where we don't know the new state in memory.
+  /**
+   * Separates "internal" file writes (from our own IPC handlers) from "external"
+   * writes (git pull, VS Code, Obsidian open alongside, cloud sync agents).
+   *
+   * Every IPC write handler does two things:
+   *   1. writeFileSync — persist to disk
+   *   2. ipcWriteBarrier.add(filePath) — record that we were the writer
+   * and then (for handlers that track place state) updates the in-memory `places`
+   * Map synchronously from the data it just serialized — no disk re-read needed.
+   *
+   * When chokidar's `change` event later fires, it calls `ipcWriteBarrier.delete(path)`.
+   * If it finds a matching entry, the change is *our own write echoing back* and we
+   * skip re-parsing from disk (the Map is already correct, re-reading is wasted work
+   * and opens a race window). If the entry isn't there, the change is external and
+   * we re-parse normally.
+   *
+   * Why this matters concretely:
+   *   - It avoids redundant parse-on-every-keystroke for typical UI edits.
+   *   - It prevents a data-corruption bug seen when the vault lives in iCloud Drive:
+   *     after a write, iCloud can briefly re-push an older version of the file; a
+   *     blind re-read in chokidar would then load that stale content back into the
+   *     Map and (after a file switch) the user would see reverted state. The barrier
+   *     makes the Map immune to this class of "echo" write.
+   *
+   * External-write support (the original reason `chokidar.change` re-parses at all)
+   * still works: those writes don't go through our IPC, so no barrier entry exists,
+   * and the normal re-parse path runs.
+   */
   const ipcWriteBarrier = new Set<string>();
+
+  /**
+   * Persist a vault file and mark it as an internal write in one step.
+   * Use this — not raw `writeFileSync` — for every vault file write from an IPC
+   * handler. Raw `writeFileSync` would skip the barrier and cause the chokidar
+   * re-read race described above.
+   */
+  const writeVaultFile = (filePath: string, content: string): void => {
+    writeFileSync(filePath, content, "utf-8");
+    ipcWriteBarrier.add(filePath);
+  };
 
   const watcher = chokidar.watch(`${vaultRoot}/**/*.md`, {
     ignoreInitial: false,
@@ -212,6 +247,31 @@ export function setupPlacesWatcher(
     // `fsevents` is native; it is built for the system Node ABI. Under Electron the .node
     // binary can load but break (e.g. Native.flags undefined → Cannot read 'SinceNow').
     ...(process.versions.electron ? { useFsEvents: false as const } : {})
+  });
+
+  /**
+   * Non-place vault files (geojson, images) appear in the sidebar tree but have no
+   * persistent in-memory state — they're loaded on demand. Watch just for add/unlink
+   * so the file tree stays live when files are dropped in or removed externally.
+   * No `change` handler: content edits don't affect what the tree shows.
+   */
+  const nonPlaceWatcher = chokidar.watch(
+    `${vaultRoot}/**/*.{geojson,png,jpg,jpeg,gif}`,
+    {
+      ignoreInitial: true, // startup listing is covered by readDirTree
+      ignored: /(^|[/\\])(\.|node_modules)/,
+      ...(process.versions.electron ? { useFsEvents: false as const } : {})
+    }
+  );
+  nonPlaceWatcher.on("add", () => notifyFsChanged());
+  nonPlaceWatcher.on("unlink", () => notifyFsChanged());
+  // Content changes to a file that's currently rendered (e.g. an external AI edits
+  // a .geojson the user is viewing). The sidebar tree doesn't care, but the map /
+  // PlaceCard needs to re-read the file to reflect the change.
+  nonPlaceWatcher.on("change", (filePath) => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("fs:file-content-changed", { filePath });
+    }
   });
 
   watcher.on("add", async (filePath) => {
@@ -229,9 +289,9 @@ export function setupPlacesWatcher(
   });
 
   watcher.on("change", async (filePath) => {
-    // Skip re-parsing for writes we initiated ourselves: the IPC handler already
-    // updated the places Map from the data it serialized. Re-reading here races
-    // with any concurrent writer and wastes work.
+    // If this change event is an echo of our own IPC write, the Map is already
+    // correct. Skip the re-parse; just forward the notification to the renderer.
+    // See the `ipcWriteBarrier` doc comment above for the full rationale.
     if (ipcWriteBarrier.delete(filePath)) {
       const place = places.get(filePath);
       if (initialScanDone && !mainWindow.isDestroyed()) {
@@ -329,8 +389,7 @@ export function setupPlacesWatcher(
     if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
       return { success: false, error: "Path outside vault" };
     try {
-      writeFileSync(filePath, content, "utf-8");
-      ipcWriteBarrier.add(filePath);
+      writeVaultFile(filePath, content);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -351,8 +410,7 @@ export function setupPlacesWatcher(
       const fm = fmMatch ? fmMatch[0] : "";
       // Ensure a blank line between front matter and body (standard Obsidian format)
       const newContent = fm + (body.trim() ? `\n${body.trim()}\n` : "");
-      writeFileSync(filePath, newContent, "utf-8");
-      ipcWriteBarrier.add(filePath);
+      writeVaultFile(filePath, newContent);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -375,10 +433,11 @@ export function setupPlacesWatcher(
         } else {
           parsed.data[key] = value;
         }
-        writeFileSync(filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
-        ipcWriteBarrier.add(filePath);
-        // Update the in-memory places map synchronously from the data we just wrote,
-        // so getByPath returns fresh data before chokidar's debounced `change` fires.
+        writeVaultFile(filePath, matter.stringify(parsed.content, parsed.data));
+        // Update the places Map synchronously from `parsed.data` — the same object
+        // we just serialized to disk. Don't re-read the file: the barrier above will
+        // make chokidar skip its own re-read for this change, so this is the one
+        // place that establishes the new state.
         const rec = parsed.data as Record<string, unknown>;
         collectPropertyKeysFromData(rec, knownPropertyKeys);
         replaceFeaturePropertiesForFile(filePath, rec);
@@ -413,8 +472,7 @@ export function setupPlacesWatcher(
       for (const key of Object.keys(parsed.data)) {
         if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
       }
-      writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
-      ipcWriteBarrier.add(filePath);
+      writeVaultFile(filePath, matter.stringify(parsed.content, reordered));
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -711,6 +769,8 @@ export function setupPlacesWatcher(
           ? `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
           : "";
       try {
+        // New file — chokidar fires `add` (not `change`), which populates the places
+        // Map from disk. No barrier entry needed; raw writeFileSync is intentional.
         writeFileSync(candidate, content, "utf-8");
         notifyFsChanged();
         return { success: true as const, filePath: candidate };
@@ -804,6 +864,8 @@ export function setupPlacesWatcher(
         } else {
           data[key] = value;
         }
+        // .geojson files aren't in the chokidar glob (`*.md` only), so no change
+        // event fires and no barrier entry is needed. Raw writeFileSync is intentional.
         writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
         return { success: true };
       } catch (e) {
@@ -855,7 +917,7 @@ export function setupPlacesWatcher(
   ] as const;
 
   async function stop(): Promise<void> {
-    await watcher.close();
+    await Promise.all([watcher.close(), nonPlaceWatcher.close()]);
     for (const ch of WATCHER_HANDLE_CHANNELS) ipcMain.removeHandler(ch);
     ipcMain.removeAllListeners("places:request-initial");
     places.clear();

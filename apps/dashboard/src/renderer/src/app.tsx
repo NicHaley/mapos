@@ -304,6 +304,30 @@ function App(): React.JSX.Element {
     setActiveGeoJsonLayers([]);
   }, [geoJsonLayerPlacePath, selectedFolder]);
 
+  /** Live-refresh a .geojson on disk if it's currently rendered on the map (e.g. an
+   * external editor or agent overwrote the file). Surgical: only re-reads the file
+   * that changed, patches just that entry in the layer list. */
+  useEffect(() => {
+    const off = window.api.fs.onFileContentChanged(async ({ filePath }) => {
+      if (!filePath.toLowerCase().endsWith(".geojson")) return;
+      if (!activeGeoJsonLayers.some((l) => l.filePath === filePath)) return;
+      const data = await window.api.fs.readGeoJson(filePath);
+      if (!data) return;
+      const layerBbox = bbox(data as unknown as Parameters<typeof bbox>[0]) as [
+        number,
+        number,
+        number,
+        number
+      ];
+      setActiveGeoJsonLayers((prev) =>
+        prev.map((layer) =>
+          layer.filePath === filePath ? { filePath, data, bbox: layerBbox } : layer
+        )
+      );
+    });
+    return off;
+  }, [activeGeoJsonLayers]);
+
   const handlePlaceRename = useCallback(
     (oldPath: string, newPath: string) => {
       dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory: false });

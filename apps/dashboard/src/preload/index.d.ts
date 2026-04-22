@@ -109,6 +109,8 @@ declare global {
           value: unknown
         ) => Promise<{ success: boolean; error?: string }>;
         onChange: (cb: () => void) => void;
+        /** Returns a cleanup function; call it to unregister. */
+        onFileContentChanged: (cb: (payload: { filePath: string }) => void) => () => void;
         removeListeners: () => void;
       };
       mapos: {

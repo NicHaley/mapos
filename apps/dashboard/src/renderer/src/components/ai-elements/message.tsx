@@ -3,6 +3,7 @@
 import { Button } from "@renderer/components/ui/button";
 import { ButtonGroup, ButtonGroupText } from "@renderer/components/ui/button-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@renderer/components/ui/tooltip";
+import { normalizeAssistantMarkdownSpacing } from "@renderer/lib/normalize-assistant-markdown";
 import { cn } from "@renderer/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -271,7 +272,7 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 const streamdownPlugins = { cjk, code, math, mermaid };
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, children, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
         "prose prose-sm dark:prose-invert max-w-none",
@@ -282,7 +283,9 @@ export const MessageResponse = memo(
       )}
       plugins={streamdownPlugins}
       {...props}
-    />
+    >
+      {typeof children === "string" ? normalizeAssistantMarkdownSpacing(children) : children}
+    </Streamdown>
   ),
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children && nextProps.isAnimating === prevProps.isAnimating

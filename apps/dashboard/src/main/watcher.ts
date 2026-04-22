@@ -362,18 +362,13 @@ export function setupPlacesWatcher(
           parsed.data[key] = value;
         }
         writeFileSync(filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
-        // Immediately update the in-memory places map so getByPath returns fresh data
-        // before the file watcher fires (which has a 300ms awaitWriteFinish delay).
-        void parsePlaceFile(filePath, knownPropertyKeys).then((place) => {
-          if (place) {
-            places.set(filePath, place);
-            if (place.geometry) indexFeatures([place]);
-            else removeFeatures([filePath]);
-          } else {
-            places.delete(filePath);
-            removeFeatures([filePath]);
-          }
-        });
+        // Update in-memory places + DB synchronously before returning — otherwise a
+        // follow-up `getByPath` from the renderer can still see the pre-write record
+        // (the watcher's own change event has a 300ms awaitWriteFinish delay).
+        const place = await parsePlaceFile(filePath, knownPropertyKeys);
+        if (place) places.set(filePath, place);
+        else places.delete(filePath);
+        syncFeatureForFile(filePath, place);
         return { success: true };
       } catch (err) {
         return { success: false, error: String(err) };

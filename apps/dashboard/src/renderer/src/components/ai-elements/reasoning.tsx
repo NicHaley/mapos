@@ -6,6 +6,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from "@renderer/components/ui/collapsible";
+import { normalizeAssistantMarkdownSpacing } from "@renderer/lib/normalize-assistant-markdown";
 import { cn } from "@renderer/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -203,7 +204,9 @@ export const ReasoningContent = memo(({ className, children, ...props }: Reasoni
     )}
     {...props}
   >
-    <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+    <Streamdown plugins={streamdownPlugins}>
+      {normalizeAssistantMarkdownSpacing(children)}
+    </Streamdown>
   </CollapsibleContent>
 ));
 

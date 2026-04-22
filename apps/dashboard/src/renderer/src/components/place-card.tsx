@@ -123,12 +123,6 @@ function PlaceCardMarkdownPane({
   const onPersistRef = useRef(onPersist);
   onPersistRef.current = onPersist;
 
-  // Suppress the debounced body-save during programmatic setContent (initial load /
-  // reload on file change). Tiptap fires `update` synchronously inside setContent, so
-  // without this flag we schedule a stale writePlaceBody that can race with other
-  // writes (e.g. a geometry clear) and restore stale frontmatter read from disk.
-  const isSettingContentRef = useRef(false);
-
   const debouncedPersist = useDebouncedCallback((markdown: string) => {
     if (onPersistRef.current) {
       onPersistRef.current(markdown);
@@ -179,14 +173,23 @@ function PlaceCardMarkdownPane({
 
   useLayoutEffect(() => {
     if (!editor) return;
-    isSettingContentRef.current = true;
-    editor.commands.setContent(initialMarkdown, { contentType: "markdown" });
-    isSettingContentRef.current = false;
+    // emitUpdate: false prevents tiptap firing `update` for programmatic content loads.
+    // Without it, mounting/re-mounting the editor schedules a debounced writePlaceBody
+    // that can race with concurrent frontmatter writes (e.g. a location clear) and
+    // restore stale frontmatter it happened to read at an unlucky moment.
+    editor.commands.setContent(initialMarkdown, {
+      contentType: "markdown",
+      emitUpdate: false
+    });
   }, [editor, initialMarkdown]);
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!isPreview);
+    // emitUpdate: false — tiptap's setEditable fires an `update` event by default,
+    // which would schedule a debounced body-save of whatever content is loaded and
+    // race with concurrent frontmatter writes. Toggling editability is not a content
+    // change, so it should never trigger persistence.
+    editor.setEditable(!isPreview, false);
   }, [editor, isPreview]);
 
   useEffect(() => {
@@ -197,7 +200,6 @@ function PlaceCardMarkdownPane({
   useEffect(() => {
     if (!editor || isPreview) return;
     const onDocUpdate = () => {
-      if (isSettingContentRef.current) return;
       debouncedPersist(editor.getMarkdown());
     };
     editor.on("update", onDocUpdate);
@@ -628,56 +630,6 @@ export function PlaceCard({
           )}
 
         {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
-        {place.previewMarkdown === undefined && doc.kind === "vault" && (
-          <PropertiesPanel
-            filePath={currentFilePath}
-            frontmatter={doc.frontmatter}
-            allVaultKeys={doc.keys}
-          />
-        )}
-        {doc.kind === "geojson-layer" &&
-          (() => {
-            const GJ_EXCLUDED = new Set(["name", "description"]);
-            const gjFrontmatter = Object.fromEntries(
-              Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
-            );
-            return (
-              <PropertiesPanel
-                filePath={currentFilePath}
-                frontmatter={gjFrontmatter}
-                allVaultKeys={[]}
-                onWriteProperty={async (key, value) => {
-                  await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
-                }}
-                reorderable={false}
-              />
-            );
-          })()}
-
-        {/* Body content */}
-        {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
-        {doc.kind === "error" && (
-          <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
-        )}
-        {!loading && doc.kind !== "error" && (
-          <PlaceCardMarkdownPane
-            filePath={currentFilePath}
-            initialMarkdown={
-              doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
-            }
-            isPreview={doc.kind === "preview"}
-            mode={mode}
-            isDark={isDark}
-            onNavigate={onNavigate}
-            onEditorReady={onEditorReady}
-            onPersist={
-              doc.kind === "geojson-layer"
-                ? (content) =>
-                    void window.api.fs.writeGeoJsonProperty(currentFilePath, "description", content)
-                : undefined
-            }
-          />
-        )}
       </div>
     </div>
   );

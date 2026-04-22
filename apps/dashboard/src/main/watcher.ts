@@ -199,25 +199,11 @@ export function setupPlacesWatcher(
   let initialScanDone = false;
   let pendingInitialSenders: Electron.WebContents[] = [];
 
-  // Files we just wrote via IPC. The write handler already updated the in-memory
-  // places Map from the data it just serialized, so chokidar's subsequent `change`
-  // event should skip re-parsing — otherwise a stale disk read (e.g. from a debounced
-  // body-save firing between writes) can clobber the correct state.
-  const recentIpcWrites = new Map<string, number>();
-  const IPC_WRITE_SUPPRESSION_MS = 1000;
-  const markIpcWrite = (filePath: string): void => {
-    recentIpcWrites.set(filePath, Date.now());
-  };
-  const consumeIpcWrite = (filePath: string): boolean => {
-    const ts = recentIpcWrites.get(filePath);
-    if (ts === undefined) return false;
-    if (Date.now() - ts > IPC_WRITE_SUPPRESSION_MS) {
-      recentIpcWrites.delete(filePath);
-      return false;
-    }
-    recentIpcWrites.delete(filePath);
-    return true;
-  };
+  // Paths our IPC handlers just wrote. The handler updates the places Map
+  // synchronously from the data it just serialized, so chokidar's subsequent
+  // `change` event should skip re-parsing. Chokidar still handles *external*
+  // writes (git pull, another editor) where we don't know the new state in memory.
+  const ipcWriteBarrier = new Set<string>();
 
   const watcher = chokidar.watch(`${vaultRoot}/**/*.md`, {
     ignoreInitial: false,
@@ -243,17 +229,16 @@ export function setupPlacesWatcher(
   });
 
   watcher.on("change", async (filePath) => {
-    // Our own IPC write already updated the places Map from the serialized data.
-    // Re-parsing from disk here races with any concurrent writer and can restore
-    // stale state (e.g. a debounced body-save preserving the pre-clear frontmatter).
-    if (consumeIpcWrite(filePath)) {
+    // Skip re-parsing for writes we initiated ourselves: the IPC handler already
+    // updated the places Map from the data it serialized. Re-reading here races
+    // with any concurrent writer and wastes work.
+    if (ipcWriteBarrier.delete(filePath)) {
       const place = places.get(filePath);
       if (initialScanDone && !mainWindow.isDestroyed()) {
-        if (place) {
-          mainWindow.webContents.send("places:updated", { event: "change", place });
-        } else {
-          mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
-        }
+        mainWindow.webContents.send(
+          "places:updated",
+          place ? { event: "change", place } : { event: "unlink", filePath }
+        );
       }
       return;
     }
@@ -270,17 +255,10 @@ export function setupPlacesWatcher(
       removeFeatures([filePath]);
     }
     if (initialScanDone && !mainWindow.isDestroyed()) {
-      if (place) {
-        mainWindow.webContents.send("places:updated", {
-          event: "change",
-          place
-        });
-      } else {
-        mainWindow.webContents.send("places:updated", {
-          event: "unlink",
-          filePath
-        });
-      }
+      mainWindow.webContents.send(
+        "places:updated",
+        place ? { event: "change", place } : { event: "unlink", filePath }
+      );
     }
   });
 
@@ -352,7 +330,7 @@ export function setupPlacesWatcher(
       return { success: false, error: "Path outside vault" };
     try {
       writeFileSync(filePath, content, "utf-8");
-      markIpcWrite(filePath);
+      ipcWriteBarrier.add(filePath);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -373,15 +351,8 @@ export function setupPlacesWatcher(
       const fm = fmMatch ? fmMatch[0] : "";
       // Ensure a blank line between front matter and body (standard Obsidian format)
       const newContent = fm + (body.trim() ? `\n${body.trim()}\n` : "");
-      // Skip no-op writes: if body matches disk, the write would only reset mtime
-      // and trigger a redundant chokidar event. This also dodges a race where a
-      // debounced body-save from before a concurrent frontmatter write could restore
-      // stale frontmatter we read at a bad moment.
-      if (raw === newContent) {
-        return { success: true };
-      }
       writeFileSync(filePath, newContent, "utf-8");
-      markIpcWrite(filePath);
+      ipcWriteBarrier.add(filePath);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -405,10 +376,9 @@ export function setupPlacesWatcher(
           parsed.data[key] = value;
         }
         writeFileSync(filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
-        markIpcWrite(filePath);
-        // Update the in-memory places map synchronously from the data we just wrote —
-        // do NOT re-read the file. A re-read can race with other writes (e.g. a pending
-        // body-save from the tiptap editor's debouncedPersist) and pick up stale content.
+        ipcWriteBarrier.add(filePath);
+        // Update the in-memory places map synchronously from the data we just wrote,
+        // so getByPath returns fresh data before chokidar's debounced `change` fires.
         const rec = parsed.data as Record<string, unknown>;
         collectPropertyKeysFromData(rec, knownPropertyKeys);
         replaceFeaturePropertiesForFile(filePath, rec);
@@ -444,7 +414,7 @@ export function setupPlacesWatcher(
         if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
       }
       writeFileSync(filePath, matter.stringify(parsed.content, reordered), "utf-8");
-      markIpcWrite(filePath);
+      ipcWriteBarrier.add(filePath);
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };

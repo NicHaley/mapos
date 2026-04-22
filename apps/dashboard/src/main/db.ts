@@ -143,13 +143,36 @@ export function indexFeature(record: PlaceRecord): void {
     .run(row.rowid, minLat, maxLat, minLng, maxLng);
 }
 
-/** Remove features whose file_path is not in the places Map (e.g. deleted while app was closed). Returns count removed. */
+/**
+ * Remove features rows that no longer reflect their file's current state:
+ * file is gone from the places Map, or the place exists but has no geometry.
+ * Returns count removed.
+ */
 export function reconcileIndexWithPlaces(places: Map<string, PlaceRecord>): number {
   const db = getDb();
   const rows = db.select({ file_path: features.file_path }).from(features).all();
-  const stale = rows.filter((r) => !places.has(r.file_path)).map((r) => r.file_path);
+  const stale = rows
+    .filter((r) => {
+      const place = places.get(r.file_path);
+      return !place || !place.geometry;
+    })
+    .map((r) => r.file_path);
   removeFeatures(stale);
   return stale.length;
+}
+
+/**
+ * Canonical way to keep the features table in sync with a file's current state.
+ * Upserts if the record has geometry; deletes any existing row otherwise.
+ * Use this at every non-watcher write site — calling `indexFeatures([record])` alone
+ * silently leaves a stale row behind when geometry has been cleared.
+ */
+export function syncFeatureForFile(filePath: string, record: PlaceRecord | null): void {
+  if (record?.geometry) {
+    indexFeatures([record]);
+  } else {
+    removeFeatures([filePath]);
+  }
 }
 
 export function indexFeatures(records: PlaceRecord[]): void {

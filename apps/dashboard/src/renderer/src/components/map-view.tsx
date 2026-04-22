@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -14,7 +15,8 @@ import MapGL, {
   type MapLayerMouseEvent,
   type MapRef,
   Marker,
-  Source
+  Source,
+  useMap
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -141,6 +143,155 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   if (isPoint(geo)) return geo.coordinates;
   const [minLng, minLat, maxLng, maxLat] = bbox({ type: "Feature", geometry: geo, properties: {} });
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+}
+
+const SELECTION_PULSE_IMAGE_ID = "mapos-selection-pulse";
+
+/** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”. */
+function createSelectionPulsingDot(map: { triggerRepaint: () => void }) {
+  const size = 64;
+  const dot = {
+    width: size,
+    height: size,
+    data: new Uint8Array(size * size * 4),
+    context: undefined as CanvasRenderingContext2D | undefined,
+    onAdd(this: typeof dot) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      this.context = canvas.getContext("2d") ?? undefined;
+    },
+    render(this: typeof dot) {
+      const ctx = this.context;
+      if (!ctx) return false;
+      const duration = 1600;
+      const t = (performance.now() % duration) / duration;
+      const radius = (size / 2) * 0.26;
+      const outerRadius = (size / 2) * 0.58 * t + radius;
+      ctx.clearRect(0, 0, size, size);
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, outerRadius + 1.5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(30, 30, 35, ${0.22 * (1 - t)})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * (1 - t)})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 1)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.lineWidth = 1.75 + 2.4 * (1 - t);
+      ctx.fill();
+      ctx.stroke();
+      this.data = new Uint8Array(ctx.getImageData(0, 0, size, size).data);
+      map.triggerRepaint();
+      return true;
+    }
+  };
+  return dot;
+}
+
+type SelectionPulseGeoJSON = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: Record<string, unknown>;
+    geometry: { type: "Point"; coordinates: [number, number] };
+  }>;
+};
+
+const SELECTION_PULSE_LAYER_ID = "selection-pulse-symbol";
+
+/** Keep the pulse above basemap labels and our own circle/line layers after style churn. */
+function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
+  try {
+    if (map.getLayer(SELECTION_PULSE_LAYER_ID)) map.moveLayer(SELECTION_PULSE_LAYER_ID);
+  } catch {
+    /* layer or style unavailable */
+  }
+}
+
+function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
+  const maps = useMap();
+  const mapRef = maps.current;
+  const [imageReady, setImageReady] = useState(false);
+  useLayoutEffect(() => {
+    if (!mapRef) return;
+    const map = mapRef.getMap();
+    let cancelled = false;
+
+    const install = () => {
+      if (cancelled) return;
+      try {
+        const pulsingDot = createSelectionPulsingDot(map);
+        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
+        map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
+        setImageReady(true);
+      } catch {
+        /* style not fully loaded */
+      }
+    };
+
+    install();
+    map.on("style.load", install);
+    return () => {
+      cancelled = true;
+      map.off("style.load", install);
+      try {
+        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
+      } catch {
+        /* map torn down */
+      }
+      setImageReady(false);
+    };
+  }, [mapRef]);
+
+  const pulseCoordsKey =
+    data.features[0]?.geometry.type === "Point"
+      ? `${data.features[0].geometry.coordinates[0]},${data.features[0].geometry.coordinates[1]}`
+      : "";
+
+  /** Pulse Source/Layer mounts only after imageReady; pin layer above circles/labels after paint & on style churn.
+   * Re-run when coordinates change so the raised layer stays after GeoJSON Source updates. */
+  useLayoutEffect(() => {
+    void pulseCoordsKey;
+    if (!mapRef || !imageReady) return;
+    const map = mapRef.getMap();
+    const bump = () => movePulseLayerToTop(map);
+    bump();
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(bump);
+    });
+    map.on("style.load", bump);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      map.off("style.load", bump);
+    };
+  }, [mapRef, imageReady, pulseCoordsKey]);
+
+  if (!imageReady) return null;
+
+  return (
+    <Source id="selection-pulse" type="geojson" data={data}>
+      <Layer
+        id={SELECTION_PULSE_LAYER_ID}
+        type="symbol"
+        layout={{
+          "icon-image": SELECTION_PULSE_IMAGE_ID,
+          // ~1.5× previous on-screen size; circles use map plane — match so centers stay aligned
+          "icon-size": 1.35,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-pitch-alignment": "map",
+          "icon-rotation-alignment": "map"
+        }}
+      />
+    </Source>
+  );
 }
 
 const MapView = forwardRef<
@@ -519,6 +670,27 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, toFeature]);
 
+  /** Single point at geometry center — same anchor as DOM ping / PlaceCard screen projection. */
+  const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
+    if (!selectedPlace?.geometry) return null;
+    try {
+      const geo = parseGeometry(selectedPlace.geometry);
+      const [lng, lat] = getGeometryCenter(geo);
+      return {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: [lng, lat] }
+          }
+        ]
+      };
+    } catch {
+      return null;
+    }
+  }, [selectedPlace]);
+
   const augmentedGeoJsonLayers = useMemo(
     () =>
       geoJsonLayers.map((layer) => {
@@ -805,6 +977,7 @@ const MapView = forwardRef<
             />
           </Source>
         )}
+        {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
       </MapGL>
       <DropdownMenu
         modal

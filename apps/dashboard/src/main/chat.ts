@@ -18,7 +18,7 @@ import {
   saveConvState,
   setConversationsDir
 } from "./conversations";
-import { indexFeatures, removeFeatures } from "./db";
+import { removeFeatures, syncFeatureForFile } from "./db";
 import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
 
@@ -327,7 +327,7 @@ export function setupChat(
           mkdirSync(dirname(op.path), { recursive: true });
           writeFileSync(op.path, op.previousContent, "utf-8");
           const record = await parsePlaceFile(op.path);
-          if (record) indexFeatures([record]);
+          syncFeatureForFile(op.path, record);
         }
       } catch (e) {
         errors.push(`${op.path}: ${e}`);

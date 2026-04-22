@@ -29,7 +29,8 @@ import {
   reconcileIndexWithPlaces,
   removeFeaturePropertiesForFile,
   removeFeatures,
-  replaceFeaturePropertiesForFile
+  replaceFeaturePropertiesForFile,
+  syncFeatureForFile
 } from "./db";
 import {
   appendVaultToConfig,
@@ -456,7 +457,7 @@ export function setupPlacesWatcher(
           removeFeatures([oldPath]);
           const moved = { ...place, filePath: newPath };
           places.set(newPath, moved);
-          if (moved.geometry) indexFeatures([moved]);
+          syncFeatureForFile(newPath, moved);
         }
       }
 
@@ -549,9 +550,7 @@ export function setupPlacesWatcher(
             removeFeatures([sourcePath]);
             const moved: PlaceRecord = { ...place, filePath: newPath };
             places.set(newPath, moved);
-            if (moved.geometry) {
-              indexFeatures([moved]);
-            }
+            syncFeatureForFile(newPath, moved);
           }
         }
 

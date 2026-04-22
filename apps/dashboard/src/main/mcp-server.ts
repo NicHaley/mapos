@@ -5,11 +5,11 @@ import { type BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
 import type { MapOverlayPayload, PlaceRecord, VaultOperation } from "../shared/types";
 import {
-  indexFeatures,
   querySpatialIndex,
   rebuildIndexFromPlaces,
   removeFeaturePropertiesForFile,
-  removeFeatures
+  removeFeatures,
+  syncFeatureForFile
 } from "./db";
 import { parsePlaceFile } from "./watcher";
 
@@ -273,8 +273,8 @@ export function createMaposMcpServer(
             };
           }
           const record = await parsePlaceFile(args.path);
+          syncFeatureForFile(args.path, record);
           if (record) {
-            indexFeatures([record]);
             return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
           }
           return {
@@ -362,7 +362,7 @@ export function createMaposMcpServer(
           // Index in spatial DB if it's a place file
           try {
             const record = await parsePlaceFile(args.path);
-            if (record) indexFeatures([record]);
+            syncFeatureForFile(args.path, record);
           } catch {
             // Not a place file — skip indexing
           }
@@ -478,7 +478,7 @@ export function createMaposMcpServer(
           removeFeaturePropertiesForFile(args.fromPath);
           try {
             const record = await parsePlaceFile(args.toPath);
-            if (record) indexFeatures([record]);
+            syncFeatureForFile(args.toPath, record);
           } catch {
             // Not a place file
           }

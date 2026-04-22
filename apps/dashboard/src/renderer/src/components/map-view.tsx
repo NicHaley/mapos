@@ -109,6 +109,12 @@ function formatGeoJsonProperties(props: Record<string, unknown>): string {
   return entries.map(([k, v]) => `**${k}:** ${String(v ?? "")}`).join("\n\n");
 }
 
+/** Optional second argument when the user picked a place by clicking the map. */
+export type MapSelectPlaceMeta = { mapClickLngLat: { lng: number; lat: number } };
+
+/** When set and `filePath` matches the highlighted place, non-Point pulses use this click position. */
+export type SelectionPulseAnchor = { filePath: string; lng: number; lat: number };
+
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
@@ -297,7 +303,7 @@ function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
 const MapView = forwardRef<
   MapViewHandle,
   {
-    onSelectPlace?: (place: PlaceRecord) => void;
+    onSelectPlace?: (place: PlaceRecord, meta?: MapSelectPlaceMeta) => void;
     onCreatePlace?: (place: PlaceRecord) => void;
     /** Fired when the user clicks the map background (no place/overlay feature). */
     onMapClickEmpty?: (pos: { lng: number; lat: number }) => void;
@@ -316,6 +322,7 @@ const MapView = forwardRef<
       data: RawFeatureCollection;
       bbox: [number, number, number, number];
     }>;
+    selectionPulseAnchor?: SelectionPulseAnchor | null;
   }
 >(function MapView(
   {
@@ -328,7 +335,8 @@ const MapView = forwardRef<
     onSelectedFeaturePosition,
     mapOverlay = EMPTY_OVERLAY,
     showOverlay = false,
-    geoJsonLayers = []
+    geoJsonLayers = [],
+    selectionPulseAnchor = null
   },
   ref
 ) {
@@ -670,12 +678,21 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, toFeature]);
 
-  /** Single point at geometry center — same anchor as DOM ping / PlaceCard screen projection. */
+  /** Pulse position: Points use geometry; lines/polygons use map click when anchor matches. */
   const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
     try {
       const geo = parseGeometry(selectedPlace.geometry);
-      const [lng, lat] = getGeometryCenter(geo);
+      let lng: number;
+      let lat: number;
+      if (isPoint(geo)) {
+        [lng, lat] = geo.coordinates;
+      } else if (selectionPulseAnchor && selectionPulseAnchor.filePath === selectedPlace.filePath) {
+        lng = selectionPulseAnchor.lng;
+        lat = selectionPulseAnchor.lat;
+      } else {
+        [lng, lat] = getGeometryCenter(geo);
+      }
       return {
         type: "FeatureCollection",
         features: [
@@ -689,7 +706,7 @@ const MapView = forwardRef<
     } catch {
       return null;
     }
-  }, [selectedPlace]);
+  }, [selectedPlace, selectionPulseAnchor]);
 
   const augmentedGeoJsonLayers = useMemo(
     () =>
@@ -714,6 +731,9 @@ const MapView = forwardRef<
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
       const feats = e.features ?? [];
+      const clickMeta: MapSelectPlaceMeta = {
+        mapClickLngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat }
+      };
       for (const feature of feats) {
         const fp = feature.properties?.filePath;
         if (typeof fp === "string" && fp.length > 0) {
@@ -721,7 +741,7 @@ const MapView = forwardRef<
             folderPlaces.find((p) => p.filePath === fp) ??
             (selectedPlace?.filePath === fp ? selectedPlace : undefined);
           if (place) {
-            onSelectPlace?.(place);
+            onSelectPlace?.(place, clickMeta);
             return;
           }
         }
@@ -732,13 +752,16 @@ const MapView = forwardRef<
         if (typeof gjFilePath === "string" && gjIndex !== undefined && feature.geometry) {
           const { _gjFilePath: _fp, _gjIndex: _idx, ...props } = feature.properties ?? {};
           const title = String(props.name ?? props.title ?? props.Name ?? "Feature");
-          onSelectPlace?.({
-            filePath: `geojson-feature:${gjFilePath}#${String(gjIndex)}`,
-            type: "Preview",
-            title,
-            geometry: JSON.stringify(feature.geometry),
-            previewMarkdown: formatGeoJsonProperties(props)
-          });
+          onSelectPlace?.(
+            {
+              filePath: `geojson-feature:${gjFilePath}#${String(gjIndex)}`,
+              type: "Preview",
+              title,
+              geometry: JSON.stringify(feature.geometry),
+              previewMarkdown: formatGeoJsonProperties(props)
+            },
+            clickMeta
+          );
           return;
         }
       }
@@ -749,7 +772,7 @@ const MapView = forwardRef<
         const previewMarkdown = (feature.properties.preview_markdown as string | undefined) ?? "";
         try {
           const geometry = feature.geometry as GeoJSONGeometry;
-          onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown));
+          onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown), clickMeta);
           return;
         } catch {
           /* invalid */

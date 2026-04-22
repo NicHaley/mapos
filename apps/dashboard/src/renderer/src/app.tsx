@@ -4,7 +4,12 @@ import { MessageCircleIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "./components/chat-sidebar";
-import MapView, { type MapViewHandle, type PlaceRecord } from "./components/map-view";
+import MapView, {
+  type MapSelectPlaceMeta,
+  type MapViewHandle,
+  type PlaceRecord,
+  type SelectionPulseAnchor
+} from "./components/map-view";
 import { NavTabs } from "./components/nav-tabs";
 import { PhotonSearchPopover } from "./components/photon-search-popover";
 import { PlaceCard } from "./components/place-card";
@@ -39,6 +44,17 @@ const EMPTY_MAP_OVERLAY: MapOverlayPayload = {
   lines: [],
   polygons: []
 };
+
+/** Lines, polygons, etc. — pulse should anchor at map click; Points use geometry coordinates. */
+function geometryUsesMapClickPulseAnchor(geometryJson: string | undefined): boolean {
+  if (!geometryJson) return false;
+  try {
+    const g = JSON.parse(geometryJson) as { type?: string };
+    return Boolean(g.type && g.type !== "Point");
+  } catch {
+    return false;
+  }
+}
 
 function representativeLngLatFromGeometryJson(geometryJson: string): [number, number] | null {
   try {
@@ -125,6 +141,9 @@ function App(): React.JSX.Element {
   /** Bumps when a non-empty overlay is pushed so chat can re-show "Add all". */
   const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
   const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
+  const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
+    null
+  );
   const [activeGeoJsonLayers, setActiveGeoJsonLayers] = useState<
     Array<{
       filePath: string;
@@ -173,6 +192,7 @@ function App(): React.JSX.Element {
     setPlaceMode("mini");
     setFeatureScreenPos(null);
     setMapPeekPlace(null);
+    setSelectionPulseAnchor(null);
   }, []);
 
   // Open a nav entry without pushing to history (used by back/forward/tab switch)
@@ -184,6 +204,7 @@ function App(): React.JSX.Element {
         setSelectedFolder(null);
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
         mapRef.current?.fitToPlace(
           entry.place,
           mapPadding(projectSidebarOpen, chatSidebarOpen, true)
@@ -194,6 +215,7 @@ function App(): React.JSX.Element {
         setPlaceMode("mini");
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
         mapRef.current?.fitToFolder(
           entry.folderPath,
           mapPadding(projectSidebarOpen, chatSidebarOpen, false)
@@ -311,7 +333,19 @@ function App(): React.JSX.Element {
 
   // Map feature click — mini card, or peek mini while full panel stays open
   const handleSelectPlaceFromMap = useCallback(
-    (place: PlaceRecord) => {
+    (place: PlaceRecord, meta?: MapSelectPlaceMeta) => {
+      const useClickPulse =
+        Boolean(meta?.mapClickLngLat) && geometryUsesMapClickPulseAnchor(place.geometry);
+      if (useClickPulse && meta?.mapClickLngLat) {
+        setSelectionPulseAnchor({
+          filePath: place.filePath,
+          lng: meta.mapClickLngLat.lng,
+          lat: meta.mapClickLngLat.lat
+        });
+      } else {
+        setSelectionPulseAnchor(null);
+      }
+
       if (placeMode === "full") {
         setMapPeekPlace(place);
         setFeatureScreenPos(null);
@@ -331,6 +365,7 @@ function App(): React.JSX.Element {
   // Sidebar file click — navigate within active tab (or new tab on cmd/ctrl+click)
   const handleSelectPlaceFromSidebar = useCallback(
     (place: PlaceRecord, newTab = false) => {
+      setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
       setSelectedPlace(place);
@@ -348,6 +383,7 @@ function App(): React.JSX.Element {
   // Sidebar folder click — navigate within active tab
   const handleSelectFolder = useCallback(
     (folderPath: string) => {
+      setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       setSelectedFolder(folderPath);
       setSelectedPlace(null);
@@ -368,6 +404,7 @@ function App(): React.JSX.Element {
 
   const handleSelectGeoJson = useCallback(
     async (filePath: string) => {
+      setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const data = await window.api.fs.readGeoJson(filePath);
       if (!data) return;
@@ -396,6 +433,7 @@ function App(): React.JSX.Element {
   // New place file created from map context menu
   const handleCreatePlace = useCallback(
     (place: PlaceRecord) => {
+      setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       if (selectedFolder) {
         setSelectedPlace(place);
@@ -413,6 +451,7 @@ function App(): React.JSX.Element {
 
   const handlePhotonSearchResult = useCallback(
     (r: PhotonSearchResult) => {
+      setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const place = placeFromPhotonSearchResult(r);
       setSelectedPlace(place);
@@ -445,6 +484,7 @@ function App(): React.JSX.Element {
         geometry: geometryJson
       };
       setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
       setSelectedPlace(updated);
       dispatchNav({ type: "update-entry", filePath: updated.filePath, place: updated });
       mapRef.current?.fitToPlace(
@@ -473,6 +513,7 @@ function App(): React.JSX.Element {
         } satisfies PlaceRecord);
       const cleared = { ...base, geometry: undefined };
       setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
       setSelectedPlace(cleared);
       dispatchNav({ type: "update-entry", filePath, place: cleared });
       mapRef.current?.invalidateFolderPlace(filePath);
@@ -516,6 +557,7 @@ function App(): React.JSX.Element {
           geometry: place.geometry
         } satisfies PlaceRecord);
       setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
       if (selectedFolder) {
         setSelectedPlace(created);
         setPlaceMode("mini");
@@ -575,7 +617,10 @@ function App(): React.JSX.Element {
       clearPlace();
       return;
     }
-    if (mapPeekPlace) setMapPeekPlace(null);
+    if (mapPeekPlace) {
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+    }
   }, [isMini, mapPeekPlace, clearPlace]);
 
   /** Sidebar tree highlight: follow the active tab's place, not `selectedPlace` (Photon replaces that in mini mode). */
@@ -610,6 +655,7 @@ function App(): React.JSX.Element {
           showOverlay={chatSidebarOpen}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
+          selectionPulseAnchor={selectionPulseAnchor}
         />
       </div>
 
@@ -768,7 +814,10 @@ function App(): React.JSX.Element {
               key={mapPeekPlace.filePath}
               place={mapPeekPlace}
               mode="mini"
-              onClose={() => setMapPeekPlace(null)}
+              onClose={() => {
+                setMapPeekPlace(null);
+                setSelectionPulseAnchor(null);
+              }}
               onNavigate={handleSelectPlaceFromSidebar}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}

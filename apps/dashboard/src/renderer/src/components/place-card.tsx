@@ -123,6 +123,12 @@ function PlaceCardMarkdownPane({
   const onPersistRef = useRef(onPersist);
   onPersistRef.current = onPersist;
 
+  // Suppress the debounced body-save during programmatic setContent (initial load /
+  // reload on file change). Tiptap fires `update` synchronously inside setContent, so
+  // without this flag we schedule a stale writePlaceBody that can race with other
+  // writes (e.g. a geometry clear) and restore stale frontmatter read from disk.
+  const isSettingContentRef = useRef(false);
+
   const debouncedPersist = useDebouncedCallback((markdown: string) => {
     if (onPersistRef.current) {
       onPersistRef.current(markdown);
@@ -173,7 +179,9 @@ function PlaceCardMarkdownPane({
 
   useLayoutEffect(() => {
     if (!editor) return;
+    isSettingContentRef.current = true;
     editor.commands.setContent(initialMarkdown, { contentType: "markdown" });
+    isSettingContentRef.current = false;
   }, [editor, initialMarkdown]);
 
   useEffect(() => {
@@ -189,6 +197,7 @@ function PlaceCardMarkdownPane({
   useEffect(() => {
     if (!editor || isPreview) return;
     const onDocUpdate = () => {
+      if (isSettingContentRef.current) return;
       debouncedPersist(editor.getMarkdown());
     };
     editor.on("update", onDocUpdate);

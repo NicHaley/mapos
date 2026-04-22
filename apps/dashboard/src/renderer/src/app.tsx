@@ -662,9 +662,15 @@ function App(): React.JSX.Element {
       {/* Top bar */}
       <motion.div
         layoutRoot
-        className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border"
-        style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
+        className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border relative"
+        style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
+        {/* Keep drag hit-testing away from native resize edges on macOS hiddenInset title bars. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-1 left-24 right-24"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -691,7 +697,7 @@ function App(): React.JSX.Element {
         </div>
         <div
           className="flex-1 min-w-0 flex items-center h-full min-h-0"
-          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
           <NavTabs
             tabs={navTabsData}

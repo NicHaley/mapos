@@ -1,8 +1,24 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, mkdirSync, renameSync, rmSync, sep } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { dirname, sep } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { type BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
+import {
+  computeBbox,
+  forwardGeocode,
+  getDirections,
+  getIsochrone,
+  getMatrix,
+  MapServiceError,
+  reverseGeocode
+} from "../shared/map-services";
 import type { MapOverlayPayload, PlaceRecord, VaultOperation } from "../shared/types";
 import {
   querySpatialIndex,
@@ -13,6 +29,19 @@ import {
 } from "./db";
 import { parsePlaceFile } from "./watcher";
 
+function errorPayload(err: unknown): string {
+  if (err instanceof MapServiceError) {
+    return JSON.stringify({
+      error: err.message,
+      status: err.status,
+      url: err.url,
+      body: err.bodySnippet
+    });
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return JSON.stringify({ error: message });
+}
+
 export const ALLOWED_TOOLS = [
   "Bash",
   "Read",
@@ -20,7 +49,6 @@ export const ALLOWED_TOOLS = [
   "Grep",
   "WebSearch",
   "WebFetch",
-  "mcp__mapbox__*",
   "mcp__mapos__render_overlay_on_map",
   "mcp__mapos__clear_map_overlay",
   "mcp__mapos__query_spatial_index",
@@ -30,7 +58,13 @@ export const ALLOWED_TOOLS = [
   "mcp__mapos__pan_to",
   "mcp__mapos__write_vault_file",
   "mcp__mapos__delete_vault_file",
-  "mcp__mapos__rename_vault_file"
+  "mcp__mapos__rename_vault_file",
+  "mcp__mapos__geocode_search",
+  "mcp__mapos__reverse_geocode",
+  "mcp__mapos__get_directions",
+  "mcp__mapos__get_isochrone",
+  "mcp__mapos__get_matrix",
+  "mcp__mapos__compute_bbox"
 ] as const;
 
 type ViewportState = {
@@ -75,7 +109,23 @@ Always ground responses in the user's actual files. Be concise and spatial — w
 
 Have a neutral tone. Don't be too friendly or too formal.
 
-When you get search or geocode results from Mapbox (e.g. geocoding an address, searching for POIs), use render_overlay_on_map to display them on the map as temporary overlay. Pass points for POIs, lines for routes/boundaries, polygons for isochrones or areas. Use clear_map_overlay when starting a new search or when the user asks to clear.
+## Map services (search, routing, reachability)
+
+For external spatial queries, use these tools — they are backed by OpenStreetMap data (Photon + Valhalla):
+
+- \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
+- \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns a \`geometry\` (GeoJSON LineString), summary distance/duration, and turn-by-turn maneuvers.
+- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
+- \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) against the community Valhalla instance.
+- \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
+
+After calling any of these, display the results with \`render_overlay_on_map\`:
+- points from \`geocode_search\` / \`reverse_geocode\` → the \`points\` array
+- the \`geometry.coordinates\` from \`get_directions\` → a \`lines\` entry
+- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`polygons\` entry
+
+Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
@@ -328,6 +378,140 @@ export function createMaposMcpServer(
             });
           }
           return { content: [{ type: "text", text: `Map panning to ${args.lat}, ${args.lng}` }] };
+        }
+      ),
+      tool(
+        "geocode_search",
+        "Forward geocode a free-text query (place name or address) via Photon/OpenStreetMap. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng.",
+        {
+          query: z.string().describe("Search query, e.g. place name or address"),
+          limit: z.number().int().min(1).max(20).optional().default(8),
+          lang: z
+            .string()
+            .optional()
+            .describe("ISO 639-1 language code for labels, e.g. 'en', 'fr'"),
+          bbox: z
+            .object({
+              north: z.number(),
+              south: z.number(),
+              east: z.number(),
+              west: z.number()
+            })
+            .optional()
+            .describe("Optional bias rectangle; results near this box score higher")
+        },
+        async (args) => {
+          try {
+            const results = await forwardGeocode(args.query, {
+              limit: args.limit,
+              lang: args.lang,
+              bbox: args.bbox
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: errorPayload(err) }] };
+          }
+        }
+      ),
+      tool(
+        "reverse_geocode",
+        "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap. Returns nearby named feature(s).",
+        {
+          lat: z.number(),
+          lng: z.number(),
+          limit: z.number().int().min(1).max(10).optional().default(1),
+          lang: z.string().optional()
+        },
+        async (args) => {
+          try {
+            const results = await reverseGeocode(
+              { lat: args.lat, lng: args.lng },
+              { limit: args.limit, lang: args.lang }
+            );
+            return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: errorPayload(err) }] };
+          }
+        }
+      ),
+      tool(
+        "get_directions",
+        "Compute a route between two or more locations via Valhalla. Returns distance (meters), duration (seconds), a GeoJSON LineString geometry, and turn-by-turn maneuvers. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving.",
+        {
+          locations: z
+            .array(z.object({ lat: z.number(), lng: z.number() }))
+            .min(2)
+            .describe("Ordered list of waypoints; must have at least two"),
+          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
+        },
+        async (args) => {
+          try {
+            const route = await getDirections({
+              locations: args.locations,
+              costing: args.costing
+            });
+            return { content: [{ type: "text", text: JSON.stringify(route) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: errorPayload(err) }] };
+          }
+        }
+      ),
+      tool(
+        "get_isochrone",
+        "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has a GeoJSON Polygon ready to render.",
+        {
+          lat: z.number(),
+          lng: z.number(),
+          minutes_contours: z
+            .array(z.number().positive().max(120))
+            .min(1)
+            .max(4)
+            .describe("Time contours in minutes, e.g. [5, 10, 15]"),
+          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
+        },
+        async (args) => {
+          try {
+            const iso = await getIsochrone({
+              location: { lat: args.lat, lng: args.lng },
+              minutesContours: args.minutes_contours,
+              costing: args.costing
+            });
+            return { content: [{ type: "text", text: JSON.stringify(iso) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: errorPayload(err) }] };
+          }
+        }
+      ),
+      tool(
+        "get_matrix",
+        "Pairwise travel distance/time between sources and targets via Valhalla. Returns cells[sourceIdx][targetIdx] with distanceMeters/durationSeconds (null where unreachable). Keep N small against the community Valhalla instance — prefer ≤ 10 sources × 10 targets.",
+        {
+          sources: z.array(z.object({ lat: z.number(), lng: z.number() })).min(1).max(25),
+          targets: z.array(z.object({ lat: z.number(), lng: z.number() })).min(1).max(25),
+          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
+        },
+        async (args) => {
+          try {
+            const matrix = await getMatrix({
+              sources: args.sources,
+              targets: args.targets,
+              costing: args.costing
+            });
+            return { content: [{ type: "text", text: JSON.stringify(matrix) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: errorPayload(err) }] };
+          }
+        }
+      ),
+      tool(
+        "compute_bbox",
+        "Compute the bounding box that contains a set of lat/lng points. Useful for framing a viewport around search results or a route. Returns { north, south, east, west } or null for an empty list.",
+        {
+          points: z.array(z.object({ lat: z.number(), lng: z.number() }))
+        },
+        async (args) => {
+          const b = computeBbox(args.points);
+          return { content: [{ type: "text", text: JSON.stringify(b) }] };
         }
       ),
       tool(

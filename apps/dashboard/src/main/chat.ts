@@ -31,7 +31,6 @@ export function setupChat(
   setConversationsDir(join(appStateDir, "conversations"));
 
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
-  const mapboxAccessToken = import.meta.env.MAIN_VITE_MAPBOX_ACCESS_TOKEN;
   let currentQuery: { close: () => void } | null = null;
   let currentUndoEntry: UndoEntry | null = null;
 
@@ -144,13 +143,6 @@ export function setupChat(
           includePartialMessages: true,
           thinking: { type: "adaptive" },
           mcpServers: {
-            mapbox: {
-              command: "npx",
-              args: ["-y", "@mapbox/mcp-server"],
-              env: {
-                MAPBOX_ACCESS_TOKEN: mapboxAccessToken
-              }
-            },
             mapos: maposServer
           },
           env: {

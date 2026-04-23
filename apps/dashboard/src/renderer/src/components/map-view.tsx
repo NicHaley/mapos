@@ -746,14 +746,16 @@ const MapView = forwardRef<
       };
       for (const feature of feats) {
         const fp = feature.properties?.filePath;
-        if (typeof fp === "string" && fp.length > 0) {
-          const place =
-            folderPlaces.find((p) => p.filePath === fp) ??
-            (selectedPlace?.filePath === fp ? selectedPlace : undefined);
-          if (place) {
-            onSelectPlace?.(place, clickMeta);
-            return;
-          }
+        if (typeof fp !== "string" || fp.length === 0) continue;
+        // Clicking the already-active place is a no-op. Re-firing selection would
+        // reset `featureScreenPos` and flicker/close the mini card — and since
+        // `selectedPlace` keeps the same ref, the re-projection effect wouldn't
+        // fire either, so the card stays hidden until the next map move.
+        if (selectedPlace?.filePath === fp) return;
+        const place = folderPlaces.find((p) => p.filePath === fp);
+        if (place) {
+          onSelectPlace?.(place, clickMeta);
+          return;
         }
       }
       for (const feature of feats) {

@@ -1,16 +1,34 @@
+import { z } from "zod";
 import { VALHALLA_BASE } from "./config";
 import { fetchJson } from "./http";
 import type { Isochrone, LatLng, RouteCosting } from "./types";
 
-type ValhallaIsochroneFeature = {
-  type?: "Feature";
-  properties?: { contour?: number; metric?: string };
-  geometry?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-};
+const PositionSchema = z.array(z.number());
 
-type ValhallaIsochroneResponse = {
-  features?: ValhallaIsochroneFeature[];
-};
+const PolygonSchema = z.object({
+  type: z.literal("Polygon"),
+  coordinates: z.array(z.array(PositionSchema))
+});
+
+const MultiPolygonSchema = z.object({
+  type: z.literal("MultiPolygon"),
+  coordinates: z.array(z.array(z.array(PositionSchema)))
+});
+
+const ValhallaIsochroneFeatureSchema = z.object({
+  type: z.literal("Feature").optional(),
+  properties: z
+    .object({
+      contour: z.number().optional(),
+      metric: z.string().optional()
+    })
+    .optional(),
+  geometry: z.union([PolygonSchema, MultiPolygonSchema]).optional()
+});
+
+const ValhallaIsochroneResponseSchema = z.object({
+  features: z.array(ValhallaIsochroneFeatureSchema).optional()
+});
 
 export type GetIsochroneInput = {
   location: LatLng;
@@ -50,8 +68,9 @@ export async function getIsochrone(
     contours: input.minutesContours.map((time) => ({ time })),
     polygons: true
   };
-  const data = await fetchJson<ValhallaIsochroneResponse>(
+  const data = await fetchJson(
     `${VALHALLA_BASE}/isochrone`,
+    ValhallaIsochroneResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
     { signal: opts.signal }
   );

@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import { DEFAULT_TIMEOUT_MS, USER_AGENT } from "./config";
 
 export class MapServiceError extends Error {
@@ -11,6 +12,18 @@ export class MapServiceError extends Error {
     this.status = opts.status;
     this.url = opts.url;
     this.bodySnippet = opts.bodySnippet;
+  }
+}
+
+export class MapServiceValidationError extends Error {
+  readonly url: string;
+  readonly zodError: z.ZodError;
+
+  constructor(message: string, opts: { url: string; zodError: z.ZodError }) {
+    super(message);
+    this.name = "MapServiceValidationError";
+    this.url = opts.url;
+    this.zodError = opts.zodError;
   }
 }
 
@@ -47,6 +60,7 @@ function shortUrl(url: string): string {
 
 export async function fetchJson<T>(
   url: string,
+  schema: z.ZodType<T>,
   init: RequestInit = {},
   opts: FetchJsonOptions = {}
 ): Promise<T> {
@@ -83,10 +97,22 @@ export async function fetchJson<T>(
         bodySnippet: bodyText.slice(0, 500)
       });
     }
+    const raw = (await res.json()) as unknown;
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) {
+      console.warn(
+        `${LOG_PREFIX} ✗ ${method} ${shortUrl(url)} validation failed in ${elapsedMs}ms`,
+        parsed.error.issues
+      );
+      throw new MapServiceValidationError("Response failed schema validation", {
+        url,
+        zodError: parsed.error
+      });
+    }
     console.log(`${LOG_PREFIX} ← ${method} ${shortUrl(url)} ${res.status} in ${elapsedMs}ms`);
-    return (await res.json()) as T;
+    return parsed.data;
   } catch (err) {
-    if (err instanceof MapServiceError) throw err;
+    if (err instanceof MapServiceError || err instanceof MapServiceValidationError) throw err;
     const elapsedMs = Math.round(performance.now() - started);
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(`${LOG_PREFIX} ✗ ${method} ${shortUrl(url)} failed in ${elapsedMs}ms — ${reason}`);

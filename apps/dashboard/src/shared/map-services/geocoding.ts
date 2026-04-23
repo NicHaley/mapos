@@ -1,31 +1,43 @@
+import { z } from "zod";
 import { PHOTON_BASE } from "./config";
 import { fetchJson } from "./http";
 import type { GeocodeResult, LatLng } from "./types";
 
 const DEFAULT_LIMIT = 8;
 
-type PhotonProperties = {
-  name?: string;
-  street?: string;
-  housenumber?: string;
-  city?: string;
-  locality?: string;
-  district?: string;
-  county?: string;
-  state?: string;
-  country?: string;
-  postcode?: string;
-  osm_key?: string;
-  osm_value?: string;
-  extent?: [number, number, number, number]; // [west, north, east, south] per Photon
-};
+const PhotonPropertiesSchema = z.object({
+  name: z.string().optional(),
+  street: z.string().optional(),
+  housenumber: z.string().optional(),
+  city: z.string().optional(),
+  locality: z.string().optional(),
+  district: z.string().optional(),
+  county: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  postcode: z.string().optional(),
+  osm_key: z.string().optional(),
+  osm_value: z.string().optional(),
+  // [west, north, east, south] per Photon
+  extent: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional()
+});
 
-type PhotonFeature = {
-  geometry?: { type?: string; coordinates?: [number, number] };
-  properties?: PhotonProperties;
-};
+const PhotonFeatureSchema = z.object({
+  geometry: z
+    .object({
+      type: z.string().optional(),
+      coordinates: z.tuple([z.number(), z.number()]).optional()
+    })
+    .optional(),
+  properties: PhotonPropertiesSchema.optional()
+});
 
-type PhotonResponse = { features?: PhotonFeature[] };
+const PhotonResponseSchema = z.object({
+  features: z.array(PhotonFeatureSchema).optional()
+});
+
+type PhotonProperties = z.infer<typeof PhotonPropertiesSchema>;
+type PhotonFeature = z.infer<typeof PhotonFeatureSchema>;
 
 function buildPrimaryLabel(props: PhotonProperties): string {
   const name = props.name?.trim();
@@ -49,9 +61,8 @@ function buildSecondaryLabel(props: PhotonProperties, primary: string): string {
 
 function featureToResult(feature: PhotonFeature, index: number): GeocodeResult | null {
   const geom = feature.geometry;
-  if (!geom || geom.type !== "Point" || !Array.isArray(geom.coordinates)) return null;
+  if (!geom || geom.type !== "Point" || !geom.coordinates) return null;
   const [lng, lat] = geom.coordinates;
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
   const props = feature.properties ?? {};
   const primaryLabel = buildPrimaryLabel(props);
   const secondaryLabel = buildSecondaryLabel(props, primaryLabel);
@@ -95,7 +106,7 @@ export async function forwardGeocode(
     params.set("bbox", `${west},${south},${east},${north}`);
   }
   const url = `${PHOTON_BASE}/api/?${params.toString()}`;
-  const data = await fetchJson<PhotonResponse>(url, undefined, { signal: options.signal });
+  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: options.signal });
   const out: GeocodeResult[] = [];
   const features = data.features ?? [];
   for (let i = 0; i < features.length; i++) {
@@ -125,7 +136,7 @@ export async function reverseGeocode(
   });
   if (options.lang) params.set("lang", options.lang);
   const url = `${PHOTON_BASE}/reverse?${params.toString()}`;
-  const data = await fetchJson<PhotonResponse>(url, undefined, { signal: options.signal });
+  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: options.signal });
   const out: GeocodeResult[] = [];
   const features = data.features ?? [];
   for (let i = 0; i < features.length; i++) {

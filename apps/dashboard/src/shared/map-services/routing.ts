@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { VALHALLA_BASE } from "./config";
 import { fetchJson } from "./http";
 import type { LatLng, Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "./types";
@@ -41,26 +42,40 @@ function decodePolyline6(encoded: string): [number, number][] {
   return coords;
 }
 
-type ValhallaManeuver = {
-  type?: number;
-  instruction?: string;
-  length?: number; // in `units` (km or mi)
-  time?: number; // seconds
-};
+const ValhallaManeuverSchema = z.object({
+  type: z.number().optional(),
+  instruction: z.string().optional(),
+  // in `units` (km or mi)
+  length: z.number().optional(),
+  // seconds
+  time: z.number().optional()
+});
 
-type ValhallaLeg = {
-  summary?: { length?: number; time?: number };
-  shape?: string;
-  maneuvers?: ValhallaManeuver[];
-};
+const ValhallaLegSchema = z.object({
+  summary: z
+    .object({
+      length: z.number().optional(),
+      time: z.number().optional()
+    })
+    .optional(),
+  shape: z.string().optional(),
+  maneuvers: z.array(ValhallaManeuverSchema).optional()
+});
 
-type ValhallaRouteResponse = {
-  trip?: {
-    summary?: { length?: number; time?: number };
-    legs?: ValhallaLeg[];
-    units?: "kilometers" | "miles";
-  };
-};
+const ValhallaRouteResponseSchema = z.object({
+  trip: z
+    .object({
+      summary: z
+        .object({
+          length: z.number().optional(),
+          time: z.number().optional()
+        })
+        .optional(),
+      legs: z.array(ValhallaLegSchema).optional(),
+      units: z.enum(["kilometers", "miles"]).optional()
+    })
+    .optional()
+});
 
 export type GetDirectionsInput = {
   locations: LatLng[]; // ≥2
@@ -79,8 +94,9 @@ export async function getDirections(
     costing: input.costing,
     directions_options: { units: "kilometers" as const }
   };
-  const data = await fetchJson<ValhallaRouteResponse>(
+  const data = await fetchJson(
     `${VALHALLA_BASE}/route`,
+    ValhallaRouteResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
     { signal: opts.signal }
   );
@@ -122,14 +138,16 @@ export async function getDirections(
   };
 }
 
-type ValhallaMatrixCell = {
-  distance?: number | null; // km
-  time?: number | null; // seconds
-};
+const ValhallaMatrixCellSchema = z.object({
+  // km
+  distance: z.number().nullable().optional(),
+  // seconds
+  time: z.number().nullable().optional()
+});
 
-type ValhallaMatrixResponse = {
-  sources_to_targets?: ValhallaMatrixCell[][];
-};
+const ValhallaMatrixResponseSchema = z.object({
+  sources_to_targets: z.array(z.array(ValhallaMatrixCellSchema)).optional()
+});
 
 export type GetMatrixInput = {
   sources: LatLng[];
@@ -150,8 +168,9 @@ export async function getMatrix(
     costing: input.costing,
     units: "kilometers"
   };
-  const data = await fetchJson<ValhallaMatrixResponse>(
+  const data = await fetchJson(
     `${VALHALLA_BASE}/sources_to_targets`,
+    ValhallaMatrixResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
     { signal: opts.signal }
   );
@@ -191,8 +210,9 @@ export async function mapMatchRoute(
     shape_match: "map_snap",
     directions_options: { units: "kilometers" as const }
   };
-  const data = await fetchJson<ValhallaRouteResponse>(
+  const data = await fetchJson(
     `${VALHALLA_BASE}/trace_route`,
+    ValhallaRouteResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
     { signal: opts.signal }
   );

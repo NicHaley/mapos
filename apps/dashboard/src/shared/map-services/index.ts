@@ -1,5 +1,5 @@
 export { PHOTON_BASE, VALHALLA_BASE, USER_AGENT, DEFAULT_TIMEOUT_MS } from "./config";
-export { MapServiceError, fetchJson } from "./http";
+export { MapServiceError, MapServiceValidationError, fetchJson } from "./http";
 export type { FetchJsonOptions } from "./http";
 export type {
   BBox,

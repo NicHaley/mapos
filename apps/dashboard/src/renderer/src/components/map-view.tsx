@@ -386,26 +386,36 @@ const MapView = forwardRef<
 
   const fitToFolder = useCallback(
     async (folderPath: string, padding: FitPadding) => {
-      const places = await loadFolderPlaces(folderPath);
+      // Load places and GeoJSON bboxes in parallel. We read the folder's GeoJSON files
+      // directly rather than reading from the `geoJsonLayers` prop because that prop is
+      // populated by an async effect in the parent; on first folder click it would still
+      // hold the previous folder's layers (or be empty), causing the fit to miss them.
+      const [places, gjPaths] = await Promise.all([
+        loadFolderPlaces(folderPath),
+        window.api.fs.geoJsonFilesInFolder(folderPath)
+      ]);
       const placesWithGeo = places.filter((p): p is PlaceRecord & { geometry: string } =>
         Boolean(p.geometry)
       );
-      // Use precomputed bbox corners (SW + NE) for each GeoJSON layer rather than
-      // iterating all features — O(layers) instead of O(total features).
-      const gjBboxCorners = geoJsonLayers
-        .filter((l) => l.filePath.startsWith(folderPath))
-        .flatMap(({ bbox: b }) => [
+      const gjDatas = await Promise.all(gjPaths.map((p) => window.api.fs.readGeoJson(p)));
+      const gjBboxCorners = gjDatas.flatMap((data) => {
+        if (!data) return [];
+        const [minLng, minLat, maxLng, maxLat] = bbox(
+          data as unknown as Parameters<typeof bbox>[0]
+        );
+        return [
           {
             type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: [b[0], b[1]] },
+            geometry: { type: "Point" as const, coordinates: [minLng, minLat] },
             properties: {}
           },
           {
             type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: [b[2], b[3]] },
+            geometry: { type: "Point" as const, coordinates: [maxLng, maxLat] },
             properties: {}
           }
-        ]);
+        ];
+      });
       if (placesWithGeo.length === 0 && gjBboxCorners.length === 0) return;
       const map = mapRef.current;
       if (!map) return;
@@ -437,7 +447,7 @@ const MapView = forwardRef<
         if (cam) map.flyTo({ ...cam, duration: 600, padding });
       }
     },
-    [loadFolderPlaces, geoJsonLayers]
+    [loadFolderPlaces]
   );
 
   useImperativeHandle(

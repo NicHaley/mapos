@@ -144,6 +144,14 @@ const api = {
     switchVault: (vaultPath: string) =>
       ipcRenderer.invoke("mapos:switch-vault", vaultPath) as Promise<
         { ok: true } | { ok: false; error: string }
+      >,
+    renameVault: (newName: string) =>
+      ipcRenderer.invoke("mapos:rename-vault", newName) as Promise<
+        { ok: true; newPath: string } | { ok: false; error: string }
+      >,
+    deleteVault: () =>
+      ipcRenderer.invoke("mapos:delete-vault") as Promise<
+        { ok: true } | { ok: false; error: string }
       >
   },
   properties: {

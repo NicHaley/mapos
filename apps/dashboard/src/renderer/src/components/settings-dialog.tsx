@@ -1,18 +1,19 @@
 import { cn } from "@renderer/lib/utils";
-import {
-  CheckIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  FolderPlusIcon,
-  MonitorIcon,
-  MoonIcon,
-  PaletteIcon,
-  SettingsIcon,
-  SunIcon
-} from "lucide-react";
+import { MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent } from "./ui/dialog";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./ui/input-group";
 import {
   Sidebar,
   SidebarContent,
@@ -22,10 +23,11 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "./ui/sidebar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SettingsPage = "general" | "vault" | "appearance";
+type SettingsPage = "general" | "appearance";
 type Theme = "light" | "dark" | "system";
 
 const THEME_KEY = "mapos_theme";
@@ -72,16 +74,23 @@ function Section({
 
 // ── General page ──────────────────────────────────────────────────────────────
 
-function GeneralPage() {
-  const [vaults, setVaults] = useState<string[]>([]);
+function vaultBasename(path: string): string {
+  const n = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return n >= 0 ? path.slice(n + 1) : path;
+}
+
+function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => void }) {
+  const [vaultCount, setVaultCount] = useState<number>(0);
   const [activeVaultPath, setActiveVaultPath] = useState<string>("");
+  const [draftName, setDraftName] = useState<string>("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    void window.api.mapos.getVaultsConfig().then(({ vaults: v, activeVaultPath: a }) => {
-      setVaults(v);
+    void window.api.mapos.getVaultsConfig().then(({ vaults, activeVaultPath: a }) => {
+      setVaultCount(vaults.length);
       setActiveVaultPath(a);
+      setDraftName(vaultBasename(a));
     });
   }, []);
 
@@ -89,151 +98,69 @@ function GeneralPage() {
     reload();
   }, [reload]);
 
-  async function handleSwitch(path: string) {
-    if (path === activeVaultPath) return;
-    setBusy(true);
-    setError(null);
-    const r = await window.api.mapos.switchVault(path);
-    setBusy(false);
-    if (!r.ok) setError(r.error);
-    else reload();
-  }
+  const currentName = vaultBasename(activeVaultPath);
+  const isDirty = draftName !== currentName;
+  const canDelete = vaultCount > 1;
 
-  async function handleSetFolder() {
+  async function handleSave() {
+    const trimmed = draftName.trim();
+    if (!trimmed || trimmed === currentName) return;
     setBusy(true);
-    setError(null);
-    const r = await window.api.mapos.setFolderAsVault();
-    setBusy(false);
-    if ("canceled" in r) return;
+    setRenameError(null);
+    const r = await window.api.mapos.renameVault(trimmed);
     if (!r.ok) {
-      setError(r.error);
-      return;
+      setBusy(false);
+      setRenameError(r.error);
     }
-    reload();
+    // On success, the main process reloads the renderer — no further work here.
   }
 
-  async function handleCreateNew() {
-    setBusy(true);
-    setError(null);
-    const r = await window.api.mapos.createNewVault();
-    setBusy(false);
-    if ("canceled" in r) return;
-    if (!r.ok) {
-      setError(r.error);
-      return;
-    }
-    reload();
-  }
-
-  function vaultBasename(path: string): string {
-    const n = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return n >= 0 ? path.slice(n + 1) : path;
+  function handleCancel() {
+    setDraftName(currentName);
+    setRenameError(null);
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <Section
-        title="Vaults"
-        description="Vaults are folders on your machine where MapOS stores your notes and places."
+        title="Vault name"
+        description="Rename the folder on disk. All references to the folder path will update."
       >
-        <div className="flex flex-col gap-1">
-          {vaults.map((path) => {
-            const isActive = path === activeVaultPath;
-            return (
-              <button
-                key={path}
-                type="button"
-                disabled={busy}
-                onClick={() => void handleSwitch(path)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
-                  isActive
-                    ? "border-foreground/20 bg-accent"
-                    : "border-border hover:bg-accent/50 cursor-pointer"
-                )}
-              >
-                {isActive ? (
-                  <FolderOpenIcon className="size-4 shrink-0 text-foreground/70" />
-                ) : (
-                  <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-                )}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span
-                    className={cn("truncate font-medium", !isActive && "text-muted-foreground")}
-                  >
-                    {vaultBasename(path)}
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">{path}</span>
-                </div>
-                {isActive && <CheckIcon className="size-3.5 shrink-0 text-foreground/60" />}
-              </button>
-            );
-          })}
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleSetFolder()}
-            disabled={busy}
-          >
-            <FolderPlusIcon className="size-3.5" />
-            Add existing folder
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleCreateNew()}
-            disabled={busy}
-          >
-            Create new vault
-          </Button>
+        <div className="flex flex-col gap-2">
+          <InputGroup>
+            <InputGroupInput
+              value={draftName}
+              disabled={busy}
+              onChange={(e) => {
+                setDraftName(e.target.value);
+                if (renameError) setRenameError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleSave();
+                } else if (e.key === "Escape") {
+                  handleCancel();
+                }
+              }}
+              aria-invalid={!!renameError}
+            />
+            {isDirty && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  variant="default"
+                  disabled={busy || !draftName.trim()}
+                  onClick={() => void handleSave()}
+                >
+                  Save
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+          {renameError && <p className="text-xs text-destructive">{renameError}</p>}
         </div>
       </Section>
-    </div>
-  );
-}
 
-// ── Vault page ────────────────────────────────────────────────────────────────
-
-function VaultPage() {
-  const [vaultRoot, setVaultRoot] = useState<string>("");
-
-  useEffect(() => {
-    void window.api.fs.getVaultRoot().then(setVaultRoot);
-  }, []);
-
-  function vaultBasename(path: string): string {
-    const n = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return n >= 0 ? path.slice(n + 1) : path;
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <Section title="Active vault">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Name</span>
-            <span className="text-sm font-medium">{vaultBasename(vaultRoot) || "—"}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Location</span>
-            <span className="break-all font-mono text-xs text-foreground/80">
-              {vaultRoot || "—"}
-            </span>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="self-start"
-            onClick={() => vaultRoot && void window.api.fs.revealInFinder(vaultRoot)}
-            disabled={!vaultRoot}
-          >
-            Open in Finder
-          </Button>
-        </div>
-      </Section>
       <Section
         title="Index"
         description="The spatial index caches file metadata for fast map queries. It can always be rebuilt from vault files."
@@ -241,6 +168,38 @@ function VaultPage() {
         <div className="rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
           Index rebuild is available from the command palette (coming soon).
         </div>
+      </Section>
+
+      <Section
+        title="Danger zone"
+        description="Delete this vault from MapOS. Files on disk are kept — you can add the folder back later from the vault switcher."
+      >
+        {canDelete ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="self-start"
+            onClick={() => onRequestDelete(currentName)}
+            disabled={busy}
+          >
+            Delete vault
+          </Button>
+        ) : (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex self-start">
+                    <Button variant="destructive" size="sm" disabled>
+                      Delete vault
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipContent side="right">You need at least one vault.</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </Section>
     </div>
   );
@@ -292,7 +251,6 @@ function AppearancePage() {
 
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
-  { id: "vault", label: "Vault", icon: FolderIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon }
 ];
 
@@ -308,43 +266,110 @@ export function SettingsDialog({
   initialPage?: SettingsPage;
 }) {
   const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [pendingDelete, setPendingDelete] = useState<{ name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setPage(initialPage);
   }, [open, initialPage]);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden">
-        <SidebarProvider
-          className="h-[460px] min-h-0 overflow-hidden"
-          style={{ "--sidebar-width": "180px" } as React.CSSProperties}
-        >
-          <Sidebar collapsible="none" className="border-r">
-            <SidebarContent>
-              <SidebarGroup>
-                <SidebarMenu>
-                  {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-                    <SidebarMenuItem key={id}>
-                      <SidebarMenuButton isActive={page === id} onClick={() => setPage(id)}>
-                        <Icon />
-                        <span>{label}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroup>
-            </SidebarContent>
-          </Sidebar>
+  async function confirmDelete() {
+    setIsDeleting(true);
+    setDeleteError(null);
+    const r = await window.api.mapos.deleteVault();
+    if (!r.ok) {
+      setIsDeleting(false);
+      setDeleteError(r.error);
+    }
+    // Success: main process reloads the renderer, wiping this state.
+  }
 
-          {/* Right content */}
-          <div className="flex-1 overflow-y-auto bg-background p-6 pr-10">
-            {page === "general" && <GeneralPage />}
-            {page === "vault" && <VaultPage />}
-            {page === "appearance" && <AppearancePage />}
-          </div>
-        </SidebarProvider>
-      </DialogContent>
-    </Dialog>
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden">
+          <SidebarProvider
+            className="h-[460px] min-h-0 overflow-hidden"
+            style={{ "--sidebar-width": "180px" } as React.CSSProperties}
+          >
+            <Sidebar collapsible="none" className="border-r">
+              <SidebarContent>
+                <SidebarGroup>
+                  <SidebarMenu>
+                    {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+                      <SidebarMenuItem key={id}>
+                        <SidebarMenuButton isActive={page === id} onClick={() => setPage(id)}>
+                          <Icon />
+                          <span>{label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroup>
+              </SidebarContent>
+            </Sidebar>
+
+            {/* Right content */}
+            <div className="flex-1 overflow-y-auto bg-background p-6 pr-10">
+              {page === "general" && (
+                <GeneralPage
+                  onRequestDelete={(name) => {
+                    setDeleteError(null);
+                    setPendingDelete({ name });
+                  }}
+                />
+              )}
+              {page === "appearance" && <AppearancePage />}
+            </div>
+          </SidebarProvider>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o && !isDeleting) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this vault?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{pendingDelete?.name}&quot; will be removed from MapOS. The folder on disk will
+              not be deleted — you can add it back later from the vault switcher.
+            </AlertDialogDescription>
+            {deleteError ? (
+              <AlertDialogDescription className="text-destructive">
+                {deleteError}
+              </AlertDialogDescription>
+            ) : null}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (isDeleting) return;
+                setPendingDelete(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={() => {
+                void confirmDelete();
+              }}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

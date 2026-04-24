@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { existsSync, renameSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 
@@ -7,7 +8,13 @@ app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { setupChat } from "./chat";
 import { closeDb } from "./db";
-import { getPrimaryVaultRoot, loadOrInitMaposConfig, setActiveVaultInConfig } from "./mapos-config";
+import {
+  getPrimaryVaultRoot,
+  loadOrInitMaposConfig,
+  removeVaultFromConfig,
+  renameVaultInConfig,
+  setActiveVaultInConfig
+} from "./mapos-config";
 import { setupPlacesWatcher } from "./watcher";
 
 function createWindow(): BrowserWindow {
@@ -99,6 +106,116 @@ app.whenReady().then(() => {
     stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
 
     // Reload the renderer (fast — no process restart)
+    mainWindow.webContents.reload();
+
+    return { ok: true as const };
+  });
+
+  ipcMain.handle("mapos:rename-vault", async (_event, newName: string) => {
+    const trimmed = typeof newName === "string" ? newName.trim() : "";
+    if (!trimmed) return { ok: false as const, error: "Name cannot be empty." };
+    if (trimmed.includes("/") || trimmed.includes("\\")) {
+      return { ok: false as const, error: "Name cannot contain slashes." };
+    }
+    if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
+      return { ok: false as const, error: "Name cannot start with a dot." };
+    }
+
+    const oldPath = resolve(vaultRoot);
+    const newPath = resolve(join(dirname(oldPath), trimmed));
+    if (newPath === oldPath) return { ok: false as const, error: "Name is unchanged." };
+    if (existsSync(newPath)) {
+      return { ok: false as const, error: "A folder with that name already exists." };
+    }
+
+    // Tear down current vault so we can release file handles before renaming on disk.
+    stopChat();
+    await stopWatcher();
+    closeDb();
+
+    try {
+      renameSync(oldPath, newPath);
+    } catch (e) {
+      // Re-initialize at the original path so the app is not left in a broken state.
+      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      return { ok: false as const, error: `Rename failed: ${String(e)}` };
+    }
+
+    const updated = renameVaultInConfig(appStateDir, oldPath, newPath);
+    if (!updated.ok) {
+      // Config update failed after disk rename — try to roll back the disk rename.
+      try {
+        renameSync(newPath, oldPath);
+      } catch {
+        /* best-effort rollback */
+      }
+      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      return { ok: false as const, error: updated.error };
+    }
+
+    // Spatial index caches file paths rooted at the old folder name — purge before rescan.
+    for (const suffix of ["index.db", "index.db-wal", "index.db-shm"]) {
+      try {
+        rmSync(join(appStateDir, suffix), { force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    maposConfig = loadOrInitMaposConfig(appStateDir);
+    vaultRoot = getPrimaryVaultRoot(maposConfig);
+    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+
+    mainWindow.webContents.reload();
+
+    return { ok: true as const, newPath };
+  });
+
+  ipcMain.handle("mapos:delete-vault", async () => {
+    const oldActive = resolve(vaultRoot);
+    const cfg = loadOrInitMaposConfig(appStateDir);
+    const normalized = cfg.vaults.map((p) => resolve(p.trim()));
+    if (normalized.length <= 1) {
+      return { ok: false as const, error: "Cannot delete the only vault." };
+    }
+    const fallback = normalized.find((p) => p !== oldActive);
+    if (!fallback) {
+      return { ok: false as const, error: "No other vault available to switch to." };
+    }
+
+    stopChat();
+    await stopWatcher();
+    closeDb();
+
+    const removed = removeVaultFromConfig(appStateDir, oldActive);
+    if (!removed.ok) {
+      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      return { ok: false as const, error: removed.error };
+    }
+    const activated = setActiveVaultInConfig(appStateDir, fallback);
+    if (!activated.ok) {
+      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      return { ok: false as const, error: activated.error };
+    }
+
+    for (const suffix of ["index.db", "index.db-wal", "index.db-shm"]) {
+      try {
+        rmSync(join(appStateDir, suffix), { force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    maposConfig = loadOrInitMaposConfig(appStateDir);
+    vaultRoot = getPrimaryVaultRoot(maposConfig);
+    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+
     mainWindow.webContents.reload();
 
     return { ok: true as const };

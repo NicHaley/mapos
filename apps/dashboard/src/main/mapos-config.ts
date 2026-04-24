@@ -124,6 +124,67 @@ export function setActiveVaultInConfig(
   return { ok: true };
 }
 
+export function renameVaultInConfig(
+  appStateDir: string,
+  oldPath: string,
+  newPath: string
+): { ok: true; config: MaposJson } | { ok: false; error: string } {
+  const resolvedOld = resolve(oldPath.trim());
+  const resolvedNew = resolve(newPath.trim());
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const normalized = cfg.vaults.map((p) => resolve(p.trim()));
+  const idx = normalized.indexOf(resolvedOld);
+  if (idx === -1) {
+    return { ok: false, error: "Vault not found in config." };
+  }
+  if (resolvedOld !== resolvedNew && normalized.includes(resolvedNew)) {
+    return { ok: false, error: "A vault with that path already exists in your list." };
+  }
+  const nextVaults = [...normalized];
+  nextVaults[idx] = resolvedNew;
+  const activeResolved = cfg.activeVault ? resolve(cfg.activeVault.trim()) : undefined;
+  const nextActive = activeResolved === resolvedOld ? resolvedNew : activeResolved;
+  const next: MaposJson = {
+    vaults: nextVaults,
+    ...(nextActive ? { activeVault: nextActive } : {})
+  };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return { ok: true, config: next };
+}
+
+export function removeVaultFromConfig(
+  appStateDir: string,
+  vaultPath: string
+): { ok: true; config: MaposJson } | { ok: false; error: string } {
+  const resolved = resolve(vaultPath.trim());
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const normalized = cfg.vaults.map((p) => resolve(p.trim()));
+  if (!normalized.includes(resolved)) {
+    return { ok: false, error: "Vault not found in config." };
+  }
+  if (normalized.length <= 1) {
+    return { ok: false, error: "Cannot remove the only vault." };
+  }
+  const nextVaults = normalized.filter((p) => p !== resolved);
+  const activeResolved = cfg.activeVault ? resolve(cfg.activeVault.trim()) : undefined;
+  const nextActive =
+    activeResolved && activeResolved !== resolved ? activeResolved : undefined;
+  const next: MaposJson = {
+    vaults: nextVaults,
+    ...(nextActive ? { activeVault: nextActive } : {})
+  };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return { ok: true, config: next };
+}
+
 /**
  * Returns the path to a vault's per-vault state directory.
  */

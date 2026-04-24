@@ -124,6 +124,10 @@ declare global {
           | { ok: true; path: string; vaults: string[] }
         >;
         switchVault: (vaultPath: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+        renameVault: (
+          newName: string
+        ) => Promise<{ ok: true; newPath: string } | { ok: false; error: string }>;
+        deleteVault: () => Promise<{ ok: true } | { ok: false; error: string }>;
       };
       properties: {
         listAllKeys: () => Promise<string[]>;

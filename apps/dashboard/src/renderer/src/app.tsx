@@ -16,7 +16,11 @@ import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { Button } from "./components/ui/button";
 import { Kbd, KbdGroup } from "./components/ui/kbd";
-import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "./components/ui/sidebar";
+import {
+  SidebarInset,
+  type SidebarKeyboardShortcutConfig,
+  SidebarProvider
+} from "./components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
 import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
@@ -621,7 +625,7 @@ function App(): React.JSX.Element {
     setAddAllOverlayBusy
   });
 
-  const { handleRenamePath, handlePathRelocated, handleDeletedPath } = usePathSync({
+  const { handlePathRelocated, handleDeletedPath } = usePathSync({
     nav,
     dispatchNav,
     selectedPlace,
@@ -686,7 +690,7 @@ function App(): React.JSX.Element {
       {/* Top bar */}
       <motion.div
         layoutRoot
-        className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border"
+        className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md"
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         <Tooltip>
@@ -868,7 +872,7 @@ function App(): React.JSX.Element {
           open={projectSidebarOpen}
           onOpenChange={setProjectSidebarOpen}
           keyboardShortcut={SIDEBAR_KB_PROJECT}
-          className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+          className="fixed inset-0 z-10 pointer-events-none bg-transparent overflow-hidden"
           style={{ "--sidebar-width": `${PROJECT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
         >
           <ProjectSidebar
@@ -881,6 +885,7 @@ function App(): React.JSX.Element {
             onRenamePath={handlePathRelocated}
             onMoved={handlePathRelocated}
           />
+          <SidebarInset className="mb-4 mr-4 h-[calc(100vh-56px)] rounded-xl border border-sidebar-border bg-transparent shadow-[0_0_0_100vmax_var(--color-sidebar)]" />
         </SidebarProvider>
 
         {/* Right sidebar overlay */}

@@ -783,7 +783,7 @@ export function ProjectSidebar({
   }
 
   return (
-    <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
+    <Sidebar className="pr-0" collapsible="offcanvas">
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>

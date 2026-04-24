@@ -589,7 +589,7 @@ export function PlaceCard({
                   render={
                     <button
                       type="button"
-                      className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none"
+                      className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
                     >
                       {place.geometry ? (
                         <MapPinIcon className="size-4 shrink-0" />

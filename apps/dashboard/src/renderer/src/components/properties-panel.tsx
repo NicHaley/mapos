@@ -245,7 +245,7 @@ function PropertyKey({
       <DropdownMenuTrigger
         onPointerDown={handleTriggerPointerDown}
         onPointerUp={handleTriggerPointerUp}
-        className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent outline-none"
+        className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
       >
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
@@ -363,7 +363,7 @@ function MultiSelectPropertyValue({
   );
 
   return (
-    <div className="relative flex h-7 min-w-0 w-full items-center">
+    <div className="relative flex h-8 min-w-0 w-full items-center">
       <Popover
         open={open}
         onOpenChange={(v) => {
@@ -371,7 +371,7 @@ function MultiSelectPropertyValue({
           if (v) setDraft("");
         }}
       >
-        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {items.length === 0 ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
@@ -498,9 +498,9 @@ function DatePropertyValue({
   }
 
   return (
-    <div className="relative flex h-7 min-w-0 w-full items-center">
+    <div className="relative flex h-8 min-w-0 w-full items-center">
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {/* <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden /> */}
           {isEmpty || !hasDate ? (
             <span className="text-sidebar-foreground/60">Empty</span>
@@ -618,10 +618,10 @@ function PropertyValue({
 
   if (type === "checkbox") {
     return (
-      <div className="relative flex h-7 min-w-0 w-full items-center">
+      <div className="relative flex h-8 min-w-0 w-full items-center">
         <button
           type="button"
-          className="flex h-full w-full cursor-pointer items-center rounded px-2 transition-colors hover:bg-sidebar-accent"
+          className="flex h-full w-full cursor-pointer items-center rounded-md px-2 ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('[role="switch"]')) return;
             onValueChange(propKey, !(value === true || value === "true"));
@@ -650,7 +650,7 @@ function PropertyValue({
 
   // text / number
   return (
-    <div className="relative flex h-7 min-w-0 w-full items-center">
+    <div className="relative flex h-8 min-w-0 w-full items-center">
       <Popover
         open={open}
         onOpenChange={(val) => {
@@ -658,7 +658,7 @@ function PropertyValue({
           if (!val) commitDraft();
         }}
       >
-        <PopoverTrigger className="flex h-7 w-full cursor-pointer items-center rounded px-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {isEmpty ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
@@ -807,7 +807,7 @@ function PropertiesPanelInner({
           <Reorder.Item
             key={key}
             value={key}
-            className="group grid h-7 grid-cols-2 items-center"
+            className="group grid h-8 grid-cols-2 items-center"
             as="div"
           >
             <div className="flex min-h-0 min-w-0 items-center">
@@ -831,10 +831,10 @@ function PropertiesPanelInner({
         ))}
       </Reorder.Group>
 
-      <div className="grid h-7 grid-cols-2 items-center">
+      <div className="grid h-8 grid-cols-2 items-center">
         <div className="flex min-h-0 min-w-0 items-center">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors outline-none">
+            <DropdownMenuTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
               <PlusIcon className="size-4" />
               Add property
             </DropdownMenuTrigger>

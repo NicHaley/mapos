@@ -681,7 +681,16 @@ export function setupPlacesWatcher(
     return { ok: true as const, vaults: result.config.vaults.map((p) => resolve(p.trim())) };
   });
 
-  ipcMain.handle("mapos:create-new-vault", async () => {
+  ipcMain.handle("mapos:create-new-vault", async (_event, name: string) => {
+    const trimmed = typeof name === "string" ? name.trim() : "";
+    if (!trimmed) return { ok: false as const, error: "Name cannot be empty." };
+    if (trimmed.includes("/") || trimmed.includes("\\")) {
+      return { ok: false as const, error: "Name cannot contain slashes." };
+    }
+    if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
+      return { ok: false as const, error: "Name cannot start with a dot." };
+    }
+
     if (mainWindow.isDestroyed()) return { canceled: true as const };
     const picked = await dialog.showOpenDialog(mainWindow, {
       properties: ["openDirectory", "createDirectory"],
@@ -689,9 +698,11 @@ export function setupPlacesWatcher(
     });
     if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
     const parent = picked.filePaths[0];
-    let newPath: string;
+    const newPath = resolve(join(parent, trimmed));
+    if (existsSync(newPath)) {
+      return { ok: false as const, error: "A folder with that name already exists." };
+    }
     try {
-      newPath = uniquePathInDir(parent, "MapOS Vault", true);
       initVaultOnDisk(newPath);
       closeDb();
     } catch (e) {

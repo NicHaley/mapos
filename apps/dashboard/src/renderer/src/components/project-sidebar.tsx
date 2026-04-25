@@ -1,6 +1,7 @@
 import { cn } from "@renderer/lib/utils";
 import type { FileNode } from "@shared/types";
 import {
+  ArrowLeftIcon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -47,6 +48,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "./ui/dropdown-menu";
+import { InputGroup, InputGroupInput } from "./ui/input-group";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import {
   Sidebar,
@@ -110,6 +112,22 @@ function vaultBasename(path: string): string {
   return (s || path).trim() || path;
 }
 
+type AddVaultStep = "choose" | "name";
+
+const DEFAULT_VAULT_NAME = "MapOS Vault";
+
+function localValidateVaultName(name: string): { ok: true } | { ok: false; error: string } {
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, error: "Name cannot be empty." };
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    return { ok: false, error: "Name cannot contain slashes." };
+  }
+  if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
+    return { ok: false, error: "Name cannot start with a dot." };
+  }
+  return { ok: true };
+}
+
 function VaultSwitcher() {
   const { isMobile } = useSidebar();
   const [vaultOptions, setVaultOptions] = useState<VaultOption[]>([]);
@@ -117,6 +135,8 @@ function VaultSwitcher() {
   const [addVaultOpen, setAddVaultOpen] = useState(false);
   const [addVaultBusy, setAddVaultBusy] = useState(false);
   const [addVaultError, setAddVaultError] = useState<string | null>(null);
+  const [addVaultStep, setAddVaultStep] = useState<AddVaultStep>("choose");
+  const [vaultNameDraft, setVaultNameDraft] = useState<string>(DEFAULT_VAULT_NAME);
 
   const reloadVaults = useCallback(() => {
     void window.api.mapos.getVaultsConfig().then(({ vaults, activeVaultPath: active }) => {
@@ -149,24 +169,32 @@ function VaultSwitcher() {
     };
   }, [vaultOptions, activeVaultPath]);
 
-  const runCreateNewVault = useCallback(async () => {
-    setAddVaultBusy(true);
-    setAddVaultError(null);
-    try {
-      const r = await window.api.mapos.createNewVault();
-      if ("canceled" in r && r.canceled) return;
-      if ("ok" in r && r.ok === false) {
-        setAddVaultError(r.error);
+  const runCreateNewVault = useCallback(
+    async (name: string) => {
+      const local = localValidateVaultName(name);
+      if (!local.ok) {
+        setAddVaultError(local.error);
         return;
       }
-      if ("ok" in r && r.ok) {
-        setAddVaultOpen(false);
-        reloadVaults();
+      setAddVaultBusy(true);
+      setAddVaultError(null);
+      try {
+        const r = await window.api.mapos.createNewVault(name.trim());
+        if ("canceled" in r && r.canceled) return;
+        if ("ok" in r && r.ok === false) {
+          setAddVaultError(r.error);
+          return;
+        }
+        if ("ok" in r && r.ok) {
+          setAddVaultOpen(false);
+          reloadVaults();
+        }
+      } finally {
+        setAddVaultBusy(false);
       }
-    } finally {
-      setAddVaultBusy(false);
-    }
-  }, [reloadVaults]);
+    },
+    [reloadVaults]
+  );
 
   const runSetFolderAsVault = useCallback(async () => {
     setAddVaultBusy(true);
@@ -194,7 +222,11 @@ function VaultSwitcher() {
           open={addVaultOpen}
           onOpenChange={(open) => {
             setAddVaultOpen(open);
-            if (!open) setAddVaultError(null);
+            if (!open) {
+              setAddVaultError(null);
+              setAddVaultStep("choose");
+              setVaultNameDraft(DEFAULT_VAULT_NAME);
+            }
           }}
         >
           <DropdownMenu>
@@ -265,51 +297,121 @@ function VaultSwitcher() {
             </DropdownMenuContent>
           </DropdownMenu>
           <DialogContent className="sm:max-w-md" showCloseButton={!addVaultBusy}>
-            <DialogHeader>
-              <DialogTitle>Add vault</DialogTitle>
-              <DialogDescription>
-                Register another folder in MapOS. Select it from the vault switcher to relaunch with
-                that vault active.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
-                disabled={addVaultBusy}
-                onClick={() => void runCreateNewVault()}
-              >
-                <FolderPlusIcon className="size-5 shrink-0 opacity-80" />
-                <div className="grid min-w-0 gap-0.5">
-                  <span className="font-medium">Create new vault</span>
-                  <span className="text-muted-foreground text-xs font-normal">
-                    Pick a parent location. MapOS creates an empty folder named &quot;MapOS
-                    Vault&quot; (or MapOS Vault 1, …) and adds it to your list.
-                  </span>
+            {addVaultStep === "choose" ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Add vault</DialogTitle>
+                  <DialogDescription>
+                    Register another folder in MapOS. Select it from the vault switcher to relaunch
+                    with that vault active.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
+                    disabled={addVaultBusy}
+                    onClick={() => {
+                      setAddVaultError(null);
+                      setVaultNameDraft(DEFAULT_VAULT_NAME);
+                      setAddVaultStep("name");
+                    }}
+                  >
+                    <FolderPlusIcon className="size-5 shrink-0 opacity-80" />
+                    <div className="grid min-w-0 gap-0.5">
+                      <span className="font-medium">Create new vault</span>
+                      <span className="text-muted-foreground text-xs font-normal">
+                        Pick a name and a parent location. MapOS creates the folder and adds it to
+                        your list.
+                      </span>
+                    </div>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
+                    disabled={addVaultBusy}
+                    onClick={() => void runSetFolderAsVault()}
+                  >
+                    <FolderInputIcon className="size-5 shrink-0 opacity-80" />
+                    <div className="grid min-w-0 gap-0.5">
+                      <span className="font-medium">Set folder as vault</span>
+                      <span className="text-muted-foreground text-xs font-normal">
+                        Choose an existing folder on disk and add its path to your vault list.
+                      </span>
+                    </div>
+                  </Button>
                 </div>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto justify-start gap-3 px-3 py-3 text-left whitespace-normal"
-                disabled={addVaultBusy}
-                onClick={() => void runSetFolderAsVault()}
-              >
-                <FolderInputIcon className="size-5 shrink-0 opacity-80" />
-                <div className="grid min-w-0 gap-0.5">
-                  <span className="font-medium">Set folder as vault</span>
-                  <span className="text-muted-foreground text-xs font-normal">
-                    Choose an existing folder on disk and add its path to your vault list.
-                  </span>
+                {addVaultError ? (
+                  <p className="text-destructive text-sm" role="alert">
+                    {addVaultError}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Name your vault</DialogTitle>
+                  <DialogDescription>
+                    Choose a name for the new vault folder. You can rename it later from Settings.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex flex-col gap-3">
+                  <InputGroup>
+                    <InputGroupInput
+                      autoFocus
+                      value={vaultNameDraft}
+                      disabled={addVaultBusy}
+                      aria-invalid={!!addVaultError}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => {
+                        setVaultNameDraft(e.target.value);
+                        if (addVaultError) setAddVaultError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void runCreateNewVault(vaultNameDraft);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setAddVaultError(null);
+                          setAddVaultStep("choose");
+                        }
+                      }}
+                    />
+                  </InputGroup>
+                  {addVaultError ? (
+                    <p className="text-destructive text-sm" role="alert">
+                      {addVaultError}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      // size="sm"
+                      disabled={addVaultBusy}
+                      onClick={() => {
+                        setAddVaultError(null);
+                        setAddVaultStep("choose");
+                      }}
+                    >
+                      <ArrowLeftIcon className="size-4" />
+                      Back
+                    </Button>
+                    <Button
+                      type="button"
+                      // size="sm"
+                      disabled={addVaultBusy || !localValidateVaultName(vaultNameDraft).ok}
+                      onClick={() => void runCreateNewVault(vaultNameDraft)}
+                    >
+                      Choose location…
+                    </Button>
+                  </div>
                 </div>
-              </Button>
-            </div>
-            {addVaultError ? (
-              <p className="text-destructive text-sm" role="alert">
-                {addVaultError}
-              </p>
-            ) : null}
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </SidebarMenuItem>

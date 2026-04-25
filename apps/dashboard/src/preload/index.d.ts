@@ -118,7 +118,7 @@ declare global {
         setFolderAsVault: () => Promise<
           { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
         >;
-        createNewVault: () => Promise<
+        createNewVault: (name: string) => Promise<
           | { canceled: true }
           | { ok: false; error: string }
           | { ok: true; path: string; vaults: string[] }

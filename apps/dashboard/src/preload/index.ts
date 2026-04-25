@@ -135,8 +135,8 @@ const api = {
       ipcRenderer.invoke("mapos:set-folder-as-vault") as Promise<
         { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
       >,
-    createNewVault: () =>
-      ipcRenderer.invoke("mapos:create-new-vault") as Promise<
+    createNewVault: (name: string) =>
+      ipcRenderer.invoke("mapos:create-new-vault", name) as Promise<
         | { canceled: true }
         | { ok: false; error: string }
         | { ok: true; path: string; vaults: string[] }

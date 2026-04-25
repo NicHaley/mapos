@@ -802,6 +802,8 @@ function PropertiesPanelInner({
         onReorder={handleReorder}
         className="flex flex-col"
         as="div"
+        layout
+        layoutRoot
       >
         {fileKeys.map((key) => (
           <Reorder.Item

@@ -24,10 +24,9 @@ export function useShortcuts(shortcuts: ShortcutEntry[]) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Don't fire when typing in inputs
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable)
-        return;
+      const isTextTarget =
+        tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable;
 
       for (const { def, handler } of ref.current) {
         const metaMatch = def.meta ? (isMac ? e.metaKey : e.ctrlKey) : !e.metaKey && !e.ctrlKey;
@@ -38,6 +37,8 @@ export function useShortcuts(shortcuts: ShortcutEntry[]) {
           !!e.altKey === !!def.alt &&
           def.enabled !== false
         ) {
+          // In text inputs, only fire shortcuts that use a modifier — plain keys must reach the input.
+          if (isTextTarget && !def.meta && !def.alt) return;
           e.preventDefault();
           handler();
           return;

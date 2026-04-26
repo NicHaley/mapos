@@ -60,7 +60,10 @@ body {
 
 .page-bg {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh; /* fallback before scene is measured */
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
@@ -86,6 +89,7 @@ body {
   width: 100%;
   max-width: 800px;
   aspect-ratio: 16 / 9;
+  flex-shrink: 0;
   margin: 0 auto;
   position: relative;
   /* Mask shaped like the planet body so the page-bg starfield doesn't show
@@ -165,7 +169,7 @@ body {
 
 .ascii-pre {
   margin: 0;
-  padding: 14px 16px;
+  padding: 0;
   font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo,
     Consolas, monospace;
   font-size: 11px;
@@ -211,6 +215,7 @@ body {
 
 .cta-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 14px;
@@ -270,9 +275,13 @@ body {
 }
 
 @media (max-width: 640px) {
+  /* Keep .ascii-wrap, .ascii-starfield, and .ascii-pre in sync — the engine's
+     sizing probe inherits font-size from the wrapper, so a mobile override
+     must apply to both or the rendered grid will mismatch the measured one. */
+  .ascii-wrap,
+  .ascii-starfield,
   .ascii-pre {
     font-size: 9px;
-    padding: 10px;
   }
   .tagline {
     font-size: 38px;

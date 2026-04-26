@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { MapOSLogo } from "./mapos-logo";
@@ -11,14 +11,38 @@ export function Landing() {
     () => ({ disableStars: true, flareLength: 1.0 }),
     [],
   );
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const [sceneBottom, setSceneBottom] = useState<number | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
 
+  useEffect(() => {
+    const el = sceneRef.current;
+    if (!el) return;
+    const update = () => {
+      setSceneBottom(el.getBoundingClientRect().bottom);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   return (
     <>
-      <div className="page-bg" aria-hidden="true">
+      <div
+        className="page-bg"
+        aria-hidden="true"
+        style={
+          sceneBottom != null ? { height: `${sceneBottom}px` } : undefined
+        }
+      >
         <AsciiStarfield dark={dark} />
       </div>
       <div className="page">
@@ -38,7 +62,7 @@ export function Landing() {
         </header>
 
         <main className="stage">
-          <div className="ascii-scene">
+          <div className="ascii-scene" ref={sceneRef}>
             <AsciiSun dark={dark} scene={sunScene} />
           </div>
           <section className="copy">

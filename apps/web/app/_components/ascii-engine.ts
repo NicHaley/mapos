@@ -85,7 +85,7 @@ function sampleScene(
   opts: SceneOptions,
 ): { b: number; kind: CellKind } {
   const {
-    sunSize = 0.09,
+    sunSize = 0.1,
     arcCenterY = -1.6,
     arcRadius = 1.75,
     sunArcSpan = 0.55,
@@ -119,14 +119,15 @@ function sampleScene(
     intensity = 1.0;
   }
 
-  // Starburst pulse: builds during rise, peaks, decays toward an ambient floor
-  // so rays stay visible (faint) once the sun is hanging.
+  // Starburst pulse: builds during rise, peaks, decays to a low ambient floor
+  // so the post-rise sun is dominated by its (round) corona/halo rather than
+  // the wide horizontal streak — the streak still fires during the rise climax.
   let flarePulse: number;
   if (t < 0.45) {
     flarePulse = (t / 0.45) ** 2;
   } else {
     const k = (t - 0.45) / 0.55;
-    flarePulse = 1 - k ** 1.5 * 0.55;
+    flarePulse = 1 - k ** 1.2 * 0.85;
   }
   const flareBoost = Math.min(1.4, flarePulse * 1.4);
 
@@ -145,7 +146,9 @@ function sampleScene(
 
   const corona = Math.exp(-((distSun / (sunSize * 2.6)) ** 2));
   b = Math.max(b, corona * 0.98 * intensity);
-  const halo = Math.exp(-((distSun / (sunSize * 6.5)) ** 2)) * 0.6 * intensity;
+  // Halo sized to fully fade out before the canvas top so the glow reads as a
+  // soft round dome, not a horizontal cap clipped at the edge.
+  const halo = Math.exp(-((distSun / (sunSize * 4.5)) ** 2)) * 0.6 * intensity;
   b = Math.max(b, halo);
 
   // Horizontal lens-flare streaks (gated by flarePulse).

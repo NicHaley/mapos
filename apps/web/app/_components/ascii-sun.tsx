@@ -10,50 +10,36 @@ import {
 
 interface AsciiSunProps {
   dark: boolean;
-  loop?: boolean;
   speed?: number;
   ramp?: AsciiRamp;
   scene?: SceneOptions;
 }
 
+const RISE_DURATION_MS = 14000;
+
 function shapeT(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
-function useAnimationProgress(loop: boolean, speed: number): number {
-  const [t, setT] = useState(0);
+function useTimeChannels(speed: number): { riseT: number; ambientT: number } {
+  const [time, setTime] = useState({ riseT: 0, ambientT: 0 });
   const startRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const finishedRef = useRef(false);
 
   useEffect(() => {
-    finishedRef.current = false;
     startRef.current = null;
-    const DURATION = 14000 / speed;
-
+    let raf = 0;
     const tick = (now: number) => {
       if (startRef.current == null) startRef.current = now;
-      const elapsed = now - startRef.current;
-      let progress = elapsed / DURATION;
-
-      if (loop) {
-        progress = progress % 1;
-      } else if (progress >= 1) {
-        progress = 1;
-        finishedRef.current = true;
-      }
-      setT(progress);
-      if (!finishedRef.current) {
-        rafRef.current = requestAnimationFrame(tick);
-      }
+      const elapsed = (now - startRef.current) * speed;
+      const raw = Math.min(elapsed / RISE_DURATION_MS, 1);
+      setTime({ riseT: shapeT(raw), ambientT: elapsed / 1000 });
+      raf = requestAnimationFrame(tick);
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    };
-  }, [loop, speed]);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [speed]);
 
-  return t;
+  return time;
 }
 
 const DARK_PALETTE: Record<CellKind, string> = {
@@ -80,13 +66,12 @@ const LIGHT_PALETTE: Record<CellKind, string> = {
 
 export function AsciiSun({
   dark,
-  loop = true,
   speed = 1,
   ramp = "classic",
   scene,
 }: AsciiSunProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [grid, setGrid] = useState({ cols: 80, rows: 32 });
+  const [grid, setGrid] = useState({ cols: 80, rows: 32, aspect: 1.75 });
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -101,20 +86,29 @@ export function AsciiSun({
       const cw = probe.getBoundingClientRect().width || 8;
       const ch = probe.getBoundingClientRect().height || 16;
       el.removeChild(probe);
-      const cols = Math.max(40, Math.min(180, Math.floor(rect.width / cw)));
-      const rows = Math.max(18, Math.min(80, Math.floor(rect.height / ch)));
-      setGrid({ cols, rows });
+      const cols = Math.max(40, Math.min(280, Math.floor(rect.width / cw)));
+      const rows = Math.max(18, Math.min(120, Math.floor(rect.height / ch)));
+      const aspect = ch / cw;
+      setGrid({ cols, rows, aspect });
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const rawT = useAnimationProgress(loop, speed);
-  const t = shapeT(rawT);
+  const { riseT, ambientT } = useTimeChannels(speed);
 
   const frame = useMemo(
-    () => renderFrame({ cols: grid.cols, rows: grid.rows, t, ramp, opts: scene }),
-    [grid.cols, grid.rows, t, ramp, scene],
+    () =>
+      renderFrame({
+        cols: grid.cols,
+        rows: grid.rows,
+        t: riseT,
+        ambientT,
+        cellAspect: grid.aspect,
+        ramp,
+        opts: scene,
+      }),
+    [grid.cols, grid.rows, grid.aspect, riseT, ambientT, ramp, scene],
   );
 
   const colored = useMemo(() => {

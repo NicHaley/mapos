@@ -9,6 +9,12 @@
 //   - Vertical/diagonal "starburst" rays radiating from the sun.
 //   - Faint stars.
 //
+// Two time channels:
+//   - t (rise progress 0..1): drives sun position and the one-shot rise envelope.
+//     Clamped to 1 once the sun has risen so it hangs in place.
+//   - ambientT (continuous seconds): drives star twinkle and subtle ambient flicker
+//     so the ASCII keeps moving even after the rise is complete.
+//
 // All sampled per character cell into a brightness 0..1, then mapped to a glyph.
 
 export type AsciiRamp = "classic" | "sparse" | "dense" | "blocks" | "dots";
@@ -30,12 +36,15 @@ export interface SceneOptions {
   sunArcSpan?: number;
   flareLength?: number;
   starburst?: number;
+  disableStars?: boolean;
 }
 
 export interface RenderArgs {
   cols: number;
   rows: number;
   t: number;
+  ambientT?: number;
+  cellAspect?: number;
   ramp?: AsciiRamp;
   opts?: SceneOptions;
 }
@@ -54,6 +63,13 @@ const ASCII_RAMPS: Record<AsciiRamp, string> = {
   dots: " ·∙•●◉",
 };
 
+// Normalized viewport extents — must match the mapping in renderFrame.
+// Y range extends well above the sun's end position so the halo never clips
+// at the canvas top regardless of canvas aspect.
+const VIEW_W = 2.8;
+const VIEW_H = 1.75;
+const VIEW_TOP = 1.2;
+
 function brightnessToGlyph(b: number, ramp: AsciiRamp): string {
   const r = ASCII_RAMPS[ramp] || ASCII_RAMPS.classic;
   const idx = Math.max(0, Math.min(r.length - 1, Math.floor(b * r.length)));
@@ -64,15 +80,18 @@ function sampleScene(
   x: number,
   y: number,
   t: number,
+  ambientT: number,
+  yScale: number,
   opts: SceneOptions,
 ): { b: number; kind: CellKind } {
   const {
-    sunSize = 0.05,
+    sunSize = 0.09,
     arcCenterY = -1.6,
     arcRadius = 1.75,
     sunArcSpan = 0.55,
     flareLength = 1.6,
     starburst = 1.0,
+    disableStars = false,
   } = opts;
 
   // Sun position: vertical rise, centered horizontally.
@@ -85,38 +104,51 @@ function sampleScene(
 
   const dxS = x - sx;
   const dyS = y - sy;
-  const dyAdj = dyS * 2.0;
+  // yScale compensates for the normalized viewport's aspect and the character
+  // cell's height/width ratio so circular brightness contours render as visual
+  // circles rather than horizontally-stretched ovals.
+  const dyAdj = dyS * yScale;
   const distSun = Math.sqrt(dxS * dxS + dyAdj * dyAdj);
 
-  // Brightness envelope: dark → very bright → subside.
+  // Brightness envelope: dark → bright → settle. After rise (t=1) the sun
+  // holds full intensity so it hangs in place.
   let intensity: number;
   if (t < 0.45) {
     intensity = (t / 0.45) ** 1.4;
   } else {
-    const k = (t - 0.45) / 0.55;
-    intensity = 1 - k ** 1.5 * 0.45;
+    intensity = 1.0;
   }
 
-  // One-shot starburst pulse around peak.
-  let flarePulse = 0;
-  if (t > 0.2 && t < 0.7) {
-    const u = (t - 0.45) / 0.25;
-    flarePulse = Math.exp(-u * u * 1.6);
+  // Starburst pulse: builds during rise, peaks, decays toward an ambient floor
+  // so rays stay visible (faint) once the sun is hanging.
+  let flarePulse: number;
+  if (t < 0.45) {
+    flarePulse = (t / 0.45) ** 2;
+  } else {
+    const k = (t - 0.45) / 0.55;
+    flarePulse = 1 - k ** 1.5 * 0.55;
   }
   const flareBoost = Math.min(1.4, flarePulse * 1.4);
 
-  const postRise = t < 0.45 ? intensity : Math.max(0.85, intensity);
+  // Continuous ambient shimmer perturbs non-core brightness so glyphs near
+  // brightness boundaries swap each frame even when the rise is complete.
+  const shimmer =
+    1 +
+    0.05 *
+      Math.sin(ambientT * 1.7 + dxS * 4.1 + dyS * 2.7) *
+      Math.sin(ambientT * 0.9 + dxS * 1.3);
+
   let b = 0;
-  if (distSun < sunSize * 0.5) {
-    return { b: Math.min(1, 0.85 + 0.15 * postRise), kind: "sun-core" };
+  if (distSun < sunSize * 0.45) {
+    return { b: Math.min(1, 0.9 + 0.1 * intensity), kind: "sun-core" };
   }
 
-  const corona = Math.exp(-((distSun / (sunSize * 2.8)) ** 2));
-  b = Math.max(b, corona * 0.98 * postRise);
-  const halo = Math.exp(-((distSun / (sunSize * 7)) ** 2)) * 0.55 * postRise;
+  const corona = Math.exp(-((distSun / (sunSize * 2.6)) ** 2));
+  b = Math.max(b, corona * 0.98 * intensity);
+  const halo = Math.exp(-((distSun / (sunSize * 6.5)) ** 2)) * 0.6 * intensity;
   b = Math.max(b, halo);
 
-  // Horizontal lens-flare streak (one-shot, gated by flarePulse).
+  // Horizontal lens-flare streaks (gated by flarePulse).
   const streakX = Math.exp(-((dxS / flareLength) ** 2));
   const streakY = Math.exp(-((dyAdj / 0.05) ** 2));
   const streak = streakX * streakY * 1.0 * flareBoost;
@@ -155,6 +187,9 @@ function sampleScene(
   }
   b = Math.max(b, ray * 1.05 * starburst * flareBoost);
 
+  // Apply ambient shimmer to corona/halo/flare/ray cells (not the core).
+  b *= shimmer;
+
   // Planet limb arc.
   const dxA = x - 0;
   const dyA = y - arcCenterY;
@@ -181,21 +216,24 @@ function sampleScene(
   }
   b = Math.max(b, arcBrightness);
 
-  // Faint stars.
-  if (b < 0.05) {
+  // Faint stars — twinkle driven by ambientT so they keep moving after rise.
+  if (!disableStars && b < 0.05) {
     const cellX = Math.floor(x * 80);
     const cellY = Math.floor(y * 80);
     const h = Math.sin(cellX * 12.9898 + cellY * 78.233) * 43758.5453;
     const hf = h - Math.floor(h);
-    if (hf > 0.995) {
-      const tw = 0.5 + 0.5 * Math.sin(t * 8 + cellX * 0.7 + cellY * 1.3);
-      const starB = 0.15 + 0.3 * tw;
+    if (hf > 0.985) {
+      const tw =
+        0.5 + 0.5 * Math.sin(ambientT * 2.4 + cellX * 0.7 + cellY * 1.3);
+      // Brighter rare stars, dimmer common ones — gives a sense of depth.
+      const baseB = hf > 0.997 ? 0.35 : hf > 0.992 ? 0.22 : 0.15;
+      const starB = baseB + 0.3 * tw;
       if (starB > b) return { b: starB, kind: "star" };
     }
   }
 
   let kind: CellKind = "sky";
-  if (distSun < sunSize * 1.2) kind = "sun-body";
+  if (distSun < sunSize * 1.1) kind = "sun-body";
   else if (b > 0.6) kind = "flare-hot";
   else if (b > 0.25) kind = "flare";
   else if (arcBrightness > 0.05 && Math.abs(arcDelta) < 0.1) kind = "rim";
@@ -207,18 +245,30 @@ export function renderFrame({
   cols,
   rows,
   t,
+  ambientT,
+  cellAspect = 1.75,
   ramp = "classic",
   opts = {},
 }: RenderArgs): RenderedFrame {
+  // yScale makes a brightness contour `dx² + (yScale*dy)² = R²` render as a
+  // visual circle on screen given the normalized viewport (VIEW_W × VIEW_H)
+  // and the actual character cell aspect (height/width).
+  // Derivation: equate horizontal and vertical pixel extents of the contour.
+  const yScale =
+    rows > 1 && cols > 1
+      ? (cellAspect * (rows - 1) * VIEW_W) / ((cols - 1) * VIEW_H)
+      : 1;
+  const at = ambientT ?? t;
+
   const lines: string[] = [];
   const meta: CellKind[][] = [];
   for (let r = 0; r < rows; r++) {
     let line = "";
     const metaRow: CellKind[] = [];
     for (let c = 0; c < cols; c++) {
-      const x = (c / (cols - 1)) * 2.8 - 1.4;
-      const y = 0.85 - (r / (rows - 1)) * 1.4;
-      const s = sampleScene(x, y, t, opts);
+      const x = (c / (cols - 1)) * VIEW_W - VIEW_W / 2;
+      const y = VIEW_TOP - (r / (rows - 1)) * VIEW_H;
+      const s = sampleScene(x, y, t, at, yScale, opts);
       line += brightnessToGlyph(s.b, ramp);
       metaRow.push(s.kind);
     }

@@ -1,31 +1,13 @@
-interface MapOSLogoProps {
-  dark: boolean;
-}
+import maposLogo from "@/public/mapos.svg";
+import Image from "next/image";
 
-export function MapOSLogo({ dark }: MapOSLogoProps) {
-  const fill = dark ? "#e5e5e5" : "#171717";
-  const accent = dark ? "#a3a3a3" : "#525252";
+export function MapOSLogo() {
   return (
-    <svg
-      viewBox="0 0 290 346"
-      width="36"
-      height="42"
-      fill="none"
-      role="img"
-      aria-label="MapOS"
-    >
-      <path
-        d="M50.7555 254.577L0 305.5L0 100.46L50.7555 49.5367C62.7646 37.4878 82.2353 37.4878 94.2445 49.5367L132.76 88.1792C139.52 94.9617 150.48 94.9617 157.24 88.1792L195.755 49.5367C207.765 37.4878 227.235 37.4878 239.245 49.5367L290 100.46V305.5L239.245 254.577C227.235 242.528 207.765 242.528 195.755 254.577L157.24 293.219C150.48 300.002 139.52 300.002 132.76 293.219L94.2445 254.577C82.2354 242.528 62.7647 242.528 50.7555 254.577Z"
-        fill={fill}
-      />
-      <path
-        d="M145 298.306C140.57 298.306 136.14 296.611 132.76 293.219L94.2445 254.577C88.2399 248.552 80.3697 245.54 72.4997 245.54L72.4997 40.5C80.3697 40.5 88.2399 43.5122 94.2445 49.5367L132.76 88.1792C136.14 91.5704 140.57 93.266 145 93.266L145 298.306Z"
-        fill={accent}
-      />
-      <path
-        d="M217.499 40.5002C225.369 40.5 233.24 43.5121 239.245 49.5367L290 100.46V305.5L239.245 254.577C233.24 248.552 225.369 245.54 217.499 245.54L217.499 40.5002Z"
-        fill={accent}
-      />
-    </svg>
+    <div className="flex items-center gap-2.5" role="img" aria-label="MapOS">
+      <Image src={maposLogo} alt="" height={24} className="shrink-0" unoptimized aria-hidden />
+      <span className="brand-name" aria-hidden>
+        mapOS
+      </span>
+    </div>
   );
 }

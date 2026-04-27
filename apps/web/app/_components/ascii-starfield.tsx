@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface AsciiStarfieldProps {
-  dark: boolean;
   density?: number;
 }
 
@@ -26,7 +25,6 @@ function pickGlyphSet(h: number): string {
 }
 
 export function AsciiStarfield({
-  dark,
   density = 0.009,
 }: AsciiStarfieldProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -104,11 +102,9 @@ export function AsciiStarfield({
     return lines.map((arr) => arr.join("")).join("\n");
   }, [stars, ambientT, grid.cols, grid.rows]);
 
-  const color = dark ? "#525252" : "#a3a3a3";
-
   return (
     <div className="ascii-starfield" ref={wrapRef} aria-hidden="true">
-      <pre className="ascii-pre" style={{ color, padding: 0 }}>
+      <pre className="ascii-pre" style={{ color: "#525252", padding: 0 }}>
         {text}
       </pre>
     </div>

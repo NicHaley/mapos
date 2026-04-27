@@ -9,7 +9,6 @@ import {
 } from "./ascii-engine";
 
 interface AsciiSunProps {
-  dark: boolean;
   speed?: number;
   ramp?: AsciiRamp;
   scene?: SceneOptions;
@@ -42,10 +41,11 @@ function useTimeChannels(speed: number): { riseT: number; ambientT: number } {
   return time;
 }
 
-const DARK_PALETTE: Record<CellKind, string> = {
+const PALETTE: Record<CellKind, string> = {
   sky: "#404040",
   star: "#a3a3a3",
   planet: "#171717",
+  surface: "#3a3a3a",
   rim: "#d4d4d4",
   flare: "#a3a3a3",
   "flare-hot": "#e5e5e5",
@@ -53,19 +53,7 @@ const DARK_PALETTE: Record<CellKind, string> = {
   "sun-core": "#ffffff",
 };
 
-const LIGHT_PALETTE: Record<CellKind, string> = {
-  sky: "#d4d4d4",
-  star: "#525252",
-  planet: "#e5e5e5",
-  rim: "#262626",
-  flare: "#525252",
-  "flare-hot": "#171717",
-  "sun-body": "#0a0a0a",
-  "sun-core": "#000000",
-};
-
 export function AsciiSun({
-  dark,
   speed = 1,
   ramp = "classic",
   scene,
@@ -134,8 +122,6 @@ export function AsciiSun({
     return out;
   }, [frame]);
 
-  const palette = dark ? DARK_PALETTE : LIGHT_PALETTE;
-
   return (
     <div className="ascii-wrap" ref={wrapRef}>
       <pre className="ascii-pre" aria-hidden="true">
@@ -146,7 +132,7 @@ export function AsciiSun({
               <span
                 // biome-ignore lint/suspicious/noArrayIndexKey: run order within a row is stable per frame
                 key={j}
-                style={{ color: palette[run.kind] }}
+                style={{ color: PALETTE[run.kind] }}
               >
                 {run.text}
               </span>

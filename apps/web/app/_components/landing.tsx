@@ -6,17 +6,12 @@ import { AsciiSun } from "./ascii-sun";
 import { MapOSLogo } from "./mapos-logo";
 
 export function Landing() {
-  const [dark, setDark] = useState(true);
   const sunScene = useMemo(
     () => ({ disableStars: true, flareLength: 1.0 }),
     [],
   );
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const [sceneBottom, setSceneBottom] = useState<number | null>(null);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }, [dark]);
 
   useEffect(() => {
     const el = sceneRef.current;
@@ -43,27 +38,18 @@ export function Landing() {
           sceneBottom != null ? { height: `${sceneBottom}px` } : undefined
         }
       >
-        <AsciiStarfield dark={dark} />
+        <AsciiStarfield />
       </div>
       <div className="page">
         <header className="topbar">
           <div className="brand">
-            <MapOSLogo dark={dark} />
-            <span className="brand-name">MapOS</span>
+            <MapOSLogo />
           </div>
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={() => setDark((d) => !d)}
-            aria-label="Toggle theme"
-          >
-            {dark ? "☀" : "☾"}
-          </button>
         </header>
 
         <main className="stage">
           <div className="ascii-scene" ref={sceneRef}>
-            <AsciiSun dark={dark} scene={sunScene} />
+            <AsciiSun scene={sunScene} />
           </div>
           <section className="copy">
             <h1 className="tagline">Markdown maps for AI.</h1>

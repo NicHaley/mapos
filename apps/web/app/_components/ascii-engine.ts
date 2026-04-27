@@ -26,6 +26,7 @@ export type CellKind =
   | "flare"
   | "rim"
   | "planet"
+  | "surface"
   | "star"
   | "sky";
 
@@ -215,6 +216,39 @@ function sampleScene(
   if (insidePlanet) {
     b = Math.min(b, 0.02);
     b = Math.max(b, arcBrightness);
+
+    // Surface texture: re-project the screen point back onto the 3D sphere,
+    // then drift around the X-axis with ambientT so the planet appears to
+    // rotate "toward the sun" — front-face surface points climb upward and
+    // disappear over the top limb.
+    //
+    // X-axis rotation: latitude here is the angle from the +X pole
+    // (asin(dxA/R)); longitude is the angle in the YZ plane (atan2(dyA, dz)).
+    // Negative drift gives the upward motion. Cells near the top/bottom limb
+    // foreshorten naturally because longitude changes fast there for small
+    // dy, so the texture compresses and slows visually as a real sphere does.
+    if (arcBrightness < 0.1) {
+      const dz2 = arcRadius * arcRadius - dxA * dxA - dyA * dyA;
+      if (dz2 > 0) {
+        const dz = Math.sqrt(dz2);
+        const lat = Math.asin(
+          Math.max(-1, Math.min(1, dxA / arcRadius)),
+        );
+        const lng = Math.atan2(dyA, dz) - ambientT * 0.07;
+        const u = lng * 2.4;
+        const v = lat * 2.4;
+        const n =
+          Math.sin(u * 1.3 + v * 1.7) +
+          Math.sin(u * 2.9 - v * 2.1) * 0.6 +
+          Math.cos(u * 5.3 + v * 3.5) * 0.3;
+        const norm = (n + 1.9) / 3.8;
+        if (norm > 0.55) {
+          const land = (norm - 0.55) * 0.7;
+          if (land > b) return { b: land, kind: "surface" };
+        }
+      }
+    }
+
     return { b, kind: b > 0.1 ? "rim" : "planet" };
   }
   b = Math.max(b, arcBrightness);

@@ -2,7 +2,7 @@ import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikil
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -22,10 +22,10 @@ import type { FileNode, PlaceRecord } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { PhotonSearchPanel } from "./photon-search-panel";
 import { PropertiesPanel } from "./properties-panel";
-import { InputGroupButton } from "./ui/input-group";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
-import { ScrollArea } from "./ui/scroll-area";
-import { ErrorTooltip } from "./ui/tooltip";
+import { InputGroupButton } from "@mapos/ui/components/input-group";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@mapos/ui/components/popover";
+import { ScrollArea } from "@mapos/ui/components/scroll-area";
+import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 
 function formatPointLocationShort(geometryJson: string | undefined): string {
   if (!geometryJson) return "";

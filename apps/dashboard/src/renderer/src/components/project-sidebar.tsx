@@ -1,4 +1,4 @@
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import type { FileNode } from "@shared/types";
 import {
   ArrowLeftIcon,
@@ -29,16 +29,16 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle
-} from "./ui/alert-dialog";
-import { Button } from "./ui/button";
+} from "@mapos/ui/components/alert-dialog";
+import { Button } from "@mapos/ui/components/button";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger
-} from "./ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
+} from "@mapos/ui/components/context-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@mapos/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,9 +47,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger
-} from "./ui/dropdown-menu";
-import { InputGroup, InputGroupInput } from "./ui/input-group";
-import { Kbd, KbdGroup } from "./ui/kbd";
+} from "@mapos/ui/components/dropdown-menu";
+import { InputGroup, InputGroupInput } from "@mapos/ui/components/input-group";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import {
   Sidebar,
   SidebarContent,
@@ -61,8 +61,8 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
   useSidebar
-} from "./ui/sidebar";
-import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+} from "@mapos/ui/components/sidebar";
+import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 const MAPOS_DRAG_MIME = "application/x-mapos-node";
 

@@ -1,11 +1,11 @@
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
-import { Button } from "./ui/button";
-import { Kbd, KbdGroup } from "./ui/kbd";
-import { Separator } from "./ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Button } from "@mapos/ui/components/button";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { Separator } from "@mapos/ui/components/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 type NavTabsProps = {
   tabs: Array<{ id: string; title: string }>;

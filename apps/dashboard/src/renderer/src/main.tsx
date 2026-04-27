@@ -1,4 +1,4 @@
-import "./assets/main.css";
+import "@mapos/ui/globals.css";
 
 import { createRoot } from "react-dom/client";
 
@@ -15,7 +15,7 @@ if (!storedTheme || storedTheme === "system") {
   applyDark(storedTheme === "dark");
 }
 import App from "./app";
-import { TooltipProvider } from "./components/ui/tooltip";
+import { TooltipProvider } from "@mapos/ui/components/tooltip";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <TooltipProvider delay={300}>

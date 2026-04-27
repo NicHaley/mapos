@@ -1,4 +1,4 @@
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import { MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -10,10 +10,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle
-} from "./ui/alert-dialog";
-import { Button } from "./ui/button";
-import { Dialog, DialogContent } from "./ui/dialog";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./ui/input-group";
+} from "@mapos/ui/components/alert-dialog";
+import { Button } from "@mapos/ui/components/button";
+import { Dialog, DialogContent } from "@mapos/ui/components/dialog";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@mapos/ui/components/input-group";
 import {
   Sidebar,
   SidebarContent,
@@ -22,8 +22,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider
-} from "./ui/sidebar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+} from "@mapos/ui/components/sidebar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

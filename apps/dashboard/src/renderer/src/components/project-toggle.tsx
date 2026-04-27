@@ -1,6 +1,6 @@
 import { PanelLeftIcon } from "lucide-react";
-import { Button } from "./ui/button";
-import { useSidebar } from "./ui/sidebar";
+import { Button } from "@mapos/ui/components/button";
+import { useSidebar } from "@mapos/ui/components/sidebar";
 
 export function ProjectToggle(): React.JSX.Element {
   const { open, toggleSidebar } = useSidebar();

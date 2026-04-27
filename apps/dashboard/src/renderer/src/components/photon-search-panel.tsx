@@ -3,8 +3,8 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { type PhotonSearchResult, searchPhoton } from "@renderer/lib/photon";
-import { cn } from "@renderer/lib/utils";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";
+import { cn } from "@mapos/ui/lib/utils";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@mapos/ui/components/input-group";
 
 const DEBOUNCE_MS = 300;
 

@@ -5,7 +5,7 @@ import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/d
  * which steals editor focus and breaks TipTap's keyboard routing.
  * Positioning uses @floating-ui/dom (same lib base-ui uses internally).
  */
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 

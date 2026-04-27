@@ -4,10 +4,10 @@ import { type CSSProperties, type ReactElement, useCallback, useState } from "re
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
 import { PhotonSearchPanel } from "./photon-search-panel";
-import { Button } from "./ui/button";
-import { Kbd, KbdGroup } from "./ui/kbd";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Button } from "@mapos/ui/components/button";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@mapos/ui/components/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 export function PhotonSearchPopover({
   onSelectResult,

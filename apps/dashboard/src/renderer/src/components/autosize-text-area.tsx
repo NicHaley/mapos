@@ -1,7 +1,7 @@
 "use client";
 
 import { useMeasure } from "@renderer/hooks/use-measure";
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import { useCallback, useEffect } from "react";
 
 interface AutoSizeTextAreaProps {

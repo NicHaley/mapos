@@ -1,4 +1,4 @@
-import { cn } from "@renderer/lib/utils";
+import { cn } from "@mapos/ui/lib/utils";
 import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
@@ -28,25 +28,25 @@ import {
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton
-} from "./ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "./ai-elements/message";
+} from "@mapos/ui/components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "@mapos/ui/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea
-} from "./ai-elements/prompt-input";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "./ai-elements/reasoning";
-import { Shimmer } from "./ai-elements/shimmer";
-import { Button } from "./ui/button";
+} from "@mapos/ui/components/ai-elements/prompt-input";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@mapos/ui/components/ai-elements/reasoning";
+import { Shimmer } from "@mapos/ui/components/ai-elements/shimmer";
+import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
-} from "./ui/dropdown-menu";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "./ui/select";
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "./ui/sidebar";
+} from "@mapos/ui/components/dropdown-menu";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@mapos/ui/components/select";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@mapos/ui/components/sidebar";
 
 type ChatMessage = {
   id: string;

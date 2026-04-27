@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
-import { Calendar } from "./ui/calendar";
+import { Calendar } from "@mapos/ui/components/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,11 +29,11 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
-} from "./ui/dropdown-menu";
-import { Input } from "./ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { ScrollArea } from "./ui/scroll-area";
-import { Switch } from "./ui/switch";
+} from "@mapos/ui/components/dropdown-menu";
+import { Input } from "@mapos/ui/components/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@mapos/ui/components/popover";
+import { ScrollArea } from "@mapos/ui/components/scroll-area";
+import { Switch } from "@mapos/ui/components/switch";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/;

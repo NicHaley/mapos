@@ -123,7 +123,9 @@ const api = {
         ipcRenderer.off("fs:file-content-changed", listener);
       };
     },
-    removeListeners: () => ipcRenderer.removeAllListeners("fs:changed")
+    removeListeners: (): void => {
+      ipcRenderer.removeAllListeners("fs:changed");
+    }
   },
   mapos: {
     getVaultsConfig: () =>
@@ -189,6 +191,8 @@ const api = {
     }
   }
 };
+
+export type PreloadApi = typeof api;
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

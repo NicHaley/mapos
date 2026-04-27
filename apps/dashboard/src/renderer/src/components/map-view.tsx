@@ -27,7 +27,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
-} from "./ui/dropdown-menu";
+} from "@mapos/ui/components/dropdown-menu";
 
 export type { PlaceRecord };
 

@@ -103,8 +103,15 @@ export function AsciiStarfield({
   }, [stars, ambientT, grid.cols, grid.rows]);
 
   return (
-    <div className="ascii-starfield" ref={wrapRef} aria-hidden="true">
-      <pre className="ascii-pre" style={{ color: "#525252", padding: 0 }}>
+    <div
+      className="h-full w-full font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] sm:text-[11px]"
+      ref={wrapRef}
+      aria-hidden="true"
+    >
+      <pre
+        className="m-0 h-full w-full whitespace-pre font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
+        style={{ color: "#525252", padding: 0 }}
+      >
         {text}
       </pre>
     </div>

@@ -123,11 +123,17 @@ export function AsciiSun({
   }, [frame]);
 
   return (
-    <div className="ascii-wrap" ref={wrapRef}>
-      <pre className="ascii-pre" aria-hidden="true">
+    <div
+      className="relative h-full w-full overflow-hidden font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] sm:text-[11px]"
+      ref={wrapRef}
+    >
+      <pre
+        className="m-0 p-0 whitespace-pre font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
+        aria-hidden="true"
+      >
         {colored.map((runs, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: row index is the natural stable key for the ascii grid
-          <div key={i} className="ascii-line">
+          <div key={i} className="whitespace-pre">
             {runs.map((run, j) => (
               <span
                 // biome-ignore lint/suspicious/noArrayIndexKey: run order within a row is stable per frame

@@ -36,9 +36,11 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="dark"
-      className={`${geistSans.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
+      className={`dark ${geistSans.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
     >
-      <body>{children}</body>
+      <body className="min-h-screen bg-neutral-950 text-neutral-50 antialiased font-[family-name:var(--font-geist-sans)] overflow-x-hidden">
+        {children}
+      </body>
     </html>
   );
 }

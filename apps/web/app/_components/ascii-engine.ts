@@ -111,6 +111,14 @@ function sampleScene(
   const dyAdj = dyS * yScale;
   const distSun = Math.sqrt(dxS * dxS + dyAdj * dyAdj);
 
+  // Planet geometry — computed up here so the sun-core early-return below
+  // can suppress the bright core glyphs while the sun is still rising behind
+  // the limb (otherwise '@' chars render *over* the earth).
+  const dxA = x;
+  const dyA = y - arcCenterY;
+  const distArc = Math.sqrt(dxA * dxA + dyA * dyA);
+  const insidePlanet = distArc < arcRadius - 0.005;
+
   // Brightness envelope: dark → bright → settle. After rise (t=1) the sun
   // holds full intensity so it hangs in place.
   let intensity: number;
@@ -141,7 +149,7 @@ function sampleScene(
       Math.sin(ambientT * 0.9 + dxS * 1.3);
 
   let b = 0;
-  if (distSun < sunSize * 0.45) {
+  if (!insidePlanet && distSun < sunSize * 0.45) {
     return { b: Math.min(1, 0.9 + 0.1 * intensity), kind: "sun-core" };
   }
 
@@ -194,10 +202,7 @@ function sampleScene(
   // Apply ambient shimmer to corona/halo/flare/ray cells (not the core).
   b *= shimmer;
 
-  // Planet limb arc.
-  const dxA = x - 0;
-  const dyA = y - arcCenterY;
-  const distArc = Math.sqrt(dxA * dxA + dyA * dyA);
+  // Planet limb arc — uses dxA/dyA/distArc/insidePlanet computed above.
   const arcDelta = distArc - arcRadius;
   let arcBrightness = 0;
   if (Math.abs(arcDelta) < 0.1) {
@@ -212,7 +217,6 @@ function sampleScene(
   }
 
   // Inside planet body — crush to near-black, but allow rim glow through.
-  const insidePlanet = distArc < arcRadius - 0.005;
   if (insidePlanet) {
     b = Math.min(b, 0.02);
     b = Math.max(b, arcBrightness);

@@ -7,10 +7,7 @@ import { AsciiSun } from "./ascii-sun";
 import { MapOSLogo } from "./mapos-logo";
 
 export function Landing() {
-  const sunScene = useMemo(
-    () => ({ disableStars: true, flareLength: 1.0 }),
-    [],
-  );
+  const sunScene = useMemo(() => ({ disableStars: true, flareLength: 1.0 }), []);
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const [sceneBottom, setSceneBottom] = useState<number | null>(null);
 
@@ -35,9 +32,7 @@ export function Landing() {
       <div
         className="fixed inset-x-0 top-0 z-0 h-screen overflow-hidden pointer-events-none"
         aria-hidden="true"
-        style={
-          sceneBottom != null ? { height: `${sceneBottom}px` } : undefined
-        }
+        style={sceneBottom != null ? { height: `${sceneBottom}px` } : undefined}
       >
         <AsciiStarfield />
       </div>
@@ -55,11 +50,10 @@ export function Landing() {
           </div>
           <section className="mx-auto flex max-w-[640px] flex-col items-center gap-3.5">
             <h1 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[38px] leading-[1.02] font-normal italic tracking-[-0.015em] text-neutral-50 sm:text-[clamp(36px,5.2vw,56px)]">
-              Markdown maps for AI.
+              Spatial Notes.
             </h1>
             <p className="m-0 max-w-[48ch] text-center text-[15px] leading-[1.55] text-neutral-300">
-              A plaintext map format your agents can actually read, write, and
-              reason about.
+              A plaintext map format your agents can actually read, write, and reason about.
             </p>
             <div className="mt-1.5 flex flex-wrap flex-col items-center justify-center gap-3.5">
               <a

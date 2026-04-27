@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SiApple } from "react-icons/si";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { MapOSLogo } from "./mapos-logo";
@@ -65,15 +66,7 @@ export function Landing() {
                 className="inline-flex items-center gap-2 rounded-lg bg-neutral-50 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-neutral-950 no-underline transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:translate-y-px [&_svg]:-mt-px"
                 href="#download"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M16.365 1.43c0 1.14-.42 2.21-1.14 3.04-.78.92-2.05 1.62-3.27 1.53-.15-1.1.41-2.27 1.16-3.06.83-.87 2.22-1.51 3.25-1.51zM20.5 17.36c-.56 1.27-.83 1.84-1.55 2.97-1.01 1.59-2.43 3.57-4.18 3.58-1.55.02-1.95-1.01-4.06-1-2.11.01-2.55 1.02-4.1 1-1.75-.02-3.1-1.81-4.11-3.4C-.27 17.04-.74 11.66 1.86 8.62c1.18-1.4 3.05-2.29 4.79-2.29 1.78 0 2.9 1 4.36 1 1.42 0 2.28-1 4.34-1 1.55 0 3.2.85 4.37 2.31-3.84 2.11-3.21 7.59 0 8.72z" />
-                </svg>
+                <SiApple size={14} aria-hidden="true" />
                 Download for macOS
               </a>
               <span className="font-[family-name:var(--font-jetbrains-mono)] text-[11.5px] tracking-[0.01em] text-neutral-500">

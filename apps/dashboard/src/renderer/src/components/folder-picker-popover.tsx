@@ -1,14 +1,13 @@
 import type { FileNode } from "@shared/types";
-import { FolderIcon, FolderPlusIcon, HomeIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FolderIcon, HomeIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
-  CommandList,
-  CommandSeparator
+  CommandList
 } from "@mapos/ui/components/command";
 import {
   Popover,
@@ -23,9 +22,10 @@ function flattenFolders(nodes: FileNode[], vaultRoot: string, depth = 0): Folder
   const out: FolderEntry[] = [];
   for (const node of nodes) {
     if (node.type !== "directory") continue;
-    const relPath = vaultRoot && node.path.startsWith(vaultRoot)
-      ? node.path.slice(vaultRoot.length).replace(/^[/\\]/, "")
-      : node.path;
+    const relPath =
+      vaultRoot && node.path.startsWith(vaultRoot)
+        ? node.path.slice(vaultRoot.length).replace(/^[/\\]/, "")
+        : node.path;
     out.push({ path: node.path, relPath, depth });
     if (node.children?.length) {
       out.push(...flattenFolders(node.children, vaultRoot, depth + 1));
@@ -51,47 +51,18 @@ export function FolderPickerPopover({
   onSelect: (folderPath: string | null) => void;
   title?: string;
 }): React.JSX.Element {
-  const [vaultRoot, setVaultRoot] = useState<string>("");
   const [folders, setFolders] = useState<FolderEntry[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
-  const newFolderInputRef = useRef<HTMLInputElement | null>(null);
-
-  const reload = useCallback(async () => {
-    const [root, nodes] = await Promise.all([
-      window.api.fs.getVaultRoot(),
-      window.api.fs.listDir()
-    ]);
-    setVaultRoot(root);
-    setFolders(flattenFolders(nodes, root));
-  }, []);
 
   useEffect(() => {
-    if (!open) {
-      setCreating(false);
-      setNewFolderName("");
-      setCreateError(null);
-      return;
-    }
-    void reload();
-  }, [open, reload]);
-
-  useEffect(() => {
-    if (creating) {
-      // Tick after render so Popover has positioned the new input.
-      requestAnimationFrame(() => newFolderInputRef.current?.focus());
-    }
-  }, [creating]);
-
-  const defaultLabel = useMemo(() => {
-    if (!defaultParentFolderPath) return "Vault root";
-    if (vaultRoot && defaultParentFolderPath.startsWith(vaultRoot)) {
-      const rel = defaultParentFolderPath.slice(vaultRoot.length).replace(/^[/\\]/, "");
-      return rel || "Vault root";
-    }
-    return defaultParentFolderPath;
-  }, [defaultParentFolderPath, vaultRoot]);
+    if (!open) return;
+    void (async () => {
+      const [root, nodes] = await Promise.all([
+        window.api.fs.getVaultRoot(),
+        window.api.fs.listDir()
+      ]);
+      setFolders(flattenFolders(nodes, root));
+    })();
+  }, [open]);
 
   const handleSelect = useCallback(
     (folderPath: string | null) => {
@@ -100,33 +71,6 @@ export function FolderPickerPopover({
     },
     [onOpenChange, onSelect]
   );
-
-  async function submitNewFolder() {
-    const name = newFolderName.trim();
-    if (!name) return;
-    if (!vaultRoot) return;
-    const result = await window.api.fs.createFolder({
-      parentFolderPath: vaultRoot,
-      folderName: name
-    });
-    if (!result.success) {
-      setCreateError(result.error ?? "Could not create folder");
-      return;
-    }
-    handleSelect(result.folderPath);
-  }
-
-  function handleNewFolderKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void submitNewFolder();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setCreating(false);
-      setNewFolderName("");
-      setCreateError(null);
-    }
-  }
 
   const isDefaultRoot = defaultParentFolderPath === null;
 
@@ -140,10 +84,7 @@ export function FolderPickerPopover({
           <CommandList>
             <CommandEmpty>No folders found.</CommandEmpty>
             <CommandGroup heading="Save to">
-              <CommandItem
-                value="vault root"
-                onSelect={() => handleSelect(null)}
-              >
+              <CommandItem value="vault root" onSelect={() => handleSelect(null)}>
                 <HomeIcon />
                 <span className="truncate">Vault root</span>
                 {isDefaultRoot && (
@@ -167,38 +108,6 @@ export function FolderPickerPopover({
                   </CommandItem>
                 );
               })}
-            </CommandGroup>
-            <CommandSeparator />
-            <CommandGroup>
-              {creating ? (
-                <div className="flex flex-col gap-1 px-2 py-1.5">
-                  <div className="flex items-center gap-2">
-                    <FolderPlusIcon className="size-4 shrink-0 text-muted-foreground" />
-                    <input
-                      ref={newFolderInputRef}
-                      value={newFolderName}
-                      onChange={(e) => {
-                        setNewFolderName(e.target.value);
-                        setCreateError(null);
-                      }}
-                      onKeyDown={handleNewFolderKeyDown}
-                      placeholder="New folder name"
-                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                    />
-                  </div>
-                  {createError && (
-                    <span className="pl-6 text-xs text-destructive">{createError}</span>
-                  )}
-                </div>
-              ) : (
-                <CommandItem
-                  value="__create_new_folder__"
-                  onSelect={() => setCreating(true)}
-                >
-                  <FolderPlusIcon />
-                  <span>New folder…</span>
-                </CommandItem>
-              )}
             </CommandGroup>
           </CommandList>
         </Command>

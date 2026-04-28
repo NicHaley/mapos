@@ -43,8 +43,6 @@ export type Route = {
   distanceMeters: number;
   durationSeconds: number;
   geometry: GeoJSON.LineString;
-  /** Google-style encoded polyline at precision 6. Same shape as `geometry.coordinates`, in compact form for low-bandwidth handoff to renderers. */
-  polyline: string;
   maneuvers: Maneuver[];
 };
 

@@ -12,7 +12,6 @@ import { type BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
 import {
   computeBbox,
-  decodePolyline,
   forwardGeocode,
   getDirections,
   getIsochrone,
@@ -116,14 +115,14 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
-- \`get_directions\` — road/walk/bike route between two or more locations. Returns a \`geometry\` (GeoJSON LineString), a compact \`polyline\` string (precision 6, Google-style encoded; same shape as \`geometry.coordinates\`), summary distance/duration, and turn-by-turn maneuvers.
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry. Do not try to retrieve, decode, or downsample route geometry yourself.
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) against the community Valhalla instance.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
 After calling any of these, display the results with \`render_overlay_on_map\`:
 - points from \`geocode_search\` / \`reverse_geocode\` → the \`points\` array
-- a route from \`get_directions\` → a \`lines\` entry. Pass the route's \`polyline\` field (the precision-6 encoded string) directly — do NOT re-emit \`geometry.coordinates\`. Long routes have thousands of points and re-emitting them blows the output budget.
+- a route from \`get_directions\` → a \`lines\` entry with \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
 - each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`polygons\` entry
 
 Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
@@ -148,13 +147,30 @@ export function createMaposMcpServer(
   onOverlayUpdate: (overlay: MapOverlayPayload | null) => void,
   getOverlay: () => MapOverlayPayload | null | undefined
 ) {
+  // Pass-by-reference store for large geometries returned to the agent.
+  // The agent gets a short id and hands it back to render tools instead
+  // of re-emitting tens of thousands of tokens of coordinates/polyline.
+  const routeStore = new Map<string, [number, number][]>();
+  let routeSeq = 0;
+  const stashRoute = (coords: [number, number][]): string => {
+    routeSeq++;
+    const id = `route_${routeSeq}`;
+    routeStore.set(id, coords);
+    // Bound memory: keep last 50 routes.
+    if (routeStore.size > 50) {
+      const oldest = routeStore.keys().next().value;
+      if (oldest != null) routeStore.delete(oldest);
+    }
+    return id;
+  };
+
   return createSdkMcpServer({
     name: "mapos",
     version: "1.0.0",
     tools: [
       tool(
         "render_overlay_on_map",
-        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For long routes from get_directions, prefer passing the route's `polyline` string to a `lines` entry instead of re-emitting `geometry.coordinates` — saves thousands of tokens.",
+        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
         {
           points: z
             .array(
@@ -175,21 +191,17 @@ export function createMaposMcpServer(
             .array(
               z
                 .object({
-                  coordinates: z
-                    .array(z.tuple([z.number(), z.number()]))
-                    .optional()
-                    .describe("Array of [longitude, latitude] pairs. Provide this OR `polyline`."),
-                  polyline: z
+                  route_id: z
                     .string()
                     .optional()
                     .describe(
-                      "Google-style encoded polyline (precision 6 by default — matches the `polyline` field returned by get_directions). Provide this OR `coordinates`."
+                      "Opaque id returned by get_directions. Preferred for routes — server resolves to the full geometry without re-transmitting it through the LLM."
                     ),
-                  polyline_precision: z
-                    .union([z.literal(5), z.literal(6)])
+                  coordinates: z
+                    .array(z.tuple([z.number(), z.number()]))
                     .optional()
                     .describe(
-                      "Precision of `polyline`. 6 for Valhalla / get_directions (default). 5 for Google/Mapbox-standard polylines."
+                      "Array of [longitude, latitude] pairs. Use only for short, hand-built lines."
                     ),
                   title: z.string().optional(),
                   id: z.string().optional(),
@@ -198,8 +210,8 @@ export function createMaposMcpServer(
                     .optional()
                     .describe("Optional markdown shown in the place preview card before save")
                 })
-                .refine((l) => !!l.coordinates || !!l.polyline, {
-                  message: "Each line must include either `coordinates` or `polyline`."
+                .refine((l) => !!l.route_id || !!l.coordinates, {
+                  message: "Each line must include `route_id` or `coordinates`."
                 })
             )
             .optional()
@@ -238,7 +250,18 @@ export function createMaposMcpServer(
               ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
             }));
             const lines = (args.lines ?? []).map((l, i) => {
-              const coordinates = l.coordinates ?? decodePolyline(l.polyline ?? "", l.polyline_precision ?? 6);
+              let coordinates: [number, number][];
+              if (l.route_id) {
+                const stored = routeStore.get(l.route_id);
+                if (!stored) {
+                  throw new Error(
+                    `Unknown route_id "${l.route_id}". Routes are cached in-memory; if the server restarted or the route was evicted, call get_directions again.`
+                  );
+                }
+                coordinates = stored;
+              } else {
+                coordinates = l.coordinates ?? [];
+              }
               return {
                 id: l.id ?? `overlay-line-${i}`,
                 coordinates,
@@ -457,7 +480,7 @@ export function createMaposMcpServer(
       ),
       tool(
         "get_directions",
-        "Compute a route between two or more locations via Valhalla. Returns distance (meters), duration (seconds), a GeoJSON LineString `geometry`, a compact precision-6 encoded `polyline` (same shape as the geometry coords), and turn-by-turn maneuvers. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. To render the route, pass the `polyline` to a `render_overlay_on_map` lines entry — do not re-emit the coordinate array.",
+        "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
         {
           locations: z
             .array(z.object({ lat: z.number(), lng: z.number() }))
@@ -471,7 +494,15 @@ export function createMaposMcpServer(
               locations: args.locations,
               costing: args.costing
             });
-            return { content: [{ type: "text", text: JSON.stringify(route) }] };
+            const route_id = stashRoute(route.geometry.coordinates);
+            const visible = {
+              distanceMeters: route.distanceMeters,
+              durationSeconds: route.durationSeconds,
+              route_id,
+              pointCount: route.geometry.coordinates.length,
+              maneuvers: route.maneuvers
+            };
+            return { content: [{ type: "text", text: JSON.stringify(visible) }] };
           } catch (err) {
             return { content: [{ type: "text", text: errorPayload(err) }] };
           }

@@ -669,14 +669,12 @@ export function ChatSidebar({
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
   const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
   const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
-  /** Show a heartbeat whenever the turn is in flight but no tool is currently spinning AND the Reasoning block isn't already showing its own streaming indicator. Covers initial gap, between-tool gaps, and post-text/pre-tool pauses where the UI would otherwise look frozen. */
-  const reasoningIsStreaming = streamingThinking !== "" && streamingContent === "";
-  const showHeartbeat =
+  /** Pre-chunk gap: request is in flight but nothing has appeared in the transcript yet. */
+  const awaitingFirstToken =
     assistantPending &&
-    activeToolCalls.every((tc) => tc.status !== "running") &&
-    !reasoningIsStreaming;
-  const heartbeatLabel =
-    streamingContent || activeToolCalls.length > 0 ? "Thinking…" : "Working on it…";
+    streamingThinking === "" &&
+    streamingContent === "" &&
+    activeToolCalls.length === 0;
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -731,12 +729,15 @@ export function ChatSidebar({
       <SidebarContent className="overflow-hidden p-0">
         <Conversation className="prose prose-sm">
           <ConversationContent>
-            {messages.length === 0 && !loading && (
-              <ConversationEmptyState
-                title=""
-                description="Ask about your saved places, notes, or get help organizing your map."
-              />
-            )}
+            {messages.length === 0 &&
+              !awaitingFirstToken &&
+              !streamingThinking &&
+              !streamingContent && (
+                <ConversationEmptyState
+                  title=""
+                  description="Ask about your saved places, notes, or get help organizing your map."
+                />
+              )}
 
             {messages.map((msg) => {
               return msg.role === "error" ? (
@@ -774,10 +775,21 @@ export function ChatSidebar({
               );
             })}
 
-            {(showHeartbeat ||
-              streamingThinking ||
-              streamingContent ||
-              activeToolCalls.length > 0) && (
+            {awaitingFirstToken && (
+              <Message from="assistant">
+                <div
+                  className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
+                  aria-live="polite"
+                >
+                  <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+                  <Shimmer as="span" duration={1}>
+                    Working on it…
+                  </Shimmer>
+                </div>
+              </Message>
+            )}
+
+            {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
               <Message from="assistant">
                 {streamingThinking && (
                   <Reasoning isStreaming={!streamingContent}>
@@ -800,17 +812,6 @@ export function ChatSidebar({
                   <MessageContent>
                     <MessageResponse isAnimating>{streamingContent}</MessageResponse>
                   </MessageContent>
-                )}
-                {showHeartbeat && (
-                  <div
-                    className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
-                    aria-live="polite"
-                  >
-                    <BrainIcon className="size-3.5 shrink-0" aria-hidden />
-                    <Shimmer as="span" duration={1}>
-                      {heartbeatLabel}
-                    </Shimmer>
-                  </div>
                 )}
               </Message>
             )}

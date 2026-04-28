@@ -4,16 +4,16 @@ import { fetchJson } from "./http";
 import type { LatLng, Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "./types";
 
 /**
- * Decode a Google-style encoded polyline. Default precision is 6 (Valhalla's
- * `shape` field); pass 5 for Google/Mapbox-standard polylines. Returns
- * `[lng, lat]` pairs so it drops directly into a GeoJSON LineString.
+ * Decode a Google-style encoded polyline with 6 digits of precision (Valhalla's
+ * default for the `shape` field in /route responses). Returns `[lng, lat]` pairs
+ * so it can drop directly into a GeoJSON LineString.
  */
-export function decodePolyline(encoded: string, precision = 6): [number, number][] {
+function decodePolyline6(encoded: string): [number, number][] {
   const coords: [number, number][] = [];
-  const factor = 10 ** precision;
   let index = 0;
   let lat = 0;
   let lng = 0;
+  const precision = 1e6;
 
   while (index < encoded.length) {
     let result = 0;
@@ -37,36 +37,9 @@ export function decodePolyline(encoded: string, precision = 6): [number, number]
     const dLng = result & 1 ? ~(result >> 1) : result >> 1;
     lng += dLng;
 
-    coords.push([lng / factor, lat / factor]);
+    coords.push([lng / precision, lat / precision]);
   }
   return coords;
-}
-
-/** Encode `[lng, lat]` pairs into a Google-style polyline at the given precision. */
-export function encodePolyline(coords: ReadonlyArray<readonly [number, number]>, precision = 6): string {
-  const factor = 10 ** precision;
-  let prevLat = 0;
-  let prevLng = 0;
-  let out = "";
-  const encodeSigned = (n: number): string => {
-    let v = n < 0 ? ~(n << 1) : n << 1;
-    let s = "";
-    while (v >= 0x20) {
-      s += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
-      v >>= 5;
-    }
-    s += String.fromCharCode(v + 63);
-    return s;
-  };
-  for (const [lng, lat] of coords) {
-    const latI = Math.round(lat * factor);
-    const lngI = Math.round(lng * factor);
-    out += encodeSigned(latI - prevLat);
-    out += encodeSigned(lngI - prevLng);
-    prevLat = latI;
-    prevLng = lngI;
-  }
-  return out;
 }
 
 const ValhallaManeuverSchema = z.object({
@@ -136,7 +109,7 @@ export async function getDirections(
   const maneuvers: Maneuver[] = [];
   for (const leg of trip.legs) {
     if (leg.shape) {
-      const decoded = decodePolyline(leg.shape, 6);
+      const decoded = decodePolyline6(leg.shape);
       for (let i = 0; i < decoded.length; i++) {
         // Avoid duplicating the seam point between legs
         if (i === 0 && allCoords.length > 0) continue;
@@ -161,7 +134,6 @@ export async function getDirections(
     distanceMeters,
     durationSeconds,
     geometry: { type: "LineString", coordinates: allCoords },
-    polyline: encodePolyline(allCoords, 6),
     maneuvers
   };
 }
@@ -252,7 +224,7 @@ export async function mapMatchRoute(
   const maneuvers: Maneuver[] = [];
   for (const leg of trip.legs) {
     if (leg.shape) {
-      const decoded = decodePolyline(leg.shape, 6);
+      const decoded = decodePolyline6(leg.shape);
       for (let i = 0; i < decoded.length; i++) {
         if (i === 0 && allCoords.length > 0) continue;
         const pt = decoded[i];
@@ -272,7 +244,6 @@ export async function mapMatchRoute(
     distanceMeters: Math.round((trip.summary?.length ?? 0) * 1000),
     durationSeconds: Math.round(trip.summary?.time ?? 0),
     geometry: { type: "LineString", coordinates: allCoords },
-    polyline: encodePolyline(allCoords, 6),
     maneuvers
   };
 }

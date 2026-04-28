@@ -11,7 +11,8 @@ import type {
   OverlayPolygon,
   PersistedMessage,
   PlaceRecord,
-  PlaceUpdate
+  PlaceUpdate,
+  PropertyType
 } from "../shared/types";
 
 type ViewportState = {
@@ -130,7 +131,7 @@ declare global {
         deleteVault: () => Promise<{ ok: true } | { ok: false; error: string }>;
       };
       properties: {
-        listAllKeys: () => Promise<string[]>;
+        listAllKeys: () => Promise<Array<{ key: string; type: PropertyType }>>;
         valuesForKey: (key: string) => Promise<string[]>;
       };
       chat: {

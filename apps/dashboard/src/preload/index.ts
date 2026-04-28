@@ -3,7 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
-  MapOverlayPayload
+  MapOverlayPayload,
+  PropertyType
 } from "../shared/types";
 
 // Custom APIs for renderer
@@ -157,7 +158,10 @@ const api = {
       >
   },
   properties: {
-    listAllKeys: () => ipcRenderer.invoke("properties:list-all-keys") as Promise<string[]>,
+    listAllKeys: () =>
+      ipcRenderer.invoke("properties:list-all-keys") as Promise<
+        Array<{ key: string; type: PropertyType }>
+      >,
     valuesForKey: (key: string) =>
       ipcRenderer.invoke("properties:values-for-key", key) as Promise<string[]>
   },

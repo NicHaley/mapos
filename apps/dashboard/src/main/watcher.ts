@@ -2,7 +2,6 @@ import {
   type Stats,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -18,7 +17,7 @@ import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
 import {
   closeDb,
-  getAllPropertyKeys,
+  getAllPropertyKeysWithTypes,
   getFeatureCount,
   indexFeatures,
   initDb,
@@ -255,14 +254,11 @@ export function setupPlacesWatcher(
    * so the file tree stays live when files are dropped in or removed externally.
    * No `change` handler: content edits don't affect what the tree shows.
    */
-  const nonPlaceWatcher = chokidar.watch(
-    `${vaultRoot}/**/*.{geojson,png,jpg,jpeg,gif}`,
-    {
-      ignoreInitial: true, // startup listing is covered by readDirTree
-      ignored: /(^|[/\\])(\.|node_modules)/,
-      ...(process.versions.electron ? { useFsEvents: false as const } : {})
-    }
-  );
+  const nonPlaceWatcher = chokidar.watch(`${vaultRoot}/**/*.{geojson,png,jpg,jpeg,gif}`, {
+    ignoreInitial: true, // startup listing is covered by readDirTree
+    ignored: /(^|[/\\])(\.|node_modules)/,
+    ...(process.versions.electron ? { useFsEvents: false as const } : {})
+  });
   nonPlaceWatcher.on("add", () => notifyFsChanged());
   nonPlaceWatcher.on("unlink", () => notifyFsChanged());
   // Content changes to a file that's currently rendered (e.g. an external AI edits
@@ -479,7 +475,7 @@ export function setupPlacesWatcher(
     }
   });
 
-  ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeys());
+  ipcMain.handle("properties:list-all-keys", () => getAllPropertyKeysWithTypes());
 
   ipcMain.handle("properties:values-for-key", (_event, key: string) => {
     if (typeof key !== "string" || !key.trim()) return [] as string[];

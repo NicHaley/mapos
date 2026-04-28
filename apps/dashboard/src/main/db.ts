@@ -6,11 +6,16 @@ import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import type { PlaceRecord } from "../shared/types";
+import type { PlaceRecord, PropertyType } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
+import { inferPropertyType } from "../shared/property-inference";
 
-/** Bump when the DDL below changes; local dev — no incremental upgrades. */
-const CURRENT_SCHEMA_VERSION = 1;
+/**
+ * Bump when the DDL below changes; local dev — no incremental upgrades.
+ * Bumping triggers a DROP+CREATE of the affected tables; the watcher's initial
+ * scan immediately re-populates them, so the only cost is the rebuild itself.
+ */
+const CURRENT_SCHEMA_VERSION = 2;
 
 export const features = sqliteTable("features", {
   rowid: integer("rowid").primaryKey({ autoIncrement: true }),
@@ -26,7 +31,8 @@ export const featureProperties = sqliteTable(
   {
     feature_id: text("feature_id").notNull(),
     key: text("key").notNull(),
-    value: text("value").notNull()
+    value: text("value").notNull(),
+    type: text("type").$type<PropertyType>().notNull()
   },
   (t) => [
     primaryKey({ columns: [t.feature_id, t.key, t.value] }),
@@ -40,6 +46,10 @@ const schema = { features, featureProperties };
 function applyMigrations(sqlite: Database.Database): void {
   const row = sqlite.prepare("PRAGMA user_version").get() as { user_version: number };
   if (row.user_version >= CURRENT_SCHEMA_VERSION) return;
+
+  // Drop tables whose DDL has changed since the last version we shipped — the
+  // watcher's initial scan repopulates feature_properties on startup.
+  sqlite.exec("DROP TABLE IF EXISTS feature_properties;");
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS features (
@@ -57,6 +67,7 @@ function applyMigrations(sqlite: Database.Database): void {
       feature_id TEXT NOT NULL,
       key TEXT NOT NULL,
       value TEXT NOT NULL,
+      type TEXT NOT NULL,
       PRIMARY KEY (feature_id, key, value)
     );
     CREATE INDEX IF NOT EXISTS idx_fp_key_value ON feature_properties(key, value);
@@ -332,12 +343,15 @@ export function replaceFeaturePropertiesForFile(
         if (typeof raw === "boolean") return String(raw);
         return null;
       };
+      // Type comes from the original (pre-stringify) value so arrays stay
+      // multi_select, dates stay date, etc. — the value column loses that info.
+      const type = inferPropertyType(v);
       let inserted = false;
       for (const item of Array.isArray(v) ? v : [v]) {
         const s = toStr(item);
         if (s) {
           tx.insert(featureProperties)
-            .values({ feature_id: featureId, key: k, value: s })
+            .values({ feature_id: featureId, key: k, value: s, type })
             .onConflictDoNothing()
             .run();
           inserted = true;
@@ -346,7 +360,7 @@ export function replaceFeaturePropertiesForFile(
       // Key exists but has no indexable values — sentinel row so the key remains discoverable
       if (!inserted) {
         tx.insert(featureProperties)
-          .values({ feature_id: featureId, key: k, value: "" })
+          .values({ feature_id: featureId, key: k, value: "", type })
           .onConflictDoNothing()
           .run();
       }
@@ -368,6 +382,20 @@ export function getAllPropertyKeys(): string[] {
     .orderBy(asc(featureProperties.key))
     .all()
     .map((r) => r.key);
+}
+
+/**
+ * Distinct property keys with their inferred type. Type is captured at index
+ * time and stored on each row, so this is one indexed query — no disk reads.
+ * If the same key appears with multiple types across files we just take one
+ * (alphabetically first); types are consistent in practice.
+ */
+export function getAllPropertyKeysWithTypes(): Array<{ key: string; type: PropertyType }> {
+  const sqlite = getSqlite();
+  const rows = sqlite
+    .prepare("SELECT key, MIN(type) AS type FROM feature_properties GROUP BY key ORDER BY key")
+    .all() as Array<{ key: string; type: PropertyType }>;
+  return rows;
 }
 
 /** Which of the candidate keys have zero rows in feature_properties (vault-wide). */

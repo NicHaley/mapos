@@ -18,7 +18,7 @@ import {
   XIcon
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { FileNode, PlaceRecord } from "../../../shared/types";
+import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { PhotonSearchPanel } from "./photon-search-panel";
 import { PropertiesPanel } from "./properties-panel";
@@ -59,7 +59,12 @@ function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
 type LoadedDoc =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "vault"; body: string; frontmatter: Record<string, unknown>; keys: string[] }
+  | {
+      kind: "vault";
+      body: string;
+      frontmatter: Record<string, unknown>;
+      keys: Array<{ key: string; type: PropertyType }>;
+    }
   | { kind: "preview"; body: string }
   | {
       kind: "geojson-layer";
@@ -634,7 +639,7 @@ export function PlaceCard({
           <PropertiesPanel
             filePath={currentFilePath}
             frontmatter={doc.frontmatter}
-            allVaultKeys={doc.keys}
+            allVaultKeyTypes={doc.keys}
           />
         )}
         {doc.kind === "geojson-layer" &&
@@ -647,7 +652,7 @@ export function PlaceCard({
               <PropertiesPanel
                 filePath={currentFilePath}
                 frontmatter={gjFrontmatter}
-                allVaultKeys={[]}
+                allVaultKeyTypes={[]}
                 onWriteProperty={async (key, value) => {
                   await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
                 }}

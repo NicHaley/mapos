@@ -14,9 +14,12 @@ import {
 } from "lucide-react";
 import { Reorder } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { z } from "zod";
 import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import {
+  defaultValueForType,
+  inferPropertyType
+} from "../../../shared/property-inference";
 import { Calendar } from "@mapos/ui/components/calendar";
 import {
   DropdownMenu,
@@ -98,32 +101,6 @@ function typeIcon(type: PropertyType): React.ReactNode {
   return PROPERTY_TYPES.find((t) => t.value === type)?.icon ?? <TextIcon className="size-4" />;
 }
 
-function defaultValueForType(type: PropertyType): unknown {
-  if (type === "number") return 0;
-  if (type === "date") return new Date().toISOString().slice(0, 10);
-  if (type === "checkbox") return false;
-  if (type === "multi_select") return [];
-  return "";
-}
-
-const inferenceRules: Array<[PropertyType, z.ZodType]> = [
-  ["multi_select", z.array(z.unknown())],
-  ["checkbox", z.boolean()],
-  ["number", z.number()],
-  ["date", z.string().regex(/^(?:\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?)$/)]
-];
-
-function inferPropertyType(value: unknown): PropertyType | null {
-  for (const [type, schema] of inferenceRules) {
-    if (schema.safeParse(value).success) return type;
-  }
-  return null;
-}
-
-function effectivePropertyType(value: unknown): PropertyType {
-  return inferPropertyType(value) ?? "text";
-}
-
 function coerceToType(value: unknown, type: PropertyType): unknown {
   switch (type) {
     case "text":
@@ -167,12 +144,15 @@ function isEmptyPropertyValue(value: unknown): boolean {
 }
 
 /** Keys present anywhere in the vault but not yet on this file, sorted alphabetically. */
-function existingPropertyKeysNotOnFile(allVaultKeys: string[], fileKeys: string[]): string[] {
+function existingPropertyKeysNotOnFile(
+  allVaultKeyTypes: Array<{ key: string; type: PropertyType }>,
+  fileKeys: string[]
+): Array<{ key: string; type: PropertyType }> {
   const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
   const onFile = new Set(fileKeys);
-  return allVaultKeys
-    .filter((k) => !onFile.has(k) && !reserved.has(k))
-    .sort((a, b) => a.localeCompare(b));
+  return allVaultKeyTypes
+    .filter(({ key }) => !onFile.has(key) && !reserved.has(key))
+    .sort((a, b) => a.key.localeCompare(b.key));
 }
 
 // ─── PropertyKey ────────────────────────────────────────────────────────────
@@ -238,7 +218,7 @@ function PropertyKey({
     }
   }
 
-  const effective = effectivePropertyType(value);
+  const effective = inferPropertyType(value);
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
@@ -696,7 +676,12 @@ function PropertyValue({
 interface PropertiesPanelProps {
   filePath: string;
   frontmatter: Record<string, unknown>;
-  allVaultKeys: string[];
+  /**
+   * Property keys discovered anywhere in the vault, paired with the type inferred
+   * from a sample file's frontmatter. Used so adding an existing property re-uses
+   * its vault-wide type instead of defaulting every new entry to text.
+   */
+  allVaultKeyTypes: Array<{ key: string; type: PropertyType }>;
   /** Override the default write implementation (which uses YAML frontmatter). */
   onWriteProperty?: (key: string, value: unknown) => Promise<void>;
   /** Whether drag-to-reorder persists. Default true. */
@@ -706,7 +691,7 @@ interface PropertiesPanelProps {
 function PropertiesPanelInner({
   filePath,
   frontmatter,
-  allVaultKeys,
+  allVaultKeyTypes,
   onWriteProperty,
   reorderable = true
 }: PropertiesPanelProps): React.JSX.Element {
@@ -715,8 +700,8 @@ function PropertiesPanelInner({
   const fileKeys = useMemo(() => Object.keys(localFrontmatter), [localFrontmatter]);
 
   const existingKeysToAdd = useMemo(
-    () => existingPropertyKeysNotOnFile(allVaultKeys, fileKeys),
-    [allVaultKeys, fileKeys]
+    () => existingPropertyKeysNotOnFile(allVaultKeyTypes, fileKeys),
+    [allVaultKeyTypes, fileKeys]
   );
 
   async function writeProperty(key: string, value: unknown): Promise<void> {
@@ -788,8 +773,8 @@ function PropertiesPanelInner({
     await writeProperty(key, value);
   }
 
-  async function handleAddExistingProperty(key: string): Promise<void> {
-    const value = defaultValueForType("text");
+  async function handleAddExistingProperty(key: string, type: PropertyType): Promise<void> {
+    const value = defaultValueForType(type);
     setLocalFrontmatter((prev) => ({ ...prev, [key]: value }));
     await writeProperty(key, value);
   }
@@ -825,7 +810,7 @@ function PropertiesPanelInner({
               <PropertyValue
                 propKey={key}
                 value={localFrontmatter[key]}
-                type={effectivePropertyType(localFrontmatter[key])}
+                type={inferPropertyType(localFrontmatter[key])}
                 onValueChange={handleValueChange}
               />
             </div>
@@ -845,13 +830,13 @@ function PropertiesPanelInner({
                 <>
                   <DropdownMenuGroup>
                     <DropdownMenuLabel>Existing properties</DropdownMenuLabel>
-                    {existingKeysToAdd.map((key) => (
+                    {existingKeysToAdd.map(({ key, type }) => (
                       <DropdownMenuItem
                         key={key}
-                        onClick={() => void handleAddExistingProperty(key)}
+                        onClick={() => void handleAddExistingProperty(key, type)}
                         className="gap-2"
                       >
-                        {typeIcon("text")}
+                        {typeIcon(type)}
                         <span className="truncate">{key}</span>
                       </DropdownMenuItem>
                     ))}

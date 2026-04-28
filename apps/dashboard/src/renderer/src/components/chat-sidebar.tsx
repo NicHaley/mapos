@@ -96,6 +96,40 @@ function toolLabel(name: string): string {
   return name.replace(/^mcp__[^_]+(?:__[^_]+)*?__/, "").replace(/_/g, " ");
 }
 
+/** One-line preview of the operative argument so generic labels like "Running Command" show what's actually running. */
+function toolPreview(call: ActiveToolCall): string | null {
+  const input = call.input;
+  if (!input || typeof input !== "object") return null;
+  const fields = input as Record<string, unknown>;
+  const str = (key: string): string | null => {
+    const v = fields[key];
+    return typeof v === "string" && v.length > 0 ? v : null;
+  };
+  switch (call.name) {
+    case "Bash":
+      return str("command")?.split("\n")[0] ?? null;
+    case "Read":
+      return str("file_path");
+    case "Glob":
+      return str("pattern");
+    case "Grep":
+      return str("pattern");
+    case "WebFetch":
+      return str("url");
+    case "WebSearch":
+      return str("query");
+    case "mcp__mapos__pan_to": {
+      const lat = fields.lat;
+      const lng = fields.lng;
+      return typeof lat === "number" && typeof lng === "number"
+        ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+        : null;
+    }
+    default:
+      return null;
+  }
+}
+
 type FileChangeResult = {
   success: boolean;
   path: string;
@@ -293,6 +327,7 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(call.input, null, 2);
   const hasDetail = inputStr !== "{}" || !!call.result;
+  const preview = toolPreview(call);
 
   return (
     <div className="overflow-hidden">
@@ -309,11 +344,16 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
         ) : (
           <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />
         )}
-        <span className="capitalize">{toolLabel(call.name)}</span>
+        <span className="capitalize shrink-0">{toolLabel(call.name)}</span>
+        {preview && (
+          <span className="min-w-0 truncate text-left font-mono text-xs text-muted-foreground/50">
+            {preview}
+          </span>
+        )}
         {hasDetail && (
           <ChevronDownIcon
             className={cn(
-              "size-3.5 shrink-0 transition-transform",
+              "size-3.5 shrink-0 transition-transform ml-auto",
               expanded ? "rotate-180" : "rotate-0"
             )}
           />
@@ -629,12 +669,14 @@ export function ChatSidebar({
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
   const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
   const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
-  /** Pre-chunk gap: request is in flight but nothing has appeared in the transcript yet. */
-  const awaitingFirstToken =
+  /** Show a heartbeat whenever the turn is in flight but no tool is currently spinning AND the Reasoning block isn't already showing its own streaming indicator. Covers initial gap, between-tool gaps, and post-text/pre-tool pauses where the UI would otherwise look frozen. */
+  const reasoningIsStreaming = streamingThinking !== "" && streamingContent === "";
+  const showHeartbeat =
     assistantPending &&
-    streamingThinking === "" &&
-    streamingContent === "" &&
-    activeToolCalls.length === 0;
+    activeToolCalls.every((tc) => tc.status !== "running") &&
+    !reasoningIsStreaming;
+  const heartbeatLabel =
+    streamingContent || activeToolCalls.length > 0 ? "Thinking…" : "Working on it…";
 
   return (
     <Sidebar side="right" collapsible="offcanvas" variant="floating">
@@ -689,15 +731,12 @@ export function ChatSidebar({
       <SidebarContent className="overflow-hidden p-0">
         <Conversation className="prose prose-sm">
           <ConversationContent>
-            {messages.length === 0 &&
-              !awaitingFirstToken &&
-              !streamingThinking &&
-              !streamingContent && (
-                <ConversationEmptyState
-                  title=""
-                  description="Ask about your saved places, notes, or get help organizing your map."
-                />
-              )}
+            {messages.length === 0 && !loading && (
+              <ConversationEmptyState
+                title=""
+                description="Ask about your saved places, notes, or get help organizing your map."
+              />
+            )}
 
             {messages.map((msg) => {
               return msg.role === "error" ? (
@@ -735,21 +774,10 @@ export function ChatSidebar({
               );
             })}
 
-            {awaitingFirstToken && (
-              <Message from="assistant">
-                <div
-                  className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
-                  aria-live="polite"
-                >
-                  <BrainIcon className="size-3.5 shrink-0" aria-hidden />
-                  <Shimmer as="span" duration={1}>
-                    Working on it…
-                  </Shimmer>
-                </div>
-              </Message>
-            )}
-
-            {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
+            {(showHeartbeat ||
+              streamingThinking ||
+              streamingContent ||
+              activeToolCalls.length > 0) && (
               <Message from="assistant">
                 {streamingThinking && (
                   <Reasoning isStreaming={!streamingContent}>
@@ -772,6 +800,17 @@ export function ChatSidebar({
                   <MessageContent>
                     <MessageResponse isAnimating>{streamingContent}</MessageResponse>
                   </MessageContent>
+                )}
+                {showHeartbeat && (
+                  <div
+                    className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
+                    aria-live="polite"
+                  >
+                    <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+                    <Shimmer as="span" duration={1}>
+                      {heartbeatLabel}
+                    </Shimmer>
+                  </div>
                 )}
               </Message>
             )}

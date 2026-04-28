@@ -5,11 +5,13 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
+  FileIcon,
   FileTextIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  ImageIcon,
   Layers2Icon,
   MessageCirclePlusIcon,
   PlusIcon,
@@ -93,10 +95,30 @@ function parseDragPayload(e: React.DragEvent): { path: string; type: FileNode["t
   }
 }
 
+const IMAGE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".bmp",
+  ".heic",
+  ".heif",
+  ".tiff",
+  ".tif",
+  ".avif"
+];
+
+const LAYER_EXTENSIONS = [".geojson", ".gpx", ".kml", ".shp"];
+
 function fileIcon(name: string) {
-  if (name.endsWith(".md"))
-    return <FileTextIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
-  return <Layers2Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+  const lower = name.toLowerCase();
+  const className = "size-3.5 shrink-0 text-sidebar-foreground/50";
+  if (lower.endsWith(".md")) return <FileTextIcon className={className} />;
+  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <ImageIcon className={className} />;
+  if (LAYER_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <Layers2Icon className={className} />;
+  return <FileIcon className={className} />;
 }
 
 type VaultOption = {

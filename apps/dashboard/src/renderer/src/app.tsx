@@ -617,7 +617,6 @@ function App(): React.JSX.Element {
 
   const { handleAddAllOverlayToVault } = useOverlayVaultSync({
     mapOverlay,
-    parentFolderForNewFiles,
     setAddAllOverlayBusy
   });
 
@@ -897,6 +896,7 @@ function App(): React.JSX.Element {
             mapOverlayNonce={mapOverlayNonce}
             onAddAllOverlayToVault={handleAddAllOverlayToVault}
             addAllOverlayBusy={addAllOverlayBusy}
+            defaultParentFolderPath={parentFolderForNewFiles}
             onOverlayRestore={handleOverlayRestore}
             onOpenFile={async (filePath) => {
               const place = await window.api.places.getByPath(filePath);

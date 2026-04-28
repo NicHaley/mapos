@@ -654,7 +654,9 @@ const MapView = forwardRef<
     return {
       type: "Feature" as const,
       geometry: parseGeometry(p.geometry),
-      properties: { filePath: p.filePath, color: p.color ?? "#6b7280" }
+      // Leave `color` undefined when unset so each layer can pick its own default
+      // (lines need white; circles/polygons stay gray).
+      properties: { filePath: p.filePath, color: p.color }
     };
   }, []);
 
@@ -688,7 +690,7 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, toFeature]);
 
-  /** Pulse position: Points use geometry; lines/polygons use map click when anchor matches. */
+  /** Pulse position: Points use geometry; lines/polygons only pulse where the user clicked. */
   const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
     try {
@@ -701,7 +703,9 @@ const MapView = forwardRef<
         lng = selectionPulseAnchor.lng;
         lat = selectionPulseAnchor.lat;
       } else {
-        [lng, lat] = getGeometryCenter(geo);
+        // Non-point with no click anchor: rely on the dashed selected-line/fill styling
+        // for highlighting. A bbox-center pulse looked like a stray marker.
+        return null;
       }
       return {
         type: "FeatureCollection",
@@ -797,8 +801,12 @@ const MapView = forwardRef<
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
-    if (folderGeoJSON) ids.push("folder-circle", "folder-fill", "folder-line");
-    if (selectedGeoJSON) ids.push("selected-circle", "selected-fill", "selected-line");
+    if (folderGeoJSON) {
+      ids.push("folder-circle", "folder-fill", "folder-line", "folder-line-casing");
+    }
+    if (selectedGeoJSON) {
+      ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
+    }
     if (hasOverlayGeoJSON) {
       ids.push("overlay-polygons", "overlay-lines-hit", "overlay-lines");
     }
@@ -841,7 +849,7 @@ const MapView = forwardRef<
               filter={POINT_FILTER}
               paint={{
                 "circle-radius": 6,
-                "circle-color": ["get", "color"],
+                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "circle-stroke-width": 1.5,
                 "circle-stroke-color": "white"
               }}
@@ -851,21 +859,39 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "fill-color": ["get", "color"], "fill-opacity": 0.25 }}
+              paint={{
+                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-opacity": 0.25
+              }}
             />
             <Layer
               id="folder-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "line-color": ["get", "color"], "line-width": 2 }}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-width": 2
+              }}
+            />
+            <Layer
+              id="folder-line-casing"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
             />
             <Layer
               id="folder-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": ["get", "color"], "line-width": 2 }}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#ffffff"],
+                "line-width": 3
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
             />
           </Source>
         )}
@@ -878,7 +904,7 @@ const MapView = forwardRef<
               filter={POINT_FILTER}
               paint={{
                 "circle-radius": 3,
-                "circle-color": ["get", "color"],
+                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "circle-stroke-width": 2,
                 "circle-stroke-color": "white"
               }}
@@ -888,7 +914,10 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "fill-color": ["get", "color"], "fill-opacity": 0.35 }}
+              paint={{
+                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-opacity": 0.35
+              }}
             />
             <Layer
               id="selected-fill-outline"
@@ -896,10 +925,18 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{
-                "line-color": ["get", "color"],
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 2.5,
                 "line-dasharray": [2, 1]
               }}
+            />
+            <Layer
+              id="selected-line-casing"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "rgba(0,0,0,0.6)", "line-width": 5.5 }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
             />
             <Layer
               id="selected-line"
@@ -907,10 +944,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
               paint={{
-                "line-color": ["get", "color"],
-                "line-width": 2.5,
-                "line-dasharray": [2, 1]
+                "line-color": ["coalesce", ["get", "color"], "#ffffff"],
+                "line-width": 3
               }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
             />
           </Source>
         )}

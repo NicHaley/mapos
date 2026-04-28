@@ -755,6 +755,8 @@ export function setupPlacesWatcher(
         parentFolderPath: string | null;
         lat?: number;
         lng?: number;
+        /** WKT geometry. Takes precedence over lat/lng — use for non-Point shapes. */
+        geometryWkt?: string;
         /** When false with lat/lng, only writes `geometry` (no `type` / `status`). Default true. */
         includePlaceFrontmatterDefaults?: boolean;
       }
@@ -771,10 +773,10 @@ export function setupPlacesWatcher(
         dir = vaultRoot;
       }
       const candidate = uniquePathInDir(dir, "Untitled.md", false);
-      const content =
-        args.lat != null && args.lng != null
-          ? `---\ngeometry: POINT(${args.lng} ${args.lat})\n---\n`
-          : "";
+      const wkt =
+        args.geometryWkt ??
+        (args.lat != null && args.lng != null ? `POINT(${args.lng} ${args.lat})` : null);
+      const content = wkt ? `---\ngeometry: ${wkt}\n---\n` : "";
       try {
         // New file — chokidar fires `add` (not `change`), which populates the places
         // Map from disk. No barrier entry needed; raw writeFileSync is intentional.

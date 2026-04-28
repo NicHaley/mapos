@@ -96,6 +96,7 @@ const api = {
       parentFolderPath: string | null;
       lat?: number;
       lng?: number;
+      geometryWkt?: string;
       includePlaceFrontmatterDefaults?: boolean;
     }) =>
       ipcRenderer.invoke("fs:create-place-file", args) as Promise<

@@ -47,6 +47,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@mapos/ui/components/select";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@mapos/ui/components/sidebar";
+import { FolderPickerPopover } from "./folder-picker-popover";
 
 type ChatMessage = {
   id: string;
@@ -516,14 +517,17 @@ export function ChatSidebar({
   mapOverlayNonce,
   onAddAllOverlayToVault,
   addAllOverlayBusy,
+  defaultParentFolderPath,
   onOverlayRestore
 }: {
   onOpenFile: (filePath: string) => void;
   mapOverlay: MapOverlayPayload;
   /** Increments when the map receives a new non-empty overlay (resets Add-all visibility). */
   mapOverlayNonce: number;
-  onAddAllOverlayToVault: () => void | Promise<void>;
+  onAddAllOverlayToVault: (parentFolderPath: string | null) => void | Promise<void>;
   addAllOverlayBusy: boolean;
+  /** Folder pre-selected as the default destination in the folder picker. */
+  defaultParentFolderPath: string | null;
   onOverlayRestore: (overlay: MapOverlayPayload | null) => void;
 }): React.JSX.Element {
   const [
@@ -661,8 +665,10 @@ export function ChatSidebar({
     handleNewConversation();
   }
 
-  async function handleAddAllToVaultClick(): Promise<void> {
-    await onAddAllOverlayToVault();
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+
+  async function handleAddAllToVault(folderPath: string | null): Promise<void> {
+    await onAddAllOverlayToVault(folderPath);
     window.api.chat.clearOverlay();
   }
 
@@ -851,20 +857,28 @@ export function ChatSidebar({
                   >
                     Clear
                   </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className={overlayActionButtonClass}
-                    disabled={addAllOverlayBusy}
-                    onClick={() => void handleAddAllToVaultClick()}
-                  >
-                    {addAllOverlayBusy ? (
-                      <Loader2Icon className="size-3.5 animate-spin" />
-                    ) : (
-                      <FilePlusIcon className="size-3.5" />
-                    )}
-                    Add all to vault
-                  </Button>
+                  <FolderPickerPopover
+                    open={folderPickerOpen}
+                    onOpenChange={setFolderPickerOpen}
+                    defaultParentFolderPath={defaultParentFolderPath}
+                    onSelect={(folderPath) => void handleAddAllToVault(folderPath)}
+                    trigger={
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className={overlayActionButtonClass}
+                        disabled={addAllOverlayBusy}
+                      >
+                        {addAllOverlayBusy ? (
+                          <Loader2Icon className="size-3.5 animate-spin" />
+                        ) : (
+                          <FilePlusIcon className="size-3.5" />
+                        )}
+                        Add all to vault
+                        <ChevronDownIcon className="size-3" />
+                      </Button>
+                    }
+                  />
                 </div>
               </div>
             )}

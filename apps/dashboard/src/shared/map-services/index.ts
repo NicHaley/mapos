@@ -14,7 +14,7 @@ export type {
 } from "./types";
 export { forwardGeocode, reverseGeocode } from "./geocoding";
 export type { ForwardGeocodeOptions, ReverseGeocodeOptions } from "./geocoding";
-export { getDirections, getMatrix, mapMatchRoute } from "./routing";
+export { decodePolyline, encodePolyline, getDirections, getMatrix, mapMatchRoute } from "./routing";
 export type { GetDirectionsInput, GetMatrixInput, MapMatchInput } from "./routing";
 export { getIsochrone } from "./isochrone";
 export type { GetIsochroneInput } from "./isochrone";

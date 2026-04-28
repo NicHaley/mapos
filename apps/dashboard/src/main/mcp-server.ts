@@ -12,6 +12,7 @@ import { type BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
 import {
   computeBbox,
+  decodePolyline,
   forwardGeocode,
   getDirections,
   getIsochrone,
@@ -115,14 +116,14 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
-- \`get_directions\` — road/walk/bike route between two or more locations. Returns a \`geometry\` (GeoJSON LineString), summary distance/duration, and turn-by-turn maneuvers.
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns a \`geometry\` (GeoJSON LineString), a compact \`polyline\` string (precision 6, Google-style encoded; same shape as \`geometry.coordinates\`), summary distance/duration, and turn-by-turn maneuvers.
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) against the community Valhalla instance.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
 After calling any of these, display the results with \`render_overlay_on_map\`:
 - points from \`geocode_search\` / \`reverse_geocode\` → the \`points\` array
-- the \`geometry.coordinates\` from \`get_directions\` → a \`lines\` entry
+- a route from \`get_directions\` → a \`lines\` entry. Pass the route's \`polyline\` field (the precision-6 encoded string) directly — do NOT re-emit \`geometry.coordinates\`. Long routes have thousands of points and re-emitting them blows the output budget.
 - each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`polygons\` entry
 
 Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
@@ -153,7 +154,7 @@ export function createMaposMcpServer(
     tools: [
       tool(
         "render_overlay_on_map",
-        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas.",
+        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For long routes from get_directions, prefer passing the route's `polyline` string to a `lines` entry instead of re-emitting `geometry.coordinates` — saves thousands of tokens.",
         {
           points: z
             .array(
@@ -172,17 +173,34 @@ export function createMaposMcpServer(
             .default([]),
           lines: z
             .array(
-              z.object({
-                coordinates: z
-                  .array(z.tuple([z.number(), z.number()]))
-                  .describe("Array of [longitude, latitude] pairs"),
-                title: z.string().optional(),
-                id: z.string().optional(),
-                preview_markdown: z
-                  .string()
-                  .optional()
-                  .describe("Optional markdown shown in the place preview card before save")
-              })
+              z
+                .object({
+                  coordinates: z
+                    .array(z.tuple([z.number(), z.number()]))
+                    .optional()
+                    .describe("Array of [longitude, latitude] pairs. Provide this OR `polyline`."),
+                  polyline: z
+                    .string()
+                    .optional()
+                    .describe(
+                      "Google-style encoded polyline (precision 6 by default — matches the `polyline` field returned by get_directions). Provide this OR `coordinates`."
+                    ),
+                  polyline_precision: z
+                    .union([z.literal(5), z.literal(6)])
+                    .optional()
+                    .describe(
+                      "Precision of `polyline`. 6 for Valhalla / get_directions (default). 5 for Google/Mapbox-standard polylines."
+                    ),
+                  title: z.string().optional(),
+                  id: z.string().optional(),
+                  preview_markdown: z
+                    .string()
+                    .optional()
+                    .describe("Optional markdown shown in the place preview card before save")
+                })
+                .refine((l) => !!l.coordinates || !!l.polyline, {
+                  message: "Each line must include either `coordinates` or `polyline`."
+                })
             )
             .optional()
             .default([]),
@@ -219,12 +237,15 @@ export function createMaposMcpServer(
               title: p.title,
               ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
             }));
-            const lines = (args.lines ?? []).map((l, i) => ({
-              id: l.id ?? `overlay-line-${i}`,
-              coordinates: l.coordinates,
-              title: l.title,
-              ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
-            }));
+            const lines = (args.lines ?? []).map((l, i) => {
+              const coordinates = l.coordinates ?? decodePolyline(l.polyline ?? "", l.polyline_precision ?? 6);
+              return {
+                id: l.id ?? `overlay-line-${i}`,
+                coordinates,
+                title: l.title,
+                ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
+              };
+            });
             const polygons = (args.polygons ?? []).map((p, i) => ({
               id: p.id ?? `overlay-polygon-${i}`,
               coordinates: p.coordinates.map((ring) => {
@@ -436,7 +457,7 @@ export function createMaposMcpServer(
       ),
       tool(
         "get_directions",
-        "Compute a route between two or more locations via Valhalla. Returns distance (meters), duration (seconds), a GeoJSON LineString geometry, and turn-by-turn maneuvers. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving.",
+        "Compute a route between two or more locations via Valhalla. Returns distance (meters), duration (seconds), a GeoJSON LineString `geometry`, a compact precision-6 encoded `polyline` (same shape as the geometry coords), and turn-by-turn maneuvers. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. To render the route, pass the `polyline` to a `render_overlay_on_map` lines entry — do not re-emit the coordinate array.",
         {
           locations: z
             .array(z.object({ lat: z.number(), lng: z.number() }))

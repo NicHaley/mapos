@@ -26,6 +26,7 @@ import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import type { PhotonSearchResult } from "./lib/photon";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
+import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
 
@@ -114,6 +115,40 @@ function parentFolderOfVaultFile(filePath: string): string {
   return filePath.slice(0, n);
 }
 
+/** Path looks like a real vault file (rules out preview/overlay/synthetic identifiers). */
+function isVaultFilePath(fp: string | undefined | null): fp is string {
+  if (!fp) return false;
+  if (fp.startsWith("photon-search:")) return false;
+  if (fp.startsWith("map-overlay:")) return false;
+  if (fp.startsWith("geojson-feature:")) return false;
+  return true;
+}
+
+/** Open file is a real vault .md (not a photon search, map overlay, or GeoJSON layer). */
+function isVaultPlaceFile(place: PlaceRecord | null | undefined): place is PlaceRecord {
+  if (!place) return false;
+  if (place.previewMarkdown !== undefined) return false;
+  if (place.type === "GeoJsonLayer") return false;
+  return isVaultFilePath(place.filePath);
+}
+
+/** Read the file body, parse [[wikilinks]], resolve each title to a PlaceRecord with geometry. */
+async function resolveWikilinks(filePath: string): Promise<PlaceRecord[]> {
+  const [readResult, nodes] = await Promise.all([
+    window.api.fs.readFile(filePath),
+    window.api.fs.listDir()
+  ]);
+  if ("error" in readResult) return [];
+  const titles = extractWikilinkTitles(readResult.body);
+  if (titles.length === 0) return [];
+  const cache = flattenMdFiles(nodes);
+  const paths = titles
+    .map((t) => cache.find((f) => f.title === t)?.filePath)
+    .filter((p): p is string => Boolean(p) && p !== filePath);
+  const records = await Promise.all(paths.map((p) => window.api.places.getByPath(p)));
+  return records.filter((r): r is PlaceRecord => r !== null && Boolean(r.geometry));
+}
+
 function mapPadding(projectSidebarOpen: boolean, chatSidebarOpen: boolean, placeCardOpen: boolean) {
   return {
     left:
@@ -151,6 +186,8 @@ function App(): React.JSX.Element {
       bbox: [number, number, number, number];
     }>
   >([]);
+  /** Places linked from [[wikilinks]] in the currently-open file; rendered gray. */
+  const [linkedPlaces, setLinkedPlaces] = useState<PlaceRecord[]>([]);
   const mapRef = useRef<MapViewHandle>(null);
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
@@ -167,6 +204,52 @@ function App(): React.JSX.Element {
       setLastVaultFilePath(p);
     }
   }, [selectedPlace]);
+
+  /** Open file: snapshot padding, resolve wikilinks, set markers, and fit-to-bounds.
+   * Keyed on filePath only — toggling sidebars or switching mode after open shouldn't re-fit. */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: padding is intentionally snapshotted at open time
+  useEffect(() => {
+    const filePath = selectedPlace?.filePath;
+    if (!filePath || !isVaultPlaceFile(selectedPlace)) {
+      setLinkedPlaces([]);
+      return;
+    }
+    const padding = mapPadding(projectSidebarOpen, chatSidebarOpen, placeMode === "full");
+    let cancelled = false;
+    void (async () => {
+      const linked = await resolveWikilinks(filePath);
+      if (cancelled) return;
+      setLinkedPlaces(linked);
+      // Read the latest place from the existing ref so a metadata update mid-resolve
+      // (e.g. geometry commit on the same file) feeds the freshest geometry to the fit.
+      const currentPlace = selectedPlaceRef.current;
+      if (linked.length > 0 && currentPlace?.filePath === filePath) {
+        mapRef.current?.fitToPlaceAndLinks(currentPlace, linked, padding);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlace?.filePath]);
+
+  /** Live update: refresh markers (no fit) when the open file's body changes on disk.
+   * Only the filePath shape is consulted — re-binds when the open file changes, not on metadata. */
+  useEffect(() => {
+    const filePath = selectedPlace?.filePath;
+    if (!isVaultFilePath(filePath)) return;
+    let cancelled = false;
+    const off = window.api.fs.onFileContentChanged(({ filePath: changedPath }) => {
+      if (changedPath !== filePath) return;
+      void resolveWikilinks(filePath).then((linked) => {
+        if (cancelled) return;
+        setLinkedPlaces(linked);
+      });
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [selectedPlace?.filePath]);
 
   // MapView.emitFeaturePosition returns early when there is no geometry, otherwise the
   // floating PlaceCard would keep the last screen position after a clear.
@@ -402,6 +485,28 @@ function App(): React.JSX.Element {
       }
     },
     [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen, dispatchNav]
+  );
+
+  // Wikilink default-click → mini at marker; cmd-click → full placecard.
+  const handleWikilinkOpen = useCallback(
+    (linkedPlace: PlaceRecord, newTab: boolean) => {
+      if (newTab) {
+        handleSelectPlaceFromSidebar(linkedPlace, true);
+        return;
+      }
+      mapRef.current?.ensurePlaceVisible(
+        linkedPlace,
+        mapPadding(projectSidebarOpen, chatSidebarOpen, placeMode === "full")
+      );
+      handleSelectPlaceFromMap(linkedPlace);
+    },
+    [
+      handleSelectPlaceFromMap,
+      handleSelectPlaceFromSidebar,
+      projectSidebarOpen,
+      chatSidebarOpen,
+      placeMode
+    ]
   );
 
   // Sidebar folder click — navigate within active tab
@@ -679,6 +784,7 @@ function App(): React.JSX.Element {
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
+          linkedPlaces={linkedPlaces}
         />
       </div>
 
@@ -770,6 +876,7 @@ function App(): React.JSX.Element {
               mode="full"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -793,6 +900,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -839,6 +947,7 @@ function App(): React.JSX.Element {
                 setSelectionPulseAnchor(null);
               }}
               onNavigate={handleSelectPlaceFromSidebar}
+              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}

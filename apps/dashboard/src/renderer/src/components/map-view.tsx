@@ -342,6 +342,8 @@ const MapView = forwardRef<
 ) {
   const mapRef = useRef<MapRef>(null);
   const mapStyle = useDarkMapStyle();
+  const isDark = useDarkMode();
+  const foregroundColor = isDark ? "#fafafa" : "#252525";
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
@@ -888,7 +890,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#ffffff"],
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -915,7 +917,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-color": ["coalesce", ["get", "color"], foregroundColor],
                 "fill-opacity": 0.35
               }}
             />
@@ -925,7 +927,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], foregroundColor],
                 "line-width": 2.5,
                 "line-dasharray": [2, 1]
               }}
@@ -944,7 +946,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#ffffff"],
+                "line-color": ["coalesce", ["get", "color"], foregroundColor],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}

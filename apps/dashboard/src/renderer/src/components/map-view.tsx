@@ -126,9 +126,6 @@ export type MapViewHandle = {
   ) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
-  getScreenPosForPlace: (place: PlaceRecord) => { x: number; y: number } | null;
-  /** Pan (no zoom change) so the place is on-screen; no-op if already inside the viewport. */
-  ensurePlaceVisible: (place: PlaceRecord, padding: FitPadding) => void;
 };
 
 /**
@@ -558,34 +555,6 @@ const MapView = forwardRef<
           padding
         );
         if (cam) map.flyTo({ ...cam, duration: 600, padding });
-      },
-      getScreenPosForPlace: (place: PlaceRecord) => {
-        const map = mapRef.current;
-        if (!map || !place.geometry) return null;
-        try {
-          const geo = parseGeometry(place.geometry);
-          const center = getGeometryCenter(geo);
-          const pt = map.project(center);
-          return { x: pt.x, y: pt.y };
-        } catch {
-          return null;
-        }
-      },
-      ensurePlaceVisible: (place: PlaceRecord, padding: FitPadding) => {
-        const map = mapRef.current;
-        if (!map || !place.geometry) return;
-        try {
-          const geo = parseGeometry(place.geometry);
-          const [lng, lat] = getGeometryCenter(geo);
-          const container = map.getContainer();
-          const pt = map.project([lng, lat]);
-          const insideX = pt.x >= padding.left && pt.x <= container.clientWidth - padding.right;
-          const insideY = pt.y >= padding.top && pt.y <= container.clientHeight - padding.bottom;
-          if (insideX && insideY) return;
-          map.panTo([lng, lat], { duration: 400, padding });
-        } catch {
-          /* invalid geometry */
-        }
       },
       fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => {
         const map = mapRef.current;

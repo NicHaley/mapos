@@ -469,9 +469,15 @@ function App(): React.JSX.Element {
     [placeMode, projectSidebarOpen, chatSidebarOpen]
   );
 
-  // Sidebar file click — navigate within active tab (or new tab on cmd/ctrl+click)
+  // Sidebar file click — navigate within active tab (or background tab on cmd/ctrl+click)
   const handleSelectPlaceFromSidebar = useCallback(
     (place: PlaceRecord, newTab = false) => {
+      // Cmd/ctrl-click → open in background tab (browser convention): add to nav,
+      // but don't disturb the currently visible view, selection, or map fit.
+      if (newTab) {
+        dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: true });
+        return;
+      }
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
@@ -479,34 +485,12 @@ function App(): React.JSX.Element {
       setPlaceMode("full");
       setSelectedFolder(null);
       setFeatureScreenPos(null);
-      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab });
+      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
       if (!alreadyOpen) {
         mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, chatSidebarOpen, true));
       }
     },
     [placeMode, selectedPlace, projectSidebarOpen, chatSidebarOpen, dispatchNav]
-  );
-
-  // Wikilink default-click → mini at marker; cmd-click → full placecard.
-  const handleWikilinkOpen = useCallback(
-    (linkedPlace: PlaceRecord, newTab: boolean) => {
-      if (newTab) {
-        handleSelectPlaceFromSidebar(linkedPlace, true);
-        return;
-      }
-      mapRef.current?.ensurePlaceVisible(
-        linkedPlace,
-        mapPadding(projectSidebarOpen, chatSidebarOpen, placeMode === "full")
-      );
-      handleSelectPlaceFromMap(linkedPlace);
-    },
-    [
-      handleSelectPlaceFromMap,
-      handleSelectPlaceFromSidebar,
-      projectSidebarOpen,
-      chatSidebarOpen,
-      placeMode
-    ]
   );
 
   // Sidebar folder click — navigate within active tab
@@ -876,7 +860,6 @@ function App(): React.JSX.Element {
               mode="full"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
-              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -900,7 +883,6 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
-              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -947,7 +929,6 @@ function App(): React.JSX.Element {
                 setSelectionPulseAnchor(null);
               }}
               onNavigate={handleSelectPlaceFromSidebar}
-              onWikilinkOpen={handleWikilinkOpen}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}

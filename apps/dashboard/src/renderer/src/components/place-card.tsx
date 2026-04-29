@@ -80,8 +80,6 @@ type PlaceCardMarkdownPaneProps = {
   mode: "mini" | "full";
   isDark: boolean;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
-  /** Default-click wikilink action: open mini placecard at the linked place's marker. */
-  onWikilinkOpen?: (linkedPlace: PlaceRecord, newTab: boolean) => void;
   onEditorReady: (editor: Editor | null) => void;
   /** Override the default writePlaceBody persistence. */
   onPersist?: (content: string) => void;
@@ -114,7 +112,6 @@ function PlaceCardMarkdownPane({
   mode,
   isDark,
   onNavigate,
-  onWikilinkOpen,
   onEditorReady,
   onPersist
 }: PlaceCardMarkdownPaneProps): React.JSX.Element {
@@ -123,8 +120,6 @@ function PlaceCardMarkdownPane({
   currentPathRef.current = filePath;
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
-  const onWikilinkOpenRef = useRef(onWikilinkOpen);
-  onWikilinkOpenRef.current = onWikilinkOpen;
 
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -153,14 +148,7 @@ function PlaceCardMarkdownPane({
           const item = vaultFilesRef.current.find((f) => f.title === title);
           if (!item) return;
           const result = await window.api.places.getByPath(item.filePath);
-          if (!result) return;
-          const place = result as PlaceRecord;
-          // Cmd/Ctrl-click → full placecard (new tab); default click → mini at the marker.
-          if (!newTab && onWikilinkOpenRef.current) {
-            onWikilinkOpenRef.current(place, false);
-          } else {
-            onNavigateRef.current?.(place, newTab);
-          }
+          if (result) onNavigateRef.current?.(result as PlaceRecord, newTab);
         },
         suggestion: {
           items({ query }: { query: string }) {
@@ -336,7 +324,6 @@ export function PlaceCard({
   mode = "mini",
   onExpand,
   onNavigate,
-  onWikilinkOpen,
   onSaveSearchToVault,
   onCommitPointLocation,
   onClearPointLocation,
@@ -347,8 +334,6 @@ export function PlaceCard({
   mode?: "mini" | "full";
   onExpand?: () => void;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
-  /** Default-click wikilink action: open mini placecard at the linked place's marker. */
-  onWikilinkOpen?: (linkedPlace: PlaceRecord, newTab: boolean) => void;
   /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
   onSaveSearchToVault?: () => Promise<void>;
   /** Persist a point to the vault file; return whether the write succeeded. */
@@ -691,7 +676,6 @@ export function PlaceCard({
             mode={mode}
             isDark={isDark}
             onNavigate={onNavigate}
-            onWikilinkOpen={onWikilinkOpen}
             onEditorReady={onEditorReady}
             onPersist={
               doc.kind === "geojson-layer"

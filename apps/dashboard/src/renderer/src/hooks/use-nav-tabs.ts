@@ -124,7 +124,10 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           history: [action.entry],
           cursor: 0
         };
-        return { tabs: [...state.tabs, newTab], activeTab: state.tabs.length };
+        // Background tab on cmd/ctrl-click (matches browser convention) — keep the
+        // current activeTab unless there was nothing open, in which case activate.
+        const nextActive = state.tabs.length === 0 ? 0 : state.activeTab;
+        return { tabs: [...state.tabs, newTab], activeTab: nextActive };
       }
       const tab = state.tabs[state.activeTab];
       const newHistory = [...tab.history.slice(0, tab.cursor + 1), action.entry];

@@ -119,8 +119,16 @@ export type MapViewHandle = {
   flyTo: (lat: number, lng: number) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
+  fitToPlaceAndLinks: (
+    place: PlaceRecord,
+    links: PlaceRecord[],
+    padding: FitPadding
+  ) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
+  getScreenPosForPlace: (place: PlaceRecord) => { x: number; y: number } | null;
+  /** Pan (no zoom change) so the place is on-screen; no-op if already inside the viewport. */
+  ensurePlaceVisible: (place: PlaceRecord, padding: FitPadding) => void;
 };
 
 /**
@@ -323,6 +331,8 @@ const MapView = forwardRef<
       bbox: [number, number, number, number];
     }>;
     selectionPulseAnchor?: SelectionPulseAnchor | null;
+    /** Places referenced by [[wikilinks]] in the currently-open file; rendered gray. */
+    linkedPlaces?: PlaceRecord[];
   }
 >(function MapView(
   {
@@ -336,7 +346,8 @@ const MapView = forwardRef<
     mapOverlay = EMPTY_OVERLAY,
     showOverlay = false,
     geoJsonLayers = [],
-    selectionPulseAnchor = null
+    selectionPulseAnchor = null,
+    linkedPlaces = []
   },
   ref
 ) {
@@ -484,6 +495,94 @@ const MapView = forwardRef<
             );
             if (cam) map.flyTo({ ...cam, duration: 600, padding });
           }
+        } catch {
+          /* invalid geometry */
+        }
+      },
+      fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => {
+        const map = mapRef.current;
+        if (!map) return;
+        const geometries: GeoJSONGeometry[] = [];
+        const tryParse = (g?: string) => {
+          if (!g) return;
+          try {
+            geometries.push(parseGeometry(g));
+          } catch {
+            /* invalid */
+          }
+        };
+        tryParse(place.geometry);
+        for (const link of links) tryParse(link.geometry);
+        if (geometries.length === 0) return;
+        if (geometries.length === 1) {
+          const geo = geometries[0];
+          if (isPoint(geo)) {
+            map.flyTo({ center: geo.coordinates, zoom: 14, duration: 600, padding });
+            return;
+          }
+          const [minLng, minLat, maxLng, maxLat] = bbox({
+            type: "Feature",
+            geometry: geo,
+            properties: {}
+          });
+          const cam = cameraForBounds(
+            map,
+            [
+              [minLng, minLat],
+              [maxLng, maxLat]
+            ],
+            padding
+          );
+          if (cam) map.flyTo({ ...cam, duration: 600, padding });
+          return;
+        }
+        const collection = {
+          type: "FeatureCollection" as const,
+          features: geometries.map((geometry) => ({
+            type: "Feature" as const,
+            geometry,
+            properties: {}
+          }))
+        };
+        const [minLng, minLat, maxLng, maxLat] = bbox(collection);
+        if (minLng === maxLng && minLat === maxLat) {
+          map.flyTo({ center: [minLng, minLat], zoom: 14, duration: 600, padding });
+          return;
+        }
+        const cam = cameraForBounds(
+          map,
+          [
+            [minLng, minLat],
+            [maxLng, maxLat]
+          ],
+          padding
+        );
+        if (cam) map.flyTo({ ...cam, duration: 600, padding });
+      },
+      getScreenPosForPlace: (place: PlaceRecord) => {
+        const map = mapRef.current;
+        if (!map || !place.geometry) return null;
+        try {
+          const geo = parseGeometry(place.geometry);
+          const center = getGeometryCenter(geo);
+          const pt = map.project(center);
+          return { x: pt.x, y: pt.y };
+        } catch {
+          return null;
+        }
+      },
+      ensurePlaceVisible: (place: PlaceRecord, padding: FitPadding) => {
+        const map = mapRef.current;
+        if (!map || !place.geometry) return;
+        try {
+          const geo = parseGeometry(place.geometry);
+          const [lng, lat] = getGeometryCenter(geo);
+          const container = map.getContainer();
+          const pt = map.project([lng, lat]);
+          const insideX = pt.x >= padding.left && pt.x <= container.clientWidth - padding.right;
+          const insideY = pt.y >= padding.top && pt.y <= container.clientHeight - padding.bottom;
+          if (insideX && insideY) return;
+          map.panTo([lng, lat], { duration: 400, padding });
         } catch {
           /* invalid geometry */
         }
@@ -677,6 +776,21 @@ const MapView = forwardRef<
     }
   }, [folderPlaces, selectedPlace, toFeature]);
 
+  // Wikilink-target places for the currently-open file (excluding the open file itself)
+  const linkedGeoJSON = useMemo(() => {
+    const places = (
+      selectedPlace
+        ? linkedPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
+        : linkedPlaces
+    ).filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    if (places.length === 0) return null;
+    try {
+      return { type: "FeatureCollection" as const, features: places.map(toFeature) };
+    } catch {
+      return null;
+    }
+  }, [linkedPlaces, selectedPlace, toFeature]);
+
   // Selected place as its own source for distinct styling
   const selectedGeoJSON = useMemo(() => {
     if (!selectedPlace) return null;
@@ -758,7 +872,9 @@ const MapView = forwardRef<
         // `selectedPlace` keeps the same ref, the re-projection effect wouldn't
         // fire either, so the card stays hidden until the next map move.
         if (selectedPlace?.filePath === fp) return;
-        const place = folderPlaces.find((p) => p.filePath === fp);
+        const place =
+          folderPlaces.find((p) => p.filePath === fp) ??
+          linkedPlaces.find((p) => p.filePath === fp);
         if (place) {
           onSelectPlace?.(place, clickMeta);
           return;
@@ -798,13 +914,16 @@ const MapView = forwardRef<
       }
       onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     },
-    [folderPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
+    [folderPlaces, linkedPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
   );
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
     if (folderGeoJSON) {
       ids.push("folder-circle", "folder-fill", "folder-line", "folder-line-casing");
+    }
+    if (linkedGeoJSON) {
+      ids.push("linked-circle", "linked-fill", "linked-line", "linked-line-casing");
     }
     if (selectedGeoJSON) {
       ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
@@ -816,7 +935,7 @@ const MapView = forwardRef<
       ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
     }
     return ids;
-  }, [folderGeoJSON, selectedGeoJSON, hasOverlayGeoJSON, augmentedGeoJsonLayers]);
+  }, [folderGeoJSON, linkedGeoJSON, selectedGeoJSON, hasOverlayGeoJSON, augmentedGeoJsonLayers]);
 
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
@@ -852,8 +971,8 @@ const MapView = forwardRef<
               paint={{
                 "circle-radius": 6,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "circle-stroke-width": 1.5,
-                "circle-stroke-color": "white"
+                "circle-stroke-width": 2,
+                "circle-stroke-color": ["coalesce", ["get", "color"], "#6b7280"]
               }}
             />
             <Layer
@@ -897,6 +1016,61 @@ const MapView = forwardRef<
             />
           </Source>
         )}
+        {linkedGeoJSON && (
+          <Source id="linked-geojson" type="geojson" data={linkedGeoJSON}>
+            <Layer
+              id="linked-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 6,
+                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "circle-stroke-width": 2,
+                "circle-stroke-color": ["coalesce", ["get", "color"], "#6b7280"]
+              }}
+            />
+            <Layer
+              id="linked-fill"
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{
+                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-opacity": 0.25
+              }}
+            />
+            <Layer
+              id="linked-fill-outline"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-width": 2
+              }}
+            />
+            <Layer
+              id="linked-line-casing"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+            <Layer
+              id="linked-line"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-width": 3
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+          </Source>
+        )}
         {selectedGeoJSON && (
           <Source id="selected-geojson" type="geojson" data={selectedGeoJSON}>
             <Layer
@@ -905,10 +1079,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
               paint={{
-                "circle-radius": 3,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "white"
+                "circle-radius": 6,
+                "circle-color": ["coalesce", ["get", "color"], foregroundColor],
+                "circle-stroke-width": 2.5,
+                "circle-stroke-color": ["coalesce", ["get", "color"], foregroundColor]
               }}
             />
             <Layer
@@ -928,8 +1102,7 @@ const MapView = forwardRef<
               filter={POLYGON_FILTER}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], foregroundColor],
-                "line-width": 2.5,
-                "line-dasharray": [2, 1]
+                "line-width": 2.5
               }}
             />
             <Layer
@@ -987,8 +1160,8 @@ const MapView = forwardRef<
               paint={{
                 "circle-radius": 6,
                 "circle-color": "#6b7280",
-                "circle-stroke-width": 1.5,
-                "circle-stroke-color": "white"
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#6b7280"
               }}
             />
             <Layer

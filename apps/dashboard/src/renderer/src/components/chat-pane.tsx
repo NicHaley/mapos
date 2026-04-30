@@ -22,11 +22,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { cn } from "@mapos/ui/lib/utils";
-import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
+import type { MapOverlayPayload } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
@@ -38,7 +37,6 @@ import {
   FilePlusIcon,
   FileX2Icon,
   Loader2Icon,
-  MessageSquarePlusIcon,
   PencilIcon,
   Undo2Icon,
   XIcon
@@ -369,32 +367,30 @@ const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
 
 export function ChatPane({
   convId,
+  convTitle,
   convState,
   onSubmit,
   onAbort,
   onUndo,
   onClearOverlay,
   onOpenFile,
-  onSwitchConv,
-  onNewChat,
   onDeleted,
   mapOverlay,
   mapOverlayNonce,
   onAddAllOverlayToVault,
   addAllOverlayBusy,
+  isSavedConversation,
   defaultParentFolderPath
 }: {
   convId: string;
+  /** Display name for the active conversation (preview text or "New Chat" before first message). */
+  convTitle: string;
   convState: ConvChatState;
   onSubmit: (text: string) => void;
   onAbort: () => void;
   onUndo: () => void;
   onClearOverlay: () => void;
   onOpenFile: (filePath: string) => void;
-  /** Replace the current tab with a different conversation. */
-  onSwitchConv: (convId: string, title: string) => void;
-  /** Open a fresh chat tab. */
-  onNewChat: () => void;
   /** Called after the active conversation has been deleted on disk. */
   onDeleted: (convId: string) => void;
   mapOverlay: MapOverlayPayload;
@@ -402,6 +398,8 @@ export function ChatPane({
   mapOverlayNonce: number;
   onAddAllOverlayToVault: (parentFolderPath: string | null) => void | Promise<void>;
   addAllOverlayBusy: boolean;
+  /** True once the conversation has been written to disk; gates the delete menu. */
+  isSavedConversation: boolean;
   /** Folder pre-selected as the default destination in the folder picker. */
   defaultParentFolderPath: string | null;
 }): React.JSX.Element {
@@ -419,25 +417,9 @@ export function ChatPane({
     streamingThinking !== "" ||
     activeToolCalls.length > 0;
 
-  const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
   const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-
-  // Refresh the recent-chats list when the user opens this tab and on each conversation done.
-  useEffect(() => {
-    void window.api.chat.listConversations().then((convos) => {
-      setConversations(convos.slice().reverse());
-    });
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh after each turn completes
-  useEffect(() => {
-    if (!assistantPending && messages.length > 0) {
-      void window.api.chat.listConversations().then((convos) => {
-        setConversations(convos.slice().reverse());
-      });
-    }
-  }, [assistantPending]);
 
   // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
@@ -474,34 +456,8 @@ export function ChatPane({
   return (
     <div className="flex h-full flex-col rounded-lg border border-sidebar-border bg-sidebar shadow-sm overflow-hidden">
       <div className="flex items-center justify-between gap-1 border-b border-sidebar-border px-3 py-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="ghost" size="sm" className="min-w-0 max-w-[180px] justify-start">
-                <span className="truncate text-sm font-normal">
-                  {conversations.find((c) => c.id === convId)?.preview || "New Chat"}
-                </span>
-                <ChevronDownIcon className="size-3.5 shrink-0 opacity-50" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="max-w-[260px] w-full">
-            <DropdownMenuItem onClick={onNewChat}>
-              <MessageSquarePlusIcon className="size-3.5" />
-              New Chat
-            </DropdownMenuItem>
-            {conversations.length > 0 && <DropdownMenuSeparator />}
-            {conversations.map((conv) => (
-              <DropdownMenuItem
-                key={conv.id}
-                onClick={() => onSwitchConv(conv.id, conv.preview || "Chat")}
-              >
-                <span className="truncate">{conv.preview || "Chat"}</span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {conversations.some((c) => c.id === convId) && (
+        <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
+        {isSavedConversation && (
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
               <EllipsisIcon />

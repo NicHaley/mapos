@@ -20,6 +20,7 @@ import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { useChatStore } from "./hooks/use-chat-store";
+import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
 import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
@@ -196,6 +197,7 @@ function App(): React.JSX.Element {
   selectedPlaceRef.current = selectedPlace;
 
   const chatStore = useChatStore();
+  const { conversations, refresh: refreshConversations } = useConversations(chatStore);
 
   const handleOverlayRestore = useCallback((overlay: MapOverlayPayload | null) => {
     if (overlay) {
@@ -469,8 +471,17 @@ function App(): React.JSX.Element {
           handleNavTabClose(i);
         }
       }
+      void refreshConversations();
     },
-    [nav.tabs, handleNavTabClose]
+    [nav.tabs, handleNavTabClose, refreshConversations]
+  );
+
+  const handleSidebarDeleteChat = useCallback(
+    async (convId: string) => {
+      await chatStore.deleteConversation(convId);
+      handleChatDeleted(convId);
+    },
+    [chatStore, handleChatDeleted]
   );
 
   useShortcuts([
@@ -929,18 +940,20 @@ function App(): React.JSX.Element {
             <ChatPane
               key={activeChatConvId}
               convId={activeChatConvId}
+              convTitle={
+                conversations.find((c) => c.id === activeChatConvId)?.preview || "New Chat"
+              }
               convState={chatStore.getConv(activeChatConvId)}
               mapOverlay={mapOverlay}
               mapOverlayNonce={mapOverlayNonce}
               defaultParentFolderPath={parentFolderForNewFiles}
               addAllOverlayBusy={addAllOverlayBusy}
+              isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
               onAddAllOverlayToVault={handleAddAllOverlayToVault}
               onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
               onAbort={() => chatStore.abort(activeChatConvId)}
               onUndo={() => void chatStore.undo(activeChatConvId)}
               onClearOverlay={() => chatStore.clearOverlay(activeChatConvId)}
-              onSwitchConv={handleSwitchChatConv}
-              onNewChat={handleNewChat}
               onDeleted={handleChatDeleted}
               onOpenFile={async (filePath) => {
                 const place = await window.api.places.getByPath(filePath);
@@ -1046,6 +1059,8 @@ function App(): React.JSX.Element {
           <ProjectSidebar
             selectedFilePath={selectedFilePathForSidebar}
             selectedFolderPath={selectedFolder ?? undefined}
+            activeChatConvId={activeChatConvId}
+            conversations={conversations}
             onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}
             onSelectGeoJson={(p) => void handleSelectGeoJson(p)}
@@ -1053,6 +1068,8 @@ function App(): React.JSX.Element {
             onRenamePath={handlePathRelocated}
             onMoved={handlePathRelocated}
             onNewChat={handleNewChat}
+            onSelectChat={handleSwitchChatConv}
+            onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
           />
         </SidebarProvider>
       </div>

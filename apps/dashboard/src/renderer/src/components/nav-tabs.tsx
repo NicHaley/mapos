@@ -81,7 +81,7 @@ export function NavTabs({
                   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-foreground hover:bg-sidebar-accent"
-                    : "text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
+                    : "bg-sidebar-accent/40 text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80"
                 )}
               >
                 <span className="truncate">{tab.title}</span>

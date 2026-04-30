@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 
 export type ShortcutDef = {
-  key: string;
+  /** Match against `e.key` (layout-dependent). Use `code` instead when modifiers
+   * change the produced character (e.g. Cmd+Shift+] reports inconsistently across OSes). */
+  key?: string;
+  /** Match against `e.code` (physical key, layout/modifier independent), e.g. "BracketRight". */
+  code?: string;
   meta?: boolean; // Cmd on Mac, Ctrl on Windows/Linux
   shift?: boolean;
   alt?: boolean;
@@ -30,8 +34,13 @@ export function useShortcuts(shortcuts: ShortcutEntry[]) {
 
       for (const { def, handler } of ref.current) {
         const metaMatch = def.meta ? (isMac ? e.metaKey : e.ctrlKey) : !e.metaKey && !e.ctrlKey;
+        const keyMatch = def.code
+          ? e.code === def.code
+          : def.key
+            ? e.key.toLowerCase() === def.key.toLowerCase()
+            : false;
         if (
-          e.key.toLowerCase() === def.key.toLowerCase() &&
+          keyMatch &&
           metaMatch &&
           !!e.shiftKey === !!def.shift &&
           !!e.altKey === !!def.alt &&

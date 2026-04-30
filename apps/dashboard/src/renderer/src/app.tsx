@@ -429,6 +429,15 @@ function App(): React.JSX.Element {
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
       handler: () => handleNavTabClose(activeTabIndex)
+    },
+    {
+      def: { code: "BracketLeft", meta: true, shift: true, enabled: navTabsData.length > 1 },
+      handler: () =>
+        handleNavTabActivate((activeTabIndex - 1 + navTabsData.length) % navTabsData.length)
+    },
+    {
+      def: { code: "BracketRight", meta: true, shift: true, enabled: navTabsData.length > 1 },
+      handler: () => handleNavTabActivate((activeTabIndex + 1) % navTabsData.length)
     }
   ]);
 

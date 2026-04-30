@@ -19,12 +19,13 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
-    "@mapos/ui": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "^0.2.63",
     "@anthropic-ai/sdk": "^0.78.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@floating-ui/dom": "^1.7.6",
     "@fontsource-variable/geist": "^5.2.8",
+    "@mapos/ui": "workspace:*",
     "@rive-app/react-webgl2": "^4.27.1",
     "@tiptap/core": "^3.21.0",
     "@tiptap/extension-bubble-menu": "^3.21.0",

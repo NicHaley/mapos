@@ -14,10 +14,12 @@ import { NavTabs } from "./components/nav-tabs";
 import { PhotonSearchPopover } from "./components/photon-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
+import { cn } from "@mapos/ui/lib/utils";
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
 import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
 import { useOverlayVaultSync } from "./hooks/use-overlay-vault-sync";
@@ -326,6 +328,8 @@ function App(): React.JSX.Element {
     handleNavBack,
     handleNavForward
   } = useNavTabs({ openEntry, onEmpty: onNavEmpty });
+
+  const isFullscreen = useFullscreen();
 
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
   useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
@@ -775,7 +779,10 @@ function App(): React.JSX.Element {
       {/* Top bar */}
       <motion.div
         layoutRoot
-        className="fixed top-0 inset-x-0 z-30 flex items-center gap-1 pl-20 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border"
+        className={cn(
+          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border",
+          isFullscreen ? "pl-2" : "pl-21"
+        )}
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         <Tooltip>

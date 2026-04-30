@@ -166,6 +166,16 @@ const api = {
     valuesForKey: (key: string) =>
       ipcRenderer.invoke("properties:values-for-key", key) as Promise<string[]>
   },
+  window: {
+    isFullscreen: () => ipcRenderer.invoke("window:is-fullscreen") as Promise<boolean>,
+    onFullscreenChange: (cb: (isFullscreen: boolean) => void): (() => void) => {
+      const listener = (_e: unknown, value: boolean): void => cb(value);
+      ipcRenderer.on("window:fullscreen-change", listener);
+      return () => {
+        ipcRenderer.off("window:fullscreen-change", listener);
+      };
+    }
+  },
   chat: {
     send: (message: string) => ipcRenderer.send("chat:send", message),
     abort: () => ipcRenderer.send("chat:abort"),

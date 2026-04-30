@@ -135,6 +135,11 @@ declare global {
         listAllKeys: () => Promise<Array<{ key: string; type: PropertyType }>>;
         valuesForKey: (key: string) => Promise<string[]>;
       };
+      window: {
+        isFullscreen: () => Promise<boolean>;
+        /** Returns a cleanup function; call it to unregister. */
+        onFullscreenChange: (cb: (isFullscreen: boolean) => void) => () => void;
+      };
       chat: {
         send: (message: string) => void;
         abort: () => void;

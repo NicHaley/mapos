@@ -40,6 +40,14 @@ function createWindow(): BrowserWindow {
     if (is.dev) mainWindow.webContents.openDevTools();
   });
 
+  const sendFullscreenState = (isFullScreen: boolean): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("window:fullscreen-change", isFullScreen);
+    }
+  };
+  mainWindow.on("enter-full-screen", () => sendFullscreenState(true));
+  mainWindow.on("leave-full-screen", () => sendFullscreenState(false));
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: "deny" };
@@ -62,6 +70,11 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on("ping", () => console.log("pong"));
+
+  ipcMain.handle("window:is-fullscreen", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win?.isFullScreen() ?? false;
+  });
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

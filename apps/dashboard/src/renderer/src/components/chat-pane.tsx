@@ -1,22 +1,3 @@
-import { cn } from "@mapos/ui/lib/utils";
-import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
-import type { ChatStatus } from "ai";
-import { diffLines } from "diff";
-import {
-  ArrowRightIcon,
-  BrainIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  EllipsisIcon,
-  FilePlusIcon,
-  FileX2Icon,
-  Loader2Icon,
-  MessageSquarePlusIcon,
-  PencilIcon,
-  Undo2Icon,
-  XIcon
-} from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -44,6 +25,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
+import { cn } from "@mapos/ui/lib/utils";
+import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
+import type { ChatStatus } from "ai";
+import { diffLines } from "diff";
+import {
+  ArrowRightIcon,
+  BrainIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  EllipsisIcon,
+  FilePlusIcon,
+  FileX2Icon,
+  Loader2Icon,
+  MessageSquarePlusIcon,
+  PencilIcon,
+  Undo2Icon,
+  XIcon
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FolderPickerPopover } from "./folder-picker-popover";
 
@@ -518,80 +518,37 @@ export function ChatPane({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden p-0">
-        <Conversation className="prose prose-sm">
-          <ConversationContent>
-            {messages.length === 0 &&
-              !awaitingFirstToken &&
-              !streamingThinking &&
-              !streamingContent && (
-                <ConversationEmptyState
-                  title=""
-                  description="Ask about your saved places, notes, or get help organizing your map."
-                />
-              )}
-
-            {messages.map((msg) => {
-              return msg.role === "error" ? (
-                <div
-                  key={msg.id}
-                  className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                >
-                  {msg.content}
-                </div>
-              ) : (
-                <Message key={msg.id} from={msg.role}>
-                  {msg.thinking && (
-                    <Reasoning>
-                      <ReasoningTrigger />
-                      <ReasoningContent>{msg.thinking}</ReasoningContent>
-                    </Reasoning>
-                  )}
-                  {msg.toolCalls && msg.toolCalls.length > 0 && (
-                    <div className="w-full flex flex-col gap-2">
-                      {msg.toolCalls.map((tc) =>
-                        VAULT_FILE_TOOLS.has(tc.name) ? (
-                          <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
-                        ) : (
-                          <ToolCallRow key={tc.id} call={tc} />
-                        )
-                      )}
-                    </div>
-                  )}
-                  {msg.content && (
-                    <MessageContent>
-                      <MessageResponse>{msg.content}</MessageResponse>
-                    </MessageContent>
-                  )}
-                </Message>
-              );
-            })}
-
-            {awaitingFirstToken && (
-              <Message from="assistant">
-                <div
-                  className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
-                  aria-live="polite"
-                >
-                  <BrainIcon className="size-3.5 shrink-0" aria-hidden />
-                  <Shimmer as="span" duration={1}>
-                    Working on it…
-                  </Shimmer>
-                </div>
-              </Message>
+      <Conversation className="prose prose-sm min-h-0">
+        <ConversationContent>
+          {messages.length === 0 &&
+            !awaitingFirstToken &&
+            !streamingThinking &&
+            !streamingContent && (
+              <ConversationEmptyState
+                title=""
+                description="Ask about your saved places, notes, or get help organizing your map."
+              />
             )}
 
-            {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
-              <Message from="assistant">
-                {streamingThinking && (
-                  <Reasoning isStreaming={!streamingContent}>
+          {messages.map((msg) => {
+            return msg.role === "error" ? (
+              <div
+                key={msg.id}
+                className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {msg.content}
+              </div>
+            ) : (
+              <Message key={msg.id} from={msg.role}>
+                {msg.thinking && (
+                  <Reasoning>
                     <ReasoningTrigger />
-                    <ReasoningContent>{streamingThinking}</ReasoningContent>
+                    <ReasoningContent>{msg.thinking}</ReasoningContent>
                   </Reasoning>
                 )}
-                {activeToolCalls.length > 0 && (
-                  <div className="w-full space-y-0.5">
-                    {activeToolCalls.map((tc) =>
+                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div className="w-full flex flex-col gap-2">
+                    {msg.toolCalls.map((tc) =>
                       VAULT_FILE_TOOLS.has(tc.name) ? (
                         <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
                       ) : (
@@ -600,21 +557,62 @@ export function ChatPane({
                     )}
                   </div>
                 )}
-                {streamingContent && (
+                {msg.content && (
                   <MessageContent>
-                    <MessageResponse isAnimating>{streamingContent}</MessageResponse>
+                    <MessageResponse>{msg.content}</MessageResponse>
                   </MessageContent>
                 )}
               </Message>
-            )}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-      </div>
+            );
+          })}
+
+          {awaitingFirstToken && (
+            <Message from="assistant">
+              <div
+                className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
+                aria-live="polite"
+              >
+                <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+                <Shimmer as="span" duration={1}>
+                  Working on it…
+                </Shimmer>
+              </div>
+            </Message>
+          )}
+
+          {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
+            <Message from="assistant">
+              {streamingThinking && (
+                <Reasoning isStreaming={!streamingContent}>
+                  <ReasoningTrigger />
+                  <ReasoningContent>{streamingThinking}</ReasoningContent>
+                </Reasoning>
+              )}
+              {activeToolCalls.length > 0 && (
+                <div className="w-full space-y-0.5">
+                  {activeToolCalls.map((tc) =>
+                    VAULT_FILE_TOOLS.has(tc.name) ? (
+                      <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
+                    ) : (
+                      <ToolCallRow key={tc.id} call={tc} />
+                    )
+                  )}
+                </div>
+              )}
+              {streamingContent && (
+                <MessageContent>
+                  <MessageResponse isAnimating>{streamingContent}</MessageResponse>
+                </MessageContent>
+              )}
+            </Message>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
 
       <div className="px-3 pb-3 pt-0">
         {(canUndo || showAddAllToVaultRow) && (
-          <div className="flex flex-col gap-2 pt-2">
+          <div className="flex flex-col gap-2 py-2">
             {canUndo && (
               <div className="flex justify-end">
                 <Button

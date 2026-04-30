@@ -771,7 +771,8 @@ export function ProjectSidebar({
   onSelectGeoJson,
   onDeletePath,
   onRenamePath,
-  onMoved
+  onMoved,
+  onNewChat
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -781,6 +782,7 @@ export function ProjectSidebar({
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
+  onNewChat?: () => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
@@ -933,7 +935,7 @@ export function ProjectSidebar({
               <TooltipTrigger
                 render={
                   <SidebarMenuItem>
-                    <SidebarMenuButton>
+                    <SidebarMenuButton onClick={onNewChat}>
                       <MessageCirclePlusIcon /> New Chat
                     </SidebarMenuButton>
                   </SidebarMenuItem>

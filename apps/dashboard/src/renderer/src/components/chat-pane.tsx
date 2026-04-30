@@ -1,10 +1,5 @@
 import { cn } from "@mapos/ui/lib/utils";
-import type {
-  ChatToolCallPayload,
-  ChatToolResultPayload,
-  ConversationMeta,
-  MapOverlayPayload
-} from "@shared/types";
+import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
@@ -16,13 +11,12 @@ import {
   FilePlusIcon,
   FileX2Icon,
   Loader2Icon,
+  MessageSquarePlusIcon,
   PencilIcon,
-  SquarePenIcon,
   Undo2Icon,
   XIcon
 } from "lucide-react";
-import { nanoid } from "nanoid";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -36,35 +30,22 @@ import {
   PromptInputSubmit,
   PromptInputTextarea
 } from "@mapos/ui/components/ai-elements/prompt-input";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "@mapos/ui/components/ai-elements/reasoning";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger
+} from "@mapos/ui/components/ai-elements/reasoning";
 import { Shimmer } from "@mapos/ui/components/ai-elements/shimmer";
 import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@mapos/ui/components/select";
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@mapos/ui/components/sidebar";
+import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FolderPickerPopover } from "./folder-picker-popover";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant" | "error";
-  content: string;
-  thinking?: string;
-  toolCalls?: ActiveToolCall[];
-};
-
-type ActiveToolCall = {
-  id: string;
-  name: string;
-  input: unknown;
-  result?: string;
-  isError?: boolean;
-  status: "running" | "done" | "error";
-};
 
 const VAULT_FILE_TOOLS = new Set([
   "mcp__mapos__write_vault_file",
@@ -93,7 +74,6 @@ const TOOL_LABELS: Record<string, string> = {
 
 function toolLabel(name: string): string {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
-  // Strip mcp__namespace__ prefix, then humanize snake_case
   return name.replace(/^mcp__[^_]+(?:__[^_]+)*?__/, "").replace(/_/g, " ");
 }
 
@@ -156,14 +136,12 @@ function flattenDiffParts(parts: ReturnType<typeof diffLines>): DiffLineItem[] {
     } else if (part.removed) {
       for (const line of lines) items.push({ id: nextId++, kind: "removed", text: line });
     } else {
-      // Unchanged section — collapse to separator, avoiding consecutive ellipses
       const hasContent = lines.some((l) => l !== "");
       if (hasContent && items.length > 0 && items[items.length - 1].kind !== "ellipsis") {
         items.push({ id: nextId++, kind: "ellipsis" });
       }
     }
   }
-  // Strip trailing ellipsis
   while (items.length > 0 && items[items.length - 1].kind === "ellipsis") {
     items.pop();
   }
@@ -272,7 +250,6 @@ function FileChangeRow({
 
   return (
     <div className="overflow-hidden">
-      {/* Header row */}
       <div className="flex items-center gap-2 pb-1.5">
         <ActionIcon
           className={cn(
@@ -299,7 +276,6 @@ function FileChangeRow({
         <span className={cn("text-xs font-medium shrink-0", actionColor)}>{actionLabel}</span>
       </div>
 
-      {/* Diff */}
       {showDiff && (
         <div className="mb-1 rounded border border-sidebar-border/60 bg-sidebar-accent/30 overflow-hidden">
           <pre className="font-mono text-[11px] leading-relaxed !m-0">
@@ -385,142 +361,42 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
   );
 }
 
-type ChatState = {
-  messages: ChatMessage[];
-  streamingContent: string;
-  streamingThinking: string;
-  activeToolCalls: ActiveToolCall[];
-  /** True after submit until done/error/reset/stop — covers pre-chunk gap (not represented by stream fields). */
-  assistantPending: boolean;
-  canUndo: boolean;
-};
-
-type ChatAction =
-  | { type: "load_history"; messages: ChatMessage[] }
-  | { type: "user_message"; content: string }
-  | { type: "chunk"; text: string }
-  | { type: "thinking_chunk"; text: string }
-  | ({ type: "tool_call" } & ChatToolCallPayload)
-  | ({ type: "tool_result" } & ChatToolResultPayload)
-  | { type: "done"; canUndo: boolean }
-  | { type: "undo_confirmed" }
-  | { type: "error"; message: string }
-  | { type: "reset" }
-  | { type: "abort" };
-
-const initialChatState: ChatState = {
-  messages: [],
-  streamingContent: "",
-  streamingThinking: "",
-  activeToolCalls: [],
-  assistantPending: false,
-  canUndo: false
-};
-
-function chatReducer(state: ChatState, action: ChatAction): ChatState {
-  switch (action.type) {
-    case "load_history":
-      return { ...state, messages: action.messages, canUndo: false, assistantPending: false };
-    case "user_message":
-      return {
-        ...state,
-        canUndo: false,
-        assistantPending: true,
-        messages: [...state.messages, { id: nanoid(), role: "user", content: action.content }]
-      };
-    case "chunk":
-      return { ...state, streamingContent: state.streamingContent + action.text };
-    case "thinking_chunk":
-      return { ...state, streamingThinking: state.streamingThinking + action.text };
-    case "tool_call":
-      return {
-        ...state,
-        activeToolCalls: [
-          ...state.activeToolCalls,
-          { id: action.id, name: action.name, input: action.input, status: "running" }
-        ]
-      };
-    case "tool_result":
-      return {
-        ...state,
-        activeToolCalls: state.activeToolCalls.map((tc) =>
-          tc.id === action.tool_use_id
-            ? {
-                ...tc,
-                result: action.content,
-                isError: action.isError,
-                status: action.isError ? "error" : "done"
-              }
-            : tc
-        )
-      };
-    case "done": {
-      const { streamingContent, streamingThinking, activeToolCalls } = state;
-      const newMessages =
-        streamingContent || activeToolCalls.length > 0
-          ? [
-              ...state.messages,
-              {
-                id: nanoid(),
-                role: "assistant" as const,
-                content: streamingContent,
-                thinking: streamingThinking || undefined,
-                toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined
-              }
-            ]
-          : state.messages;
-      return {
-        messages: newMessages,
-        streamingContent: "",
-        streamingThinking: "",
-        activeToolCalls: [],
-        assistantPending: false,
-        canUndo: action.canUndo
-      };
-    }
-    case "undo_confirmed":
-      return { ...state, canUndo: false };
-    case "error":
-      return {
-        messages: [
-          ...state.messages,
-          { id: nanoid(), role: "error", content: `Error: ${action.message}` }
-        ],
-        streamingContent: "",
-        streamingThinking: "",
-        activeToolCalls: [],
-        assistantPending: false,
-        canUndo: false
-      };
-    case "abort":
-      return {
-        ...state,
-        streamingContent: "",
-        streamingThinking: "",
-        activeToolCalls: [],
-        assistantPending: false
-      };
-    case "reset":
-      return initialChatState;
-  }
-}
-
 function mapOverlayFeatureCount(o: MapOverlayPayload): number {
   return o.points.length + o.lines.length + o.polygons.length;
 }
 
 const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
 
-export function ChatSidebar({
+export function ChatPane({
+  convId,
+  convState,
+  onSubmit,
+  onAbort,
+  onUndo,
+  onClearOverlay,
   onOpenFile,
+  onSwitchConv,
+  onNewChat,
+  onDeleted,
   mapOverlay,
   mapOverlayNonce,
   onAddAllOverlayToVault,
   addAllOverlayBusy,
-  defaultParentFolderPath,
-  onOverlayRestore
+  defaultParentFolderPath
 }: {
+  convId: string;
+  convState: ConvChatState;
+  onSubmit: (text: string) => void;
+  onAbort: () => void;
+  onUndo: () => void;
+  onClearOverlay: () => void;
   onOpenFile: (filePath: string) => void;
+  /** Replace the current tab with a different conversation. */
+  onSwitchConv: (convId: string, title: string) => void;
+  /** Open a fresh chat tab. */
+  onNewChat: () => void;
+  /** Called after the active conversation has been deleted on disk. */
+  onDeleted: (convId: string) => void;
   mapOverlay: MapOverlayPayload;
   /** Increments when the map receives a new non-empty overlay (resets Add-all visibility). */
   mapOverlayNonce: number;
@@ -528,50 +404,40 @@ export function ChatSidebar({
   addAllOverlayBusy: boolean;
   /** Folder pre-selected as the default destination in the folder picker. */
   defaultParentFolderPath: string | null;
-  onOverlayRestore: (overlay: MapOverlayPayload | null) => void;
 }): React.JSX.Element {
-  const [
-    { messages, streamingContent, streamingThinking, activeToolCalls, assistantPending, canUndo },
-    dispatch
-  ] = useReducer(chatReducer, initialChatState);
+  const {
+    messages,
+    streamingContent,
+    streamingThinking,
+    activeToolCalls,
+    assistantPending,
+    canUndo
+  } = convState;
   const loading =
     assistantPending ||
     streamingContent !== "" ||
     streamingThinking !== "" ||
     activeToolCalls.length > 0;
+
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
-  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
   const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only effect
+  // Refresh the recent-chats list when the user opens this tab and on each conversation done.
   useEffect(() => {
-    window.api.chat.loadHistory().then(({ messages, overlay }) => {
-      if (messages.length > 0) {
-        dispatch({
-          type: "load_history",
-          messages: messages.map((msg) => ({
-            id: nanoid(),
-            role: msg.role,
-            content: msg.content,
-            thinking: msg.thinking,
-            toolCalls: msg.toolCalls?.map(
-              (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
-            )
-          }))
-        });
-      }
-      onOverlayRestore(overlay);
-    });
-
-    window.api.chat.listConversations().then((convos) => {
-      const sorted = convos.slice().reverse();
-      setConversations(sorted);
-      if (sorted.length > 0) {
-        setCurrentConvId(sorted[0].id);
-      }
+    void window.api.chat.listConversations().then((convos) => {
+      setConversations(convos.slice().reverse());
     });
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh after each turn completes
+  useEffect(() => {
+    if (!assistantPending && messages.length > 0) {
+      void window.api.chat.listConversations().then((convos) => {
+        setConversations(convos.slice().reverse());
+      });
+    }
+  }, [assistantPending]);
 
   // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
@@ -579,97 +445,20 @@ export function ChatSidebar({
     setAddAllHiddenAfterUserMessage(false);
   }, [mapOverlayNonce]);
 
-  useEffect(() => {
-    window.api.chat.onChunk((text) => dispatch({ type: "chunk", text }));
-    window.api.chat.onThinkingChunk((text) => dispatch({ type: "thinking_chunk", text }));
-    window.api.chat.onToolCall(({ id, name, input }) =>
-      dispatch({ type: "tool_call", id, name, input })
-    );
-    window.api.chat.onToolResult(({ tool_use_id, content, isError }) =>
-      dispatch({ type: "tool_result", tool_use_id, content, isError })
-    );
-
-    window.api.chat.onDone(({ canUndo: hasVaultOps }) => {
-      dispatch({ type: "done", canUndo: hasVaultOps });
-      window.api.chat.listConversations().then((convos) => {
-        const sorted = convos.slice().reverse();
-        setConversations(sorted);
-        if (sorted.length > 0 && !currentConvId) {
-          setCurrentConvId(sorted[0].id);
-        }
-      });
-    });
-
-    window.api.chat.onError((msg) => {
-      dispatch({ type: "error", message: msg });
-    });
-
-    return () => {
-      window.api.chat.removeListeners();
-    };
-  }, [currentConvId]);
-
   function handleSubmit({ text }: { text: string }): void {
     if (!text.trim() || loading) return;
-    dispatch({ type: "user_message", content: text });
     setAddAllHiddenAfterUserMessage(true);
-    window.api.chat.send(text);
+    onSubmit(text);
   }
-
-  async function handleUndo(): Promise<void> {
-    await window.api.chat.undo();
-    dispatch({ type: "undo_confirmed" });
-  }
-
-  function handleStop(): void {
-    window.api.chat.abort();
-    dispatch({ type: "abort" });
-  }
-
-  function clear(): void {
-    window.api.chat.reset();
-    dispatch({ type: "reset" });
-    setAddAllHiddenAfterUserMessage(false);
-  }
-
-  async function switchConversation(id: string): Promise<void> {
-    const { messages, overlay } = await window.api.chat.switchConversation(id);
-    dispatch({
-      type: "load_history",
-      messages: messages.map((msg) => ({
-        id: nanoid(),
-        role: msg.role,
-        content: msg.content,
-        thinking: msg.thinking,
-        toolCalls: msg.toolCalls?.map(
-          (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
-        )
-      }))
-    });
-    setCurrentConvId(id);
-    setAddAllHiddenAfterUserMessage(false);
-    onOverlayRestore(overlay);
-  }
-
-  function handleNewConversation(): void {
-    clear();
-    setCurrentConvId(null);
-  }
-
-  async function deleteConversation(): Promise<void> {
-    if (!currentConvId) return;
-    await window.api.chat.deleteConversation(currentConvId);
-    const updated = await window.api.chat.listConversations();
-    const sorted = updated.slice().reverse();
-    setConversations(sorted);
-    handleNewConversation();
-  }
-
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
   async function handleAddAllToVault(folderPath: string | null): Promise<void> {
     await onAddAllOverlayToVault(folderPath);
-    window.api.chat.clearOverlay();
+    onClearOverlay();
+  }
+
+  async function handleDeleteConversation(): Promise<void> {
+    await window.api.chat.deleteConversation(convId);
+    onDeleted(convId);
   }
 
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
@@ -683,56 +472,53 @@ export function ChatSidebar({
     activeToolCalls.length === 0;
 
   return (
-    <Sidebar side="right" collapsible="offcanvas" variant="floating">
-      <SidebarHeader className="flex-row items-center justify-between px-3 py-2">
-        <Select value={currentConvId ?? ""} onValueChange={(id) => id && switchConversation(id)}>
-          <SelectTrigger className="min-w-0 max-w-[160px]">
-            <span className="truncate text-sm">
-              {currentConvId
-                ? conversations.find((c) => c.id === currentConvId)?.preview || "Chat"
-                : "New Chat"}
-            </span>
-          </SelectTrigger>
-          <SelectContent className="max-w-[220px] w-full" align="start">
-            <SelectGroup>
-              {conversations.map((conv) => (
-                <SelectItem key={conv.id} value={conv.id} className="max-w-xs">
-                  <span className="truncate">{conv.preview}</span>
-                </SelectItem>
-              ))}
-              {conversations.length === 0 && (
-                <div className="flex items-center justify-center py-2">
-                  <span className="text-muted-foreground text-sm">No conversations</span>
-                </div>
-              )}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-1">
-          {currentConvId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-                <EllipsisIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end">
-                <DropdownMenuItem variant="destructive" onClick={deleteConversation}>
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewConversation}
-            title="New conversation"
-          >
-            <SquarePenIcon />
-          </Button>
-        </div>
-      </SidebarHeader>
+    <div className="flex h-full flex-col rounded-lg border border-sidebar-border bg-sidebar shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-1 border-b border-sidebar-border px-3 py-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="sm" className="min-w-0 max-w-[180px] justify-start">
+                <span className="truncate text-sm font-normal">
+                  {conversations.find((c) => c.id === convId)?.preview || "New Chat"}
+                </span>
+                <ChevronDownIcon className="size-3.5 shrink-0 opacity-50" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="start" className="max-w-[260px] w-full">
+            <DropdownMenuItem onClick={onNewChat}>
+              <MessageSquarePlusIcon className="size-3.5" />
+              New Chat
+            </DropdownMenuItem>
+            {conversations.length > 0 && <DropdownMenuSeparator />}
+            {conversations.map((conv) => (
+              <DropdownMenuItem
+                key={conv.id}
+                onClick={() => onSwitchConv(conv.id, conv.preview || "Chat")}
+              >
+                <span className="truncate">{conv.preview || "Chat"}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {conversations.some((c) => c.id === convId) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+              <EllipsisIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end">
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => void handleDeleteConversation()}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
 
-      <SidebarContent className="overflow-hidden p-0">
+      <div className="flex-1 min-h-0 overflow-hidden p-0">
         <Conversation className="prose prose-sm">
           <ConversationContent>
             {messages.length === 0 &&
@@ -824,9 +610,9 @@ export function ChatSidebar({
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
-      </SidebarContent>
+      </div>
 
-      <SidebarFooter className="px-3 pb-3 pt-0 pointer-events-auto">
+      <div className="px-3 pb-3 pt-0">
         {(canUndo || showAddAllToVaultRow) && (
           <div className="flex flex-col gap-2 pt-2">
             {canUndo && (
@@ -835,7 +621,7 @@ export function ChatSidebar({
                   variant="secondary"
                   size="sm"
                   className={overlayActionButtonClass}
-                  onClick={() => void handleUndo()}
+                  onClick={onUndo}
                 >
                   <Undo2Icon className="size-3.5" />
                   Undo
@@ -853,7 +639,7 @@ export function ChatSidebar({
                     size="sm"
                     className={overlayActionButtonClass}
                     disabled={addAllOverlayBusy}
-                    onClick={() => window.api.chat.clearOverlay()}
+                    onClick={onClearOverlay}
                   >
                     Clear
                   </Button>
@@ -888,10 +674,10 @@ export function ChatSidebar({
           <PromptInputTextarea placeholder="Message MapOS..." disabled={loading} />
           <PromptInputFooter>
             <div />
-            <PromptInputSubmit status={chatStatus} onStop={handleStop} />
+            <PromptInputSubmit status={chatStatus} onStop={onAbort} />
           </PromptInputFooter>
         </PromptInput>
-      </SidebarFooter>
-    </Sidebar>
+      </div>
+    </div>
   );
 }

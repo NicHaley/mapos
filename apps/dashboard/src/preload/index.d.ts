@@ -1,5 +1,8 @@
 import type { ElectronAPI } from "@electron-toolkit/preload";
 import type {
+  ChatChunkPayload,
+  ChatDonePayload,
+  ChatErrorPayload,
   ChatToolCallPayload,
   ChatToolResultPayload,
   ConversationLoadResult,
@@ -141,19 +144,19 @@ declare global {
         onFullscreenChange: (cb: (isFullscreen: boolean) => void) => () => void;
       };
       chat: {
-        send: (message: string) => void;
-        abort: () => void;
-        reset: () => void;
-        clearOverlay: () => void;
-        loadHistory: () => Promise<ConversationLoadResult>;
+        send: (convId: string, message: string) => void;
+        abort: (convId: string) => void;
+        clearOverlay: (convId: string) => void;
+        loadConversation: (convId: string) => Promise<ConversationLoadResult>;
         listConversations: () => Promise<ConversationMeta[]>;
-        switchConversation: (id: string) => Promise<ConversationLoadResult>;
         deleteConversation: (id: string) => Promise<void>;
-        onChunk: (cb: (text: string) => void) => void;
-        onThinkingChunk: (cb: (text: string) => void) => void;
-        onDone: (cb: (data: { canUndo: boolean }) => void) => void;
-        undo: () => Promise<{ success: boolean; error?: string; errors?: string[] }>;
-        onError: (cb: (msg: string) => void) => void;
+        onChunk: (cb: (data: ChatChunkPayload) => void) => void;
+        onThinkingChunk: (cb: (data: ChatChunkPayload) => void) => void;
+        onDone: (cb: (data: ChatDonePayload) => void) => void;
+        undo: (
+          convId: string
+        ) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
+        onError: (cb: (data: ChatErrorPayload) => void) => void;
         onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
         onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;
         removeListeners: () => void;

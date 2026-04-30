@@ -5,14 +5,10 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
-  FileIcon,
-  FileTextIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
-  ImageIcon,
-  Layers2Icon,
   MessageCirclePlusIcon,
   PlusIcon,
   SettingsIcon,
@@ -20,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { iconForFilename } from "../lib/file-icons";
 import type { PlaceRecord } from "./map-view";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -95,30 +92,9 @@ function parseDragPayload(e: React.DragEvent): { path: string; type: FileNode["t
   }
 }
 
-const IMAGE_EXTENSIONS = [
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".svg",
-  ".bmp",
-  ".heic",
-  ".heif",
-  ".tiff",
-  ".tif",
-  ".avif"
-];
-
-const LAYER_EXTENSIONS = [".geojson", ".gpx", ".kml", ".shp"];
-
 function fileIcon(name: string) {
-  const lower = name.toLowerCase();
-  const className = "size-3.5 shrink-0 text-sidebar-foreground/50";
-  if (lower.endsWith(".md")) return <FileTextIcon className={className} />;
-  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <ImageIcon className={className} />;
-  if (LAYER_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <Layers2Icon className={className} />;
-  return <FileIcon className={className} />;
+  const Icon = iconForFilename(name);
+  return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
 }
 
 type VaultOption = {

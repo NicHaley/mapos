@@ -372,11 +372,21 @@ export function useNavTabs({
   const activeTab = nav.tabs[nav.activeTab];
   const navTabsData = nav.tabs.map((tab) => {
     const current = tab.history[tab.cursor];
-    let title = "";
-    if (current?.kind === "place") title = current.place.title;
-    else if (current?.kind === "folder") title = current.label;
-    else if (current?.kind === "chat") title = current.title;
-    return { id: tab.id, title };
+    if (current?.kind === "place") {
+      return {
+        id: tab.id,
+        title: current.place.title,
+        kind: "place" as const,
+        filePath: current.place.filePath
+      };
+    }
+    if (current?.kind === "folder") {
+      return { id: tab.id, title: current.label, kind: "folder" as const };
+    }
+    if (current?.kind === "chat") {
+      return { id: tab.id, title: current.title, kind: "chat" as const };
+    }
+    return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
   });
 
   return {

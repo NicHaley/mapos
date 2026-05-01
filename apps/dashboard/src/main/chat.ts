@@ -17,16 +17,17 @@ import {
   setConversationsDir
 } from "./conversations";
 import { removeFeatures, syncFeatureForFile } from "./db";
+import { vaultDotDir } from "./mapos-config";
 import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
 
 export function setupChat(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
-  vaultRoot: string,
-  appStateDir: string
+  vaultRoot: string
 ): () => void {
-  setConversationsDir(join(appStateDir, "conversations"));
+  // Conversations live inside the vault's .mapos/ folder so they're scoped per-vault and travel with it.
+  setConversationsDir(join(vaultDotDir(vaultRoot), "conversations"));
 
   const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
 

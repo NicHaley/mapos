@@ -101,7 +101,7 @@ app.whenReady().then(() => {
   let maposConfig = loadOrInitMaposConfig(appStateDir);
   let vaultRoot = getPrimaryVaultRoot(maposConfig);
   let { places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
-  let stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+  let stopChat = setupChat(mainWindow, places, vaultRoot);
 
   ipcMain.handle("mapos:switch-vault", async (_event, targetPath: string) => {
     const result = setActiveVaultInConfig(appStateDir, targetPath);
@@ -116,7 +116,7 @@ app.whenReady().then(() => {
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
     ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+    stopChat = setupChat(mainWindow, places, vaultRoot);
 
     // Reload the renderer (fast — no process restart)
     mainWindow.webContents.reload();
@@ -151,7 +151,7 @@ app.whenReady().then(() => {
     } catch (e) {
       // Re-initialize at the original path so the app is not left in a broken state.
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      stopChat = setupChat(mainWindow, places, vaultRoot);
       return { ok: false as const, error: `Rename failed: ${String(e)}` };
     }
 
@@ -164,7 +164,7 @@ app.whenReady().then(() => {
         /* best-effort rollback */
       }
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      stopChat = setupChat(mainWindow, places, vaultRoot);
       return { ok: false as const, error: updated.error };
     }
 
@@ -180,7 +180,7 @@ app.whenReady().then(() => {
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
     ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+    stopChat = setupChat(mainWindow, places, vaultRoot);
 
     mainWindow.webContents.reload();
 
@@ -206,13 +206,13 @@ app.whenReady().then(() => {
     const removed = removeVaultFromConfig(appStateDir, oldActive);
     if (!removed.ok) {
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      stopChat = setupChat(mainWindow, places, vaultRoot);
       return { ok: false as const, error: removed.error };
     }
     const activated = setActiveVaultInConfig(appStateDir, fallback);
     if (!activated.ok) {
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+      stopChat = setupChat(mainWindow, places, vaultRoot);
       return { ok: false as const, error: activated.error };
     }
 
@@ -227,7 +227,7 @@ app.whenReady().then(() => {
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
     ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot, appStateDir);
+    stopChat = setupChat(mainWindow, places, vaultRoot);
 
     mainWindow.webContents.reload();
 

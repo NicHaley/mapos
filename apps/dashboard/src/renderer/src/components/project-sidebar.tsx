@@ -9,8 +9,8 @@ import {
   FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  MessageCircleIcon,
   MessageCirclePlusIcon,
-  MessageSquareIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -1005,6 +1005,9 @@ export function ProjectSidebar({
               <ContextMenu>
                 <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
                   <div className="flex min-h-0 flex-1 flex-col">
+                    {tree.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-sidebar-foreground/50">No files</p>
+                    ) : null}
                     <SidebarMenu className="shrink-0 gap-0.5">
                       {tree.map((node) => (
                         <FileTreeNode
@@ -1086,7 +1089,7 @@ export function ProjectSidebar({
                             />
                           }
                         >
-                          <MessageSquareIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+                          <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
                           <span className="truncate">{title}</span>
                         </ContextMenuTrigger>
                         <ContextMenuContent>

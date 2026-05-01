@@ -14,6 +14,7 @@ import { NavTabs } from "./components/nav-tabs";
 import { PhotonSearchPopover } from "./components/photon-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
+import { ResizeHandle } from "./components/resize-handle";
 import { cn } from "@mapos/ui/lib/utils";
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
@@ -27,6 +28,7 @@ import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
 import { useOverlayVaultSync } from "./hooks/use-overlay-vault-sync";
 import { usePathSync } from "./hooks/use-path-sync";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
+import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import type { PhotonSearchResult } from "./lib/photon";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
@@ -34,8 +36,12 @@ import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
 
-const PROJECT_SIDEBAR_WIDTH = 14 * BASE_UNITS;
-const PLACE_CARD_WIDTH = 22 * BASE_UNITS;
+const PROJECT_SIDEBAR_DEFAULT_WIDTH = 14 * BASE_UNITS;
+const PROJECT_SIDEBAR_MIN_WIDTH = 12 * BASE_UNITS;
+const PROJECT_SIDEBAR_MAX_WIDTH = 30 * BASE_UNITS;
+const MAIN_PANE_DEFAULT_WIDTH = 22 * BASE_UNITS;
+const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS;
+const MAIN_PANE_MAX_WIDTH = 40 * BASE_UNITS;
 const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
 const FIT_BUFFER = 2.5 * BASE_UNITS;
 
@@ -151,18 +157,6 @@ async function resolveWikilinks(filePath: string): Promise<PlaceRecord[]> {
   return records.filter((r): r is PlaceRecord => r !== null && Boolean(r.geometry));
 }
 
-function mapPadding(projectSidebarOpen: boolean, mainPaneOpen: boolean) {
-  return {
-    left:
-      (projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0) +
-      (mainPaneOpen ? PLACE_CARD_WIDTH : 0) +
-      FIT_BUFFER,
-    right: FIT_BUFFER,
-    top: TOP_BAR_HEIGHT + FIT_BUFFER,
-    bottom: FIT_BUFFER
-  };
-}
-
 function App(): React.JSX.Element {
   const [selectedPlace, setSelectedPlace] = useState<PlaceRecord | null>(null);
   const [placeMode, setPlaceMode] = useState<"mini" | "full">("mini");
@@ -196,6 +190,32 @@ function App(): React.JSX.Element {
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
 
+  const { width: projectSidebarWidth, startDrag: startProjectSidebarResize } = useResizableWidth({
+    storageKey: "mapos.projectSidebarWidth",
+    defaultWidth: PROJECT_SIDEBAR_DEFAULT_WIDTH,
+    minWidth: PROJECT_SIDEBAR_MIN_WIDTH,
+    maxWidth: PROJECT_SIDEBAR_MAX_WIDTH
+  });
+  const { width: mainPaneWidth, startDrag: startMainPaneResize } = useResizableWidth({
+    storageKey: "mapos.mainPaneWidth",
+    defaultWidth: MAIN_PANE_DEFAULT_WIDTH,
+    minWidth: MAIN_PANE_MIN_WIDTH,
+    maxWidth: MAIN_PANE_MAX_WIDTH
+  });
+
+  const getMapPadding = useCallback(
+    (mainPaneOpen: boolean) => ({
+      left:
+        (projectSidebarOpen ? projectSidebarWidth : 0) +
+        (mainPaneOpen ? mainPaneWidth : 0) +
+        FIT_BUFFER,
+      right: FIT_BUFFER,
+      top: TOP_BAR_HEIGHT + FIT_BUFFER,
+      bottom: FIT_BUFFER
+    }),
+    [projectSidebarOpen, projectSidebarWidth, mainPaneWidth]
+  );
+
   const chatStore = useChatStore();
   const { conversations, refresh: refreshConversations } = useConversations(chatStore);
 
@@ -228,7 +248,7 @@ function App(): React.JSX.Element {
       setLinkedPlaces([]);
       return;
     }
-    const padding = mapPadding(projectSidebarOpen, placeMode === "full");
+    const padding = getMapPadding(placeMode === "full");
     let cancelled = false;
     void (async () => {
       const linked = await resolveWikilinks(filePath);
@@ -303,7 +323,7 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
-        mapRef.current?.fitToPlace(entry.place, mapPadding(projectSidebarOpen, true));
+        mapRef.current?.fitToPlace(entry.place, getMapPadding(true));
       } else if (entry.kind === "folder") {
         setActiveChatConvId(null);
         setSelectedFolder(entry.folderPath);
@@ -312,7 +332,7 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
-        mapRef.current?.fitToFolder(entry.folderPath, mapPadding(projectSidebarOpen, false));
+        mapRef.current?.fitToFolder(entry.folderPath, getMapPadding(false));
       } else {
         // chat: render chat pane in main-pane slot; clear place/folder selection.
         setActiveChatConvId(entry.convId);
@@ -326,7 +346,7 @@ function App(): React.JSX.Element {
         void chatStore.loadConversation(entry.convId).then(handleOverlayRestore);
       }
     },
-    [projectSidebarOpen, chatStore, handleOverlayRestore]
+    [getMapPadding, chatStore, handleOverlayRestore]
   );
 
   const onNavEmpty = useCallback(() => {
@@ -552,10 +572,10 @@ function App(): React.JSX.Element {
       setFeatureScreenPos(null);
       if (!selectedFolderRef.current) {
         setSelectedFolder(null);
-        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, false));
+        mapRef.current?.fitToPlace(place, getMapPadding(false));
       }
     },
-    [placeMode, projectSidebarOpen]
+    [placeMode, getMapPadding]
   );
 
   // Sidebar file click — navigate within active tab (or background tab on cmd/ctrl+click)
@@ -576,10 +596,10 @@ function App(): React.JSX.Element {
       setFeatureScreenPos(null);
       dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
       if (!alreadyOpen) {
-        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, true));
+        mapRef.current?.fitToPlace(place, getMapPadding(true));
       }
     },
-    [placeMode, selectedPlace, projectSidebarOpen, dispatchNav]
+    [placeMode, selectedPlace, getMapPadding, dispatchNav]
   );
 
   // Sidebar folder click — navigate within active tab
@@ -596,12 +616,9 @@ function App(): React.JSX.Element {
         entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
         newTab: false
       });
-      mapRef.current?.fitToFolder(
-        folderPath,
-        mapPadding(projectSidebarOpen, false)
-      );
+      mapRef.current?.fitToFolder(folderPath, getMapPadding(false));
     },
-    [projectSidebarOpen, dispatchNav]
+    [getMapPadding, dispatchNav]
   );
 
   const handleSelectGeoJson = useCallback(
@@ -627,9 +644,9 @@ function App(): React.JSX.Element {
       dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
 
       // @ts-expect-error - data shape matches RawFeatureCollection
-      mapRef.current?.fitToGeoJson(data, mapPadding(projectSidebarOpen, true));
+      mapRef.current?.fitToGeoJson(data, getMapPadding(true));
     },
-    [projectSidebarOpen, dispatchNav]
+    [getMapPadding, dispatchNav]
   );
 
   // New place file created from map context menu
@@ -645,10 +662,10 @@ function App(): React.JSX.Element {
         setSelectedPlace(place);
         setPlaceMode("full");
         setFeatureScreenPos(null);
-        mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, true));
+        mapRef.current?.fitToPlace(place, getMapPadding(true));
       }
     },
-    [selectedFolder, projectSidebarOpen]
+    [selectedFolder, getMapPadding]
   );
 
   const handlePhotonSearchResult = useCallback(
@@ -659,9 +676,9 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, mapPadding(projectSidebarOpen, false));
+      mapRef.current?.fitToPlace(place, getMapPadding(false));
     },
-    [projectSidebarOpen]
+    [getMapPadding]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -689,13 +706,10 @@ function App(): React.JSX.Element {
       setSelectionPulseAnchor(null);
       setSelectedPlace(updated);
       dispatchNav({ type: "update-entry", filePath: updated.filePath, place: updated });
-      mapRef.current?.fitToPlace(
-        updated,
-        mapPadding(projectSidebarOpen, placeMode === "full")
-      );
+      mapRef.current?.fitToPlace(updated, getMapPadding(placeMode === "full"));
       return true;
     },
-    [projectSidebarOpen, placeMode, dispatchNav]
+    [getMapPadding, placeMode, dispatchNav]
   );
 
   const clearVaultPointLocation = useCallback(
@@ -764,7 +778,7 @@ function App(): React.JSX.Element {
         setSelectedPlace(created);
         setPlaceMode("mini");
         setFeatureScreenPos(null);
-        mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, false));
+        mapRef.current?.fitToPlace(created, getMapPadding(false));
       } else {
         setSelectedPlace(created);
         setPlaceMode("full");
@@ -774,10 +788,10 @@ function App(): React.JSX.Element {
           entry: { kind: "place", place: created },
           newTab: false
         });
-        mapRef.current?.fitToPlace(created, mapPadding(projectSidebarOpen, true));
+        mapRef.current?.fitToPlace(created, getMapPadding(true));
       }
     },
-    [parentFolderForNewFiles, selectedFolder, projectSidebarOpen, dispatchNav]
+    [parentFolderForNewFiles, selectedFolder, getMapPadding, dispatchNav]
   );
 
   const handleSaveSearchToVault = useCallback(async () => {
@@ -906,59 +920,56 @@ function App(): React.JSX.Element {
         className="fixed inset-x-0 bottom-0 pointer-events-none"
         style={{ top: TOP_BAR_HEIGHT, transform: "translateZ(0)" }}
       >
-        {/* Full-height place panel */}
-        {isFull && selectedPlace && (
+        {/* Main pane — full-height place panel and chat tab share this column. */}
+        {((isFull && selectedPlace) || activeChatConvId) && (
           <div
             className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
             style={{
-              left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
-              width: PLACE_CARD_WIDTH
+              left: projectSidebarOpen ? projectSidebarWidth : 0,
+              width: mainPaneWidth
             }}
           >
-            <PlaceCard
-              key={selectedPlace.filePath}
-              place={selectedPlace}
-              mode="full"
-              onClose={handlePlaceCardClose}
-              onNavigate={handleSelectPlaceFromSidebar}
-              onRename={handlePlaceRename}
-              onCommitPointLocation={commitVaultPointLocation}
-              onClearPointLocation={clearVaultPointLocation}
-            />
-          </div>
-        )}
-
-        {/* Active chat tab — renders in the same column as the full place card. */}
-        {activeChatConvId && (
-          <div
-            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
-            style={{
-              left: projectSidebarOpen ? PROJECT_SIDEBAR_WIDTH : 0,
-              width: PLACE_CARD_WIDTH
-            }}
-          >
-            <ChatPane
-              key={activeChatConvId}
-              convId={activeChatConvId}
-              convTitle={
-                conversations.find((c) => c.id === activeChatConvId)?.preview || "New Chat"
-              }
-              convState={chatStore.getConv(activeChatConvId)}
-              mapOverlay={mapOverlay}
-              mapOverlayNonce={mapOverlayNonce}
-              defaultParentFolderPath={parentFolderForNewFiles}
-              addAllOverlayBusy={addAllOverlayBusy}
-              isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
-              onAddAllOverlayToVault={handleAddAllOverlayToVault}
-              onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
-              onAbort={() => chatStore.abort(activeChatConvId)}
-              onUndo={() => void chatStore.undo(activeChatConvId)}
-              onClearOverlay={() => chatStore.clearOverlay(activeChatConvId)}
-              onDeleted={handleChatDeleted}
-              onOpenFile={async (filePath) => {
-                const place = await window.api.places.getByPath(filePath);
-                if (place) handleSelectPlaceFromSidebar(place);
-              }}
+            {isFull && selectedPlace && (
+              <PlaceCard
+                key={selectedPlace.filePath}
+                place={selectedPlace}
+                mode="full"
+                onClose={handlePlaceCardClose}
+                onNavigate={handleSelectPlaceFromSidebar}
+                onRename={handlePlaceRename}
+                onCommitPointLocation={commitVaultPointLocation}
+                onClearPointLocation={clearVaultPointLocation}
+              />
+            )}
+            {activeChatConvId && (
+              <ChatPane
+                key={activeChatConvId}
+                convId={activeChatConvId}
+                convTitle={
+                  conversations.find((c) => c.id === activeChatConvId)?.preview || "New Chat"
+                }
+                convState={chatStore.getConv(activeChatConvId)}
+                mapOverlay={mapOverlay}
+                mapOverlayNonce={mapOverlayNonce}
+                defaultParentFolderPath={parentFolderForNewFiles}
+                addAllOverlayBusy={addAllOverlayBusy}
+                isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
+                onAddAllOverlayToVault={handleAddAllOverlayToVault}
+                onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
+                onAbort={() => chatStore.abort(activeChatConvId)}
+                onUndo={() => void chatStore.undo(activeChatConvId)}
+                onClearOverlay={() => chatStore.clearOverlay(activeChatConvId)}
+                onDeleted={handleChatDeleted}
+                onOpenFile={async (filePath) => {
+                  const place = await window.api.places.getByPath(filePath);
+                  if (place) handleSelectPlaceFromSidebar(place);
+                }}
+              />
+            )}
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize main pane"
+              onPointerDown={startMainPaneResize}
             />
           </div>
         )}
@@ -998,7 +1009,7 @@ function App(): React.JSX.Element {
                       });
                       mapRef.current?.fitToPlace(
                         selectedPlace,
-                        mapPadding(projectSidebarOpen, true)
+                        getMapPadding(true)
                       );
                     }
               }
@@ -1054,7 +1065,7 @@ function App(): React.JSX.Element {
           onOpenChange={setProjectSidebarOpen}
           keyboardShortcut={SIDEBAR_KB_PROJECT}
           className="fixed inset-0 z-10 pointer-events-none bg-transparent"
-          style={{ "--sidebar-width": `${PROJECT_SIDEBAR_WIDTH}px` } as React.CSSProperties}
+          style={{ "--sidebar-width": `${projectSidebarWidth}px` } as React.CSSProperties}
         >
           <ProjectSidebar
             selectedFilePath={selectedFilePathForSidebar}
@@ -1070,6 +1081,7 @@ function App(): React.JSX.Element {
             onNewChat={handleNewChat}
             onSelectChat={handleSwitchChatConv}
             onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
+            onResizePointerDown={startProjectSidebarResize}
           />
         </SidebarProvider>
       </div>

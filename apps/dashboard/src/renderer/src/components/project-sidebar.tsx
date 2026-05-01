@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { iconForFilename } from "../lib/file-icons";
 import type { PlaceRecord } from "./map-view";
+import { ResizeHandle } from "./resize-handle";
 import { SettingsDialog } from "./settings-dialog";
 import {
   AlertDialog,
@@ -785,7 +786,8 @@ export function ProjectSidebar({
   onMoved,
   onNewChat,
   onSelectChat,
-  onDeleteChat
+  onDeleteChat,
+  onResizePointerDown
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -800,6 +802,7 @@ export function ProjectSidebar({
   onNewChat?: () => void;
   onSelectChat?: (convId: string, title: string) => void;
   onDeleteChat?: (convId: string) => void;
+  onResizePointerDown?: (e: React.PointerEvent) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
@@ -1163,6 +1166,13 @@ export function ProjectSidebar({
         </AlertDialogContent>
       </AlertDialog>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {onResizePointerDown && (
+        <ResizeHandle
+          side="right"
+          ariaLabel="Resize sidebar"
+          onPointerDown={onResizePointerDown}
+        />
+      )}
     </Sidebar>
   );
 }

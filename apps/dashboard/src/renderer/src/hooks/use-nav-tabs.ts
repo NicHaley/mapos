@@ -3,13 +3,14 @@ import type { PlaceRecord } from "../components/map-view";
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
-  | { kind: "folder"; folderPath: string; label: string };
+  | { kind: "folder"; folderPath: string; label: string }
+  | { kind: "chat"; convId: string; title: string };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
 
 export type NavAction =
-  | { type: "navigate"; entry: NavEntry; newTab: boolean }
+  | { type: "navigate"; entry: NavEntry; newTab: boolean; activate?: boolean }
   | { type: "back" }
   | { type: "forward" }
   | { type: "activate"; tabIndex: number }
@@ -18,7 +19,8 @@ export type NavAction =
   | { type: "restore"; tabs: NavTab[]; activeTab: number }
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
-  | { type: "update-entry"; filePath: string; place: PlaceRecord };
+  | { type: "update-entry"; filePath: string; place: PlaceRecord }
+  | { type: "update-chat-title"; convId: string; title: string };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -40,6 +42,7 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
+  if (entry.kind === "chat") return entry;
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -75,7 +78,10 @@ function relocateEntry(
   };
 }
 
-type PersistedTab = { kind: "place"; filePath: string } | { kind: "folder"; folderPath: string };
+type PersistedTab =
+  | { kind: "place"; filePath: string }
+  | { kind: "folder"; folderPath: string }
+  | { kind: "chat"; convId: string; title: string };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 const NAV_STORAGE_KEY = "mapos-nav-tabs";
@@ -85,6 +91,7 @@ export function folderLabel(folderPath: string): string {
 }
 
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
+  if (entry.kind === "chat") return false;
   if (entry.kind === "place") {
     if (isFolder) {
       return (
@@ -125,8 +132,9 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           cursor: 0
         };
         // Background tab on cmd/ctrl-click (matches browser convention) — keep the
-        // current activeTab unless there was nothing open, in which case activate.
-        const nextActive = state.tabs.length === 0 ? 0 : state.activeTab;
+        // current activeTab unless there was nothing open or the caller asked to activate.
+        const nextActive =
+          state.tabs.length === 0 || action.activate ? state.tabs.length : state.activeTab;
         return { tabs: [...state.tabs, newTab], activeTab: nextActive };
       }
       const tab = state.tabs[state.activeTab];
@@ -211,6 +219,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
+    case "update-chat-title": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "chat" && entry.convId === action.convId
+              ? { ...entry, title: action.title }
+              : entry
+          )
+        }))
+      };
+    }
     default:
       return state;
   }
@@ -237,6 +258,8 @@ export function useNavTabs({
       tabs: nav.tabs.map((tab) => {
         const current = tab.history[tab.cursor];
         if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
+        if (current.kind === "chat")
+          return { kind: "chat", convId: current.convId, title: current.title };
         return { kind: "folder", folderPath: current.folderPath };
       }),
       activeTab: nav.activeTab
@@ -267,6 +290,13 @@ export function useNavTabs({
             history: [
               { kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }
             ],
+            cursor: 0
+          };
+        }
+        if (tab.kind === "chat") {
+          return {
+            id: crypto.randomUUID(),
+            history: [{ kind: "chat", convId: tab.convId, title: tab.title }],
             cursor: 0
           };
         }
@@ -342,10 +372,21 @@ export function useNavTabs({
   const activeTab = nav.tabs[nav.activeTab];
   const navTabsData = nav.tabs.map((tab) => {
     const current = tab.history[tab.cursor];
-    return {
-      id: tab.id,
-      title: current?.kind === "place" ? current.place.title : (current?.label ?? "")
-    };
+    if (current?.kind === "place") {
+      return {
+        id: tab.id,
+        title: current.place.title,
+        kind: "place" as const,
+        filePath: current.place.filePath
+      };
+    }
+    if (current?.kind === "folder") {
+      return { id: tab.id, title: current.label, kind: "folder" as const };
+    }
+    if (current?.kind === "chat") {
+      return { id: tab.id, title: current.title, kind: "chat" as const };
+    }
+    return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
   });
 
   return {

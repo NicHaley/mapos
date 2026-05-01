@@ -26,12 +26,6 @@ export function setConversationsDir(dir: string): void {
   activeConversationsIndex = join(dir, "index.jsonl");
 }
 
-export function newConversationId(): string {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `${ts}-${rand}`;
-}
-
 export function loadConvState(id: string): { overlay: MapOverlayPayload | null } {
   try {
     const p = join(activeConversationsDir, `${id}.state.json`);
@@ -107,28 +101,6 @@ export function initConversationsDir(): void {
   // Compact index on startup to deduplicate accumulated entries
   const entries = readConversationIndex();
   if (entries.length > 0) compactIndex(entries);
-}
-
-export function loadMostRecentConversation(): ActiveConversation | null {
-  try {
-    const entries = readConversationIndex();
-    if (entries.length === 0) return null;
-    const latest = entries[entries.length - 1];
-    const lines = readFileSync(join(activeConversationsDir, `${latest.id}.jsonl`), "utf-8")
-      .split("\n")
-      .filter(Boolean);
-    const messages = lines.flatMap((line) => {
-      try {
-        return [JSON.parse(line) as PersistedMessage];
-      } catch {
-        return [];
-      }
-    });
-    const state = loadConvState(latest.id);
-    return { id: latest.id, messages, sdkSessionId: latest.sdkSessionId, overlay: state.overlay };
-  } catch {
-    return null;
-  }
 }
 
 export function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {

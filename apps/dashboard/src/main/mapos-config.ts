@@ -1,12 +1,4 @@
-import {
-  copyFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -192,19 +184,3 @@ export function vaultDotDir(vaultRoot: string): string {
   return join(vaultRoot, ".mapos");
 }
 
-/**
- * One-time move from `<vault>/.mapos/*` into the app state dir when the new layout has no DB yet.
- */
-export function migrateLegacyVaultInternals(vaultRoot: string, appStateDir: string): void {
-  const legacyDot = join(vaultRoot, ".mapos");
-  const legacyDb = join(legacyDot, "index.db");
-  const newDb = join(appStateDir, "index.db");
-  if (!existsSync(newDb) && existsSync(legacyDb)) {
-    copyFileSync(legacyDb, newDb);
-  }
-  const legacyConv = join(legacyDot, "conversations");
-  const newConv = join(appStateDir, "conversations");
-  if (!existsSync(newConv) && existsSync(legacyConv)) {
-    cpSync(legacyConv, newConv, { recursive: true });
-  }
-}

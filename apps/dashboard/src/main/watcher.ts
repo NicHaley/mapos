@@ -34,7 +34,6 @@ import {
 import {
   appendVaultToConfig,
   loadOrInitMaposConfig,
-  migrateLegacyVaultInternals,
   vaultDotDir as vaultDotDirPath
 } from "./mapos-config";
 import { parseWkt } from "./wkt";
@@ -189,7 +188,6 @@ export function setupPlacesWatcher(
   vaultRoot: string,
   appStateDir: string
 ): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
-  migrateLegacyVaultInternals(vaultRoot, appStateDir);
   initVaultOnDisk(vaultRoot);
 
   const places = new Map<string, PlaceRecord>();

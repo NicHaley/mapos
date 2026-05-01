@@ -60,16 +60,22 @@ export type PersistedToolCall = {
 };
 
 export type ChatToolCallPayload = {
+  convId: string;
   id: string;
   name: string;
   input: unknown;
 };
 
 export type ChatToolResultPayload = {
+  convId: string;
   tool_use_id: string;
   content: string;
   isError: boolean;
 };
+
+export type ChatChunkPayload = { convId: string; text: string };
+export type ChatDonePayload = { convId: string; canUndo: boolean };
+export type ChatErrorPayload = { convId: string; message: string };
 
 export type PersistedMessage = {
   role: "user" | "assistant";

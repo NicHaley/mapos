@@ -1,14 +1,26 @@
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
+import { iconForFilename } from "@renderer/lib/file-icons";
 import { cn } from "@mapos/ui/lib/utils";
-import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  FolderIcon,
+  MessageCircleIcon,
+  XIcon
+} from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { Separator } from "@mapos/ui/components/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
+export type NavTabData =
+  | { id: string; title: string; kind: "place"; filePath: string }
+  | { id: string; title: string; kind: "folder" }
+  | { id: string; title: string; kind: "chat" };
+
 type NavTabsProps = {
-  tabs: Array<{ id: string; title: string }>;
+  tabs: NavTabData[];
   activeTabIndex: number;
   canBack: boolean;
   canForward: boolean;
@@ -21,6 +33,12 @@ type NavTabsProps = {
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
+
+function tabIcon(tab: NavTabData): React.ElementType {
+  if (tab.kind === "chat") return MessageCircleIcon;
+  if (tab.kind === "folder") return FolderIcon;
+  return iconForFilename(tab.filePath);
+}
 
 export function NavTabs({
   tabs,
@@ -62,6 +80,7 @@ export function NavTabs({
         >
           {tabs.map((tab, i) => {
             const isActive = i === activeTabIndex;
+            const Icon = tabIcon(tab);
             return (
               <Reorder.Item
                 key={tab.id}
@@ -77,13 +96,14 @@ export function NavTabs({
                 style={noDrag}
                 className={cn(
                   // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                  "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding pr-1 pl-2.5 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                  "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
                   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-foreground hover:bg-sidebar-accent"
                     : "bg-sidebar-accent/40 text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80"
                 )}
               >
+                <Icon className="size-3.5 shrink-0 opacity-70" />
                 <span className="truncate">{tab.title}</span>
                 <Tooltip>
                   <TooltipTrigger

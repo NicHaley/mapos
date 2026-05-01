@@ -1,6 +1,9 @@
 import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ChatChunkPayload,
+  ChatDonePayload,
+  ChatErrorPayload,
   ChatToolCallPayload,
   ChatToolResultPayload,
   MapOverlayPayload,
@@ -177,21 +180,22 @@ const api = {
     }
   },
   chat: {
-    send: (message: string) => ipcRenderer.send("chat:send", message),
-    abort: () => ipcRenderer.send("chat:abort"),
-    reset: () => ipcRenderer.send("chat:reset"),
-    loadHistory: () => ipcRenderer.invoke("chat:load-history"),
+    send: (convId: string, message: string) =>
+      ipcRenderer.send("chat:send", { convId, message }),
+    abort: (convId: string) => ipcRenderer.send("chat:abort", { convId }),
+    loadConversation: (convId: string) => ipcRenderer.invoke("chat:load-conversation", convId),
     listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
-    switchConversation: (id: string) => ipcRenderer.invoke("chat:switch-conversation", id),
     deleteConversation: (id: string) => ipcRenderer.invoke("chat:delete-conversation", id),
-    clearOverlay: () => ipcRenderer.send("chat:clear-overlay"),
-    onChunk: (cb: (text: string) => void) => ipcRenderer.on("chat:chunk", (_e, t) => cb(t)),
-    onThinkingChunk: (cb: (text: string) => void) =>
-      ipcRenderer.on("chat:thinking_chunk", (_e, t) => cb(t)),
-    onDone: (cb: (data: { canUndo: boolean }) => void) =>
+    clearOverlay: (convId: string) => ipcRenderer.send("chat:clear-overlay", { convId }),
+    onChunk: (cb: (data: ChatChunkPayload) => void) =>
+      ipcRenderer.on("chat:chunk", (_e, d) => cb(d)),
+    onThinkingChunk: (cb: (data: ChatChunkPayload) => void) =>
+      ipcRenderer.on("chat:thinking_chunk", (_e, d) => cb(d)),
+    onDone: (cb: (data: ChatDonePayload) => void) =>
       ipcRenderer.on("chat:done", (_e, data) => cb(data)),
-    undo: () => ipcRenderer.invoke("chat:undo"),
-    onError: (cb: (msg: string) => void) => ipcRenderer.on("chat:error", (_e, m) => cb(m)),
+    undo: (convId: string) => ipcRenderer.invoke("chat:undo", convId),
+    onError: (cb: (data: ChatErrorPayload) => void) =>
+      ipcRenderer.on("chat:error", (_e, d) => cb(d)),
     onToolCall: (cb: (data: ChatToolCallPayload) => void) =>
       ipcRenderer.on("chat:tool_call", (_e, d) => cb(d)),
     onToolResult: (cb: (data: ChatToolResultPayload) => void) =>

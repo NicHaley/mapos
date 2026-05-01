@@ -1,25 +1,24 @@
 import { cn } from "@mapos/ui/lib/utils";
-import type { FileNode } from "@shared/types";
+import type { ConversationMeta, FileNode } from "@shared/types";
 import {
   ArrowLeftIcon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
-  FileIcon,
-  FileTextIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
-  ImageIcon,
-  Layers2Icon,
+  MessageCircleIcon,
   MessageCirclePlusIcon,
   PlusIcon,
   SettingsIcon,
-  SquarePenIcon
+  SquarePenIcon,
+  Trash2Icon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { iconForFilename } from "../lib/file-icons";
 import type { PlaceRecord } from "./map-view";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -95,30 +94,40 @@ function parseDragPayload(e: React.DragEvent): { path: string; type: FileNode["t
   }
 }
 
-const IMAGE_EXTENSIONS = [
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".svg",
-  ".bmp",
-  ".heic",
-  ".heif",
-  ".tiff",
-  ".tif",
-  ".avif"
-];
-
-const LAYER_EXTENSIONS = [".geojson", ".gpx", ".kml", ".shp"];
-
 function fileIcon(name: string) {
-  const lower = name.toLowerCase();
-  const className = "size-3.5 shrink-0 text-sidebar-foreground/50";
-  if (lower.endsWith(".md")) return <FileTextIcon className={className} />;
-  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <ImageIcon className={className} />;
-  if (LAYER_EXTENSIONS.some((ext) => lower.endsWith(ext))) return <Layers2Icon className={className} />;
-  return <FileIcon className={className} />;
+  const Icon = iconForFilename(name);
+  return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+}
+
+function CollapsibleGroupLabel({
+  label,
+  open,
+  onToggle
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}): React.JSX.Element {
+  return (
+    <SidebarGroupLabel
+      render={
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="group/group-label cursor-pointer gap-1 hover:text-sidebar-foreground"
+        />
+      }
+    >
+      <span>{label}</span>
+      <ChevronRightIcon
+        className={cn(
+          "size-3 shrink-0 text-sidebar-foreground/50 opacity-0 transition-[transform,opacity] group-hover/group-label:opacity-100",
+          open && "rotate-90"
+        )}
+      />
+    </SidebarGroupLabel>
+  );
 }
 
 type VaultOption = {
@@ -766,21 +775,31 @@ function FileTreeNode({
 export function ProjectSidebar({
   selectedFilePath,
   selectedFolderPath,
+  activeChatConvId,
+  conversations,
   onSelectPlace,
   onSelectFolder,
   onSelectGeoJson,
   onDeletePath,
   onRenamePath,
-  onMoved
+  onMoved,
+  onNewChat,
+  onSelectChat,
+  onDeleteChat
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
+  activeChatConvId?: string | null;
+  conversations: ConversationMeta[];
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
   onSelectGeoJson?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
+  onNewChat?: () => void;
+  onSelectChat?: (convId: string, title: string) => void;
+  onDeleteChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
@@ -791,6 +810,8 @@ export function ProjectSidebar({
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [filesGroupOpen, setFilesGroupOpen] = useState(true);
+  const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
@@ -933,7 +954,7 @@ export function ProjectSidebar({
               <TooltipTrigger
                 render={
                   <SidebarMenuItem>
-                    <SidebarMenuButton>
+                    <SidebarMenuButton onClick={onNewChat}>
                       <MessageCirclePlusIcon /> New Chat
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -969,70 +990,124 @@ export function ProjectSidebar({
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>Files</SidebarGroupLabel>
+          <CollapsibleGroupLabel
+            label="Files"
+            open={filesGroupOpen}
+            onToggle={() => setFilesGroupOpen((o) => !o)}
+          />
           {moveError ? (
             <p className="mx-1 mb-2 text-xs text-destructive" role="alert">
               {moveError}
             </p>
           ) : null}
-          <div className="flex min-h-0 flex-1 flex-col">
-            <ContextMenu>
-              <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <SidebarMenu className="shrink-0 gap-0.5">
-                    {tree.map((node) => (
-                      <FileTreeNode
-                        key={node.path}
-                        node={node}
-                        depth={0}
-                        selectedFilePath={selectedFilePath}
-                        selectedFolderPath={selectedFolderPath}
-                        autoRenamePath={pendingRenamePath}
-                        onAutoRenameConsumed={() => setPendingRenamePath(null)}
-                        onSelectPlace={onSelectPlace}
-                        onSelectFolder={onSelectFolder}
-                        onSelectGeoJson={onSelectGeoJson}
-                        onRequestDelete={(node) => {
-                          setDeleteError(null);
-                          setPendingDelete(node);
+          {filesGroupOpen && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ContextMenu>
+                <ContextMenuTrigger render={<div className="flex min-h-0 flex-1 flex-col" />}>
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {tree.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-sidebar-foreground/50">No files</p>
+                    ) : null}
+                    <SidebarMenu className="shrink-0 gap-0.5">
+                      {tree.map((node) => (
+                        <FileTreeNode
+                          key={node.path}
+                          node={node}
+                          depth={0}
+                          selectedFilePath={selectedFilePath}
+                          selectedFolderPath={selectedFolderPath}
+                          autoRenamePath={pendingRenamePath}
+                          onAutoRenameConsumed={() => setPendingRenamePath(null)}
+                          onSelectPlace={onSelectPlace}
+                          onSelectFolder={onSelectFolder}
+                          onSelectGeoJson={onSelectGeoJson}
+                          onRequestDelete={(node) => {
+                            setDeleteError(null);
+                            setPendingDelete(node);
+                          }}
+                          onRenameComplete={onRenamePath}
+                          onCreateFolderIn={(path) => void createFolderIn(path)}
+                          onCreateNoteIn={(path) => void createNoteIn(path)}
+                          dnd={dndBridge}
+                        />
+                      ))}
+                    </SidebarMenu>
+                    {vaultRoot && dndBridge ? (
+                      <div
+                        aria-hidden
+                        className="h-2"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDragOverTarget(vaultRoot);
                         }}
-                        onRenameComplete={onRenamePath}
-                        onCreateFolderIn={(path) => void createFolderIn(path)}
-                        onCreateNoteIn={(path) => void createNoteIn(path)}
-                        dnd={dndBridge}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOverTarget(null);
+                          const payload = parseDragPayload(e);
+                          if (!payload) return;
+                          void runMove(payload.path, payload.type, vaultRoot);
+                        }}
                       />
-                    ))}
-                  </SidebarMenu>
-                  {vaultRoot && dndBridge ? (
-                    <div
-                      aria-hidden
-                      className="min-h-8 flex-1"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setDragOverTarget(vaultRoot);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setDragOverTarget(null);
-                        const payload = parseDragPayload(e);
-                        if (!payload) return;
-                        void runMove(payload.path, payload.type, vaultRoot);
-                      }}
-                    />
-                  ) : null}
-                </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
-                  New Note
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
-                  New Folder
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          </div>
+                    ) : null}
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
+                    New Note
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
+                    New Folder
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            </div>
+          )}
+        </SidebarGroup>
+        <SidebarGroup>
+          <CollapsibleGroupLabel
+            label="Conversations"
+            open={conversationsGroupOpen}
+            onToggle={() => setConversationsGroupOpen((o) => !o)}
+          />
+          {conversationsGroupOpen && (
+            <SidebarMenu className="gap-0.5">
+              {conversations.length === 0 ? (
+                <li className="px-2 py-1 text-xs text-sidebar-foreground/50">No conversations</li>
+              ) : (
+                conversations.map((conv) => {
+                  const title = conv.preview || "Chat";
+                  const isActive = conv.id === activeChatConvId;
+                  return (
+                    <SidebarMenuItem key={conv.id}>
+                      <ContextMenu>
+                        <ContextMenuTrigger
+                          render={
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              onClick={() => onSelectChat?.(conv.id, title)}
+                            />
+                          }
+                        >
+                          <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+                          <span className="truncate">{title}</span>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            variant="destructive"
+                            onClick={() => onDeleteChat?.(conv.id)}
+                          >
+                            <Trash2Icon className="size-3.5" />
+                            Delete
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </SidebarMenuItem>
+                  );
+                })
+              )}
+            </SidebarMenu>
+          )}
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>

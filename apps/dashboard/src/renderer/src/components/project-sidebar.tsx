@@ -964,8 +964,7 @@ export function ProjectSidebar({
                 Start a chat with the agent
                 <KbdGroup>
                   <Kbd>{modSymbol}</Kbd>
-                  <Kbd>⇧</Kbd>
-                  <Kbd>{"\\"}</Kbd>
+                  <Kbd>O</Kbd>
                 </KbdGroup>
               </TooltipContent>
             </Tooltip>

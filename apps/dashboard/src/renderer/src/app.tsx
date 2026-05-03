@@ -519,7 +519,7 @@ function App(): React.JSX.Element {
       handler: () => handleNavTabActivate((activeTabIndex + 1) % navTabsData.length)
     },
     {
-      def: { code: "Backslash", meta: true, shift: true },
+      def: { key: "o", meta: true },
       handler: handleNewChat
     }
   ]);
@@ -590,6 +590,7 @@ function App(): React.JSX.Element {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
+      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -607,6 +608,7 @@ function App(): React.JSX.Element {
     (folderPath: string) => {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
+      setActiveChatConvId(null);
       setSelectedFolder(folderPath);
       setSelectedPlace(null);
       setPlaceMode("mini");
@@ -637,6 +639,7 @@ function App(): React.JSX.Element {
           filePath
       );
       const place: PlaceRecord = { filePath, type: "GeoJsonLayer", title };
+      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -780,6 +783,7 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         mapRef.current?.fitToPlace(created, getMapPadding(false));
       } else {
+        setActiveChatConvId(null);
         setSelectedPlace(created);
         setPlaceMode("full");
         setFeatureScreenPos(null);

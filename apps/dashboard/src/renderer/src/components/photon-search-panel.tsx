@@ -4,7 +4,14 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { type PhotonSearchResult, searchPhoton } from "@renderer/lib/photon";
 import { cn } from "@mapos/ui/lib/utils";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@mapos/ui/components/input-group";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+  CommandPrimitive
+} from "@mapos/ui/components/command";
+import { InputGroup, InputGroupAddon } from "@mapos/ui/components/input-group";
 
 const DEBOUNCE_MS = 300;
 
@@ -30,7 +37,6 @@ export type PhotonSearchPanelProps = {
   inputEndSlot?: ReactNode;
 };
 
-/** Native result rows avoid cmdk CommandItem selection bugs (wrong item / first click ignored). */
 export function PhotonSearchPanel({
   active,
   placeholder,
@@ -101,12 +107,9 @@ export function PhotonSearchPanel({
     [onSelectResult]
   );
 
-  const resultButtonClass =
-    "flex w-full cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring";
-
   return (
-    <div className={cn("flex flex-col", className)}>
-      <div className="p-2 pb-0" data-slot="photon-search-input">
+    <Command shouldFilter={false} loop className={cn("flex flex-col", className)}>
+      <div className="p-1 pb-0" data-slot="photon-search-input">
         <InputGroup className="min-w-0 w-full">
           <InputGroupAddon align="inline-start">
             {loading || isDebouncing ? (
@@ -115,19 +118,20 @@ export function PhotonSearchPanel({
               <SearchIcon className="size-4 shrink-0 opacity-50" />
             )}
           </InputGroupAddon>
-          <InputGroupInput
+          <CommandPrimitive.Input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onValueChange={setQuery}
             placeholder={placeholder}
             autoComplete="off"
+            className="flex h-9 w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           />
           {inputEndSlot ? (
             <InputGroupAddon align="inline-end">{inputEndSlot}</InputGroupAddon>
           ) : null}
         </InputGroup>
       </div>
-      <div className="max-h-60 overflow-y-auto p-2">
+      <CommandList className="max-h-60">
         {!queryTrim && !loading && !error ? (
           <div className="flex flex-col items-center gap-2 border-0 bg-transparent px-4 py-6 text-center md:px-6">
             <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-input/30">
@@ -140,27 +144,29 @@ export function PhotonSearchPanel({
           </div>
         ) : null}
         {results.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Places</p>
-            {results.map((r, index) => (
-              <button
-                key={`${r.id}-${index}`}
-                type="button"
-                className={resultButtonClass}
-                onClick={() => pick(r)}
-              >
-                <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                  <span className="truncate font-medium leading-tight">{r.primaryLabel}</span>
-                  {r.secondaryLabel ? (
-                    <span className="truncate text-xs leading-tight text-muted-foreground">
-                      {r.secondaryLabel}
-                    </span>
-                  ) : null}
-                </div>
-              </button>
-            ))}
-          </div>
+          <CommandGroup heading="Places">
+            {results.map((r, index) => {
+              const value = `${r.id}-${index}`;
+              return (
+                <CommandItem
+                  key={value}
+                  value={value}
+                  onSelect={() => pick(r)}
+                  className="items-start rounded-md"
+                >
+                  <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                    <span className="truncate font-medium leading-tight">{r.primaryLabel}</span>
+                    {r.secondaryLabel ? (
+                      <span className="truncate text-xs leading-tight text-muted-foreground">
+                        {r.secondaryLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
         ) : null}
         {error ? (
           <>
@@ -179,7 +185,7 @@ export function PhotonSearchPanel({
             </p>
           </div>
         ) : null}
-      </div>
-    </div>
+      </CommandList>
+    </Command>
   );
 }

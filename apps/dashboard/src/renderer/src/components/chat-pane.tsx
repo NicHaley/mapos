@@ -474,7 +474,7 @@ export function ChatPane({
         )}
       </div>
 
-      <Conversation className="prose prose-sm min-h-0">
+      <Conversation className="min-h-0">
         <ConversationContent>
           {messages.length === 0 &&
             !awaitingFirstToken &&

@@ -969,6 +969,7 @@ function App(): React.JSX.Element {
             <ResizeHandle
               side="right"
               ariaLabel="Resize main pane"
+              offset={-4}
               onPointerDown={startMainPaneResize}
             />
           </div>
@@ -1081,9 +1082,25 @@ function App(): React.JSX.Element {
             onNewChat={handleNewChat}
             onSelectChat={handleSwitchChatConv}
             onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
-            onResizePointerDown={startProjectSidebarResize}
           />
         </SidebarProvider>
+
+        {/* Sidebar resize rail — rendered outside the floating sidebar so it
+            spans full content height (not constrained by Sidebar's p-2) and
+            sits above the main pane (z-20) when chat/place pane is open. */}
+        {projectSidebarOpen && (
+          <div
+            className="absolute z-[25] pointer-events-auto"
+            style={{ top: 0, bottom: 0, left: projectSidebarWidth, width: 0 }}
+          >
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize sidebar"
+              offset={4}
+              onPointerDown={startProjectSidebarResize}
+            />
+          </div>
+        )}
       </div>
     </>
   );

@@ -142,19 +142,23 @@ export function setupChat(
             ...(conv.sdkSessionId ? { resume: conv.sdkSessionId } : {}),
             abortController,
             cwd: vaultRoot,
-            model: "claude-sonnet-4-6",
+            // model: "claude-sonnet-4-6",
+            model: "qwen3.6",
             systemPrompt: buildMaposSystemPrompt(vaultRoot),
             allowedTools: [...ALLOWED_TOOLS],
             tools: [...ALLOWED_TOOLS],
             includePartialMessages: true,
-            thinking: { type: "adaptive" },
+            // thinking: { type: "adaptive" },
             mcpServers: {
               mapos: makeMcpServerForConv(convId)
             },
             env: {
               ...process.env,
-              ANTHROPIC_API_KEY: apiKey,
-              ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL,
+              // ANTHROPIC_API_KEY: apiKey,
+              // ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL,
+              ANTHROPIC_BASE_URL: "http://nic-mini:11434",
+              ANTHROPIC_AUTH_TOKEN: "ollama",
+              ANTHROPIC_API_KEY: "",
               MAPOS_VAULT_ROOT: vaultRoot
             }
           }
@@ -264,10 +268,7 @@ export function setupChat(
               conv.sdkSessionId = initSessionId;
               appendToIndex(conv);
             }
-          } else if (
-            msg.type === "result" &&
-            (msg as { subtype?: string }).subtype === "success"
-          ) {
+          } else if (msg.type === "result" && (msg as { subtype?: string }).subtype === "success") {
             const assistantMsg: PersistedMessage = {
               role: "assistant",
               content: fullText,
@@ -282,10 +283,7 @@ export function setupChat(
               mainWindow.webContents.send("chat:done", { convId, canUndo });
             }
             break;
-          } else if (
-            msg.type === "result" &&
-            (msg as { subtype?: string }).subtype !== "success"
-          ) {
+          } else if (msg.type === "result" && (msg as { subtype?: string }).subtype !== "success") {
             const errMsg = (msg as { errors?: string[] }).errors?.join("; ") ?? "Unknown error";
             if (!mainWindow.isDestroyed()) {
               mainWindow.webContents.send("chat:error", { convId, message: errMsg });

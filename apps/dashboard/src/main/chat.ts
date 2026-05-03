@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -148,6 +149,16 @@ export function setupChat(
             allowedTools: [...ALLOWED_TOOLS],
             tools: [...ALLOWED_TOOLS],
             includePartialMessages: true,
+            // Packaged macOS apps have no `node` on PATH, so run the SDK's
+            // cli.js via Electron's own binary in node mode.
+            spawnClaudeCodeProcess: ({ args, cwd, env, signal }) =>
+              spawn(process.execPath, args, {
+                cwd,
+                env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
+                signal,
+                stdio: ["pipe", "pipe", "pipe"],
+                windowsHide: true
+              }),
             // thinking: { type: "adaptive" },
             mcpServers: {
               mapos: makeMcpServerForConv(convId)

@@ -17,6 +17,7 @@ import {
   saveConvState,
   setConversationsDir
 } from "./conversations";
+import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
@@ -46,8 +47,6 @@ export function setupChat(
 ): () => void {
   // Conversations live inside the vault's .mapos/ folder so they're scoped per-vault and travel with it.
   setConversationsDir(join(vaultDotDir(vaultRoot), "conversations"));
-
-  const apiKey = import.meta.env.MAIN_VITE_ANTHROPIC_API_KEY;
 
   /** In-flight Claude Agent SDK queries, keyed by convId. Lets multiple chats stream concurrently. */
   const queries = new Map<string, { close: () => void }>();
@@ -151,6 +150,25 @@ export function setupChat(
       conv.messages.push(userMsg);
       appendMessage(conv, userMsg);
 
+      // Resolve provider config per request (no cache) so changes in Settings take effect immediately.
+      let aiConfig: ReturnType<typeof loadAiConfigForRequest>;
+      try {
+        aiConfig = loadAiConfigForRequest();
+      } catch (err) {
+        if (err instanceof AiConfigError && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("chat:error", {
+            convId,
+            message: err.message,
+            code: err.code,
+            reconfigureProvider:
+              err.code === "AI_NOT_CONFIGURED" || err.code === "AI_DECRYPT_FAILED"
+                ? "ai"
+                : undefined
+          });
+        }
+        return;
+      }
+
       const abortController = new AbortController();
 
       try {
@@ -160,8 +178,7 @@ export function setupChat(
             ...(conv.sdkSessionId ? { resume: conv.sdkSessionId } : {}),
             abortController,
             cwd: vaultRoot,
-            // model: "claude-sonnet-4-6",
-            model: "qwen3.6",
+            model: aiConfig.model,
             systemPrompt: buildMaposSystemPrompt(vaultRoot),
             allowedTools: [...ALLOWED_TOOLS],
             tools: [...ALLOWED_TOOLS],
@@ -182,11 +199,15 @@ export function setupChat(
             },
             env: {
               ...process.env,
-              // ANTHROPIC_API_KEY: apiKey,
-              // ANTHROPIC_BASE_URL: import.meta.env.MAIN_VITE_ANTHROPIC_BASE_URL,
-              ANTHROPIC_BASE_URL: "http://nic-mini:11434",
-              ANTHROPIC_AUTH_TOKEN: "ollama",
-              ANTHROPIC_API_KEY: "",
+              ...(aiConfig.provider === "local"
+                ? {
+                    ANTHROPIC_BASE_URL: aiConfig.baseUrl,
+                    ANTHROPIC_AUTH_TOKEN: aiConfig.authToken,
+                    ANTHROPIC_API_KEY: ""
+                  }
+                : {
+                    ANTHROPIC_API_KEY: aiConfig.apiKey
+                  }),
               MAPOS_VAULT_ROOT: vaultRoot
             }
           }

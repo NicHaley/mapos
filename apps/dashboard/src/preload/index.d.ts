@@ -143,6 +143,49 @@ declare global {
         /** Returns a cleanup function; call it to unregister. */
         onFullscreenChange: (cb: (isFullscreen: boolean) => void) => () => void;
       };
+      aiConfig: {
+        getStatus: () => Promise<{
+          configured: boolean;
+          activeProvider: "anthropic" | "local";
+          model: string;
+        }>;
+        getSettingsState: () => Promise<{
+          provider: "anthropic" | "local";
+          anthropic: { model: string; hasApiKey: boolean };
+          local: {
+            mode: "magic" | "advanced";
+            baseUrl: string;
+            model: string;
+            hasAuthToken: boolean;
+          };
+        }>;
+        update: (update: {
+          provider?: "anthropic" | "local";
+          anthropic?: { model?: string; apiKey?: string | null };
+          local?: {
+            mode?: "magic" | "advanced";
+            baseUrl?: string;
+            model?: string;
+            authToken?: string | null;
+          };
+        }) => Promise<{ ok: true } | { ok: false; error: string }>;
+        testConnection: (
+          provider: "anthropic" | "local"
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        ollamaDetect: (baseUrl: string) => Promise<{ running: boolean; baseUrl: string }>;
+        ollamaListInstalled: (baseUrl: string) => Promise<string[]>;
+        ollamaPull: (
+          baseUrl: string,
+          modelId: string
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        ollamaCancelPull: (baseUrl: string, modelId: string) => Promise<{ ok: true }>;
+        /** Returns a cleanup function. */
+        onPullProgress: (
+          cb: (data: { modelId: string; percent?: number; status?: string }) => void
+        ) => () => void;
+        /** Returns a cleanup function. */
+        onChanged: (cb: () => void) => () => void;
+      };
       chat: {
         send: (convId: string, message: string) => void;
         abort: (convId: string) => void;

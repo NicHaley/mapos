@@ -6,15 +6,85 @@ export const MAPOS_CONFIG_FILENAME = "mapos.json";
 
 const DEFAULT_VAULT_PATH = join(homedir(), "MapOS");
 
+export type AiProvider = "anthropic" | "local";
+export type AiLocalMode = "magic" | "advanced";
+
+export type AiConfig = {
+  provider: AiProvider;
+  anthropic: {
+    model: string;
+    encryptedApiKey: string | null;
+  };
+  local: {
+    mode: AiLocalMode;
+    baseUrl: string;
+    model: string;
+    encryptedAuthToken: string | null;
+  };
+};
+
+export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
+
+function defaultAiConfig(): AiConfig {
+  return {
+    provider: "anthropic",
+    anthropic: {
+      model: DEFAULT_ANTHROPIC_MODEL,
+      encryptedApiKey: null
+    },
+    local: {
+      mode: "magic",
+      baseUrl: DEFAULT_OLLAMA_BASE_URL,
+      model: "",
+      encryptedAuthToken: null
+    }
+  };
+}
+
 export type MaposJson = {
   /** Absolute paths to vault roots. Order is stable; active vault is tracked separately. */
   vaults: string[];
   /** Absolute path of the currently active vault. Defaults to vaults[0] if absent. */
   activeVault?: string;
+  /** AI provider configuration (global, not per-vault). */
+  ai: AiConfig;
 };
 
 function defaultConfig(): MaposJson {
-  return { vaults: [DEFAULT_VAULT_PATH] };
+  return { vaults: [DEFAULT_VAULT_PATH], ai: defaultAiConfig() };
+}
+
+function parseAiConfig(raw: unknown): AiConfig {
+  const fallback = defaultAiConfig();
+  if (!raw || typeof raw !== "object") return fallback;
+  const r = raw as Record<string, unknown>;
+  const provider: AiProvider = r.provider === "local" ? "local" : "anthropic";
+
+  const anthropicRaw = (r.anthropic ?? {}) as Record<string, unknown>;
+  const anthropic = {
+    model:
+      typeof anthropicRaw.model === "string" && anthropicRaw.model.length > 0
+        ? anthropicRaw.model
+        : DEFAULT_ANTHROPIC_MODEL,
+    encryptedApiKey:
+      typeof anthropicRaw.encryptedApiKey === "string" ? anthropicRaw.encryptedApiKey : null
+  };
+
+  const localRaw = (r.local ?? {}) as Record<string, unknown>;
+  const mode: AiLocalMode = localRaw.mode === "advanced" ? "advanced" : "magic";
+  const local = {
+    mode,
+    baseUrl:
+      typeof localRaw.baseUrl === "string" && localRaw.baseUrl.length > 0
+        ? localRaw.baseUrl
+        : DEFAULT_OLLAMA_BASE_URL,
+    model: typeof localRaw.model === "string" ? localRaw.model : "",
+    encryptedAuthToken:
+      typeof localRaw.encryptedAuthToken === "string" ? localRaw.encryptedAuthToken : null
+  };
+
+  return { provider, anthropic, local };
 }
 
 function parseConfig(raw: string): MaposJson | null {
@@ -24,9 +94,11 @@ function parseConfig(raw: string): MaposJson | null {
     const vaults = (parsed as { vaults?: unknown }).vaults;
     if (!Array.isArray(vaults) || vaults.some((v) => typeof v !== "string")) return null;
     const activeVault = (parsed as { activeVault?: unknown }).activeVault;
+    const ai = parseAiConfig((parsed as { ai?: unknown }).ai);
     return {
       vaults: [...vaults],
-      ...(typeof activeVault === "string" ? { activeVault } : {})
+      ...(typeof activeVault === "string" ? { activeVault } : {}),
+      ai
     };
   } catch {
     return null;
@@ -86,7 +158,8 @@ export function appendVaultToConfig(
   }
   const next: MaposJson = {
     vaults: [...normalized, resolved],
-    ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {})
+    ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
+    ai: cfg.ai
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -107,7 +180,7 @@ export function setActiveVaultInConfig(
     return { ok: false, error: "Vault not found in config." };
   }
   // Keep vaults[] order stable; only update activeVault pointer.
-  const next: MaposJson = { vaults: normalized, activeVault: resolved };
+  const next: MaposJson = { vaults: normalized, activeVault: resolved, ai: cfg.ai };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
     `${JSON.stringify(next, null, 2)}\n`,
@@ -138,7 +211,8 @@ export function renameVaultInConfig(
   const nextActive = activeResolved === resolvedOld ? resolvedNew : activeResolved;
   const next: MaposJson = {
     vaults: nextVaults,
-    ...(nextActive ? { activeVault: nextActive } : {})
+    ...(nextActive ? { activeVault: nextActive } : {}),
+    ai: cfg.ai
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -167,7 +241,8 @@ export function removeVaultFromConfig(
     activeResolved && activeResolved !== resolved ? activeResolved : undefined;
   const next: MaposJson = {
     vaults: nextVaults,
-    ...(nextActive ? { activeVault: nextActive } : {})
+    ...(nextActive ? { activeVault: nextActive } : {}),
+    ai: cfg.ai
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -175,6 +250,36 @@ export function removeVaultFromConfig(
     "utf-8"
   );
   return { ok: true, config: next };
+}
+
+/**
+ * Atomically merge a partial AI config into mapos.json. Top-level provider/anthropic/local
+ * are deep-merged so callers can update one slice (e.g. just the API key) without supplying the rest.
+ */
+export function updateAiConfigInFile(
+  appStateDir: string,
+  partial: {
+    provider?: AiProvider;
+    anthropic?: Partial<AiConfig["anthropic"]>;
+    local?: Partial<AiConfig["local"]>;
+  }
+): MaposJson {
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const next: MaposJson = {
+    vaults: cfg.vaults,
+    ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
+    ai: {
+      provider: partial.provider ?? cfg.ai.provider,
+      anthropic: { ...cfg.ai.anthropic, ...(partial.anthropic ?? {}) },
+      local: { ...cfg.ai.local, ...(partial.local ?? {}) }
+    }
+  };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return next;
 }
 
 /**

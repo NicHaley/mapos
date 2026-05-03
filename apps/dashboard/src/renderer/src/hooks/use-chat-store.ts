@@ -25,6 +25,8 @@ export type ChatMessage = {
   content: string;
   thinking?: string;
   toolCalls?: ActiveToolCall[];
+  /** When set on an error row, renderer surfaces a Reconfigure link that deep-links into Settings. */
+  reconfigureProvider?: "ai";
 };
 
 export type ConvChatState = {
@@ -58,7 +60,7 @@ type ChatStoreAction =
     }
   | { type: "done"; convId: string; canUndo: boolean }
   | { type: "undo_confirmed"; convId: string }
-  | { type: "error"; convId: string; message: string }
+  | { type: "error"; convId: string; message: string; reconfigureProvider?: "ai" }
   | { type: "abort"; convId: string }
   | { type: "remove"; convId: string };
 
@@ -161,7 +163,14 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
         ...c,
         messages: [
           ...c.messages,
-          { id: nanoid(), role: "error", content: `Error: ${action.message}` }
+          {
+            id: nanoid(),
+            role: "error",
+            content: `Error: ${action.message}`,
+            ...(action.reconfigureProvider
+              ? { reconfigureProvider: action.reconfigureProvider }
+              : {})
+          }
         ],
         streamingContent: "",
         streamingThinking: "",
@@ -239,7 +248,12 @@ export function useChatStore(): ChatStore {
       dispatch({ type: "done", convId: d.convId, canUndo: d.canUndo })
     );
     window.api.chat.onError((d: ChatErrorPayload) =>
-      dispatch({ type: "error", convId: d.convId, message: d.message })
+      dispatch({
+        type: "error",
+        convId: d.convId,
+        message: d.message,
+        ...(d.reconfigureProvider ? { reconfigureProvider: d.reconfigureProvider } : {})
+      })
     );
     return () => window.api.chat.removeListeners();
   }, []);

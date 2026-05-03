@@ -1,6 +1,7 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
+import { BoxIcon, MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AiTab } from "./settings/ai-tab";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +28,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@mapos
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SettingsPage = "general" | "appearance";
+type SettingsPage = "general" | "appearance" | "ai";
 type Theme = "light" | "dark" | "system";
 
 const THEME_KEY = "mapos_theme";
@@ -251,7 +252,8 @@ function AppearancePage() {
 
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
-  { id: "appearance", label: "Appearance", icon: PaletteIcon }
+  { id: "appearance", label: "Appearance", icon: PaletteIcon },
+  { id: "ai", label: "Models", icon: BoxIcon }
 ];
 
 // ── Main dialog ───────────────────────────────────────────────────────────────
@@ -321,6 +323,7 @@ export function SettingsDialog({
                 />
               )}
               {page === "appearance" && <AppearancePage />}
+              {page === "ai" && <AiTab />}
             </div>
           </SidebarProvider>
         </DialogContent>

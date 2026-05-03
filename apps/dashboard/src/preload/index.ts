@@ -179,6 +179,78 @@ const api = {
       };
     }
   },
+  aiConfig: {
+    getStatus: () =>
+      ipcRenderer.invoke("ai-config:get-status") as Promise<{
+        configured: boolean;
+        activeProvider: "anthropic" | "local";
+        model: string;
+      }>,
+    getSettingsState: () =>
+      ipcRenderer.invoke("ai-config:get-settings-state") as Promise<{
+        provider: "anthropic" | "local";
+        anthropic: { model: string; hasApiKey: boolean };
+        local: {
+          mode: "magic" | "advanced";
+          baseUrl: string;
+          model: string;
+          hasAuthToken: boolean;
+        };
+      }>,
+    update: (
+      update: {
+        provider?: "anthropic" | "local";
+        anthropic?: { model?: string; apiKey?: string | null };
+        local?: {
+          mode?: "magic" | "advanced";
+          baseUrl?: string;
+          model?: string;
+          authToken?: string | null;
+        };
+      }
+    ) =>
+      ipcRenderer.invoke("ai-config:update", update) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    testConnection: (provider: "anthropic" | "local") =>
+      ipcRenderer.invoke("ai-config:test-connection", provider) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    ollamaDetect: (baseUrl: string) =>
+      ipcRenderer.invoke("ai-config:ollama-detect", baseUrl) as Promise<{
+        running: boolean;
+        baseUrl: string;
+      }>,
+    ollamaListInstalled: (baseUrl: string) =>
+      ipcRenderer.invoke("ai-config:ollama-list-installed", baseUrl) as Promise<string[]>,
+    ollamaPull: (baseUrl: string, modelId: string) =>
+      ipcRenderer.invoke("ai-config:ollama-pull", { baseUrl, modelId }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    ollamaCancelPull: (baseUrl: string, modelId: string) =>
+      ipcRenderer.invoke("ai-config:ollama-cancel-pull", { baseUrl, modelId }) as Promise<{
+        ok: true;
+      }>,
+    onPullProgress: (
+      cb: (data: { modelId: string; percent?: number; status?: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        data: { modelId: string; percent?: number; status?: string }
+      ): void => cb(data);
+      ipcRenderer.on("ollama:pull-progress", listener);
+      return () => {
+        ipcRenderer.off("ollama:pull-progress", listener);
+      };
+    },
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on("ai-config:changed", listener);
+      return () => {
+        ipcRenderer.off("ai-config:changed", listener);
+      };
+    }
+  },
   chat: {
     send: (convId: string, message: string) =>
       ipcRenderer.send("chat:send", { convId, message }),

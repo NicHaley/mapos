@@ -75,7 +75,14 @@ export type ChatToolResultPayload = {
 
 export type ChatChunkPayload = { convId: string; text: string };
 export type ChatDonePayload = { convId: string; canUndo: boolean };
-export type ChatErrorPayload = { convId: string; message: string };
+export type ChatErrorPayload = {
+  convId: string;
+  message: string;
+  /** Structured code so the renderer can render targeted affordances (e.g. Reconfigure link). */
+  code?: "AI_NOT_CONFIGURED" | "AI_DECRYPT_FAILED";
+  /** When set, the renderer should surface a "Reconfigure" link that deep-links to a settings section. */
+  reconfigureProvider?: "ai";
+};
 
 export type PersistedMessage = {
   role: "user" | "assistant";

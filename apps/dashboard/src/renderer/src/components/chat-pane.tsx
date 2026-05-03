@@ -38,10 +38,11 @@ import {
   FileX2Icon,
   Loader2Icon,
   PencilIcon,
+  SparklesIcon,
   Undo2Icon,
   XIcon
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FolderPickerPopover } from "./folder-picker-popover";
 
@@ -420,6 +421,27 @@ export function ChatPane({
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
   const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  /** undefined while loading; null when configured. */
+  const [aiConfigured, setAiConfigured] = useState<boolean | undefined>(undefined);
+
+  const refreshAiStatus = useCallback(async () => {
+    const status = await window.api.aiConfig.getStatus();
+    setAiConfigured(status.configured);
+  }, []);
+
+  useEffect(() => {
+    void refreshAiStatus();
+    // Refresh whenever the user saves the AI tab in Settings.
+    return window.api.aiConfig.onChanged(() => {
+      void refreshAiStatus();
+    });
+  }, [refreshAiStatus]);
+
+  function openAiSettings(): void {
+    window.dispatchEvent(
+      new CustomEvent("mapos:open-settings", { detail: { section: "ai" } })
+    );
+  }
 
   // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
@@ -476,7 +498,22 @@ export function ChatPane({
 
       <Conversation className="min-h-0">
         <ConversationContent>
-          {messages.length === 0 &&
+          {aiConfigured === false && messages.length === 0 && (
+            <div className="mx-2 my-3 flex flex-col items-start gap-3 rounded-lg border border-dashed bg-sidebar-accent/30 px-4 py-5">
+              <div className="flex items-center gap-2">
+                <SparklesIcon className="size-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Connect AI to start chatting</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Bring your own Anthropic key or run a local model with Ollama.
+              </p>
+              <Button size="sm" onClick={openAiSettings}>
+                Open AI settings
+              </Button>
+            </div>
+          )}
+          {aiConfigured !== false &&
+            messages.length === 0 &&
             !awaitingFirstToken &&
             !streamingThinking &&
             !streamingContent && (
@@ -490,9 +527,18 @@ export function ChatPane({
             return msg.role === "error" ? (
               <div
                 key={msg.id}
-                className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
               >
-                {msg.content}
+                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                {msg.reconfigureProvider === "ai" && (
+                  <button
+                    type="button"
+                    onClick={openAiSettings}
+                    className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                  >
+                    Reconfigure →
+                  </button>
+                )}
               </div>
             ) : (
               <Message key={msg.id} from={msg.role}>
@@ -625,7 +671,12 @@ export function ChatPane({
           </div>
         )}
         <PromptInput onSubmit={handleSubmit}>
-          <PromptInputTextarea placeholder="Message MapOS..." disabled={loading} />
+          <PromptInputTextarea
+            placeholder={
+              aiConfigured === false ? "Connect AI in Settings to start chatting" : "Message MapOS..."
+            }
+            disabled={loading || aiConfigured === false}
+          />
           <PromptInputFooter>
             <div />
             <PromptInputSubmit status={chatStatus} onStop={onAbort} />

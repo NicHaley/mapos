@@ -810,6 +810,9 @@ export function ProjectSidebar({
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialPage, setSettingsInitialPage] = useState<
+    "general" | "appearance" | "ai"
+  >("general");
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
   const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
 
@@ -897,8 +900,25 @@ export function ProjectSidebar({
 
   useShortcuts([
     { def: { key: "n", meta: true }, handler: () => void createNoteIn(vaultRoot) },
-    { def: { key: ",", meta: true }, handler: () => setSettingsOpen(true) }
+    {
+      def: { key: ",", meta: true },
+      handler: () => {
+        setSettingsInitialPage("general");
+        setSettingsOpen(true);
+      }
+    }
   ]);
+
+  // Allow other components (e.g. chat empty state) to deep-link into a specific settings page.
+  useEffect(() => {
+    function handleOpenSettings(e: Event): void {
+      const detail = (e as CustomEvent<{ section?: "general" | "appearance" | "ai" }>).detail;
+      setSettingsInitialPage(detail?.section ?? "general");
+      setSettingsOpen(true);
+    }
+    window.addEventListener("mapos:open-settings", handleOpenSettings);
+    return () => window.removeEventListener("mapos:open-settings", handleOpenSettings);
+  }, []);
 
   async function createNoteIn(parentPath: string) {
     if (!parentPath) return;
@@ -972,7 +992,12 @@ export function ProjectSidebar({
               <TooltipTrigger
                 render={
                   <SidebarMenuItem>
-                    <SidebarMenuButton onClick={() => setSettingsOpen(true)}>
+                    <SidebarMenuButton
+                      onClick={() => {
+                        setSettingsInitialPage("general");
+                        setSettingsOpen(true);
+                      }}
+                    >
                       <SettingsIcon /> Settings
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -1161,7 +1186,11 @@ export function ProjectSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        initialPage={settingsInitialPage}
+      />
     </Sidebar>
   );
 }

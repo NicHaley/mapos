@@ -6,6 +6,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 // Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
+import { registerAiConfigIpc } from "./ai-config-ipc";
 import { setupChat } from "./chat";
 import { closeDb } from "./db";
 import {
@@ -102,6 +103,8 @@ app.whenReady().then(() => {
   let vaultRoot = getPrimaryVaultRoot(maposConfig);
   let { places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
   let stopChat = setupChat(mainWindow, places, vaultRoot);
+  // AI config handlers don't depend on vault state — register once for the lifetime of the window.
+  registerAiConfigIpc(mainWindow);
 
   ipcMain.handle("mapos:switch-vault", async (_event, targetPath: string) => {
     const result = setActiveVaultInConfig(appStateDir, targetPath);

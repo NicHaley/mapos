@@ -6,7 +6,8 @@ import {
   loadAiConfigForRequest,
   updateAiSettings
 } from "./ai-config";
-import { cancelPull, detectOllama, listInstalledModels, pullModel } from "./ollama";
+import { DEFAULT_OLLAMA_BASE_URL } from "./mapos-config";
+import { cancelPull, deleteModel, detectOllama, listInstalledModels, pullModel } from "./ollama";
 
 const HANDLE_CHANNELS = [
   "ai-config:get-status",
@@ -16,37 +17,103 @@ const HANDLE_CHANNELS = [
   "ai-config:ollama-detect",
   "ai-config:ollama-list-installed",
   "ai-config:ollama-pull",
-  "ai-config:ollama-cancel-pull"
+  "ai-config:ollama-cancel-pull",
+  "ai-config:ollama-delete"
 ] as const;
 
-/** Probe the configured provider with a minimal request. Returns ok or a verbatim error. */
-async function testConnection(
-  provider: "anthropic" | "local"
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  let resolved: ReturnType<typeof loadAiConfigForRequest>;
-  try {
-    resolved = loadAiConfigForRequest();
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-  if (resolved.provider !== provider) {
-    return { ok: false, error: `Active provider is ${resolved.provider}, not ${provider}.` };
-  }
+/**
+ * Plaintext draft passed by the renderer for testing unsaved values. Anything left undefined
+ * falls back to the saved on-disk config; only fields the user actually edited need to be sent.
+ */
+export type TestConnectionDraft = {
+  provider: "anthropic" | "local";
+  apiKey?: string;
+  baseUrl?: string;
+  authToken?: string;
+  model?: string;
+};
 
-  const url =
-    provider === "anthropic"
-      ? "https://api.anthropic.com/v1/messages"
-      : `${resolved.baseUrl.replace(/\/$/, "")}/v1/messages`;
+type ResolvedTest = {
+  url: string;
+  headers: Record<string, string>;
+  model: string;
+};
 
+/**
+ * Build the request shape for the connectivity probe. Prefers draft fields when present so the
+ * user can test before saving; falls back to the saved config (decrypted) for missing ones.
+ */
+function resolveTestRequest(
+  draft: TestConnectionDraft
+): { ok: true; resolved: ResolvedTest } | { ok: false; error: string } {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   };
-  if (provider === "anthropic") {
-    headers["x-api-key"] = resolved.apiKey;
-  } else if (resolved.authToken) {
-    headers.authorization = `Bearer ${resolved.authToken}`;
+
+  // Pull saved config lazily — we only need it when the draft is missing fields.
+  let saved: ReturnType<typeof loadAiConfigForRequest> | null = null;
+  function loadSaved(): ReturnType<typeof loadAiConfigForRequest> | null {
+    if (saved) return saved;
+    try {
+      saved = loadAiConfigForRequest();
+    } catch {
+      saved = null;
+    }
+    return saved;
   }
+
+  if (draft.provider === "anthropic") {
+    const apiKey =
+      typeof draft.apiKey === "string" && draft.apiKey.length > 0
+        ? draft.apiKey
+        : loadSaved()?.provider === "anthropic"
+          ? loadSaved()?.apiKey
+          : undefined;
+    if (!apiKey) return { ok: false, error: "No API key to test." };
+    const model = draft.model?.trim() || loadSaved()?.model;
+    if (!model) return { ok: false, error: "No model to test." };
+    headers["x-api-key"] = apiKey;
+    return {
+      ok: true,
+      resolved: { url: "https://api.anthropic.com/v1/messages", headers, model }
+    };
+  }
+
+  // Local provider — choose base URL and bearer token from the draft, falling back to saved.
+  const savedLocal = loadSaved();
+  const baseUrl =
+    draft.baseUrl?.trim() ||
+    (savedLocal?.provider === "local" ? savedLocal.baseUrl : DEFAULT_OLLAMA_BASE_URL);
+  if (!baseUrl) return { ok: false, error: "No base URL to test." };
+  const model =
+    draft.model?.trim() || (savedLocal?.provider === "local" ? savedLocal.model : "");
+  if (!model) return { ok: false, error: "No model to test." };
+
+  // Ollama accepts any non-empty token; default to "ollama" so the SDK doesn't choke when the user
+  // is testing a Magic-mode-style endpoint that doesn't actually require auth.
+  const draftToken = draft.authToken?.trim();
+  const authToken =
+    typeof draftToken === "string" && draftToken.length > 0
+      ? draftToken
+      : savedLocal?.provider === "local" && savedLocal.authToken
+        ? savedLocal.authToken
+        : "ollama";
+  headers.authorization = `Bearer ${authToken}`;
+
+  return {
+    ok: true,
+    resolved: { url: `${baseUrl.replace(/\/$/, "")}/v1/messages`, headers, model }
+  };
+}
+
+/** Probe the configured provider with a minimal request. Returns ok or a verbatim error. */
+async function testConnection(
+  draft: TestConnectionDraft
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const resolution = resolveTestRequest(draft);
+  if (!resolution.ok) return resolution;
+  const { url, headers, model } = resolution.resolved;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -55,7 +122,7 @@ async function testConnection(
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: resolved.model,
+        model,
         max_tokens: 8,
         messages: [{ role: "user", content: "ping" }]
       }),
@@ -79,8 +146,8 @@ export function registerAiConfigIpc(mainWindow: BrowserWindow): () => void {
     if (result.ok) broadcastAiConfigChanged(mainWindow);
     return result;
   });
-  ipcMain.handle("ai-config:test-connection", (_e, provider: "anthropic" | "local") =>
-    testConnection(provider)
+  ipcMain.handle("ai-config:test-connection", (_e, draft: TestConnectionDraft) =>
+    testConnection(draft)
   );
   ipcMain.handle("ai-config:ollama-detect", (_e, baseUrl: string) => detectOllama(baseUrl));
   ipcMain.handle("ai-config:ollama-list-installed", (_e, baseUrl: string) =>
@@ -98,6 +165,24 @@ export function registerAiConfigIpc(mainWindow: BrowserWindow): () => void {
     cancelPull(args.baseUrl, args.modelId);
     return { ok: true as const };
   });
+  ipcMain.handle(
+    "ai-config:ollama-delete",
+    async (_e, args: { baseUrl: string; modelId: string }) => {
+      try {
+        await deleteModel(args.baseUrl, args.modelId);
+      } catch (err) {
+        return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+      }
+      // If the deleted model was the active Magic selection, clear it so the chat doesn't try to use
+      // a model that no longer exists. Advanced is left alone (power users manage their own pointers).
+      const state = getAiSettingsState();
+      if (state.local.magic.model === args.modelId) {
+        updateAiSettings({ local: { magic: { model: "" } } });
+      }
+      broadcastAiConfigChanged(mainWindow);
+      return { ok: true as const };
+    }
+  );
 
   return function unregister(): void {
     for (const ch of HANDLE_CHANNELS) ipcMain.removeHandler(ch);

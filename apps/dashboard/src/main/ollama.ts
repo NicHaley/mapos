@@ -131,3 +131,19 @@ export function cancelPull(baseUrl: string, modelId: string): void {
   activePulls.get(key)?.abort();
   activePulls.delete(key);
 }
+
+/**
+ * Remove a pulled model from the Ollama daemon. Frees the disk space immediately —
+ * the model has to be re-pulled to use again.
+ */
+export async function deleteModel(baseUrl: string, modelId: string): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/delete`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: modelId })
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Ollama delete failed: HTTP ${res.status}${text ? `: ${text.slice(0, 240)}` : ""}`);
+  }
+}

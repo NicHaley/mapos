@@ -17,9 +17,16 @@ export type AiConfig = {
   };
   local: {
     mode: AiLocalMode;
-    baseUrl: string;
-    model: string;
-    encryptedAuthToken: string | null;
+    /** Magic mode is hard-fixed to localhost; only the chosen model is configurable. */
+    magic: {
+      model: string;
+    };
+    /** Advanced mode owns its own base URL, model, and optional bearer token, fully independent of Magic. */
+    advanced: {
+      baseUrl: string;
+      model: string;
+      encryptedAuthToken: string | null;
+    };
   };
 };
 
@@ -35,9 +42,12 @@ function defaultAiConfig(): AiConfig {
     },
     local: {
       mode: "magic",
-      baseUrl: DEFAULT_OLLAMA_BASE_URL,
-      model: "",
-      encryptedAuthToken: null
+      magic: { model: "" },
+      advanced: {
+        baseUrl: DEFAULT_OLLAMA_BASE_URL,
+        model: "",
+        encryptedAuthToken: null
+      }
     }
   };
 }
@@ -73,18 +83,39 @@ function parseAiConfig(raw: unknown): AiConfig {
 
   const localRaw = (r.local ?? {}) as Record<string, unknown>;
   const mode: AiLocalMode = localRaw.mode === "advanced" ? "advanced" : "magic";
-  const local = {
-    mode,
-    baseUrl:
-      typeof localRaw.baseUrl === "string" && localRaw.baseUrl.length > 0
-        ? localRaw.baseUrl
-        : DEFAULT_OLLAMA_BASE_URL,
-    model: typeof localRaw.model === "string" ? localRaw.model : "",
-    encryptedAuthToken:
-      typeof localRaw.encryptedAuthToken === "string" ? localRaw.encryptedAuthToken : null
+
+  // Migration from the v0 shape where Magic and Advanced shared baseUrl/model/encryptedAuthToken.
+  // Old data is routed into the active mode's slot so the user doesn't lose what they had configured.
+  const legacyBaseUrl =
+    typeof localRaw.baseUrl === "string" && localRaw.baseUrl.length > 0 ? localRaw.baseUrl : null;
+  const legacyModel = typeof localRaw.model === "string" ? localRaw.model : null;
+  const legacyAuthToken =
+    typeof localRaw.encryptedAuthToken === "string" ? localRaw.encryptedAuthToken : null;
+
+  const magicRaw = (localRaw.magic ?? {}) as Record<string, unknown>;
+  const magicModelRaw = typeof magicRaw.model === "string" ? magicRaw.model : null;
+  const magic = {
+    model: magicModelRaw ?? (mode === "magic" && legacyModel ? legacyModel : "")
   };
 
-  return { provider, anthropic, local };
+  const advancedRaw = (localRaw.advanced ?? {}) as Record<string, unknown>;
+  const advancedBaseUrlRaw =
+    typeof advancedRaw.baseUrl === "string" && advancedRaw.baseUrl.length > 0
+      ? advancedRaw.baseUrl
+      : null;
+  const advancedModelRaw = typeof advancedRaw.model === "string" ? advancedRaw.model : null;
+  const advancedAuthRaw =
+    typeof advancedRaw.encryptedAuthToken === "string" ? advancedRaw.encryptedAuthToken : null;
+  const advanced = {
+    baseUrl:
+      advancedBaseUrlRaw ??
+      (mode === "advanced" && legacyBaseUrl ? legacyBaseUrl : DEFAULT_OLLAMA_BASE_URL),
+    model: advancedModelRaw ?? (mode === "advanced" && legacyModel ? legacyModel : ""),
+    encryptedAuthToken:
+      advancedAuthRaw ?? (mode === "advanced" ? legacyAuthToken : null)
+  };
+
+  return { provider, anthropic, local: { mode, magic, advanced } };
 }
 
 function parseConfig(raw: string): MaposJson | null {
@@ -254,24 +285,35 @@ export function removeVaultFromConfig(
 
 /**
  * Atomically merge a partial AI config into mapos.json. Top-level provider/anthropic/local
- * are deep-merged so callers can update one slice (e.g. just the API key) without supplying the rest.
+ * are deep-merged so callers can update one slice (e.g. just the API key, or just Magic's model)
+ * without supplying the rest. The nested `local.magic` and `local.advanced` slots are also
+ * deep-merged independently — updating one never clobbers the other.
  */
 export function updateAiConfigInFile(
   appStateDir: string,
   partial: {
     provider?: AiProvider;
     anthropic?: Partial<AiConfig["anthropic"]>;
-    local?: Partial<AiConfig["local"]>;
+    local?: {
+      mode?: AiLocalMode;
+      magic?: Partial<AiConfig["local"]["magic"]>;
+      advanced?: Partial<AiConfig["local"]["advanced"]>;
+    };
   }
 ): MaposJson {
   const cfg = loadOrInitMaposConfig(appStateDir);
+  const localPartial = partial.local ?? {};
   const next: MaposJson = {
     vaults: cfg.vaults,
     ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
     ai: {
       provider: partial.provider ?? cfg.ai.provider,
       anthropic: { ...cfg.ai.anthropic, ...(partial.anthropic ?? {}) },
-      local: { ...cfg.ai.local, ...(partial.local ?? {}) }
+      local: {
+        mode: localPartial.mode ?? cfg.ai.local.mode,
+        magic: { ...cfg.ai.local.magic, ...(localPartial.magic ?? {}) },
+        advanced: { ...cfg.ai.local.advanced, ...(localPartial.advanced ?? {}) }
+      }
     }
   };
   writeFileSync(

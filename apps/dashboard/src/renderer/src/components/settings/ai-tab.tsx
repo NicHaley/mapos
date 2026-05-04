@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@mapos/ui/components/alert-dialog";
 import { Button, buttonVariants } from "@mapos/ui/components/button";
 import {
   InputGroup,
@@ -5,7 +15,7 @@ import {
   InputGroupButton,
   InputGroupInput
 } from "@mapos/ui/components/input-group";
-import { Progress, ProgressIndicator, ProgressTrack } from "@mapos/ui/components/progress";
+import { Progress } from "@mapos/ui/components/progress";
 import {
   Select,
   SelectContent,
@@ -21,7 +31,8 @@ import {
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
-  Loader2Icon
+  Loader2Icon,
+  Trash2Icon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import curatedModelsRaw from "../../data/curated-ollama-models.json";
@@ -40,6 +51,10 @@ const ANTHROPIC_MODELS: { id: string; label: string }[] = [
 ];
 
 const CUSTOM_MODEL_VALUE = "__custom__";
+
+// Magic mode is hard-fixed to localhost. Mirror the main-process constant; if it ever needs to vary,
+// expose a getter from the preload bridge.
+const MAGIC_OLLAMA_BASE_URL = "http://localhost:11434";
 
 function Section({
   title,
@@ -78,8 +93,10 @@ function AnthropicForm({
   const [apiKey, setApiKey] = useState<string>("");
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [testMessage, setTestMessage] = useState<string | null>(null);
 
   const effectiveModel =
     modelChoice === CUSTOM_MODEL_VALUE ? customModel.trim() : modelChoice;
@@ -109,6 +126,26 @@ function AnthropicForm({
     onSaved();
     window.setTimeout(() => setSavedMessage(null), 1500);
   }
+
+  async function handleTest(): Promise<void> {
+    setTesting(true);
+    setError(null);
+    setTestMessage(null);
+    const result = await window.api.aiConfig.testConnection({
+      provider: "anthropic",
+      ...(apiKey.length > 0 ? { apiKey } : {}),
+      ...(effectiveModel ? { model: effectiveModel } : {})
+    });
+    setTesting(false);
+    if (result.ok) {
+      setTestMessage("Connection ok");
+      window.setTimeout(() => setTestMessage(null), 2000);
+    } else {
+      setError(result.error);
+    }
+  }
+
+  const canTest = (apiKey.length > 0 || state.hasApiKey) && effectiveModel.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -186,12 +223,21 @@ function AnthropicForm({
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => void handleSave()} disabled={busy || !dirty || !effectiveModel}>
           {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
           Save
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void handleTest()}
+          disabled={testing || busy || !canTest}
+        >
+          {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          Test connection
+        </Button>
         {savedMessage && <span className="text-xs text-emerald-500">{savedMessage}</span>}
+        {testMessage && <span className="text-xs text-emerald-500">{testMessage}</span>}
       </div>
     </div>
   );
@@ -208,10 +254,12 @@ function ModelRow({
   installed,
   selected,
   pulling,
+  deleting,
   pullPercent,
   onSelect,
   onPull,
-  onCancelPull
+  onCancelPull,
+  onDelete
 }: {
   modelId: string;
   label: string;
@@ -219,10 +267,12 @@ function ModelRow({
   installed: boolean;
   selected: boolean;
   pulling: boolean;
+  deleting?: boolean;
   pullPercent?: number;
   onSelect: () => void;
   onPull: () => void;
   onCancelPull: () => void;
+  onDelete?: () => void;
 }): React.JSX.Element {
   return (
     <div
@@ -240,11 +290,7 @@ function ModelRow({
         {meta && <div className="mt-0.5 text-xs text-muted-foreground">{meta}</div>}
         {pulling && (
           <div className="mt-2 flex items-center gap-2">
-            <Progress value={pullPercent ?? 0} className="flex-1">
-              <ProgressTrack>
-                <ProgressIndicator />
-              </ProgressTrack>
-            </Progress>
+            <Progress value={pullPercent ?? 0} className="flex-1" />
             <span className="text-xs tabular-nums text-muted-foreground">
               {typeof pullPercent === "number" ? `${pullPercent}%` : "…"}
             </span>
@@ -254,17 +300,41 @@ function ModelRow({
           </div>
         )}
       </div>
-      {!pulling &&
-        (installed ? (
-          <Button variant={selected ? "secondary" : "default"} size="sm" onClick={onSelect}>
-            {selected ? "Selected" : "Use"}
-          </Button>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={onPull}>
-            <DownloadIcon className="size-3.5" />
-            Download
-          </Button>
-        ))}
+      {!pulling && (
+        <div className="flex items-center gap-1">
+          {installed ? (
+            <Button
+              variant={selected ? "secondary" : "default"}
+              size="sm"
+              onClick={onSelect}
+              disabled={deleting}
+            >
+              {selected ? "Selected" : "Use"}
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={onPull}>
+              <DownloadIcon className="size-3.5" />
+              Download
+            </Button>
+          )}
+          {installed && onDelete && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onDelete}
+              disabled={deleting}
+              aria-label="Delete model"
+              title="Delete model"
+            >
+              {deleting ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <Trash2Icon className="size-4" />
+              )}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -273,7 +343,7 @@ function MagicLocalForm({
   state,
   onSaved
 }: {
-  state: AiSettingsState["local"];
+  state: AiSettingsState["local"]["magic"];
   onSaved: () => void;
 }): React.JSX.Element {
   const [detection, setDetection] = useState<DetectionState>("checking");
@@ -283,8 +353,11 @@ function MagicLocalForm({
   const [pullError, setPullError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
+  const [pendingDeleteModel, setPendingDeleteModel] = useState<string | null>(null);
+  const [deletingModel, setDeletingModel] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const baseUrl = state.baseUrl;
+  const baseUrl = MAGIC_OLLAMA_BASE_URL;
 
   const refresh = useCallback(async () => {
     const detected = await window.api.aiConfig.ollamaDetect(baseUrl);
@@ -319,7 +392,7 @@ function MagicLocalForm({
     setPendingSelect(modelId);
     const result = await window.api.aiConfig.update({
       provider: "local",
-      local: { mode: "magic", model: modelId }
+      local: { mode: "magic", magic: { model: modelId } }
     });
     setPendingSelect(null);
     if (!result.ok) {
@@ -351,6 +424,23 @@ function MagicLocalForm({
     void window.api.aiConfig.ollamaCancelPull(baseUrl, pullingModel);
     setPullingModel(null);
     setPullPercent(undefined);
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const target = pendingDeleteModel;
+    if (!target) return;
+    setDeletingModel(target);
+    setDeleteError(null);
+    const result = await window.api.aiConfig.ollamaDelete(baseUrl, target);
+    setDeletingModel(null);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    setPendingDeleteModel(null);
+    await refresh();
+    // Main has already cleared local.magic.model when the deleted model was active; pull the new state.
+    onSaved();
   }
 
   const curatedIds = useMemo(() => new Set(CURATED_MODELS.map((m) => m.id)), []);
@@ -412,10 +502,12 @@ function MagicLocalForm({
                 installed={isInstalled}
                 selected={isSelected || pendingSelect === m.id}
                 pulling={isPulling}
+                deleting={deletingModel === m.id}
                 pullPercent={isPulling ? pullPercent : undefined}
                 onSelect={() => void selectModel(m.id)}
                 onPull={() => void pullAndSelect(m.id)}
                 onCancelPull={cancelCurrentPull}
+                onDelete={() => setPendingDeleteModel(m.id)}
               />
             );
           })}
@@ -435,9 +527,11 @@ function MagicLocalForm({
                   installed
                   selected={isSelected || pendingSelect === m}
                   pulling={false}
+                  deleting={deletingModel === m}
                   onSelect={() => void selectModel(m)}
                   onPull={() => {}}
                   onCancelPull={() => {}}
+                  onDelete={() => setPendingDeleteModel(m)}
                 />
               );
             })}
@@ -447,6 +541,53 @@ function MagicLocalForm({
 
       {pullError && <p className="text-xs text-destructive">{pullError}</p>}
       {savedMessage && <p className="text-xs text-emerald-500">{savedMessage}</p>}
+
+      <AlertDialog
+        open={!!pendingDeleteModel}
+        onOpenChange={(o) => {
+          if (!o && !deletingModel) {
+            setPendingDeleteModel(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this model?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-mono text-xs">{pendingDeleteModel}</span> will be removed from
+              Ollama and the disk space freed. You can re-download it later.
+            </AlertDialogDescription>
+            {deleteError ? (
+              <AlertDialogDescription className="text-destructive">
+                {deleteError}
+              </AlertDialogDescription>
+            ) : null}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (deletingModel) return;
+                setPendingDeleteModel(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!!deletingModel}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              {deletingModel ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -457,7 +598,7 @@ function AdvancedLocalForm({
   state,
   onSaved
 }: {
-  state: AiSettingsState["local"];
+  state: AiSettingsState["local"]["advanced"];
   onSaved: () => void;
 }): React.JSX.Element {
   const [baseUrl, setBaseUrl] = useState(state.baseUrl);
@@ -482,9 +623,11 @@ function AdvancedLocalForm({
       provider: "local",
       local: {
         mode: "advanced",
-        baseUrl: baseUrl.trim(),
-        model: model.trim(),
-        ...(authToken.length > 0 ? { authToken } : {})
+        advanced: {
+          baseUrl: baseUrl.trim(),
+          model: model.trim(),
+          ...(authToken.length > 0 ? { authToken } : {})
+        }
       }
     });
     setBusy(false);
@@ -502,7 +645,12 @@ function AdvancedLocalForm({
     setTesting(true);
     setTestMessage(null);
     setError(null);
-    const result = await window.api.aiConfig.testConnection("local");
+    const result = await window.api.aiConfig.testConnection({
+      provider: "local",
+      ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+      ...(model.trim() ? { model: model.trim() } : {}),
+      ...(authToken.trim() ? { authToken: authToken.trim() } : {})
+    });
     setTesting(false);
     if (result.ok) {
       setTestMessage("Connection ok");
@@ -511,6 +659,8 @@ function AdvancedLocalForm({
       setError(result.error);
     }
   }
+
+  const canTest = baseUrl.trim().length > 0 && model.trim().length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -579,7 +729,7 @@ function AdvancedLocalForm({
         <Button
           variant="secondary"
           onClick={() => void handleTest()}
-          disabled={testing || busy}
+          disabled={testing || busy || !canTest}
         >
           {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
           Test connection
@@ -664,14 +814,14 @@ export function AiTab(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="local" className="pt-4">
-          <MagicLocalForm state={state.local} onSaved={() => void reload()} />
+          <MagicLocalForm state={state.local.magic} onSaved={() => void reload()} />
         </TabsContent>
 
         <TabsContent value="advanced" className="flex flex-col gap-4 pt-4">
           <p className="text-xs text-muted-foreground">
             For custom endpoints — bring your own base URL (Mac mini, LiteLLM, etc.).
           </p>
-          <AdvancedLocalForm state={state.local} onSaved={() => void reload()} />
+          <AdvancedLocalForm state={state.local.advanced} onSaved={() => void reload()} />
         </TabsContent>
       </Tabs>
     </div>

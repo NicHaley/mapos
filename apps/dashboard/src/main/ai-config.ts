@@ -34,9 +34,12 @@ export type AiSettingsState = {
   anthropic: { model: string; hasApiKey: boolean };
   local: {
     mode: AiLocalMode;
-    baseUrl: string;
-    model: string;
-    hasAuthToken: boolean;
+    magic: { model: string };
+    advanced: {
+      baseUrl: string;
+      model: string;
+      hasAuthToken: boolean;
+    };
   };
 };
 
@@ -50,10 +53,13 @@ export type AiSettingsUpdate = {
   };
   local?: {
     mode?: AiLocalMode;
-    baseUrl?: string;
-    model?: string;
-    /** Plaintext token. `null` clears, `undefined` leaves unchanged. */
-    authToken?: string | null;
+    magic?: { model?: string };
+    advanced?: {
+      baseUrl?: string;
+      model?: string;
+      /** Plaintext token. `null` clears, `undefined` leaves unchanged. */
+      authToken?: string | null;
+    };
   };
 };
 
@@ -64,9 +70,12 @@ export function getAiSettingsState(): AiSettingsState {
     anthropic: { model: cfg.anthropic.model, hasApiKey: !!cfg.anthropic.encryptedApiKey },
     local: {
       mode: cfg.local.mode,
-      baseUrl: cfg.local.baseUrl,
-      model: cfg.local.model,
-      hasAuthToken: !!cfg.local.encryptedAuthToken
+      magic: { model: cfg.local.magic.model },
+      advanced: {
+        baseUrl: cfg.local.advanced.baseUrl,
+        model: cfg.local.advanced.model,
+        hasAuthToken: !!cfg.local.advanced.encryptedAuthToken
+      }
     }
   };
 }
@@ -80,17 +89,24 @@ export function isAiConfigured(): { configured: boolean; activeProvider: AiProvi
       model: cfg.anthropic.model
     };
   }
+  if (cfg.local.mode === "magic") {
+    return {
+      configured: cfg.local.magic.model.length > 0,
+      activeProvider: "local",
+      model: cfg.local.magic.model
+    };
+  }
   return {
-    configured: cfg.local.baseUrl.length > 0 && cfg.local.model.length > 0,
+    configured: cfg.local.advanced.baseUrl.length > 0 && cfg.local.advanced.model.length > 0,
     activeProvider: "local",
-    model: cfg.local.model
+    model: cfg.local.advanced.model
   };
 }
 
 /**
  * Apply an update to the on-disk AI config. Encrypts plaintext secrets via safeStorage
- * before writing. Magic mode forces baseUrl to the default localhost endpoint regardless
- * of what the renderer sends — `baseUrl` is only user-editable in Advanced mode.
+ * before writing. Magic and Advanced are independent slots — writing to one never modifies
+ * the other.
  */
 export function updateAiSettings(update: AiSettingsUpdate): { ok: true } | { ok: false; error: string } {
   if (!safeStorage.isEncryptionAvailable()) {
@@ -115,24 +131,28 @@ export function updateAiSettings(update: AiSettingsUpdate): { ok: true } | { ok:
 
     if (update.local) {
       partial.local = {};
-      if (update.local.mode) {
-        partial.local.mode = update.local.mode;
-        if (update.local.mode === "magic") {
-          // Magic mode is fixed to localhost; ignore any baseUrl update from the renderer.
-          partial.local.baseUrl = DEFAULT_OLLAMA_BASE_URL;
+      if (update.local.mode) partial.local.mode = update.local.mode;
+      if (update.local.magic) {
+        partial.local.magic = {};
+        if (typeof update.local.magic.model === "string") {
+          partial.local.magic.model = update.local.magic.model.trim();
         }
       }
-      if (typeof update.local.baseUrl === "string" && update.local.mode !== "magic") {
-        partial.local.baseUrl = update.local.baseUrl.trim() || DEFAULT_OLLAMA_BASE_URL;
-      }
-      if (typeof update.local.model === "string") {
-        partial.local.model = update.local.model.trim();
-      }
-      if (update.local.authToken === null) {
-        partial.local.encryptedAuthToken = null;
-      } else if (typeof update.local.authToken === "string") {
-        const trimmed = update.local.authToken.trim();
-        partial.local.encryptedAuthToken = trimmed === "" ? null : encrypt(trimmed);
+      if (update.local.advanced) {
+        partial.local.advanced = {};
+        if (typeof update.local.advanced.baseUrl === "string") {
+          const trimmed = update.local.advanced.baseUrl.trim();
+          partial.local.advanced.baseUrl = trimmed || DEFAULT_OLLAMA_BASE_URL;
+        }
+        if (typeof update.local.advanced.model === "string") {
+          partial.local.advanced.model = update.local.advanced.model.trim();
+        }
+        if (update.local.advanced.authToken === null) {
+          partial.local.advanced.encryptedAuthToken = null;
+        } else if (typeof update.local.advanced.authToken === "string") {
+          const trimmed = update.local.advanced.authToken.trim();
+          partial.local.advanced.encryptedAuthToken = trimmed === "" ? null : encrypt(trimmed);
+        }
       }
     }
 
@@ -150,6 +170,40 @@ export type ResolvedAiRequestConfig = {
   apiKey: string;
   model: string;
 };
+
+function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
+  if (cfg.local.mode === "magic") {
+    if (!cfg.local.magic.model) {
+      throw new AiConfigError("AI_NOT_CONFIGURED", "Local model is not configured.");
+    }
+    return {
+      provider: "local",
+      baseUrl: DEFAULT_OLLAMA_BASE_URL,
+      // Ollama accepts any non-empty token; the SDK requires one to be set.
+      authToken: "ollama",
+      apiKey: "",
+      model: cfg.local.magic.model
+    };
+  }
+  if (!cfg.local.advanced.baseUrl || !cfg.local.advanced.model) {
+    throw new AiConfigError("AI_NOT_CONFIGURED", "Local model is not configured.");
+  }
+  let authToken = "";
+  if (cfg.local.advanced.encryptedAuthToken) {
+    try {
+      authToken = decrypt(cfg.local.advanced.encryptedAuthToken);
+    } catch {
+      throw new AiConfigError("AI_DECRYPT_FAILED", "Couldn't decrypt the local auth token.");
+    }
+  }
+  return {
+    provider: "local",
+    baseUrl: cfg.local.advanced.baseUrl,
+    authToken,
+    apiKey: "",
+    model: cfg.local.advanced.model
+  };
+}
 
 /**
  * Read the current AI config and resolve to env-var-ready values for one chat request.
@@ -178,26 +232,5 @@ export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
       model: cfg.anthropic.model || DEFAULT_ANTHROPIC_MODEL
     };
   }
-
-  if (!cfg.local.baseUrl || !cfg.local.model) {
-    throw new AiConfigError("AI_NOT_CONFIGURED", "Local model is not configured.");
-  }
-  let authToken = "";
-  if (cfg.local.encryptedAuthToken) {
-    try {
-      authToken = decrypt(cfg.local.encryptedAuthToken);
-    } catch {
-      throw new AiConfigError("AI_DECRYPT_FAILED", "Couldn't decrypt the local auth token.");
-    }
-  } else if (cfg.local.mode === "magic") {
-    // Ollama accepts any non-empty token; the SDK requires one to be set.
-    authToken = "ollama";
-  }
-  return {
-    provider: "local",
-    baseUrl: cfg.local.baseUrl,
-    authToken,
-    apiKey: "",
-    model: cfg.local.model
-  };
+  return resolveLocalConfig(cfg);
 }

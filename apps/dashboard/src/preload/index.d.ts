@@ -154,9 +154,12 @@ declare global {
           anthropic: { model: string; hasApiKey: boolean };
           local: {
             mode: "magic" | "advanced";
-            baseUrl: string;
-            model: string;
-            hasAuthToken: boolean;
+            magic: { model: string };
+            advanced: {
+              baseUrl: string;
+              model: string;
+              hasAuthToken: boolean;
+            };
           };
         }>;
         update: (update: {
@@ -164,14 +167,21 @@ declare global {
           anthropic?: { model?: string; apiKey?: string | null };
           local?: {
             mode?: "magic" | "advanced";
-            baseUrl?: string;
-            model?: string;
-            authToken?: string | null;
+            magic?: { model?: string };
+            advanced?: {
+              baseUrl?: string;
+              model?: string;
+              authToken?: string | null;
+            };
           };
         }) => Promise<{ ok: true } | { ok: false; error: string }>;
-        testConnection: (
-          provider: "anthropic" | "local"
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        testConnection: (draft: {
+          provider: "anthropic" | "local";
+          apiKey?: string;
+          baseUrl?: string;
+          authToken?: string;
+          model?: string;
+        }) => Promise<{ ok: true } | { ok: false; error: string }>;
         ollamaDetect: (baseUrl: string) => Promise<{ running: boolean; baseUrl: string }>;
         ollamaListInstalled: (baseUrl: string) => Promise<string[]>;
         ollamaPull: (
@@ -179,6 +189,10 @@ declare global {
           modelId: string
         ) => Promise<{ ok: true } | { ok: false; error: string }>;
         ollamaCancelPull: (baseUrl: string, modelId: string) => Promise<{ ok: true }>;
+        ollamaDelete: (
+          baseUrl: string,
+          modelId: string
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
         /** Returns a cleanup function. */
         onPullProgress: (
           cb: (data: { modelId: string; percent?: number; status?: string }) => void

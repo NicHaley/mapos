@@ -192,9 +192,12 @@ const api = {
         anthropic: { model: string; hasApiKey: boolean };
         local: {
           mode: "magic" | "advanced";
-          baseUrl: string;
-          model: string;
-          hasAuthToken: boolean;
+          magic: { model: string };
+          advanced: {
+            baseUrl: string;
+            model: string;
+            hasAuthToken: boolean;
+          };
         };
       }>,
     update: (
@@ -203,17 +206,26 @@ const api = {
         anthropic?: { model?: string; apiKey?: string | null };
         local?: {
           mode?: "magic" | "advanced";
-          baseUrl?: string;
-          model?: string;
-          authToken?: string | null;
+          magic?: { model?: string };
+          advanced?: {
+            baseUrl?: string;
+            model?: string;
+            authToken?: string | null;
+          };
         };
       }
     ) =>
       ipcRenderer.invoke("ai-config:update", update) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
-    testConnection: (provider: "anthropic" | "local") =>
-      ipcRenderer.invoke("ai-config:test-connection", provider) as Promise<
+    testConnection: (draft: {
+      provider: "anthropic" | "local";
+      apiKey?: string;
+      baseUrl?: string;
+      authToken?: string;
+      model?: string;
+    }) =>
+      ipcRenderer.invoke("ai-config:test-connection", draft) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
     ollamaDetect: (baseUrl: string) =>
@@ -231,6 +243,10 @@ const api = {
       ipcRenderer.invoke("ai-config:ollama-cancel-pull", { baseUrl, modelId }) as Promise<{
         ok: true;
       }>,
+    ollamaDelete: (baseUrl: string, modelId: string) =>
+      ipcRenderer.invoke("ai-config:ollama-delete", { baseUrl, modelId }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
     onPullProgress: (
       cb: (data: { modelId: string; percent?: number; status?: string }) => void
     ): (() => void) => {

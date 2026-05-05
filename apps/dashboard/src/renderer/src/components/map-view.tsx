@@ -116,7 +116,11 @@ export type MapSelectPlaceMeta = { mapClickLngLat: { lng: number; lat: number } 
 export type SelectionPulseAnchor = { filePath: string; lng: number; lat: number };
 
 export type MapViewHandle = {
-  flyTo: (lat: number, lng: number) => void;
+  flyTo: (
+    lat: number,
+    lng: number,
+    opts?: { zoom?: number; padding?: FitPadding }
+  ) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
   fitToPlaceAndLinks: (
@@ -463,10 +467,15 @@ const MapView = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      flyTo: (lat, lng) => {
+      flyTo: (lat, lng, opts) => {
         const map = mapRef.current;
         if (!map) return;
-        map.flyTo({ center: [lng, lat], zoom: 14, duration: 600 });
+        map.flyTo({
+          center: [lng, lat],
+          zoom: opts?.zoom ?? 14,
+          duration: 600,
+          ...(opts?.padding ? { padding: opts.padding } : {})
+        });
       },
       fitToFolder,
       fitToPlace: (place: PlaceRecord, padding: FitPadding) => {
@@ -620,12 +629,8 @@ const MapView = forwardRef<
         void loadFolderPlaces(selectedFolderRef.current);
       }
     });
-    window.api.map.onPanTo(({ lat, lng, zoom }) => {
-      mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? 14, duration: 800 });
-    });
     return () => {
       window.api.places.removeListeners();
-      window.api.map.removeListeners();
       sendViewport.cancel();
     };
   }, [loadFolderPlaces, sendViewport.cancel]);

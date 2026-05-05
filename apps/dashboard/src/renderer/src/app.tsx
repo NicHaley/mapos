@@ -374,6 +374,16 @@ function App(): React.JSX.Element {
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
   useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
 
+  /** AI `pan_to` from chat: route through the map handle so the camera respects
+   * sidebar/main-pane padding instead of centering behind them. */
+  useEffect(() => {
+    window.api.map.onPanTo(({ lat, lng, zoom }) => {
+      const padding = getMapPadding(activeChatConvId !== null);
+      mapRef.current?.flyTo(lat, lng, { zoom, padding });
+    });
+    return () => window.api.map.removeListeners();
+  }, [getMapPadding, activeChatConvId]);
+
   /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */
   const geoJsonLayerPlacePath =
     selectedPlace?.type === "GeoJsonLayer" ? selectedPlace.filePath : null;

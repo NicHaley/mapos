@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
+import { SquarePenIcon } from "lucide-react";
 
 export type { PlaceRecord };
 
@@ -1228,7 +1229,10 @@ const MapView = forwardRef<
           }}
         />
         <DropdownMenuContent side="bottom" align="start" sideOffset={0}>
-          <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>New Note</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>
+            <SquarePenIcon />
+            New Note
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

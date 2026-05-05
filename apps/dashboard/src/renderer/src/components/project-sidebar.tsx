@@ -11,6 +11,7 @@ import {
   FolderPlusIcon,
   MessageCircleIcon,
   MessageCirclePlusIcon,
+  PencilIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -579,11 +580,16 @@ function FileTreeNode({
   const menuItems = (
     <>
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
+        <FolderOpenIcon />
         Reveal in Finder
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
+      <ContextMenuItem onClick={startRename}>
+        <PencilIcon />
+        Rename
+      </ContextMenuItem>
       <ContextMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
+        <Trash2Icon />
         Delete
       </ContextMenuItem>
     </>
@@ -591,15 +597,26 @@ function FileTreeNode({
 
   const folderMenuItems = (
     <>
-      <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>New Note</ContextMenuItem>
-      <ContextMenuItem onClick={() => onCreateFolderIn?.(node.path)}>New Folder</ContextMenuItem>
+      <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
+        <SquarePenIcon />
+        New Note
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onCreateFolderIn?.(node.path)}>
+        <FolderPlusIcon />
+        New Folder
+      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
+        <FolderOpenIcon />
         Reveal in Finder
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
+      <ContextMenuItem onClick={startRename}>
+        <PencilIcon />
+        Rename
+      </ContextMenuItem>
       <ContextMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
+        <Trash2Icon />
         Delete
       </ContextMenuItem>
     </>
@@ -1078,9 +1095,11 @@ export function ProjectSidebar({
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                   <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
+                    <SquarePenIcon />
                     New Note
                   </ContextMenuItem>
                   <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
+                    <FolderPlusIcon />
                     New Folder
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -1121,7 +1140,7 @@ export function ProjectSidebar({
                             variant="destructive"
                             onClick={() => onDeleteChat?.(conv.id)}
                           >
-                            <Trash2Icon className="size-3.5" />
+                            <Trash2Icon />
                             Delete
                           </ContextMenuItem>
                         </ContextMenuContent>

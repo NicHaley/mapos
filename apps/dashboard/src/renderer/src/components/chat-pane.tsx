@@ -39,6 +39,7 @@ import {
   Loader2Icon,
   PencilIcon,
   SparklesIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon
 } from "lucide-react";
@@ -489,6 +490,7 @@ export function ChatPane({
                 variant="destructive"
                 onClick={() => void handleDeleteConversation()}
               >
+                <Trash2Icon />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>

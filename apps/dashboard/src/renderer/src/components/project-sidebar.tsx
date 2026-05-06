@@ -57,6 +57,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
@@ -116,7 +117,7 @@ function CollapsibleGroupLabel({
           type="button"
           aria-expanded={open}
           onClick={onToggle}
-          className="group/group-label cursor-pointer gap-1 hover:text-sidebar-foreground"
+          className="group/group-label cursor-pointer gap-1 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/group-header:bg-sidebar-accent group-hover/group-header:text-sidebar-accent-foreground"
         />
       }
     >
@@ -665,7 +666,7 @@ function FileTreeNode({
               aria-expanded={open}
               aria-label={open ? "Collapse folder" : "Expand folder"}
               className={cn(
-                "my-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-[color,background-color]",
+                "my-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md outline-none transition-[color,background-color]",
                 "text-sidebar-foreground/50 hover:text-sidebar-accent-foreground",
                 "hover:bg-sidebar-accent-foreground/10",
                 "focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-0"
@@ -708,7 +709,7 @@ function FileTreeNode({
           <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
         </ContextMenu>
         {open && node.children && node.children.length > 0 && (
-          <SidebarMenuSub>
+          <SidebarMenuSub className="translate-x-0">
             {node.children.map((child) => (
               <FileTreeNode
                 key={child.path}
@@ -1031,11 +1032,46 @@ export function ProjectSidebar({
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <CollapsibleGroupLabel
-            label="Files"
-            open={filesGroupOpen}
-            onToggle={() => setFilesGroupOpen((o) => !o)}
-          />
+          <div className="group/group-header relative mb-0.5 flex flex-col">
+            <CollapsibleGroupLabel
+              label="Files"
+              open={filesGroupOpen}
+              onToggle={() => setFilesGroupOpen((o) => !o)}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarGroupAction
+                    title="Add"
+                    className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 data-open:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+                  >
+                    <PlusIcon />
+                    <span className="sr-only">Add file or folder</span>
+                  </SidebarGroupAction>
+                }
+              />
+              <DropdownMenuContent side="right" align="start">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setFilesGroupOpen(true);
+                    void createNoteIn(vaultRoot);
+                  }}
+                >
+                  <SquarePenIcon />
+                  New Note
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setFilesGroupOpen(true);
+                    void createFolderIn(vaultRoot);
+                  }}
+                >
+                  <FolderPlusIcon />
+                  New Folder
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           {moveError ? (
             <p className="mx-1 mb-2 text-xs text-destructive" role="alert">
               {moveError}
@@ -1108,11 +1144,24 @@ export function ProjectSidebar({
           )}
         </SidebarGroup>
         <SidebarGroup>
-          <CollapsibleGroupLabel
-            label="Conversations"
-            open={conversationsGroupOpen}
-            onToggle={() => setConversationsGroupOpen((o) => !o)}
-          />
+          <div className="group/group-header relative mb-0.5 flex flex-col">
+            <CollapsibleGroupLabel
+              label="Conversations"
+              open={conversationsGroupOpen}
+              onToggle={() => setConversationsGroupOpen((o) => !o)}
+            />
+            <SidebarGroupAction
+              title="New chat"
+              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+              onClick={() => {
+                setConversationsGroupOpen(true);
+                onNewChat?.();
+              }}
+            >
+              <PlusIcon />
+              <span className="sr-only">New chat</span>
+            </SidebarGroupAction>
+          </div>
           {conversationsGroupOpen && (
             <SidebarMenu className="gap-0.5">
               {conversations.length === 0 ? (

@@ -478,7 +478,7 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-sidebar-border bg-sidebar shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between gap-1 px-3 py-2">
+      <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
         <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
         {isSavedConversation && (
           <DropdownMenu>

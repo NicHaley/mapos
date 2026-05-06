@@ -953,6 +953,7 @@ function App(): React.JSX.Element {
                 onRename={handlePlaceRename}
                 onCommitPointLocation={commitVaultPointLocation}
                 onClearPointLocation={clearVaultPointLocation}
+                onDelete={(filePath) => handleDeletedPath(filePath, "file")}
               />
             )}
             {activeChatConvId && (

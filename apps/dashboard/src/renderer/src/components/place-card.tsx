@@ -9,12 +9,14 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  EllipsisIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
   MapPinPlus,
   Maximize2Icon,
   PlusIcon,
+  Trash2Icon,
   XIcon
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -22,6 +24,23 @@ import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types"
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { PhotonSearchPanel } from "./photon-search-panel";
 import { PropertiesPanel } from "./properties-panel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@mapos/ui/components/alert-dialog";
+import { Button } from "@mapos/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@mapos/ui/components/dropdown-menu";
 import { InputGroupButton } from "@mapos/ui/components/input-group";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@mapos/ui/components/popover";
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
@@ -327,7 +346,8 @@ export function PlaceCard({
   onSaveSearchToVault,
   onCommitPointLocation,
   onClearPointLocation,
-  onRename
+  onRename,
+  onDelete
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -342,6 +362,8 @@ export function PlaceCard({
   onClearPointLocation?: (filePath: string) => Promise<boolean>;
   /** Called after a successful file rename with the old and new paths. */
   onRename?: (oldPath: string, newPath: string) => void;
+  /** Called after the place file has been deleted on disk. */
+  onDelete?: (filePath: string) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [doc, setDoc] = useState<LoadedDoc>(() =>
@@ -352,6 +374,9 @@ export function PlaceCard({
   const [savingSearch, setSavingSearch] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [addLocationOpen, setAddLocationOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const editorRef = useRef<Editor | null>(null);
   const isDark = useDarkMode();
 
@@ -487,6 +512,20 @@ export function PlaceCard({
     }
   }
 
+  async function confirmDelete() {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const result = await window.api.fs.deletePath(currentFilePath);
+    setIsDeleting(false);
+    if (!result.success) {
+      setDeleteError(result.error);
+      return;
+    }
+    onDelete?.(currentFilePath);
+    setDeleteOpen(false);
+  }
+
   function handleTitleEnter() {
     if (place.previewMarkdown !== undefined) return;
     const error = validateTitle(titleInput);
@@ -511,8 +550,8 @@ export function PlaceCard({
         )}
       >
         {/* Header */}
-        <div className="flex items-start gap-2 px-4 pt-4 pb-3 shrink-0">
-          <div className="flex-1 min-w-0">
+        <div className="flex min-h-12 items-start gap-1 px-3 py-2 shrink-0">
+          <div className="flex-1 min-w-0 pt-1">
             <ErrorTooltip error={titleError}>
               <AutoSizeTextArea
                 aria-label="Place name"
@@ -534,16 +573,11 @@ export function PlaceCard({
                 value={titleInput}
               />
             </ErrorTooltip>
-            {/* {doc.kind === "geojson-layer" && (
-              <div className="mt-0.5 text-xs text-sidebar-foreground/50">
-                {doc.featureCount} feature{doc.featureCount !== 1 ? "s" : ""}
-                {doc.geometryTypes.length > 0 && ` · ${doc.geometryTypes.join(", ")}`}
-              </div>
-            )} */}
           </div>
           {place.previewMarkdown !== undefined && onSaveSearchToVault && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               disabled={savingSearch}
               onClick={() => {
                 void (async () => {
@@ -555,30 +589,49 @@ export function PlaceCard({
                   }
                 })();
               }}
-              className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors disabled:opacity-50"
               aria-label="Save place to vault"
               title="Save to active folder"
             >
-              <PlusIcon className="size-3.5" />
-            </button>
+              <PlusIcon />
+            </Button>
           )}
           {mode === "mini" && onExpand && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onExpand}
-              className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
-              type="button"
               aria-label="Open full view"
             >
-              <Maximize2Icon className="size-3.5" />
-            </button>
+              <Maximize2Icon />
+            </Button>
           )}
-          <button
-            onClick={onClose}
-            className="shrink-0 mt-0.5 rounded p-1 hover:bg-sidebar-accent text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
-            type="button"
-          >
-            <XIcon className="size-3.5" />
-          </button>
+          {mode === "mini" ? (
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+              <XIcon />
+            </Button>
+          ) : (
+            place.previewMarkdown === undefined && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<Button variant="ghost" size="icon" aria-label="More actions" />}
+                >
+                  <EllipsisIcon />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="end">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeleteOpen(true);
+                    }}
+                  >
+                    <Trash2Icon />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          )}
         </div>
 
         {place.previewMarkdown === undefined &&
@@ -686,6 +739,49 @@ export function PlaceCard({
           />
         )}
       </div>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) {
+            setDeleteOpen(false);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{currentTitle}&rdquo;.
+            </AlertDialogDescription>
+            {deleteError ? (
+              <AlertDialogDescription className="text-destructive">
+                {deleteError}
+              </AlertDialogDescription>
+            ) : null}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (isDeleting) return;
+                setDeleteOpen(false);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={() => {
+                void confirmDelete();
+              }}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
+  EllipsisIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
@@ -50,8 +51,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
-import { InputGroup, InputGroupInput } from "@mapos/ui/components/input-group";
-import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import {
   Sidebar,
   SidebarContent,
@@ -60,11 +59,14 @@ import {
   SidebarGroupAction,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
   useSidebar
 } from "@mapos/ui/components/sidebar";
+import { InputGroup, InputGroupInput } from "@mapos/ui/components/input-group";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 const MAPOS_DRAG_MIME = "application/x-mapos-node";
@@ -596,6 +598,24 @@ function FileTreeNode({
     </>
   );
 
+  const dropdownMenuItems = (
+    <>
+      <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
+        <FolderOpenIcon />
+        Reveal in Finder
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={startRename}>
+        <PencilIcon />
+        Rename
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
+        <Trash2Icon />
+        Delete
+      </DropdownMenuItem>
+    </>
+  );
+
   const folderMenuItems = (
     <>
       <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
@@ -623,6 +643,36 @@ function FileTreeNode({
     </>
   );
 
+  const dropdownFolderMenuItems = (
+    <>
+      <DropdownMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
+        <SquarePenIcon />
+        New Note
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onCreateFolderIn?.(node.path)}>
+        <FolderPlusIcon />
+        New Folder
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
+        <FolderOpenIcon />
+        Reveal in Finder
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={startRename}>
+        <PencilIcon />
+        Rename
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={() => onRequestDelete?.(node)}>
+        <Trash2Icon />
+        Delete
+      </DropdownMenuItem>
+    </>
+  );
+
+  const itemActionClass =
+    "hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100";
+
   if (node.type === "directory") {
     const isActive = node.path === selectedFolderPath;
     const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
@@ -635,6 +685,7 @@ function FileTreeNode({
                 className={cn(
                   "flex min-h-8 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md pl-1 pr-2 ring-sidebar-ring outline-hidden transition-[color,background-color,box-shadow]",
                   "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  "group-has-data-[sidebar=menu-action]/menu-item:pr-8",
                   isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
                   folderDropZone && "bg-sidebar-accent"
                 )}
@@ -708,6 +759,21 @@ function FileTreeNode({
           </ContextMenuTrigger>
           <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
         </ContextMenu>
+        {!isRenaming && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuAction showOnHover className={itemActionClass}>
+                  <EllipsisIcon />
+                  <span className="sr-only">More actions</span>
+                </SidebarMenuAction>
+              }
+            />
+            <DropdownMenuContent side="right" align="start" className="w-auto">
+              {dropdownFolderMenuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {open && node.children && node.children.length > 0 && (
           <SidebarMenuSub className="translate-x-0">
             {node.children.map((child) => (
@@ -786,6 +852,21 @@ function FileTreeNode({
         </ContextMenuTrigger>
         <ContextMenuContent>{menuItems}</ContextMenuContent>
       </ContextMenu>
+      {!isRenaming && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuAction showOnHover className={itemActionClass}>
+                <EllipsisIcon />
+                <span className="sr-only">More actions</span>
+              </SidebarMenuAction>
+            }
+          />
+          <DropdownMenuContent side="right" align="start" className="w-auto">
+            {dropdownMenuItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </SidebarMenuItem>
   );
 }
@@ -1050,7 +1131,7 @@ export function ProjectSidebar({
                   </SidebarGroupAction>
                 }
               />
-              <DropdownMenuContent side="right" align="start">
+              <DropdownMenuContent side="right" align="start" className="w-auto">
                 <DropdownMenuItem
                   onClick={() => {
                     setFilesGroupOpen(true);

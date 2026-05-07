@@ -483,8 +483,12 @@ function App(): React.JSX.Element {
   }, [dispatchNav, openEntry]);
 
   const handleSwitchChatConv = useCallback(
-    (convId: string, title: string) => {
+    (convId: string, title: string, newTab = false) => {
       const entry: NavEntry = { kind: "chat", convId, title };
+      if (newTab) {
+        dispatchNav({ type: "navigate", entry, newTab: true });
+        return;
+      }
       dispatchNav({ type: "navigate", entry, newTab: false });
       openEntry(entry);
     },

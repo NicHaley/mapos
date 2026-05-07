@@ -897,7 +897,7 @@ export function ProjectSidebar({
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onNewChat?: () => void;
-  onSelectChat?: (convId: string, title: string) => void;
+  onSelectChat?: (convId: string, title: string, newTab?: boolean) => void;
   onDeleteChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -1258,7 +1258,9 @@ export function ProjectSidebar({
                           render={
                             <SidebarMenuButton
                               isActive={isActive}
-                              onClick={() => onSelectChat?.(conv.id, title)}
+                              onClick={(e) =>
+                                onSelectChat?.(conv.id, title, e.metaKey || e.ctrlKey)
+                              }
                             />
                           }
                         >

@@ -630,9 +630,18 @@ function App(): React.JSX.Element {
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
   );
 
-  // Sidebar folder click — navigate within active tab
+  // Sidebar folder click — navigate within active tab (or background tab on cmd/ctrl+click)
   const handleSelectFolder = useCallback(
-    (folderPath: string) => {
+    (folderPath: string, newTab = false) => {
+      const entry: NavEntry = {
+        kind: "folder",
+        folderPath,
+        label: folderLabel(folderPath)
+      };
+      if (newTab) {
+        dispatchNav({ type: "navigate", entry, newTab: true });
+        return;
+      }
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       setActiveChatConvId(null);
@@ -640,11 +649,7 @@ function App(): React.JSX.Element {
       setSelectedPlace(null);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      dispatchNav({
-        type: "navigate",
-        entry: { kind: "folder", folderPath, label: folderLabel(folderPath) },
-        newTab: false
-      });
+      dispatchNav({ type: "navigate", entry, newTab: false });
       mapRef.current?.fitToFolder(folderPath, getMapPadding(false));
     },
     [getMapPadding, dispatchNav]

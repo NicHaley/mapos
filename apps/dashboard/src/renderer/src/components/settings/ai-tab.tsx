@@ -292,7 +292,7 @@ function ModelRow({
           <div className="mt-2 flex items-center gap-2">
             <Progress value={pullPercent ?? 0} className="flex-1" />
             <span className="text-xs tabular-nums text-muted-foreground">
-              {typeof pullPercent === "number" ? `${pullPercent}%` : "…"}
+              {pullPercent ?? 0}%
             </span>
             <Button variant="ghost" size="sm" onClick={onCancelPull}>
               Cancel
@@ -349,7 +349,7 @@ function MagicLocalForm({
   const [detection, setDetection] = useState<DetectionState>("checking");
   const [installed, setInstalled] = useState<string[]>([]);
   const [pullingModel, setPullingModel] = useState<string | null>(null);
-  const [pullPercent, setPullPercent] = useState<number | undefined>(undefined);
+  const [pullPercent, setPullPercent] = useState<number>(0);
   const [pullError, setPullError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
@@ -380,7 +380,13 @@ function MagicLocalForm({
   useEffect(() => {
     return window.api.aiConfig.onPullProgress((data) => {
       if (data.modelId !== pullingModel) return;
-      setPullPercent(data.percent);
+      // Only accept numeric, non-decreasing values. Ollama's post-download events
+      // (verifying, writing manifest, cleanup) carry no percent and would otherwise
+      // snap the bar back to 0 right before completion.
+      if (typeof data.percent === "number") {
+        const next = data.percent;
+        setPullPercent((prev) => (next > prev ? next : prev));
+      }
       if (data.status === "done") {
         // Refresh installed list when a pull completes; selection follows on the resolved promise below.
         void refresh();
@@ -407,10 +413,10 @@ function MagicLocalForm({
   async function pullAndSelect(modelId: string): Promise<void> {
     setPullError(null);
     setPullingModel(modelId);
-    setPullPercent(undefined);
+    setPullPercent(0);
     const result = await window.api.aiConfig.ollamaPull(baseUrl, modelId);
     setPullingModel(null);
-    setPullPercent(undefined);
+    setPullPercent(0);
     if (!result.ok) {
       setPullError(result.error);
       return;
@@ -423,7 +429,7 @@ function MagicLocalForm({
     if (!pullingModel) return;
     void window.api.aiConfig.ollamaCancelPull(baseUrl, pullingModel);
     setPullingModel(null);
-    setPullPercent(undefined);
+    setPullPercent(0);
   }
 
   async function confirmDelete(): Promise<void> {

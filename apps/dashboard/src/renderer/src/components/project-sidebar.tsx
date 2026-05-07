@@ -478,7 +478,7 @@ function FileTreeNode({
   autoRenamePath?: string | null;
   onAutoRenameConsumed?: () => void;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
-  onSelectFolder?: (path: string) => void;
+  onSelectFolder?: (path: string, newTab?: boolean) => void;
   onSelectGeoJson?: (path: string) => void;
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
@@ -740,9 +740,9 @@ function FileTreeNode({
                 "data-active:bg-transparent data-active:hover:bg-transparent",
                 folderDropZone && "bg-transparent"
               )}
-              onClick={() => {
+              onClick={(e) => {
                 if (isRenaming) return;
-                onSelectFolder?.(node.path);
+                onSelectFolder?.(node.path, e.metaKey || e.ctrlKey);
               }}
               onDoubleClick={(e) => {
                 if (isRenaming) return;
@@ -895,7 +895,7 @@ export function ProjectSidebar({
   conversations: ConversationMeta[];
   streamingConvIds: Set<string>;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
-  onSelectFolder?: (path: string) => void;
+  onSelectFolder?: (path: string, newTab?: boolean) => void;
   onSelectGeoJson?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;

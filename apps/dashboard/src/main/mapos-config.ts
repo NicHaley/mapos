@@ -1,47 +1,69 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { z } from "zod";
 
 export const MAPOS_CONFIG_FILENAME = "mapos.json";
 
 const DEFAULT_VAULT_PATH = join(homedir(), "MapOS");
 
-export type AiProvider = "anthropic" | "local";
-export type AiLocalMode = "magic" | "advanced";
-
-export type AiConfig = {
-  provider: AiProvider;
-  anthropic: {
-    model: string;
-    encryptedApiKey: string | null;
-  };
-  local: {
-    mode: AiLocalMode;
-    /** Magic mode is hard-fixed to localhost; only the chosen model is configurable. */
-    magic: {
-      model: string;
-    };
-    /** Advanced mode owns its own base URL, model, and optional bearer token, fully independent of Magic. */
-    advanced: {
-      baseUrl: string;
-      model: string;
-      encryptedAuthToken: string | null;
-    };
-  };
-};
-
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 
-function defaultAiConfig(): AiConfig {
-  return {
-    provider: "anthropic",
-    anthropic: {
-      model: DEFAULT_ANTHROPIC_MODEL,
-      encryptedApiKey: null
-    },
+const AnthropicConfigSchema = z
+  .object({
+    model: z.string().min(1).catch(DEFAULT_ANTHROPIC_MODEL),
+    encryptedApiKey: z.string().nullable().catch(null)
+  })
+  .catch(() => ({ model: DEFAULT_ANTHROPIC_MODEL, encryptedApiKey: null }));
+
+/** Magic mode is hard-fixed to localhost; only the chosen model is configurable. */
+const LocalMagicConfigSchema = z
+  .object({
+    model: z.string().catch("")
+  })
+  .catch(() => ({ model: "" }));
+
+/** Advanced mode owns its own base URL, model, and optional bearer token, fully independent of Magic. */
+const LocalAdvancedConfigSchema = z
+  .object({
+    baseUrl: z.string().min(1).catch(DEFAULT_OLLAMA_BASE_URL),
+    model: z.string().catch(""),
+    encryptedAuthToken: z.string().nullable().catch(null)
+  })
+  .catch(() => ({
+    baseUrl: DEFAULT_OLLAMA_BASE_URL,
+    model: "",
+    encryptedAuthToken: null
+  }));
+
+const LocalConfigSchema = z
+  .object({
+    mode: z.enum(["magic", "advanced"]).catch("magic"),
+    magic: LocalMagicConfigSchema,
+    advanced: LocalAdvancedConfigSchema
+  })
+  .catch(() => ({
+    mode: "magic" as const,
+    magic: { model: "" },
+    advanced: {
+      baseUrl: DEFAULT_OLLAMA_BASE_URL,
+      model: "",
+      encryptedAuthToken: null
+    }
+  }));
+
+const AiConfigSchema = z
+  .object({
+    provider: z.enum(["anthropic", "local"]).catch("anthropic"),
+    anthropic: AnthropicConfigSchema,
+    local: LocalConfigSchema
+  })
+  .catch(() => ({
+    provider: "anthropic" as const,
+    anthropic: { model: DEFAULT_ANTHROPIC_MODEL, encryptedApiKey: null },
     local: {
-      mode: "magic",
+      mode: "magic" as const,
       magic: { model: "" },
       advanced: {
         baseUrl: DEFAULT_OLLAMA_BASE_URL,
@@ -49,7 +71,14 @@ function defaultAiConfig(): AiConfig {
         encryptedAuthToken: null
       }
     }
-  };
+  }));
+
+export type AiConfig = z.infer<typeof AiConfigSchema>;
+export type AiProvider = AiConfig["provider"];
+export type AiLocalMode = AiConfig["local"]["mode"];
+
+function defaultAiConfig(): AiConfig {
+  return AiConfigSchema.parse(undefined);
 }
 
 export type MaposJson = {
@@ -66,56 +95,7 @@ function defaultConfig(): MaposJson {
 }
 
 function parseAiConfig(raw: unknown): AiConfig {
-  const fallback = defaultAiConfig();
-  if (!raw || typeof raw !== "object") return fallback;
-  const r = raw as Record<string, unknown>;
-  const provider: AiProvider = r.provider === "local" ? "local" : "anthropic";
-
-  const anthropicRaw = (r.anthropic ?? {}) as Record<string, unknown>;
-  const anthropic = {
-    model:
-      typeof anthropicRaw.model === "string" && anthropicRaw.model.length > 0
-        ? anthropicRaw.model
-        : DEFAULT_ANTHROPIC_MODEL,
-    encryptedApiKey:
-      typeof anthropicRaw.encryptedApiKey === "string" ? anthropicRaw.encryptedApiKey : null
-  };
-
-  const localRaw = (r.local ?? {}) as Record<string, unknown>;
-  const mode: AiLocalMode = localRaw.mode === "advanced" ? "advanced" : "magic";
-
-  // Migration from the v0 shape where Magic and Advanced shared baseUrl/model/encryptedAuthToken.
-  // Old data is routed into the active mode's slot so the user doesn't lose what they had configured.
-  const legacyBaseUrl =
-    typeof localRaw.baseUrl === "string" && localRaw.baseUrl.length > 0 ? localRaw.baseUrl : null;
-  const legacyModel = typeof localRaw.model === "string" ? localRaw.model : null;
-  const legacyAuthToken =
-    typeof localRaw.encryptedAuthToken === "string" ? localRaw.encryptedAuthToken : null;
-
-  const magicRaw = (localRaw.magic ?? {}) as Record<string, unknown>;
-  const magicModelRaw = typeof magicRaw.model === "string" ? magicRaw.model : null;
-  const magic = {
-    model: magicModelRaw ?? (mode === "magic" && legacyModel ? legacyModel : "")
-  };
-
-  const advancedRaw = (localRaw.advanced ?? {}) as Record<string, unknown>;
-  const advancedBaseUrlRaw =
-    typeof advancedRaw.baseUrl === "string" && advancedRaw.baseUrl.length > 0
-      ? advancedRaw.baseUrl
-      : null;
-  const advancedModelRaw = typeof advancedRaw.model === "string" ? advancedRaw.model : null;
-  const advancedAuthRaw =
-    typeof advancedRaw.encryptedAuthToken === "string" ? advancedRaw.encryptedAuthToken : null;
-  const advanced = {
-    baseUrl:
-      advancedBaseUrlRaw ??
-      (mode === "advanced" && legacyBaseUrl ? legacyBaseUrl : DEFAULT_OLLAMA_BASE_URL),
-    model: advancedModelRaw ?? (mode === "advanced" && legacyModel ? legacyModel : ""),
-    encryptedAuthToken:
-      advancedAuthRaw ?? (mode === "advanced" ? legacyAuthToken : null)
-  };
-
-  return { provider, anthropic, local: { mode, magic, advanced } };
+  return AiConfigSchema.parse(raw);
 }
 
 function parseConfig(raw: string): MaposJson | null {
@@ -268,8 +248,7 @@ export function removeVaultFromConfig(
   }
   const nextVaults = normalized.filter((p) => p !== resolved);
   const activeResolved = cfg.activeVault ? resolve(cfg.activeVault.trim()) : undefined;
-  const nextActive =
-    activeResolved && activeResolved !== resolved ? activeResolved : undefined;
+  const nextActive = activeResolved && activeResolved !== resolved ? activeResolved : undefined;
   const next: MaposJson = {
     vaults: nextVaults,
     ...(nextActive ? { activeVault: nextActive } : {}),
@@ -330,4 +309,3 @@ export function updateAiConfigInFile(
 export function vaultDotDir(vaultRoot: string): string {
   return join(vaultRoot, ".mapos");
 }
-

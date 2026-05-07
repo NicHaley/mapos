@@ -182,7 +182,7 @@ function createSelectionPulsingDot(map: { triggerRepaint: () => void }) {
       if (!ctx) return false;
       const duration = 1600;
       const t = (performance.now() % duration) / duration;
-      const radius = (size / 2) * 0.26;
+      const radius = (size / 2) * 0.3125;
       const outerRadius = (size / 2) * 0.58 * t + radius;
       ctx.clearRect(0, 0, size, size);
       ctx.beginPath();
@@ -944,10 +944,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
               paint={{
-                "circle-radius": 6,
+                "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "circle-stroke-width": 2,
-                "circle-stroke-color": ["coalesce", ["get", "color"], "#6b7280"]
+                "circle-stroke-color": "#ffffff"
               }}
             />
             <Layer
@@ -999,10 +999,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
               paint={{
-                "circle-radius": 6,
+                "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "circle-stroke-width": 2,
-                "circle-stroke-color": ["coalesce", ["get", "color"], "#6b7280"]
+                "circle-stroke-color": "#ffffff"
               }}
             />
             <Layer
@@ -1054,10 +1054,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
               paint={{
-                "circle-radius": 6,
+                "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], foregroundColor],
                 "circle-stroke-width": 2.5,
-                "circle-stroke-color": ["coalesce", ["get", "color"], foregroundColor]
+                "circle-stroke-color": "#ffffff"
               }}
             />
             <Layer
@@ -1133,10 +1133,10 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
               paint={{
-                "circle-radius": 6,
+                "circle-radius": 5,
                 "circle-color": "#6b7280",
                 "circle-stroke-width": 2,
-                "circle-stroke-color": "#6b7280"
+                "circle-stroke-color": "#ffffff"
               }}
             />
             <Layer

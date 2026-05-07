@@ -219,6 +219,22 @@ function App(): React.JSX.Element {
   const chatStore = useChatStore();
   const { conversations, refresh: refreshConversations } = useConversations(chatStore);
 
+  /** convIds whose stream is currently in flight (renderer view); drives spinners on tabs and the sidebar list. */
+  const streamingConvIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, c] of Object.entries(chatStore.state.byId)) {
+      if (
+        c.assistantPending ||
+        c.streamingContent !== "" ||
+        c.streamingThinking !== "" ||
+        c.activeToolCalls.length > 0
+      ) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [chatStore.state]);
+
   const handleOverlayRestore = useCallback((overlay: MapOverlayPayload | null) => {
     if (overlay) {
       setMapOverlay(overlay);
@@ -538,17 +554,14 @@ function App(): React.JSX.Element {
     }
   ]);
 
-  /** Wrap nav close to also abort an in-flight chat stream when its tab is closed. */
+  /** Closing a chat tab keeps the stream running so the assistant message still completes
+   * and persists to disk. The chat remains accessible via the sidebar conversation list,
+   * with a streaming indicator while in flight. */
   const handleCloseTab = useCallback(
     (index: number) => {
-      const tab = nav.tabs[index];
-      const entry = tab?.history[tab.cursor];
-      if (entry?.kind === "chat") {
-        chatStore.abort(entry.convId);
-      }
       handleNavTabClose(index);
     },
-    [nav, handleNavTabClose, chatStore]
+    [handleNavTabClose]
   );
 
   function handlePlaceCardClose() {
@@ -923,6 +936,7 @@ function App(): React.JSX.Element {
             activeTabIndex={activeTabIndex}
             canBack={canBack}
             canForward={canForward}
+            streamingConvIds={streamingConvIds}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
             onTabReorder={handleNavTabReorder}
@@ -1092,6 +1106,7 @@ function App(): React.JSX.Element {
             selectedFolderPath={selectedFolder ?? undefined}
             activeChatConvId={activeChatConvId}
             conversations={conversations}
+            streamingConvIds={streamingConvIds}
             onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}
             onSelectGeoJson={(p) => void handleSelectGeoJson(p)}
@@ -1101,6 +1116,7 @@ function App(): React.JSX.Element {
             onNewChat={handleNewChat}
             onSelectChat={handleSwitchChatConv}
             onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
+            onStopChat={(convId) => chatStore.abort(convId)}
           />
         </SidebarProvider>
 

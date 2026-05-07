@@ -384,7 +384,7 @@ export function useNavTabs({
       return { id: tab.id, title: current.label, kind: "folder" as const };
     }
     if (current?.kind === "chat") {
-      return { id: tab.id, title: current.title, kind: "chat" as const };
+      return { id: tab.id, title: current.title, kind: "chat" as const, convId: current.convId };
     }
     return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
   });

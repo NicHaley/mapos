@@ -15,6 +15,7 @@ import {
   PencilIcon,
   PlusIcon,
   SettingsIcon,
+  SquareIcon,
   SquarePenIcon,
   Trash2Icon
 } from "lucide-react";
@@ -876,6 +877,7 @@ export function ProjectSidebar({
   selectedFolderPath,
   activeChatConvId,
   conversations,
+  streamingConvIds,
   onSelectPlace,
   onSelectFolder,
   onSelectGeoJson,
@@ -884,12 +886,14 @@ export function ProjectSidebar({
   onMoved,
   onNewChat,
   onSelectChat,
-  onDeleteChat
+  onDeleteChat,
+  onStopChat
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
   activeChatConvId?: string | null;
   conversations: ConversationMeta[];
+  streamingConvIds: Set<string>;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string) => void;
   onSelectGeoJson?: (path: string) => void;
@@ -899,6 +903,7 @@ export function ProjectSidebar({
   onNewChat?: () => void;
   onSelectChat?: (convId: string, title: string, newTab?: boolean) => void;
   onDeleteChat?: (convId: string) => void;
+  onStopChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
@@ -1251,6 +1256,7 @@ export function ProjectSidebar({
                 conversations.map((conv) => {
                   const title = conv.preview || "Chat";
                   const isActive = conv.id === activeChatConvId;
+                  const isStreaming = streamingConvIds.has(conv.id);
                   return (
                     <SidebarMenuItem key={conv.id}>
                       <ContextMenu>
@@ -1264,10 +1270,26 @@ export function ProjectSidebar({
                             />
                           }
                         >
-                          <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+                          {isStreaming ? (
+                            <span
+                              aria-label="Streaming"
+                              className="relative flex size-3.5 shrink-0 items-center justify-center"
+                            >
+                              <span className="absolute inline-flex size-2 animate-ping rounded-full bg-white opacity-75" />
+                              <span className="relative inline-flex size-1.5 rounded-full bg-white" />
+                            </span>
+                          ) : (
+                            <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+                          )}
                           <span className="truncate">{title}</span>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
+                          {isStreaming && (
+                            <ContextMenuItem onClick={() => onStopChat?.(conv.id)}>
+                              <SquareIcon />
+                              Stop
+                            </ContextMenuItem>
+                          )}
                           <ContextMenuItem
                             variant="destructive"
                             onClick={() => onDeleteChat?.(conv.id)}

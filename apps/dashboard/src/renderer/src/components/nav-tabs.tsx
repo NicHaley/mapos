@@ -17,13 +17,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
   | { id: string; title: string; kind: "folder" }
-  | { id: string; title: string; kind: "chat" };
+  | { id: string; title: string; kind: "chat"; convId: string };
 
 type NavTabsProps = {
   tabs: NavTabData[];
   activeTabIndex: number;
   canBack: boolean;
   canForward: boolean;
+  /** convIds whose chat stream is currently in flight; renders a spinner in place of the tab icon. */
+  streamingConvIds: Set<string>;
   onTabActivate: (index: number) => void;
   onTabClose: (index: number) => void;
   onTabReorder: (newOrder: string[]) => void;
@@ -45,6 +47,7 @@ export function NavTabs({
   activeTabIndex,
   canBack,
   canForward,
+  streamingConvIds,
   onTabActivate,
   onTabClose,
   onTabReorder,
@@ -80,6 +83,7 @@ export function NavTabs({
         >
           {tabs.map((tab, i) => {
             const isActive = i === activeTabIndex;
+            const isStreaming = tab.kind === "chat" && streamingConvIds.has(tab.convId);
             const Icon = tabIcon(tab);
             return (
               <Reorder.Item
@@ -103,7 +107,17 @@ export function NavTabs({
                     : "bg-sidebar-accent/40 text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80"
                 )}
               >
-                <Icon className="size-3.5 shrink-0 opacity-70" />
+                {isStreaming ? (
+                  <span
+                    aria-label="Streaming"
+                    className="relative flex size-3.5 shrink-0 items-center justify-center"
+                  >
+                    <span className="absolute inline-flex size-2 animate-ping rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex size-1.5 rounded-full bg-white" />
+                  </span>
+                ) : (
+                  <Icon className="size-3.5 shrink-0 opacity-70" />
+                )}
                 <span className="truncate">{tab.title}</span>
                 <Tooltip>
                   <TooltipTrigger

@@ -85,12 +85,16 @@ function updateConv(
 
 function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatStoreState {
   switch (action.type) {
-    case "loaded":
+    case "loaded": {
+      // Idempotent: once loaded, repeated loads (e.g. re-opening a chat tab) must not wipe
+      // streamingContent / activeToolCalls for an in-flight stream.
+      if (state.byId[action.convId]?.loaded) return state;
       return updateConv(state, action.convId, () => ({
         ...emptyConv,
         messages: action.messages,
         loaded: true
       }));
+    }
     case "user_message":
       return updateConv(state, action.convId, (c) => ({
         ...c,

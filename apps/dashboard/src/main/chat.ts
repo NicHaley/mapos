@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { type BrowserWindow, ipcMain } from "electron";
 import type { PersistedMessage, PlaceRecord, UndoEntry } from "../shared/types";
@@ -22,23 +21,6 @@ import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
-
-// On macOS, spawning the main app binary (process.execPath) makes the OS show
-// the subprocess in the Dock as a duplicate of the parent. The Helper bundle
-// has LSUIElement=YES so it stays invisible. Same Electron binary underneath.
-function nodeRuntimePath(): string {
-  if (process.platform !== "darwin") return process.execPath;
-  const name = basename(process.execPath);
-  return join(
-    dirname(process.execPath),
-    "..",
-    "Frameworks",
-    `${name} Helper.app`,
-    "Contents",
-    "MacOS",
-    `${name} Helper`
-  );
-}
 
 export function setupChat(
   mainWindow: BrowserWindow,
@@ -183,16 +165,6 @@ export function setupChat(
             allowedTools: [...ALLOWED_TOOLS],
             tools: [...ALLOWED_TOOLS],
             includePartialMessages: true,
-            // Packaged macOS apps have no `node` on PATH, so run the SDK's
-            // cli.js via Electron's own binary in node mode.
-            spawnClaudeCodeProcess: ({ args, cwd, env, signal }) =>
-              spawn(nodeRuntimePath(), args, {
-                cwd,
-                env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
-                signal,
-                stdio: ["pipe", "pipe", "pipe"],
-                windowsHide: true
-              }),
             // thinking: { type: "adaptive" },
             mcpServers: {
               mapos: makeMcpServerForConv(convId)

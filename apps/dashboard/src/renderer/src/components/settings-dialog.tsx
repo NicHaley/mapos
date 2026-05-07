@@ -312,8 +312,14 @@ export function SettingsDialog({
               </SidebarContent>
             </Sidebar>
 
-            {/* Right content */}
-            <div className="flex-1 overflow-y-auto bg-background p-6 pr-10">
+            {/* `translateZ(0)` puts this scroll container on its own compositor layer.
+                Without it, fast scrolls share a layer with the stacked backdrop-filter
+                regions (dialog overlay + inner sidebar + app chrome) and Chromium
+                occasionally drops a composite frame, briefly blanking the whole DOM. */}
+            <div
+              className="flex-1 overflow-y-auto bg-background p-6 pr-10"
+              style={{ transform: "translateZ(0)" }}
+            >
               {page === "general" && (
                 <GeneralPage
                   onRequestDelete={(name) => {

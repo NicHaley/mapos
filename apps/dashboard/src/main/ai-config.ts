@@ -1,4 +1,5 @@
 import { app, safeStorage } from "electron";
+import { type ModelCapabilities, resolveCapabilities } from "./ai-capabilities";
 import {
   type AiConfig,
   type AiLocalMode,
@@ -169,6 +170,7 @@ export type ResolvedAiRequestConfig = {
   authToken: string;
   apiKey: string;
   model: string;
+  capabilities: ModelCapabilities;
 };
 
 function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
@@ -182,7 +184,8 @@ function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
       // Ollama accepts any non-empty token; the SDK requires one to be set.
       authToken: "ollama",
       apiKey: "",
-      model: cfg.local.magic.model
+      model: cfg.local.magic.model,
+      capabilities: resolveCapabilities("local", cfg.local.magic.model)
     };
   }
   if (!cfg.local.advanced.baseUrl || !cfg.local.advanced.model) {
@@ -201,7 +204,8 @@ function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
     baseUrl: cfg.local.advanced.baseUrl,
     authToken,
     apiKey: "",
-    model: cfg.local.advanced.model
+    model: cfg.local.advanced.model,
+    capabilities: resolveCapabilities("local", cfg.local.advanced.model)
   };
 }
 
@@ -224,12 +228,14 @@ export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
     } catch {
       throw new AiConfigError("AI_DECRYPT_FAILED", "Couldn't decrypt the Anthropic API key.");
     }
+    const model = cfg.anthropic.model || DEFAULT_ANTHROPIC_MODEL;
     return {
       provider: "anthropic",
       baseUrl: "",
       authToken: "",
       apiKey,
-      model: cfg.anthropic.model || DEFAULT_ANTHROPIC_MODEL
+      model,
+      capabilities: resolveCapabilities("anthropic", model)
     };
   }
   return resolveLocalConfig(cfg);

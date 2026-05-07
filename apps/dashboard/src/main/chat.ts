@@ -154,6 +154,7 @@ export function setupChat(
       const abortController = new AbortController();
 
       try {
+        const { capabilities } = aiConfig;
         const q = query({
           prompt: message,
           options: {
@@ -162,10 +163,13 @@ export function setupChat(
             cwd: vaultRoot,
             model: aiConfig.model,
             systemPrompt: buildMaposSystemPrompt(vaultRoot),
-            allowedTools: [...ALLOWED_TOOLS],
-            tools: [...ALLOWED_TOOLS],
+            ...(capabilities.supportsTools
+              ? { allowedTools: [...ALLOWED_TOOLS], tools: [...ALLOWED_TOOLS] }
+              : {}),
             includePartialMessages: true,
-            // thinking: { type: "adaptive" },
+            ...(capabilities.thinking !== false
+              ? { thinking: { type: capabilities.thinking } }
+              : {}),
             mcpServers: {
               mapos: makeMcpServerForConv(convId)
             },

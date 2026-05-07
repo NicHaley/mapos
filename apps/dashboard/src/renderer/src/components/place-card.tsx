@@ -1,8 +1,34 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@mapos/ui/components/alert-dialog";
+import { Button } from "@mapos/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@mapos/ui/components/dropdown-menu";
+import { InputGroupButton } from "@mapos/ui/components/input-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger
+} from "@mapos/ui/components/popover";
+import { ScrollArea } from "@mapos/ui/components/scroll-area";
+import { ErrorTooltip } from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { PhotonSearchResult } from "@renderer/lib/photon";
-import { cn } from "@mapos/ui/lib/utils";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -24,27 +50,6 @@ import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types"
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { PhotonSearchPanel } from "./photon-search-panel";
 import { PropertiesPanel } from "./properties-panel";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from "@mapos/ui/components/alert-dialog";
-import { Button } from "@mapos/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "@mapos/ui/components/dropdown-menu";
-import { InputGroupButton } from "@mapos/ui/components/input-group";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@mapos/ui/components/popover";
-import { ScrollArea } from "@mapos/ui/components/scroll-area";
-import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 
 function formatPointLocationShort(geometryJson: string | undefined): string {
   if (!geometryJson) return "";
@@ -543,7 +548,7 @@ export function PlaceCard({
     >
       <div
         className={cn(
-          "bg-sidebar/80 backdrop-blur-md overflow-hidden flex flex-col",
+          "bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
@@ -596,12 +601,7 @@ export function PlaceCard({
             </Button>
           )}
           {mode === "mini" && onExpand && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onExpand}
-              aria-label="Open full view"
-            >
+            <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
               <Maximize2Icon />
             </Button>
           )}

@@ -1,3 +1,8 @@
+import { Button } from "@mapos/ui/components/button";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 import type { MapOverlayPayload } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
@@ -15,11 +20,6 @@ import { PhotonSearchPopover } from "./components/photon-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
-import { cn } from "@mapos/ui/lib/utils";
-import { Button } from "@mapos/ui/components/button";
-import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { useChatStore } from "./hooks/use-chat-store";
 import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
@@ -901,7 +901,7 @@ function App(): React.JSX.Element {
       <motion.div
         layoutRoot
         className={cn(
-          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground bg-sidebar/80 backdrop-blur-md border-b border-sidebar-border",
+          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground bg-sidebar/75 backdrop-blur-md border-b border-sidebar-border",
           isFullscreen ? "pl-2" : "pl-21"
         )}
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -1041,10 +1041,7 @@ function App(): React.JSX.Element {
                         entry: { kind: "place", place: selectedPlace },
                         newTab: false
                       });
-                      mapRef.current?.fitToPlace(
-                        selectedPlace,
-                        getMapPadding(true)
-                      );
+                      mapRef.current?.fitToPlace(selectedPlace, getMapPadding(true));
                     }
               }
             />

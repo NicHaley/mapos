@@ -34,21 +34,12 @@ import {
   Loader2Icon,
   Trash2Icon
 } from "lucide-react";
+import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import curatedModelsRaw from "../../data/curated-ollama-models.json";
 
 type AiSettingsState = Awaited<ReturnType<typeof window.api.aiConfig.getSettingsState>>;
 type Provider = AiSettingsState["provider"];
 type LocalMode = AiSettingsState["local"]["mode"];
-
-type CuratedModel = { id: string; label: string; size: string; hint: string };
-const CURATED_MODELS = curatedModelsRaw as CuratedModel[];
-
-const ANTHROPIC_MODELS: { id: string; label: string }[] = [
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { id: "claude-opus-4-7", label: "Claude Opus 4.7" },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }
-];
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
@@ -449,7 +440,7 @@ function MagicLocalForm({
     onSaved();
   }
 
-  const curatedIds = useMemo(() => new Set(CURATED_MODELS.map((m) => m.id)), []);
+  const curatedIds = useMemo(() => new Set(OLLAMA_MODELS.map((m) => m.id)), []);
   const otherInstalled = installed.filter((m) => !curatedIds.has(m));
 
   if (detection === "checking") {
@@ -495,7 +486,7 @@ function MagicLocalForm({
         description="Curated for tool calling on consumer hardware."
       >
         <div className="flex flex-col gap-2">
-          {CURATED_MODELS.map((m) => {
+          {OLLAMA_MODELS.map((m) => {
             const isInstalled = installed.includes(m.id);
             const isSelected = state.model === m.id;
             const isPulling = pullingModel === m.id;

@@ -1,5 +1,5 @@
 import { app, safeStorage } from "electron";
-import { type ModelCapabilities, resolveCapabilities } from "./ai-capabilities";
+import { type ModelCapabilities, resolveCapabilities } from "../shared/ai-models";
 import {
   type AiConfig,
   type AiLocalMode,

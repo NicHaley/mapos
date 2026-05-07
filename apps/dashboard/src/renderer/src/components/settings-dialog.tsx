@@ -128,7 +128,7 @@ function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => v
         description="Rename the folder on disk. All references to the folder path will update."
       >
         <div className="flex flex-col gap-2">
-          <InputGroup>
+          <InputGroup className="bg-background">
             <InputGroupInput
               value={draftName}
               disabled={busy}
@@ -290,15 +290,15 @@ export function SettingsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden bg-sidebar/80 backdrop-blur-md">
           <SidebarProvider
             className="h-[460px] min-h-0 overflow-hidden"
             style={{ "--sidebar-width": "180px" } as React.CSSProperties}
           >
-            <Sidebar collapsible="none" className="border-r">
+            <Sidebar collapsible="none" className="border-r bg-transparent">
               <SidebarContent>
                 <SidebarGroup>
-                  <SidebarMenu>
+                  <SidebarMenu className="gap-0.5">
                     {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
                       <SidebarMenuItem key={id}>
                         <SidebarMenuButton isActive={page === id} onClick={() => setPage(id)}>
@@ -317,7 +317,7 @@ export function SettingsDialog({
                 regions (dialog overlay + inner sidebar + app chrome) and Chromium
                 occasionally drops a composite frame, briefly blanking the whole DOM. */}
             <div
-              className="flex-1 overflow-y-auto bg-background p-6 pr-10"
+              className="flex-1 overflow-y-auto bg-transparent p-6 pr-10"
               style={{ transform: "translateZ(0)" }}
             >
               {page === "general" && (

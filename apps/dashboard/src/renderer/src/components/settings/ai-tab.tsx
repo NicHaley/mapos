@@ -142,7 +142,7 @@ function AnthropicForm({
     <div className="flex flex-col gap-6">
       <Section title="API key" description={state.hasApiKey ? "Saved. Enter a new key to replace it." : "Paste your Anthropic API key."}>
         <div className="flex flex-col gap-2">
-          <InputGroup>
+          <InputGroup className="bg-background">
             <InputGroupInput
               type={reveal ? "text" : "password"}
               placeholder={state.hasApiKey ? "•••••••••••••••" : "sk-ant-..."}
@@ -199,7 +199,7 @@ function AnthropicForm({
             </SelectContent>
           </Select>
           {modelChoice === CUSTOM_MODEL_VALUE && (
-            <InputGroup>
+            <InputGroup className="bg-background">
               <InputGroupInput
                 placeholder="claude-sonnet-4-7"
                 value={customModel}
@@ -665,7 +665,7 @@ function AdvancedLocalForm({
         title="Base URL"
         description="Any endpoint that speaks Anthropic's /v1/messages API (Ollama, LiteLLM, etc.)."
       >
-        <InputGroup>
+        <InputGroup className="bg-background">
           <InputGroupInput
             placeholder="http://localhost:11434"
             value={baseUrl}
@@ -680,7 +680,7 @@ function AdvancedLocalForm({
         title="Auth token"
         description={state.hasAuthToken ? "Saved. Enter a new token to replace it." : "Optional bearer token."}
       >
-        <InputGroup>
+        <InputGroup className="bg-background">
           <InputGroupInput
             type={revealToken ? "text" : "password"}
             placeholder={state.hasAuthToken ? "•••••••••••" : "Optional"}
@@ -705,7 +705,7 @@ function AdvancedLocalForm({
       </Section>
 
       <Section title="Model name" description="Exact model ID exposed by your endpoint.">
-        <InputGroup>
+        <InputGroup className="bg-background">
           <InputGroupInput
             placeholder="qwen2.5:14b"
             value={model}

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bbox } from "@turf/bbox";
@@ -6,16 +7,49 @@ import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import { inferPropertyType } from "../shared/property-inference";
 import type { PlaceRecord, PropertyType } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
-import { inferPropertyType } from "../shared/property-inference";
 
 /**
- * Bump when the DDL below changes; local dev — no incremental upgrades.
- * Bumping triggers a DROP+CREATE of the affected tables; the watcher's initial
- * scan immediately re-populates them, so the only cost is the rebuild itself.
+ * Canonical DDL for the spatial index cache. This string is the single source
+ * of truth for migrations: a hash of it drives `applyMigrations`, so any edit
+ * here triggers a full DROP+CREATE on next launch and the watcher's initial
+ * scan repopulates everything from the vault.
+ *
+ * INVARIANT: nothing in this DB may be non-derivable from vault files. Adding a
+ * table that stores user-generated state (chat history, undo stack, etc.) will
+ * cause that state to be silently nuked on the next schema change. If we need
+ * to store non-derivable state, switch this to a real migration tool
+ * (drizzle-kit) first.
+ *
+ * If re-indexing becomes too slow, we can switch to a real migration tool
+ * (drizzle-kit).
  */
-const CURRENT_SCHEMA_VERSION = 2;
+const SCHEMA_DDL = `
+  CREATE TABLE features (
+    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL UNIQUE,
+    geometry_type TEXT NOT NULL,
+    geometry TEXT NOT NULL,
+    color TEXT,
+    indexed_at TEXT NOT NULL
+  );
+  CREATE VIRTUAL TABLE features_rtree USING rtree(
+    id, min_lat, max_lat, min_lng, max_lng
+  );
+  CREATE TABLE feature_properties (
+    feature_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    type TEXT NOT NULL,
+    PRIMARY KEY (feature_id, key, value)
+  );
+  CREATE INDEX idx_fp_key_value ON feature_properties(key, value);
+  CREATE INDEX idx_fp_feature ON feature_properties(feature_id);
+`;
+
+const SCHEMA_FINGERPRINT = createHash("sha256").update(SCHEMA_DDL).digest().readInt32BE(0);
 
 export const features = sqliteTable("features", {
   rowid: integer("rowid").primaryKey({ autoIncrement: true }),
@@ -45,36 +79,15 @@ const schema = { features, featureProperties };
 
 function applyMigrations(sqlite: Database.Database): void {
   const row = sqlite.prepare("PRAGMA user_version").get() as { user_version: number };
-  if (row.user_version >= CURRENT_SCHEMA_VERSION) return;
-
-  // Drop tables whose DDL has changed since the last version we shipped — the
-  // watcher's initial scan repopulates feature_properties on startup.
-  sqlite.exec("DROP TABLE IF EXISTS feature_properties;");
+  if (row.user_version === SCHEMA_FINGERPRINT) return;
 
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS features (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_path TEXT NOT NULL UNIQUE,
-      geometry_type TEXT NOT NULL,
-      geometry TEXT NOT NULL,
-      color TEXT,
-      indexed_at TEXT NOT NULL
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS features_rtree USING rtree(
-      id, min_lat, max_lat, min_lng, max_lng
-    );
-    CREATE TABLE IF NOT EXISTS feature_properties (
-      feature_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      type TEXT NOT NULL,
-      PRIMARY KEY (feature_id, key, value)
-    );
-    CREATE INDEX IF NOT EXISTS idx_fp_key_value ON feature_properties(key, value);
-    CREATE INDEX IF NOT EXISTS idx_fp_feature ON feature_properties(feature_id);
+    DROP TABLE IF EXISTS features;
+    DROP TABLE IF EXISTS features_rtree;
+    DROP TABLE IF EXISTS feature_properties;
   `);
-
-  sqlite.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
+  sqlite.exec(SCHEMA_DDL);
+  sqlite.exec(`PRAGMA user_version = ${SCHEMA_FINGERPRINT}`);
 }
 
 let _sqlite: Database.Database | null = null;

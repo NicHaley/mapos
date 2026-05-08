@@ -29,12 +29,12 @@ import { cn } from "@mapos/ui/lib/utils";
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
   CheckIcon,
+  ChevronRightIcon,
   CloudIcon,
   DownloadIcon,
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
-  InfoIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
@@ -51,6 +51,12 @@ type CustomEndpoint = AiSettingsState["local"]["advanced"]["endpoints"][number];
 const MAGIC_OLLAMA_BASE_URL = "http://localhost:11434";
 
 type DetectionState = "checking" | "running" | "stopped";
+
+/** A row the user has clicked to inspect. The detail sheet renders different content per type. */
+type SheetTarget =
+  | { type: "cloud"; modelId: string }
+  | { type: "local"; modelId: string }
+  | { type: "custom"; endpointId: string };
 
 // ── Group header ──────────────────────────────────────────────────────────────
 
@@ -144,38 +150,32 @@ function ModelRow({
   label,
   meta,
   selected,
-  selectable,
   disabled,
-  title,
   onClick,
-  affordance,
-  infoContent,
   pulling,
   pullPercent,
-  onCancelPull
+  onCancelPull,
+  trailing
 }: {
   kind: "cloud" | "local" | "custom";
   label: string;
   meta?: string;
   selected: boolean;
-  selectable: boolean;
   disabled?: boolean;
-  title?: string;
   onClick: () => void;
-  affordance: React.ReactNode;
-  infoContent?: React.ReactNode;
   pulling?: boolean;
   pullPercent?: number;
   onCancelPull?: () => void;
+  /** Glanceable static info rendered before the disclosure chevron (e.g. size label, cloud icon). Action buttons live in the detail sheet's footer instead. */
+  trailing?: React.ReactNode;
 }): React.JSX.Element {
-  const interactive = selectable && !disabled;
+  const interactive = !disabled && !pulling;
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Row contains nested action buttons (Download, Trash, etc.) so a real <button> would be invalid HTML; div + role + onKeyDown gives the same a11y semantics.
+    // biome-ignore lint/a11y/useSemanticElements: Row contains a nested Cancel button during pull so a real <button> would be invalid HTML; div + role + onKeyDown gives the same a11y semantics.
     <div
       role="button"
       tabIndex={interactive ? 0 : -1}
-      title={title}
-      aria-disabled={disabled || undefined}
+      aria-disabled={!interactive || undefined}
       onClick={() => {
         if (interactive) onClick();
       }}
@@ -221,28 +221,9 @@ function ModelRow({
         )}
       </div>
       {!pulling && (
-        <div className="flex shrink-0 items-center gap-1.5">
-          {infoContent && (
-            <Popover>
-              <PopoverTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="Model details"
-                    title="Model details"
-                  />
-                }
-              >
-                <InfoIcon className="size-4 text-muted-foreground" />
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72">
-                {infoContent}
-              </PopoverContent>
-            </Popover>
-          )}
-          {affordance}
+        <div className="flex shrink-0 items-center gap-2">
+          {trailing}
+          <ChevronRightIcon className="size-4 text-muted-foreground/60" aria-hidden />
         </div>
       )}
     </div>
@@ -813,6 +794,180 @@ function customInfoContent(endpoint: CustomEndpoint): React.ReactNode {
   );
 }
 
+// ── Model detail sheet ────────────────────────────────────────────────────────
+
+/**
+ * Slide-in panel that appears when the user clicks a model row. Replaces the
+ * old per-row info popover; here we have room to render full model info AND
+ * primary actions (Select, Download, Delete, Edit) in the footer.
+ */
+function ModelDetailSheet({
+  open,
+  target,
+  onClose,
+  state,
+  endpoints,
+  installed,
+  ollamaRunning,
+  pullingModel,
+  cloudSelected,
+  localSelected,
+  endpointSelected,
+  onSelectCloud,
+  onSelectLocal,
+  onSelectEndpoint,
+  onPull,
+  onRequestDeleteModel,
+  onRequestDeleteEndpoint,
+  onEditEndpoint
+}: {
+  open: boolean;
+  target: SheetTarget | null;
+  onClose: () => void;
+  state: AiSettingsState;
+  endpoints: CustomEndpoint[];
+  installed: string[];
+  ollamaRunning: boolean;
+  pullingModel: string | null;
+  cloudSelected: (modelId: string) => boolean;
+  localSelected: (modelId: string) => boolean;
+  endpointSelected: (id: string) => boolean;
+  onSelectCloud: (modelId: string) => void;
+  onSelectLocal: (modelId: string) => void;
+  onSelectEndpoint: (id: string) => void;
+  onPull: (modelId: string) => void;
+  onRequestDeleteModel: (modelId: string) => void;
+  onRequestDeleteEndpoint: (id: string) => void;
+  onEditEndpoint: (id: string) => void;
+}): React.JSX.Element {
+  let title = "";
+  let description: string | undefined;
+  let body: React.ReactNode = null;
+  let footer: React.ReactNode = null;
+
+  if (target?.type === "cloud") {
+    const id = target.modelId;
+    const entry = ANTHROPIC_MODELS.find((m) => m.id === id);
+    const isSelected = cloudSelected(id);
+    const hasKey = state.anthropic.hasApiKey;
+    title = entry?.label ?? id;
+    description = entry ? anthropicCapabilityMeta(id) : undefined;
+    body = anthropicInfoContent(id) ?? (
+      <p className="text-xs text-muted-foreground">
+        Model details unavailable for {id}.
+      </p>
+    );
+    footer = (
+      <div className="flex items-center justify-end gap-2">
+        {!hasKey && (
+          <span className="mr-auto text-xs text-muted-foreground">
+            Connect your Anthropic account first.
+          </span>
+        )}
+        <Button
+          size="sm"
+          disabled={!hasKey || isSelected}
+          onClick={() => onSelectCloud(id)}
+        >
+          {isSelected ? "Selected" : "Select"}
+        </Button>
+      </div>
+    );
+  } else if (target?.type === "local") {
+    const id = target.modelId;
+    const curated = OLLAMA_MODELS.find((m) => m.id === id);
+    const isInstalled = installed.includes(id);
+    const isSelected = localSelected(id);
+    title = curated?.label ?? id;
+    description = curated ? `${curated.size} · ${curated.hint}` : "Installed locally via Ollama";
+    body = curated ? ollamaCuratedInfoContent(curated) : ollamaGenericInfoContent(id);
+    if (isInstalled) {
+      footer = (
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onRequestDeleteModel(id)}
+          >
+            <Trash2Icon className="size-4" />
+            Delete
+          </Button>
+          <Button size="sm" disabled={isSelected} onClick={() => onSelectLocal(id)}>
+            {isSelected ? "Selected" : "Select"}
+          </Button>
+        </div>
+      );
+    } else {
+      footer = (
+        <div className="flex items-center justify-end gap-2">
+          {!ollamaRunning && (
+            <span className="mr-auto text-xs text-muted-foreground">
+              Start Ollama to download.
+            </span>
+          )}
+          <Button
+            size="sm"
+            disabled={!ollamaRunning || pullingModel !== null}
+            onClick={() => onPull(id)}
+          >
+            <DownloadIcon className="size-4" />
+            Download
+          </Button>
+        </div>
+      );
+    }
+  } else if (target?.type === "custom") {
+    const endpoint = endpoints.find((e) => e.id === target.endpointId);
+    if (endpoint) {
+      const isSelected = endpointSelected(endpoint.id);
+      title = endpoint.label || endpoint.model || "Custom endpoint";
+      description = customEndpointMeta(endpoint);
+      body = customInfoContent(endpoint);
+      footer = (
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onEditEndpoint(endpoint.id)}
+          >
+            <PencilIcon className="size-4" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onRequestDeleteEndpoint(endpoint.id)}
+          >
+            <Trash2Icon className="size-4" />
+            Delete
+          </Button>
+          <Button
+            size="sm"
+            disabled={isSelected}
+            onClick={() => onSelectEndpoint(endpoint.id)}
+          >
+            {isSelected ? "Selected" : "Select"}
+          </Button>
+        </div>
+      );
+    }
+  }
+
+  return (
+    <SettingsSheet
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+      title={title}
+      description={description}
+      footer={footer}
+    >
+      {body}
+    </SettingsSheet>
+  );
+}
+
 // ── AI tab root ───────────────────────────────────────────────────────────────
 
 export function AiTab(): React.JSX.Element {
@@ -844,6 +999,16 @@ export function AiTab(): React.JSX.Element {
   const [deletingEndpoint, setDeletingEndpoint] = useState<string | null>(null);
   const [deleteEndpointError, setDeleteEndpointError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+
+  // Detail sheet — shown when a model row is clicked. The body and footer are
+  // derived from this target and reflect the appropriate model/endpoint info.
+  const [sheetTarget, setSheetTarget] = useState<SheetTarget | null>(null);
+  // Held one render behind so the sheet keeps its content visible during the
+  // 220ms close animation (otherwise it would snap to empty).
+  const [lastSheetTarget, setLastSheetTarget] = useState<SheetTarget | null>(null);
+  useEffect(() => {
+    if (sheetTarget) setLastSheetTarget(sheetTarget);
+  }, [sheetTarget]);
 
   const baseUrl = MAGIC_OLLAMA_BASE_URL;
 
@@ -942,11 +1107,6 @@ export function AiTab(): React.JSX.Element {
     setCustomDialogOpen(true);
   }
 
-  function openEditEndpointDialog(id: string): void {
-    setCustomDialogEndpointId(id);
-    setCustomDialogOpen(true);
-  }
-
   async function confirmDeleteEndpoint(): Promise<void> {
     const target = pendingDeleteEndpoint;
     if (!target) return;
@@ -959,6 +1119,9 @@ export function AiTab(): React.JSX.Element {
       return;
     }
     setPendingDeleteEndpoint(null);
+    if (sheetTarget?.type === "custom" && sheetTarget.endpointId === target) {
+      setSheetTarget(null);
+    }
     await reload();
   }
 
@@ -996,6 +1159,9 @@ export function AiTab(): React.JSX.Element {
       return;
     }
     setPendingDeleteModel(null);
+    if (sheetTarget?.type === "local" && sheetTarget.modelId === target) {
+      setSheetTarget(null);
+    }
     await refreshOllama();
     // Main has already cleared local.magic.model when the deleted model was active; pull the new state.
     await reload();
@@ -1075,7 +1241,6 @@ export function AiTab(): React.JSX.Element {
         <div className="divide-y divide-border overflow-hidden rounded-lg border">
           {ANTHROPIC_MODELS.map((m) => {
             const selected = cloudSelected(m.id) || pendingSelect === m.id;
-            const noKey = !state.anthropic.hasApiKey;
             return (
               <ModelRow
                 key={`cloud:${m.id}`}
@@ -1083,19 +1248,9 @@ export function AiTab(): React.JSX.Element {
                 label={m.label}
                 meta={anthropicCapabilityMeta(m.id)}
                 selected={selected}
-                selectable={!noKey}
-                disabled={noKey}
-                title={noKey ? "Connect your Anthropic account to use this model" : undefined}
-                onClick={() => void selectCloud(m.id)}
-                infoContent={anthropicInfoContent(m.id)}
-                affordance={
-                  <span
-                    className="flex size-7 shrink-0 items-center justify-center rounded-[min(var(--radius-md),12px)] text-muted-foreground"
-                    aria-label="Cloud model"
-                    role="img"
-                  >
-                    <CloudIcon className="size-4" aria-hidden />
-                  </span>
+                onClick={() => setSheetTarget({ type: "cloud", modelId: m.id })}
+                trailing={
+                  <CloudIcon className="size-4 text-muted-foreground" aria-hidden />
                 }
               />
             );
@@ -1119,49 +1274,15 @@ export function AiTab(): React.JSX.Element {
                 label={m.label}
                 meta={`${m.size} · ${m.hint}`}
                 selected={isSelected}
-                selectable={isInstalled && !isPulling && !isDeleting}
-                onClick={() => void selectLocal(m.id)}
-                infoContent={ollamaCuratedInfoContent(m)}
+                disabled={isDeleting}
                 pulling={isPulling}
                 pullPercent={isPulling ? pullPercent : undefined}
                 onCancelPull={cancelCurrentPull}
-                affordance={
+                onClick={() => setSheetTarget({ type: "local", modelId: m.id })}
+                trailing={
                   isInstalled ? (
-                    <>
-                      <span className="text-xs tabular-nums text-muted-foreground">{m.size}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteModel(m.id);
-                        }}
-                        disabled={isDeleting}
-                        aria-label="Delete model"
-                        title="Delete model"
-                      >
-                        {isDeleting ? (
-                          <Loader2Icon className="size-4 animate-spin" />
-                        ) : (
-                          <Trash2Icon className="size-4" />
-                        )}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void pullAndSelect(m.id);
-                      }}
-                      disabled={!ollamaRunning || pullingModel !== null}
-                      aria-label="Download model"
-                      title={!ollamaRunning ? "Start Ollama to download" : "Download model"}
-                    >
-                      <DownloadIcon className="size-4" />
-                    </Button>
-                  )
+                    <span className="text-xs tabular-nums text-muted-foreground">{m.size}</span>
+                  ) : null
                 }
               />
             );
@@ -1176,28 +1297,8 @@ export function AiTab(): React.JSX.Element {
                 label={modelId}
                 meta="Installed locally via Ollama"
                 selected={isSelected}
-                selectable={!isDeleting}
-                onClick={() => void selectLocal(modelId)}
-                infoContent={ollamaGenericInfoContent(modelId)}
-                affordance={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingDeleteModel(modelId);
-                    }}
-                    disabled={isDeleting}
-                    aria-label="Delete model"
-                    title="Delete model"
-                  >
-                    {isDeleting ? (
-                      <Loader2Icon className="size-4 animate-spin" />
-                    ) : (
-                      <Trash2Icon className="size-4" />
-                    )}
-                  </Button>
-                }
+                disabled={isDeleting}
+                onClick={() => setSheetTarget({ type: "local", modelId })}
               />
             );
           })}
@@ -1234,43 +1335,8 @@ export function AiTab(): React.JSX.Element {
                   label={endpoint.label || endpoint.model || "Custom endpoint"}
                   meta={customEndpointMeta(endpoint)}
                   selected={isSelected}
-                  selectable={!isDeleting}
-                  onClick={() => void selectEndpoint(endpoint.id)}
-                  infoContent={customInfoContent(endpoint)}
-                  affordance={
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditEndpointDialog(endpoint.id);
-                        }}
-                        disabled={isDeleting}
-                        aria-label="Edit endpoint"
-                        title="Edit endpoint"
-                      >
-                        <PencilIcon className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteEndpoint(endpoint.id);
-                        }}
-                        disabled={isDeleting}
-                        aria-label="Delete endpoint"
-                        title="Delete endpoint"
-                      >
-                        {isDeleting ? (
-                          <Loader2Icon className="size-4 animate-spin" />
-                        ) : (
-                          <Trash2Icon className="size-4" />
-                        )}
-                      </Button>
-                    </>
-                  }
+                  disabled={isDeleting}
+                  onClick={() => setSheetTarget({ type: "custom", endpointId: endpoint.id })}
                 />
               );
             })}
@@ -1284,6 +1350,47 @@ export function AiTab(): React.JSX.Element {
 
       {pullError && <p className="text-xs text-destructive">{pullError}</p>}
       {savedMessage && <p className="text-xs text-emerald-500">{savedMessage}</p>}
+
+      <ModelDetailSheet
+        open={!!sheetTarget}
+        target={sheetTarget ?? lastSheetTarget}
+        onClose={() => setSheetTarget(null)}
+        state={state}
+        endpoints={endpoints}
+        installed={installed}
+        ollamaRunning={ollamaRunning}
+        pullingModel={pullingModel}
+        cloudSelected={cloudSelected}
+        localSelected={localSelected}
+        endpointSelected={endpointSelected}
+        onSelectCloud={(id) => {
+          setSheetTarget(null);
+          void selectCloud(id);
+        }}
+        onSelectLocal={(id) => {
+          setSheetTarget(null);
+          void selectLocal(id);
+        }}
+        onSelectEndpoint={(id) => {
+          setSheetTarget(null);
+          void selectEndpoint(id);
+        }}
+        onPull={(id) => {
+          setSheetTarget(null);
+          void pullAndSelect(id);
+        }}
+        onRequestDeleteModel={(id) => setPendingDeleteModel(id)}
+        onRequestDeleteEndpoint={(id) => setPendingDeleteEndpoint(id)}
+        onEditEndpoint={(id) => {
+          // Cross-fade: close detail sheet, then open the editor sheet once the
+          // close animation has finished so they don't overlap visually.
+          setSheetTarget(null);
+          window.setTimeout(() => {
+            setCustomDialogEndpointId(id);
+            setCustomDialogOpen(true);
+          }, 240);
+        }}
+      />
 
       <CustomEndpointSheet
         open={customDialogOpen}

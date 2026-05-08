@@ -1,3 +1,4 @@
+import { Alert, AlertTitle } from "@mapos/ui/components/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,14 +10,6 @@ import {
   AlertDialogTitle
 } from "@mapos/ui/components/alert-dialog";
 import { Button, buttonVariants } from "@mapos/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from "@mapos/ui/components/dialog";
 import {
   InputGroup,
   InputGroupAddon,
@@ -33,6 +26,7 @@ import {
 } from "@mapos/ui/components/popover";
 import { Progress } from "@mapos/ui/components/progress";
 import { cn } from "@mapos/ui/lib/utils";
+import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
   CheckIcon,
   CloudIcon,
@@ -47,9 +41,9 @@ import {
   Trash2Icon,
   WrenchIcon
 } from "lucide-react";
-import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { SiAnthropic, SiOllama } from "react-icons/si";
+import { SettingsSheet } from "./settings-sheet";
 
 type AiSettingsState = Awaited<ReturnType<typeof window.api.aiConfig.getSettingsState>>;
 type CustomEndpoint = AiSettingsState["local"]["advanced"]["endpoints"][number];
@@ -210,9 +204,7 @@ function ModelRow({
         {pulling && (
           <div className="mt-2 flex items-center gap-2">
             <Progress value={pullPercent ?? 0} className="flex-1" />
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {pullPercent ?? 0}%
-            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">{pullPercent ?? 0}%</span>
             {onCancelPull && (
               <Button
                 variant="ghost"
@@ -452,7 +444,7 @@ function ApiKeysPopover({
 
 // ── Custom endpoint dialog ────────────────────────────────────────────────────
 
-function CustomEndpointDialog({
+function CustomEndpointSheet({
   open,
   onOpenChange,
   endpoint,
@@ -460,9 +452,9 @@ function CustomEndpointDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When defined, dialog edits this endpoint; when undefined, it creates a new one. */
+  /** When defined, the sheet edits this endpoint; when null, it creates a new one. */
   endpoint: CustomEndpoint | null;
-  /** Called after successful save. The new endpoint id is passed when one was just created. */
+  /** Called after a successful save. The new endpoint id is passed when one was just created. */
   onSaved: (createdId: string | null) => void;
 }): React.JSX.Element {
   const labelId = useId();
@@ -562,103 +554,13 @@ function CustomEndpointDialog({
   const hasSavedToken = endpoint?.hasAuthToken ?? false;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit endpoint" : "Add custom endpoint"}</DialogTitle>
-          <DialogDescription>
-            Any endpoint that speaks Anthropic's /v1/messages API (Ollama, LiteLLM, etc.).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={labelId} className="text-xs font-medium">
-              Label
-            </label>
-            <InputGroup className="bg-background">
-              <InputGroupInput
-                id={labelId}
-                placeholder="LiteLLM staging"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                disabled={busy}
-                spellCheck={false}
-              />
-            </InputGroup>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={baseUrlId} className="text-xs font-medium">
-              Base URL
-            </label>
-            <InputGroup className="bg-background">
-              <InputGroupInput
-                id={baseUrlId}
-                placeholder="http://localhost:11434"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                disabled={busy}
-                spellCheck={false}
-              />
-            </InputGroup>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={authTokenId} className="text-xs font-medium">
-              Auth token
-            </label>
-            <InputGroup className="bg-background">
-              <InputGroupInput
-                id={authTokenId}
-                type={revealToken ? "text" : "password"}
-                placeholder={hasSavedToken ? "•••••••••••" : "Optional"}
-                value={authToken}
-                onChange={(e) => setAuthToken(e.target.value)}
-                disabled={busy}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setRevealToken((r) => !r)}
-                  disabled={busy}
-                  aria-label={revealToken ? "Hide token" : "Show token"}
-                >
-                  {revealToken ? <EyeOffIcon /> : <EyeIcon />}
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
-            <p className="text-[11px] text-muted-foreground">
-              {hasSavedToken
-                ? "Saved. Enter a new token to replace it."
-                : "Optional bearer token."}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={modelId} className="text-xs font-medium">
-              Model name
-            </label>
-            <InputGroup className="bg-background">
-              <InputGroupInput
-                id={modelId}
-                placeholder="qwen2.5:14b"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                disabled={busy}
-                spellCheck={false}
-              />
-            </InputGroup>
-          </div>
-
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          {testMessage && <p className="text-xs text-emerald-500">{testMessage}</p>}
-        </div>
-
-        <DialogFooter>
+    <SettingsSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? "Edit endpoint" : "Add custom endpoint"}
+      description="Any endpoint that speaks Anthropic's /v1/messages API (Ollama, LiteLLM, etc.)."
+      footer={
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             variant="secondary"
             onClick={() => void handleTest()}
@@ -671,9 +573,94 @@ function CustomEndpointDialog({
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
             Save
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={labelId} className="text-xs font-medium">
+            Label
+          </label>
+          <InputGroup className="bg-background">
+            <InputGroupInput
+              id={labelId}
+              placeholder="LiteLLM staging"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              disabled={busy}
+              spellCheck={false}
+            />
+          </InputGroup>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={baseUrlId} className="text-xs font-medium">
+            Base URL
+          </label>
+          <InputGroup className="bg-background">
+            <InputGroupInput
+              id={baseUrlId}
+              placeholder="http://localhost:11434"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              disabled={busy}
+              spellCheck={false}
+            />
+          </InputGroup>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={authTokenId} className="text-xs font-medium">
+            Auth token
+          </label>
+          <InputGroup className="bg-background">
+            <InputGroupInput
+              id={authTokenId}
+              type={revealToken ? "text" : "password"}
+              placeholder={hasSavedToken ? "•••••••••••" : "Optional"}
+              value={authToken}
+              onChange={(e) => setAuthToken(e.target.value)}
+              disabled={busy}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setRevealToken((r) => !r)}
+                disabled={busy}
+                aria-label={revealToken ? "Hide token" : "Show token"}
+              >
+                {revealToken ? <EyeOffIcon /> : <EyeIcon />}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <p className="text-[11px] text-muted-foreground">
+            {hasSavedToken ? "Saved. Enter a new token to replace it." : "Optional bearer token."}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={modelId} className="text-xs font-medium">
+            Model name
+          </label>
+          <InputGroup className="bg-background">
+            <InputGroupInput
+              id={modelId}
+              placeholder="qwen2.5:14b"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              disabled={busy}
+              spellCheck={false}
+            />
+          </InputGroup>
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        {testMessage && <p className="text-xs text-emerald-500">{testMessage}</p>}
+      </div>
+    </SettingsSheet>
   );
 }
 
@@ -714,7 +701,11 @@ function anthropicCapabilityMeta(modelId: string): string {
   if (!entry) return "Cloud model";
   const ctx = entry.capabilities.contextWindow;
   const ctxLabel =
-    ctx >= 1_000_000 ? "1M context" : ctx >= 1000 ? `${Math.round(ctx / 1000)}K context` : `${ctx} ctx`;
+    ctx >= 1_000_000
+      ? "1M context"
+      : ctx >= 1000
+        ? `${Math.round(ctx / 1000)}K context`
+        : `${ctx} ctx`;
   const parts = [ctxLabel];
   if (entry.capabilities.supportsImages) parts.push("vision");
   if (entry.capabilities.supportsTools) parts.push("tools");
@@ -784,9 +775,7 @@ function anthropicInfoContent(modelId: string): React.ReactNode {
   );
 }
 
-function ollamaCuratedInfoContent(
-  model: (typeof OLLAMA_MODELS)[number]
-): React.ReactNode {
+function ollamaCuratedInfoContent(model: (typeof OLLAMA_MODELS)[number]): React.ReactNode {
   const c = model.capabilities;
   return (
     <ModelInfo
@@ -1038,29 +1027,26 @@ export function AiTab(): React.JSX.Element {
     state.provider === "local" &&
     state.local.mode === "advanced" &&
     state.local.advanced.activeId === id;
-  const editingEndpoint =
-    customDialogEndpointId
-      ? (endpoints.find((e) => e.id === customDialogEndpointId) ?? null)
-      : null;
-  const pendingDeleteEndpointEntry =
-    pendingDeleteEndpoint
-      ? (endpoints.find((e) => e.id === pendingDeleteEndpoint) ?? null)
-      : null;
+  const editingEndpoint = customDialogEndpointId
+    ? (endpoints.find((e) => e.id === customDialogEndpointId) ?? null)
+    : null;
+  const pendingDeleteEndpointEntry = pendingDeleteEndpoint
+    ? (endpoints.find((e) => e.id === pendingDeleteEndpoint) ?? null)
+    : null;
   const current = currentModelDisplay(state);
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-medium">Models</h2>
+        <h2 className="text-base font-medium">Models</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Pick a model. Cloud models run on the provider's servers; local models run on this Mac.
         </p>
         {current && (
-          <div className="mt-3 inline-flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Currently using</span>
+          <Alert className="mt-3 flex items-center gap-2">
             <ProviderBadge kind={current.kind} size="sm" />
-            <span className="font-medium">{current.label}</span>
-          </div>
+            <AlertTitle>Currently using {current.label}</AlertTitle>
+          </Alert>
         )}
       </div>
 
@@ -1099,16 +1085,17 @@ export function AiTab(): React.JSX.Element {
                 selected={selected}
                 selectable={!noKey}
                 disabled={noKey}
-                title={
-                  noKey ? "Connect your Anthropic account to use this model" : undefined
-                }
+                title={noKey ? "Connect your Anthropic account to use this model" : undefined}
                 onClick={() => void selectCloud(m.id)}
                 infoContent={anthropicInfoContent(m.id)}
                 affordance={
-                  <CloudIcon
-                    className="size-4 text-muted-foreground"
+                  <span
+                    className="flex size-7 shrink-0 items-center justify-center rounded-[min(var(--radius-md),12px)] text-muted-foreground"
                     aria-label="Cloud model"
-                  />
+                    role="img"
+                  >
+                    <CloudIcon className="size-4" aria-hidden />
+                  </span>
                 }
               />
             );
@@ -1222,12 +1209,7 @@ export function AiTab(): React.JSX.Element {
         <GroupHeader
           label="Custom"
           action={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openAddEndpointDialog}
-            >
+            <Button type="button" variant="outline" size="sm" onClick={openAddEndpointDialog}>
               {endpoints.length === 0 ? (
                 "Add"
               ) : (
@@ -1299,7 +1281,7 @@ export function AiTab(): React.JSX.Element {
       {pullError && <p className="text-xs text-destructive">{pullError}</p>}
       {savedMessage && <p className="text-xs text-emerald-500">{savedMessage}</p>}
 
-      <CustomEndpointDialog
+      <CustomEndpointSheet
         open={customDialogOpen}
         onOpenChange={(o) => {
           setCustomDialogOpen(o);
@@ -1331,7 +1313,9 @@ export function AiTab(): React.JSX.Element {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this endpoint?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDeleteEndpointEntry?.label || pendingDeleteEndpointEntry?.model || "This endpoint"}{" "}
+              {pendingDeleteEndpointEntry?.label ||
+                pendingDeleteEndpointEntry?.model ||
+                "This endpoint"}{" "}
               will be removed. The model files at the remote endpoint are not affected.
             </AlertDialogDescription>
             {deleteEndpointError ? (

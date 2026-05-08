@@ -1221,7 +1221,7 @@ export function AiTab(): React.JSX.Element {
             </Button>
           }
         />
-        {endpoints.length > 0 && (
+        {endpoints.length > 0 ? (
           <div className="divide-y divide-border overflow-hidden rounded-lg border">
             {endpoints.map((endpoint) => {
               const isSelected =
@@ -1274,6 +1274,10 @@ export function AiTab(): React.JSX.Element {
                 />
               );
             })}
+          </div>
+        ) : (
+          <div className="flex h-[60px] items-center justify-center rounded-lg border px-3 text-xs text-muted-foreground">
+            No custom endpoints
           </div>
         )}
       </section>

@@ -81,20 +81,6 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
  */
 export const OLLAMA_MODELS: OllamaModel[] = [
   {
-    id: "deepseek-coder-v2:16b-lite-instruct-q4_0",
-    label: "DeepSeek Coder v2 Lite",
-    size: "8.9 GB",
-    hint: "Coding-focused; good for editing place files.",
-    capabilities: LOCAL_DEFAULT
-  },
-  {
-    id: "gemma2:9b",
-    label: "Gemma 2 9B",
-    size: "5.5 GB",
-    hint: "Concise, low-latency replies.",
-    capabilities: LOCAL_DEFAULT
-  },
-  {
     id: "qwen2.5:14b",
     label: "Qwen 2.5 14B",
     size: "8.4 GB",

@@ -194,9 +194,14 @@ const api = {
           mode: "magic" | "advanced";
           magic: { model: string };
           advanced: {
-            baseUrl: string;
-            model: string;
-            hasAuthToken: boolean;
+            endpoints: Array<{
+              id: string;
+              label: string;
+              baseUrl: string;
+              model: string;
+              hasAuthToken: boolean;
+            }>;
+            activeId: string | null;
           };
         };
       }>,
@@ -207,11 +212,7 @@ const api = {
         local?: {
           mode?: "magic" | "advanced";
           magic?: { model?: string };
-          advanced?: {
-            baseUrl?: string;
-            model?: string;
-            authToken?: string | null;
-          };
+          advanced?: { activeId?: string | null };
         };
       }
     ) =>
@@ -226,6 +227,31 @@ const api = {
       model?: string;
     }) =>
       ipcRenderer.invoke("ai-config:test-connection", draft) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    addCustomEndpoint: (input: {
+      label?: string;
+      baseUrl?: string;
+      model?: string;
+      authToken?: string | null;
+    }) =>
+      ipcRenderer.invoke("ai-config:add-endpoint", input) as Promise<
+        { ok: true; id: string } | { ok: false; error: string }
+      >,
+    updateCustomEndpoint: (
+      id: string,
+      patch: {
+        label?: string;
+        baseUrl?: string;
+        model?: string;
+        authToken?: string | null;
+      }
+    ) =>
+      ipcRenderer.invoke("ai-config:update-endpoint", { id, patch }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    removeCustomEndpoint: (id: string) =>
+      ipcRenderer.invoke("ai-config:remove-endpoint", { id }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
     ollamaDetect: (baseUrl: string) =>

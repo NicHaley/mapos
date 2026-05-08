@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
 import { type ModelCapabilities, resolveCapabilities } from "../shared/ai-models";
 import {
@@ -9,6 +10,15 @@ import {
   loadOrInitMaposConfig,
   updateAiConfigInFile
 } from "./mapos-config";
+
+type AdvancedEndpoint = AiConfig["local"]["advanced"]["endpoints"][number];
+
+/** Find the active advanced endpoint, or `null` if none is selected or it doesn't exist. */
+function activeEndpoint(cfg: AiConfig): AdvancedEndpoint | null {
+  const { activeId, endpoints } = cfg.local.advanced;
+  if (!activeId) return null;
+  return endpoints.find((e) => e.id === activeId) ?? null;
+}
 
 export class AiConfigError extends Error {
   constructor(
@@ -29,6 +39,24 @@ function decrypt(encryptedBase64: string): string {
   return safeStorage.decryptString(buf);
 }
 
+/** One custom endpoint as exposed to the renderer — never carries the encrypted token. */
+export type AdvancedEndpointView = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+  hasAuthToken: boolean;
+};
+
+/** Plaintext input for adding/updating an endpoint. Main encrypts the token before persisting. */
+export type AdvancedEndpointInput = {
+  label?: string;
+  baseUrl?: string;
+  model?: string;
+  /** Plaintext token. `null` clears, `undefined` leaves unchanged. */
+  authToken?: string | null;
+};
+
 /** Form-shaped state for the renderer. Never includes raw secrets — only "is one set" booleans. */
 export type AiSettingsState = {
   provider: AiProvider;
@@ -37,14 +65,16 @@ export type AiSettingsState = {
     mode: AiLocalMode;
     magic: { model: string };
     advanced: {
-      baseUrl: string;
-      model: string;
-      hasAuthToken: boolean;
+      endpoints: AdvancedEndpointView[];
+      activeId: string | null;
     };
   };
 };
 
-/** Subset of fields the renderer can write. Plaintext secrets here; main encrypts before writing. */
+/**
+ * Subset of fields the renderer can write through the catch-all `update` IPC.
+ * Endpoint CRUD goes through dedicated IPC methods; only the active selector lives here.
+ */
 export type AiSettingsUpdate = {
   provider?: AiProvider;
   anthropic?: {
@@ -56,10 +86,8 @@ export type AiSettingsUpdate = {
     mode?: AiLocalMode;
     magic?: { model?: string };
     advanced?: {
-      baseUrl?: string;
-      model?: string;
-      /** Plaintext token. `null` clears, `undefined` leaves unchanged. */
-      authToken?: string | null;
+      /** Switch which endpoint is active. `null` clears the active pointer. */
+      activeId?: string | null;
     };
   };
 };
@@ -73,9 +101,14 @@ export function getAiSettingsState(): AiSettingsState {
       mode: cfg.local.mode,
       magic: { model: cfg.local.magic.model },
       advanced: {
-        baseUrl: cfg.local.advanced.baseUrl,
-        model: cfg.local.advanced.model,
-        hasAuthToken: !!cfg.local.advanced.encryptedAuthToken
+        endpoints: cfg.local.advanced.endpoints.map((e) => ({
+          id: e.id,
+          label: e.label,
+          baseUrl: e.baseUrl,
+          model: e.model,
+          hasAuthToken: !!e.encryptedAuthToken
+        })),
+        activeId: cfg.local.advanced.activeId
       }
     }
   };
@@ -97,10 +130,11 @@ export function isAiConfigured(): { configured: boolean; activeProvider: AiProvi
       model: cfg.local.magic.model
     };
   }
+  const active = activeEndpoint(cfg);
   return {
-    configured: cfg.local.advanced.baseUrl.length > 0 && cfg.local.advanced.model.length > 0,
+    configured: !!active && active.baseUrl.length > 0 && active.model.length > 0,
     activeProvider: "local",
-    model: cfg.local.advanced.model
+    model: active?.model ?? ""
   };
 }
 
@@ -139,21 +173,8 @@ export function updateAiSettings(update: AiSettingsUpdate): { ok: true } | { ok:
           partial.local.magic.model = update.local.magic.model.trim();
         }
       }
-      if (update.local.advanced) {
-        partial.local.advanced = {};
-        if (typeof update.local.advanced.baseUrl === "string") {
-          const trimmed = update.local.advanced.baseUrl.trim();
-          partial.local.advanced.baseUrl = trimmed || DEFAULT_OLLAMA_BASE_URL;
-        }
-        if (typeof update.local.advanced.model === "string") {
-          partial.local.advanced.model = update.local.advanced.model.trim();
-        }
-        if (update.local.advanced.authToken === null) {
-          partial.local.advanced.encryptedAuthToken = null;
-        } else if (typeof update.local.advanced.authToken === "string") {
-          const trimmed = update.local.advanced.authToken.trim();
-          partial.local.advanced.encryptedAuthToken = trimmed === "" ? null : encrypt(trimmed);
-        }
+      if (update.local.advanced && "activeId" in update.local.advanced) {
+        partial.local.advanced = { activeId: update.local.advanced.activeId ?? null };
       }
     }
 
@@ -162,6 +183,94 @@ export function updateAiSettings(update: AiSettingsUpdate): { ok: true } | { ok:
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Add a new custom endpoint. Returns its generated id on success. */
+export function addCustomEndpoint(
+  input: AdvancedEndpointInput
+): { ok: true; id: string } | { ok: false; error: string } {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: "Secure storage isn't available on this system." };
+  }
+  const baseUrl = input.baseUrl?.trim() || DEFAULT_OLLAMA_BASE_URL;
+  const model = input.model?.trim() ?? "";
+  if (model.length === 0) {
+    return { ok: false, error: "Model is required." };
+  }
+  const label = input.label?.trim() || "Custom";
+  let encryptedAuthToken: string | null = null;
+  if (typeof input.authToken === "string" && input.authToken.trim().length > 0) {
+    encryptedAuthToken = encrypt(input.authToken.trim());
+  }
+  const id = randomUUID();
+  const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
+  const next: AdvancedEndpoint = { id, label, baseUrl, model, encryptedAuthToken };
+  updateAiConfigInFile(app.getPath("userData"), {
+    local: { advanced: { endpoints: [...cfg.local.advanced.endpoints, next] } }
+  });
+  return { ok: true, id };
+}
+
+/** Update fields of an existing custom endpoint. Token is only touched when explicitly provided. */
+export function updateCustomEndpoint(
+  id: string,
+  patch: AdvancedEndpointInput
+): { ok: true } | { ok: false; error: string } {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: "Secure storage isn't available on this system." };
+  }
+  const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
+  const idx = cfg.local.advanced.endpoints.findIndex((e) => e.id === id);
+  if (idx === -1) {
+    return { ok: false, error: "Endpoint not found." };
+  }
+  const current = cfg.local.advanced.endpoints[idx];
+  if (!current) {
+    return { ok: false, error: "Endpoint not found." };
+  }
+  let encryptedAuthToken = current.encryptedAuthToken;
+  if (patch.authToken === null) {
+    encryptedAuthToken = null;
+  } else if (typeof patch.authToken === "string") {
+    const trimmed = patch.authToken.trim();
+    encryptedAuthToken = trimmed === "" ? null : encrypt(trimmed);
+  }
+  const trimmedBase = typeof patch.baseUrl === "string" ? patch.baseUrl.trim() : undefined;
+  const trimmedModel = typeof patch.model === "string" ? patch.model.trim() : undefined;
+  const trimmedLabel = typeof patch.label === "string" ? patch.label.trim() : undefined;
+  if (trimmedModel !== undefined && trimmedModel.length === 0) {
+    return { ok: false, error: "Model is required." };
+  }
+  const updated: AdvancedEndpoint = {
+    id: current.id,
+    label: trimmedLabel ?? current.label,
+    baseUrl: trimmedBase || current.baseUrl,
+    model: trimmedModel ?? current.model,
+    encryptedAuthToken
+  };
+  const endpoints = [...cfg.local.advanced.endpoints];
+  endpoints[idx] = updated;
+  updateAiConfigInFile(app.getPath("userData"), { local: { advanced: { endpoints } } });
+  return { ok: true };
+}
+
+/** Remove an endpoint. Clears `activeId` if it was pointing at the removed one. */
+export function removeCustomEndpoint(
+  id: string
+): { ok: true } | { ok: false; error: string } {
+  const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
+  const exists = cfg.local.advanced.endpoints.some((e) => e.id === id);
+  if (!exists) {
+    return { ok: false, error: "Endpoint not found." };
+  }
+  const endpoints = cfg.local.advanced.endpoints.filter((e) => e.id !== id);
+  const wasActive = cfg.local.advanced.activeId === id;
+  updateAiConfigInFile(app.getPath("userData"), {
+    local: {
+      advanced: { endpoints, ...(wasActive ? { activeId: null } : {}) }
+    }
+  });
+  return { ok: true };
 }
 
 export type ResolvedAiRequestConfig = {
@@ -188,24 +297,25 @@ function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
       capabilities: resolveCapabilities("local", cfg.local.magic.model)
     };
   }
-  if (!cfg.local.advanced.baseUrl || !cfg.local.advanced.model) {
+  const active = activeEndpoint(cfg);
+  if (!active || !active.baseUrl || !active.model) {
     throw new AiConfigError("AI_NOT_CONFIGURED", "Local model is not configured.");
   }
   let authToken = "";
-  if (cfg.local.advanced.encryptedAuthToken) {
+  if (active.encryptedAuthToken) {
     try {
-      authToken = decrypt(cfg.local.advanced.encryptedAuthToken);
+      authToken = decrypt(active.encryptedAuthToken);
     } catch {
       throw new AiConfigError("AI_DECRYPT_FAILED", "Couldn't decrypt the local auth token.");
     }
   }
   return {
     provider: "local",
-    baseUrl: cfg.local.advanced.baseUrl,
+    baseUrl: active.baseUrl,
     authToken,
     apiKey: "",
-    model: cfg.local.advanced.model,
-    capabilities: resolveCapabilities("local", cfg.local.advanced.model)
+    model: active.model,
+    capabilities: resolveCapabilities("local", active.model)
   };
 }
 

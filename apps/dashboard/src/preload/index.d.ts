@@ -156,9 +156,14 @@ declare global {
             mode: "magic" | "advanced";
             magic: { model: string };
             advanced: {
-              baseUrl: string;
-              model: string;
-              hasAuthToken: boolean;
+              endpoints: Array<{
+                id: string;
+                label: string;
+                baseUrl: string;
+                model: string;
+                hasAuthToken: boolean;
+              }>;
+              activeId: string | null;
             };
           };
         }>;
@@ -168,11 +173,7 @@ declare global {
           local?: {
             mode?: "magic" | "advanced";
             magic?: { model?: string };
-            advanced?: {
-              baseUrl?: string;
-              model?: string;
-              authToken?: string | null;
-            };
+            advanced?: { activeId?: string | null };
           };
         }) => Promise<{ ok: true } | { ok: false; error: string }>;
         testConnection: (draft: {
@@ -182,6 +183,24 @@ declare global {
           authToken?: string;
           model?: string;
         }) => Promise<{ ok: true } | { ok: false; error: string }>;
+        addCustomEndpoint: (input: {
+          label?: string;
+          baseUrl?: string;
+          model?: string;
+          authToken?: string | null;
+        }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+        updateCustomEndpoint: (
+          id: string,
+          patch: {
+            label?: string;
+            baseUrl?: string;
+            model?: string;
+            authToken?: string | null;
+          }
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        removeCustomEndpoint: (
+          id: string
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
         ollamaDetect: (baseUrl: string) => Promise<{ running: boolean; baseUrl: string }>;
         ollamaListInstalled: (baseUrl: string) => Promise<string[]>;
         ollamaPull: (

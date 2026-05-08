@@ -71,16 +71,6 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
     id: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
     capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
-  },
-  {
-    id: "claude-sonnet-4-5",
-    label: "Claude Sonnet 4.5",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
-  },
-  {
-    id: "claude-haiku-4-5",
-    label: "Claude Haiku 4.5",
-    capabilities: { ...ANTHROPIC_DEFAULT }
   }
 ];
 
@@ -90,20 +80,6 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
  * after confirming the behavior actually works.
  */
 export const OLLAMA_MODELS: OllamaModel[] = [
-  {
-    id: "qwen2.5-coder:7b",
-    label: "Qwen 2.5 Coder 7B",
-    size: "4.4 GB",
-    hint: "Strong tool calling, fast on M-series Macs.",
-    capabilities: LOCAL_DEFAULT
-  },
-  {
-    id: "llama3.1:8b",
-    label: "Llama 3.1 8B",
-    size: "4.7 GB",
-    hint: "General-purpose, well-rounded.",
-    capabilities: LOCAL_DEFAULT
-  },
   {
     id: "deepseek-coder-v2:16b-lite-instruct-q4_0",
     label: "DeepSeek Coder v2 Lite",

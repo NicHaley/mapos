@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,18 +25,28 @@ const LocalMagicConfigSchema = z
   })
   .catch(() => ({ model: "" }));
 
-/** Advanced mode owns its own base URL, model, and optional bearer token, fully independent of Magic. */
+/**
+ * One named custom endpoint. Power users keep a list of these (e.g. one for a remote LiteLLM,
+ * one for a local Ollama with a non-default model) and pick which is active.
+ */
+const LocalAdvancedEndpointSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().catch(""),
+  baseUrl: z.string().min(1).catch(DEFAULT_OLLAMA_BASE_URL),
+  model: z.string().catch(""),
+  encryptedAuthToken: z.string().nullable().catch(null)
+});
+
+/**
+ * Advanced mode owns a list of custom endpoints + which one is active. Independent of Magic.
+ * Old single-endpoint configs are migrated in {@link normalizeLegacyAdvanced} before zod validates.
+ */
 const LocalAdvancedConfigSchema = z
   .object({
-    baseUrl: z.string().min(1).catch(DEFAULT_OLLAMA_BASE_URL),
-    model: z.string().catch(""),
-    encryptedAuthToken: z.string().nullable().catch(null)
+    endpoints: z.array(LocalAdvancedEndpointSchema).catch([]),
+    activeId: z.string().nullable().catch(null)
   })
-  .catch(() => ({
-    baseUrl: DEFAULT_OLLAMA_BASE_URL,
-    model: "",
-    encryptedAuthToken: null
-  }));
+  .catch(() => ({ endpoints: [], activeId: null }));
 
 const LocalConfigSchema = z
   .object({
@@ -46,11 +57,7 @@ const LocalConfigSchema = z
   .catch(() => ({
     mode: "magic" as const,
     magic: { model: "" },
-    advanced: {
-      baseUrl: DEFAULT_OLLAMA_BASE_URL,
-      model: "",
-      encryptedAuthToken: null
-    }
+    advanced: { endpoints: [], activeId: null }
   }));
 
 const AiConfigSchema = z
@@ -65,11 +72,7 @@ const AiConfigSchema = z
     local: {
       mode: "magic" as const,
       magic: { model: "" },
-      advanced: {
-        baseUrl: DEFAULT_OLLAMA_BASE_URL,
-        model: "",
-        encryptedAuthToken: null
-      }
+      advanced: { endpoints: [], activeId: null }
     }
   }));
 
@@ -94,8 +97,66 @@ function defaultConfig(): MaposJson {
   return { vaults: [DEFAULT_VAULT_PATH], ai: defaultAiConfig() };
 }
 
+/**
+ * Migrate the legacy single-endpoint shape (`{ baseUrl, model, encryptedAuthToken }`) to the
+ * new list shape (`{ endpoints: [...], activeId }`). If the legacy slot was unconfigured we
+ * drop it; if it had a model we keep it as a single migrated endpoint set as active.
+ */
+function normalizeLegacyAdvanced(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+  if (Array.isArray(r.endpoints)) return r;
+  const baseUrl = typeof r.baseUrl === "string" ? r.baseUrl : "";
+  const model = typeof r.model === "string" ? r.model.trim() : "";
+  const encryptedAuthToken =
+    typeof r.encryptedAuthToken === "string" ? r.encryptedAuthToken : null;
+  if (model.length > 0) {
+    const id = randomUUID();
+    return {
+      endpoints: [
+        {
+          id,
+          label: "Custom",
+          baseUrl: baseUrl || DEFAULT_OLLAMA_BASE_URL,
+          model,
+          encryptedAuthToken
+        }
+      ],
+      activeId: id
+    };
+  }
+  return { endpoints: [], activeId: null };
+}
+
 function parseAiConfig(raw: unknown): AiConfig {
+  // Pre-zod migration for the legacy `local.advanced` single-endpoint shape.
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    const local = r.local;
+    if (local && typeof local === "object") {
+      const advanced = (local as Record<string, unknown>).advanced;
+      const migrated = normalizeLegacyAdvanced(advanced);
+      if (migrated !== advanced) {
+        return AiConfigSchema.parse({
+          ...r,
+          local: { ...(local as Record<string, unknown>), advanced: migrated }
+        });
+      }
+    }
+  }
   return AiConfigSchema.parse(raw);
+}
+
+/** True if the on-disk shape predates the multi-endpoint schema and needs to be persisted. */
+function rawHasLegacyAdvanced(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const ai = (raw as Record<string, unknown>).ai;
+  if (!ai || typeof ai !== "object") return false;
+  const local = (ai as Record<string, unknown>).local;
+  if (!local || typeof local !== "object") return false;
+  const advanced = (local as Record<string, unknown>).advanced;
+  if (!advanced || typeof advanced !== "object") return false;
+  return !Array.isArray((advanced as Record<string, unknown>).endpoints);
 }
 
 function parseConfig(raw: string): MaposJson | null {
@@ -129,11 +190,23 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf-8");
     return cfg;
   }
-  const parsed = parseConfig(readFileSync(configPath, "utf-8"));
+  const rawText = readFileSync(configPath, "utf-8");
+  const parsed = parseConfig(rawText);
   if (!parsed || parsed.vaults.length === 0) {
     const cfg = defaultConfig();
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf-8");
     return cfg;
+  }
+  // If we just migrated the legacy advanced shape, persist immediately so the generated
+  // endpoint id is stable across loads (randomUUID is non-deterministic).
+  let rawJson: unknown = null;
+  try {
+    rawJson = JSON.parse(rawText);
+  } catch {
+    /* unreachable — parseConfig already succeeded */
+  }
+  if (rawHasLegacyAdvanced(rawJson)) {
+    writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
   }
   return parsed;
 }
@@ -268,6 +341,13 @@ export function removeVaultFromConfig(
  * without supplying the rest. The nested `local.magic` and `local.advanced` slots are also
  * deep-merged independently — updating one never clobbers the other.
  */
+export type AiAdvancedPartial = {
+  /** When provided, fully replaces the endpoints list. */
+  endpoints?: AiConfig["local"]["advanced"]["endpoints"];
+  /** When provided (including null), sets which endpoint is active. */
+  activeId?: string | null;
+};
+
 export function updateAiConfigInFile(
   appStateDir: string,
   partial: {
@@ -276,7 +356,7 @@ export function updateAiConfigInFile(
     local?: {
       mode?: AiLocalMode;
       magic?: Partial<AiConfig["local"]["magic"]>;
-      advanced?: Partial<AiConfig["local"]["advanced"]>;
+      advanced?: AiAdvancedPartial;
     };
   }
 ): MaposJson {
@@ -291,7 +371,13 @@ export function updateAiConfigInFile(
       local: {
         mode: localPartial.mode ?? cfg.ai.local.mode,
         magic: { ...cfg.ai.local.magic, ...(localPartial.magic ?? {}) },
-        advanced: { ...cfg.ai.local.advanced, ...(localPartial.advanced ?? {}) }
+        advanced: {
+          endpoints: localPartial.advanced?.endpoints ?? cfg.ai.local.advanced.endpoints,
+          activeId:
+            localPartial.advanced && "activeId" in localPartial.advanced
+              ? (localPartial.advanced.activeId ?? null)
+              : cfg.ai.local.advanced.activeId
+        }
       }
     }
   };

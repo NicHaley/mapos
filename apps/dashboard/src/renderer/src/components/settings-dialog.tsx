@@ -1,7 +1,3 @@
-import { cn } from "@mapos/ui/lib/utils";
-import { BoxIcon, MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { AiTab } from "./settings/ai-tab";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +10,12 @@ import {
 } from "@mapos/ui/components/alert-dialog";
 import { Button } from "@mapos/ui/components/button";
 import { Dialog, DialogContent } from "@mapos/ui/components/dialog";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@mapos/ui/components/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput
+} from "@mapos/ui/components/input-group";
 import {
   Sidebar,
   SidebarContent,
@@ -24,7 +25,30 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
+import { BoxIcon, MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { AiTab } from "./settings/ai-tab";
+
+// ── Settings sheet slot ───────────────────────────────────────────────────────
+
+/**
+ * Slot element that floating panels (like the custom-endpoint editor) portal into.
+ * It's positioned to fully cover the Settings dialog body so panels can slide in
+ * from an edge without escaping into the parent app — and so the underlying tab
+ * content stays visible behind them rather than being hidden under another modal.
+ */
+const SettingsSheetSlotContext = createContext<HTMLDivElement | null>(null);
+
+export function useSettingsSheetSlot(): HTMLDivElement | null {
+  return useContext(SettingsSheetSlotContext);
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,7 +202,6 @@ function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => v
         {canDelete ? (
           <Button
             variant="destructive"
-            size="sm"
             className="self-start"
             onClick={() => onRequestDelete(currentName)}
             disabled={busy}
@@ -191,7 +214,7 @@ function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => v
               <TooltipTrigger
                 render={
                   <span className="inline-flex self-start">
-                    <Button variant="destructive" size="sm" disabled>
+                    <Button variant="destructive" disabled>
                       Delete vault
                     </Button>
                   </span>
@@ -271,6 +294,7 @@ export function SettingsDialog({
   const [pendingDelete, setPendingDelete] = useState<{ name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [sheetSlot, setSheetSlot] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (open) setPage(initialPage);
@@ -312,25 +336,32 @@ export function SettingsDialog({
               </SidebarContent>
             </Sidebar>
 
-            {/* `translateZ(0)` puts this scroll container on its own compositor layer.
-                Without it, fast scrolls share a layer with the stacked backdrop-filter
-                regions (dialog overlay + inner sidebar + app chrome) and Chromium
-                occasionally drops a composite frame, briefly blanking the whole DOM. */}
-            <div
-              className="flex-1 overflow-y-auto bg-transparent p-6 pr-10"
-              style={{ transform: "translateZ(0)" }}
-            >
-              {page === "general" && (
-                <GeneralPage
-                  onRequestDelete={(name) => {
-                    setDeleteError(null);
-                    setPendingDelete({ name });
-                  }}
-                />
-              )}
-              {page === "appearance" && <AppearancePage />}
-              {page === "ai" && <AiTab />}
-            </div>
+            <SettingsSheetSlotContext.Provider value={sheetSlot}>
+              <div className="relative flex-1 overflow-hidden">
+                {/* `translateZ(0)` puts this scroll container on its own compositor layer.
+                    Without it, fast scrolls share a layer with the stacked backdrop-filter
+                    regions (dialog overlay + inner sidebar + app chrome) and Chromium
+                    occasionally drops a composite frame, briefly blanking the whole DOM. */}
+                <div
+                  className="h-full overflow-y-auto bg-transparent p-6 pr-10"
+                  style={{ transform: "translateZ(0)" }}
+                >
+                  {page === "general" && (
+                    <GeneralPage
+                      onRequestDelete={(name) => {
+                        setDeleteError(null);
+                        setPendingDelete({ name });
+                      }}
+                    />
+                  )}
+                  {page === "appearance" && <AppearancePage />}
+                  {page === "ai" && <AiTab />}
+                </div>
+                {/* Sheets and other floating panels portal into this slot so they
+                    stay bounded to the Settings dialog body. */}
+                <div ref={setSheetSlot} className="pointer-events-none absolute inset-0" />
+              </div>
+            </SettingsSheetSlotContext.Provider>
           </SidebarProvider>
         </DialogContent>
       </Dialog>

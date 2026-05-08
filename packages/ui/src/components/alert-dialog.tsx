@@ -22,6 +22,10 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
   return (
     <AlertDialogPrimitive.Backdrop
       data-slot="alert-dialog-overlay"
+      // Confirmations are blocking by definition, so the mask must show even when
+      // the AlertDialog is rendered inside another Dialog tree (base-ui suppresses
+      // nested backdrops by default).
+      forceRender
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className

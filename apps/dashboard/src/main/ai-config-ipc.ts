@@ -6,6 +6,7 @@ import {
   getAiSettingsState,
   isAiConfigured,
   loadAiConfigForRequest,
+  loadSavedAnthropicConfig,
   removeCustomEndpoint,
   updateAiSettings,
   updateCustomEndpoint
@@ -71,14 +72,16 @@ function resolveTestRequest(
   }
 
   if (draft.provider === "anthropic") {
+    // Read the saved Anthropic key directly rather than via loadSaved(): the latter only returns
+    // the *active* provider's config, so testing a stored Anthropic key while on the local provider
+    // would otherwise fail with "No API key to test."
+    const savedAnthropic = loadSavedAnthropicConfig();
     const apiKey =
       typeof draft.apiKey === "string" && draft.apiKey.length > 0
         ? draft.apiKey
-        : loadSaved()?.provider === "anthropic"
-          ? loadSaved()?.apiKey
-          : undefined;
+        : savedAnthropic?.apiKey;
     if (!apiKey) return { ok: false, error: "No API key to test." };
-    const model = draft.model?.trim() || loadSaved()?.model;
+    const model = draft.model?.trim() || savedAnthropic?.model;
     if (!model) return { ok: false, error: "No model to test." };
     headers["x-api-key"] = apiKey;
     return {

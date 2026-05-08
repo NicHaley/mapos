@@ -320,6 +320,24 @@ function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
 }
 
 /**
+ * Read the saved Anthropic credentials regardless of which provider is currently active.
+ * Used by the Test connection flow so users can verify their stored key even while running
+ * on the local provider. Returns null when no key is saved or decryption fails.
+ */
+export function loadSavedAnthropicConfig(): { apiKey: string; model: string } | null {
+  const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
+  if (!cfg.anthropic.encryptedApiKey) return null;
+  try {
+    return {
+      apiKey: decrypt(cfg.anthropic.encryptedApiKey),
+      model: cfg.anthropic.model || DEFAULT_ANTHROPIC_MODEL
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the current AI config and resolve to env-var-ready values for one chat request.
  * Throws AiConfigError when no provider is configured or when the encrypted secret can't be decrypted.
  */

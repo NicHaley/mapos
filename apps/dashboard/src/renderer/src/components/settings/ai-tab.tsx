@@ -1,4 +1,4 @@
-import { Alert, AlertTitle } from "@mapos/ui/components/alert";
+import { Alert, AlertAction, AlertTitle } from "@mapos/ui/components/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,21 +10,13 @@ import {
   AlertDialogTitle
 } from "@mapos/ui/components/alert-dialog";
 import { Button, buttonVariants } from "@mapos/ui/components/button";
+import { CircularProgress } from "@mapos/ui/components/circular-progress";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput
 } from "@mapos/ui/components/input-group";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger
-} from "@mapos/ui/components/popover";
-import { Progress } from "@mapos/ui/components/progress";
 import { cn } from "@mapos/ui/lib/utils";
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
@@ -154,7 +146,6 @@ function ModelRow({
   onClick,
   pulling,
   pullPercent,
-  onCancelPull,
   trailing
 }: {
   kind: "cloud" | "local" | "custom";
@@ -165,13 +156,13 @@ function ModelRow({
   onClick: () => void;
   pulling?: boolean;
   pullPercent?: number;
-  onCancelPull?: () => void;
   /** Glanceable static info rendered before the disclosure chevron (e.g. size label, cloud icon). Action buttons live in the detail sheet's footer instead. */
   trailing?: React.ReactNode;
 }): React.JSX.Element {
-  const interactive = !disabled && !pulling;
+  // Pulling rows stay clickable so the user can open the detail sheet to cancel.
+  const interactive = !disabled;
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Row contains a nested Cancel button during pull so a real <button> would be invalid HTML; div + role + onKeyDown gives the same a11y semantics.
+    // biome-ignore lint/a11y/useSemanticElements: div + role + onKeyDown matches a button's a11y semantics without inheriting <button>'s default form-submission and styling.
     <div
       role="button"
       tabIndex={interactive ? 0 : -1}
@@ -201,49 +192,31 @@ function ModelRow({
           {selected && <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />}
         </div>
         {meta && <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</div>}
-        {pulling && (
-          <div className="mt-2 flex items-center gap-2">
-            <Progress value={pullPercent ?? 0} className="flex-1" />
-            <span className="text-xs tabular-nums text-muted-foreground">{pullPercent ?? 0}%</span>
-            {onCancelPull && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancelPull();
-                }}
-              >
-                Cancel
-              </Button>
-            )}
-          </div>
-        )}
       </div>
-      {!pulling && (
-        <div className="flex shrink-0 items-center gap-2">
-          {trailing}
-          <ChevronRightIcon className="size-4 text-muted-foreground/60" aria-hidden />
-        </div>
-      )}
+      <div className="flex shrink-0 items-center gap-2">
+        {pulling ? (
+          <CircularProgress percent={pullPercent ?? 0} className="text-emerald-500" />
+        ) : (
+          trailing
+        )}
+        <ChevronRightIcon className="size-4 text-muted-foreground/60" aria-hidden />
+      </div>
     </div>
   );
 }
 
-// ── API keys popover ──────────────────────────────────────────────────────────
+// ── API keys sheet ────────────────────────────────────────────────────────────
 
-function ApiKeysPopover({
+function ApiKeysSheet({
   open,
   onOpenChange,
   state,
-  onSaved,
-  trigger
+  onSaved
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: AiSettingsState["anthropic"];
   onSaved: () => void;
-  trigger: React.ReactNode;
 }): React.JSX.Element {
   const apiKeyId = useId();
   const [apiKey, setApiKey] = useState("");
@@ -251,16 +224,14 @@ function ApiKeysPopover({
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [testMessage, setTestMessage] = useState<string | null>(null);
 
-  // Reset transient state when the popover closes.
+  // Reset transient state when the sheet closes.
   useEffect(() => {
     if (!open) {
       setApiKey("");
       setReveal(false);
       setError(null);
-      setSavedMessage(null);
       setTestMessage(null);
     }
   }, [open]);
@@ -277,9 +248,8 @@ function ApiKeysPopover({
       return;
     }
     setApiKey("");
-    setSavedMessage("Saved");
     onSaved();
-    window.setTimeout(() => setSavedMessage(null), 1500);
+    onOpenChange(false);
   }
 
   async function handleTest(): Promise<void> {
@@ -315,111 +285,104 @@ function ApiKeysPopover({
   const canTest = (apiKey.length > 0 || state.hasApiKey) && state.model.length > 0;
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger render={trigger as React.ReactElement} />
-      <PopoverContent align="end" className="w-80">
-        <PopoverHeader>
-          <PopoverTitle>API keys</PopoverTitle>
-          <PopoverDescription>
-            Stored locally per provider. Used for cloud models.
-          </PopoverDescription>
-        </PopoverHeader>
-        {state.hasApiKey ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">Anthropic</span>
-              <span className="text-xs text-emerald-500">Connected</span>
-            </div>
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void handleTest()}
-                disabled={testing || busy || !canTest}
-              >
-                {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
-                Test
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => void handleRemove()}
-                disabled={busy}
-              >
-                {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-                Remove
-              </Button>
-              {testMessage && <span className="text-xs text-emerald-500">{testMessage}</span>}
-            </div>
+    <SettingsSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Anthropic API key"
+      description="Used to call Claude models. Stored on this Mac, sent only to Anthropic."
+      footer={
+        state.hasApiKey ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {testMessage && <span className="mr-auto text-xs text-emerald-500">{testMessage}</span>}
+            <Button
+              variant="secondary"
+              onClick={() => void handleTest()}
+              disabled={testing || busy || !canTest}
+            >
+              {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              Test connection
+            </Button>
+            <Button variant="destructive" onClick={() => void handleRemove()} disabled={busy}>
+              {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              Remove
+            </Button>
           </div>
         ) : (
-          <>
-            <div className="flex flex-col gap-2">
-              <label htmlFor={apiKeyId} className="text-xs font-medium">
-                Anthropic
-              </label>
-              <InputGroup className="bg-background">
-                <InputGroupInput
-                  id={apiKeyId}
-                  type={reveal ? "text" : "password"}
-                  placeholder="sk-ant-..."
-                  value={apiKey}
-                  disabled={busy}
-                  onChange={(e) => {
-                    setApiKey(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupButton
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => setReveal((r) => !r)}
-                    disabled={busy}
-                    aria-label={reveal ? "Hide key" : "Show key"}
-                  >
-                    {reveal ? <EyeOffIcon /> : <EyeIcon />}
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-              <a
-                href="https://console.anthropic.com/settings/keys"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {testMessage && <span className="mr-auto text-xs text-emerald-500">{testMessage}</span>}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void handleTest()}
+              disabled={testing || busy || !canTest}
+            >
+              {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              Test
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleSave()}
+              disabled={busy || apiKey.length === 0}
+            >
+              {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              Save
+            </Button>
+          </div>
+        )
+      }
+    >
+      {state.hasApiKey ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+            <SiAnthropic className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>Connected to Anthropic.</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Remove this key before pasting a different one.
+          </p>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <InputGroup className="bg-background">
+            <InputGroupInput
+              id={apiKeyId}
+              type={reveal ? "text" : "password"}
+              placeholder="sk-ant-..."
+              aria-label="Anthropic API key"
+              value={apiKey}
+              disabled={busy}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (error) setError(null);
+              }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setReveal((r) => !r)}
+                disabled={busy}
+                aria-label={reveal ? "Hide key" : "Show key"}
               >
-                Get an API key <ExternalLinkIcon className="size-3" />
-              </a>
-            </div>
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button
-                size="sm"
-                onClick={() => void handleSave()}
-                disabled={busy || apiKey.length === 0}
-              >
-                {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-                Save
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void handleTest()}
-                disabled={testing || busy || !canTest}
-              >
-                {testing ? <Loader2Icon className="size-4 animate-spin" /> : null}
-                Test
-              </Button>
-              {savedMessage && <span className="text-xs text-emerald-500">{savedMessage}</span>}
-              {testMessage && <span className="text-xs text-emerald-500">{testMessage}</span>}
-            </div>
-          </>
-        )}
-      </PopoverContent>
-    </Popover>
+                {reveal ? <EyeOffIcon /> : <EyeIcon />}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <a
+            href="https://console.anthropic.com/settings/keys"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+          >
+            Get an API key <ExternalLinkIcon className="size-3" />
+          </a>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+      )}
+    </SettingsSheet>
   );
 }
 
@@ -695,24 +658,36 @@ function anthropicCapabilityMeta(modelId: string): string {
 
 function currentModelDisplay(
   state: AiSettingsState
-): { kind: "cloud" | "local" | "custom"; label: string } | null {
+): { kind: "cloud" | "local" | "custom"; label: string; target: SheetTarget } | null {
   if (state.provider === "anthropic") {
     const id = state.anthropic.model;
     if (!id) return null;
     const entry = ANTHROPIC_MODELS.find((m) => m.id === id);
-    return { kind: "cloud", label: entry?.label ?? id };
+    return {
+      kind: "cloud",
+      label: entry?.label ?? id,
+      target: { type: "cloud", modelId: id }
+    };
   }
   if (state.local.mode === "advanced") {
     const active = state.local.advanced.endpoints.find(
       (e) => e.id === state.local.advanced.activeId
     );
     if (!active) return null;
-    return { kind: "custom", label: active.label || active.model };
+    return {
+      kind: "custom",
+      label: active.label || active.model,
+      target: { type: "custom", endpointId: active.id }
+    };
   }
   const id = state.local.magic.model;
   if (!id) return null;
   const entry = OLLAMA_MODELS.find((m) => m.id === id);
-  return { kind: "local", label: entry?.label ?? id };
+  return {
+    kind: "local",
+    label: entry?.label ?? id,
+    target: { type: "local", modelId: id }
+  };
 }
 
 function customEndpointMeta(endpoint: CustomEndpoint): string {
@@ -810,6 +785,8 @@ function ModelDetailSheet({
   installed,
   ollamaRunning,
   pullingModel,
+  pullPercent,
+  onCancelPull,
   cloudSelected,
   localSelected,
   endpointSelected,
@@ -829,6 +806,8 @@ function ModelDetailSheet({
   installed: string[];
   ollamaRunning: boolean;
   pullingModel: string | null;
+  pullPercent: number;
+  onCancelPull: () => void;
   cloudSelected: (modelId: string) => boolean;
   localSelected: (modelId: string) => boolean;
   endpointSelected: (id: string) => boolean;
@@ -853,9 +832,7 @@ function ModelDetailSheet({
     title = entry?.label ?? id;
     description = entry ? anthropicCapabilityMeta(id) : undefined;
     body = anthropicInfoContent(id) ?? (
-      <p className="text-xs text-muted-foreground">
-        Model details unavailable for {id}.
-      </p>
+      <p className="text-xs text-muted-foreground">Model details unavailable for {id}.</p>
     );
     footer = (
       <div className="flex items-center justify-end gap-2">
@@ -864,11 +841,7 @@ function ModelDetailSheet({
             Connect your Anthropic account first.
           </span>
         )}
-        <Button
-          size="sm"
-          disabled={!hasKey || isSelected}
-          onClick={() => onSelectCloud(id)}
-        >
+        <Button disabled={!hasKey || isSelected} onClick={() => onSelectCloud(id)}>
           {isSelected ? "Selected" : "Select"}
         </Button>
       </div>
@@ -884,35 +857,38 @@ function ModelDetailSheet({
     if (isInstalled) {
       footer = (
         <div className="flex items-center justify-end gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onRequestDeleteModel(id)}
-          >
+          <Button variant="ghost" onClick={() => onRequestDeleteModel(id)}>
             <Trash2Icon className="size-4" />
             Delete
           </Button>
-          <Button size="sm" disabled={isSelected} onClick={() => onSelectLocal(id)}>
+          <Button disabled={isSelected} onClick={() => onSelectLocal(id)}>
             {isSelected ? "Selected" : "Select"}
           </Button>
         </div>
       );
     } else {
+      const isPullingThis = pullingModel === id;
       footer = (
         <div className="flex items-center justify-end gap-2">
-          {!ollamaRunning && (
-            <span className="mr-auto text-xs text-muted-foreground">
-              Start Ollama to download.
+          {!ollamaRunning && !isPullingThis && (
+            <span className="mr-auto text-xs text-muted-foreground">Start Ollama to download.</span>
+          )}
+          {isPullingThis && (
+            <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">
+              {pullPercent}%
             </span>
           )}
-          <Button
-            size="sm"
-            disabled={!ollamaRunning || pullingModel !== null}
-            onClick={() => onPull(id)}
-          >
-            <DownloadIcon className="size-4" />
-            Download
-          </Button>
+          {isPullingThis ? (
+            <Button variant="secondary" className="gap-1.5" onClick={onCancelPull}>
+              <CircularProgress percent={pullPercent} />
+              Cancel
+            </Button>
+          ) : (
+            <Button disabled={!ollamaRunning || pullingModel !== null} onClick={() => onPull(id)}>
+              <DownloadIcon className="size-4" />
+              Download
+            </Button>
+          )}
         </div>
       );
     }
@@ -925,27 +901,15 @@ function ModelDetailSheet({
       body = customInfoContent(endpoint);
       footer = (
         <div className="flex items-center justify-end gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onEditEndpoint(endpoint.id)}
-          >
+          <Button variant="ghost" onClick={() => onEditEndpoint(endpoint.id)}>
             <PencilIcon className="size-4" />
             Edit
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onRequestDeleteEndpoint(endpoint.id)}
-          >
+          <Button variant="ghost" onClick={() => onRequestDeleteEndpoint(endpoint.id)}>
             <Trash2Icon className="size-4" />
             Delete
           </Button>
-          <Button
-            size="sm"
-            disabled={isSelected}
-            onClick={() => onSelectEndpoint(endpoint.id)}
-          >
+          <Button disabled={isSelected} onClick={() => onSelectEndpoint(endpoint.id)}>
             {isSelected ? "Selected" : "Select"}
           </Button>
         </div>
@@ -1212,6 +1176,11 @@ export function AiTab(): React.JSX.Element {
           <Alert className="mt-3 flex items-center gap-2">
             <ProviderBadge kind={current.kind} size="sm" />
             <AlertTitle>Currently using {current.label}</AlertTitle>
+            <AlertAction className="top-1/2 -translate-y-1/2">
+              <Button variant="ghost" size="sm" onClick={() => setSheetTarget(current.target)}>
+                View
+              </Button>
+            </AlertAction>
           </Alert>
         )}
       </div>
@@ -1225,17 +1194,9 @@ export function AiTab(): React.JSX.Element {
         <GroupHeader
           label="Anthropic"
           action={
-            <ApiKeysPopover
-              open={keysOpen}
-              onOpenChange={setKeysOpen}
-              state={state.anthropic}
-              onSaved={() => void reload()}
-              trigger={
-                <Button type="button" variant="outline" size="sm">
-                  {state.anthropic.hasApiKey ? "Manage" : "Connect your account"}
-                </Button>
-              }
-            />
+            <Button type="button" variant="outline" size="sm" onClick={() => setKeysOpen(true)}>
+              {state.anthropic.hasApiKey ? "Manage" : "Connect your account"}
+            </Button>
           }
         />
         <div className="divide-y divide-border overflow-hidden rounded-lg border">
@@ -1249,9 +1210,7 @@ export function AiTab(): React.JSX.Element {
                 meta={anthropicCapabilityMeta(m.id)}
                 selected={selected}
                 onClick={() => setSheetTarget({ type: "cloud", modelId: m.id })}
-                trailing={
-                  <CloudIcon className="size-4 text-muted-foreground" aria-hidden />
-                }
+                trailing={<CloudIcon className="size-4 text-muted-foreground" aria-hidden />}
               />
             );
           })}
@@ -1277,7 +1236,6 @@ export function AiTab(): React.JSX.Element {
                 disabled={isDeleting}
                 pulling={isPulling}
                 pullPercent={isPulling ? pullPercent : undefined}
-                onCancelPull={cancelCurrentPull}
                 onClick={() => setSheetTarget({ type: "local", modelId: m.id })}
                 trailing={
                   isInstalled ? (
@@ -1360,6 +1318,8 @@ export function AiTab(): React.JSX.Element {
         installed={installed}
         ollamaRunning={ollamaRunning}
         pullingModel={pullingModel}
+        pullPercent={pullPercent}
+        onCancelPull={cancelCurrentPull}
         cloudSelected={cloudSelected}
         localSelected={localSelected}
         endpointSelected={endpointSelected}
@@ -1376,7 +1336,9 @@ export function AiTab(): React.JSX.Element {
           void selectEndpoint(id);
         }}
         onPull={(id) => {
-          setSheetTarget(null);
+          // Keep the sheet open so the radial progress shows on the now-disabled
+          // Download button. The footer flips back to "Selected"/"Delete" once the
+          // pull completes and pullAndSelect activates the model.
           void pullAndSelect(id);
         }}
         onRequestDeleteModel={(id) => setPendingDeleteModel(id)}
@@ -1409,6 +1371,13 @@ export function AiTab(): React.JSX.Element {
             }
           })();
         }}
+      />
+
+      <ApiKeysSheet
+        open={keysOpen}
+        onOpenChange={setKeysOpen}
+        state={state.anthropic}
+        onSaved={() => void reload()}
       />
 
       <AlertDialog

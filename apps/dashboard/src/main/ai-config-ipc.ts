@@ -1,10 +1,14 @@
 import { type BrowserWindow, ipcMain } from "electron";
 import {
+  addCustomEndpoint,
+  type AdvancedEndpointInput,
   type AiSettingsUpdate,
   getAiSettingsState,
   isAiConfigured,
   loadAiConfigForRequest,
-  updateAiSettings
+  removeCustomEndpoint,
+  updateAiSettings,
+  updateCustomEndpoint
 } from "./ai-config";
 import { DEFAULT_OLLAMA_BASE_URL } from "./mapos-config";
 import { cancelPull, deleteModel, detectOllama, listInstalledModels, pullModel } from "./ollama";
@@ -14,6 +18,9 @@ const HANDLE_CHANNELS = [
   "ai-config:get-settings-state",
   "ai-config:update",
   "ai-config:test-connection",
+  "ai-config:add-endpoint",
+  "ai-config:update-endpoint",
+  "ai-config:remove-endpoint",
   "ai-config:ollama-detect",
   "ai-config:ollama-list-installed",
   "ai-config:ollama-pull",
@@ -149,6 +156,24 @@ export function registerAiConfigIpc(mainWindow: BrowserWindow): () => void {
   ipcMain.handle("ai-config:test-connection", (_e, draft: TestConnectionDraft) =>
     testConnection(draft)
   );
+  ipcMain.handle("ai-config:add-endpoint", (_e, input: AdvancedEndpointInput) => {
+    const result = addCustomEndpoint(input);
+    if (result.ok) broadcastAiConfigChanged(mainWindow);
+    return result;
+  });
+  ipcMain.handle(
+    "ai-config:update-endpoint",
+    (_e, args: { id: string; patch: AdvancedEndpointInput }) => {
+      const result = updateCustomEndpoint(args.id, args.patch);
+      if (result.ok) broadcastAiConfigChanged(mainWindow);
+      return result;
+    }
+  );
+  ipcMain.handle("ai-config:remove-endpoint", (_e, args: { id: string }) => {
+    const result = removeCustomEndpoint(args.id);
+    if (result.ok) broadcastAiConfigChanged(mainWindow);
+    return result;
+  });
   ipcMain.handle("ai-config:ollama-detect", (_e, baseUrl: string) => detectOllama(baseUrl));
   ipcMain.handle("ai-config:ollama-list-installed", (_e, baseUrl: string) =>
     listInstalledModels(baseUrl)

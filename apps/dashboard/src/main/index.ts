@@ -11,11 +11,13 @@ import { setupChat } from "./chat";
 import { closeDb } from "./db";
 import {
   getPrimaryVaultRoot,
+  isOnboardingPending,
   loadOrInitMaposConfig,
   removeVaultFromConfig,
   renameVaultInConfig,
   setActiveVaultInConfig
 } from "./mapos-config";
+import { registerMaposIpc } from "./mapos-ipc";
 import { setupPlacesWatcher } from "./watcher";
 
 function createWindow(): BrowserWindow {
@@ -99,12 +101,58 @@ app.whenReady().then(() => {
   const mainWindow = createWindow();
   const appStateDir = app.getPath("userData");
 
+  // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user
+  // completes the flow; `bootVault()` populates them and is also reused by switch/rename/delete.
+  // The stubs are unreachable in practice — the only IPCs that touch this state (switch/rename/
+  // delete) are callable from the main app, which renders only after onboarding finishes.
+  const notReady = (): never => {
+    throw new Error("Vault not initialized — onboarding has not completed.");
+  };
   let maposConfig = loadOrInitMaposConfig(appStateDir);
-  let vaultRoot = getPrimaryVaultRoot(maposConfig);
-  let { places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
-  let stopChat = setupChat(mainWindow, places, vaultRoot);
+  let vaultRoot = "";
+  let places: Awaited<ReturnType<typeof setupPlacesWatcher>>["places"] = new Map();
+  let stopWatcher: () => Promise<void> = async () => notReady();
+  let stopChat: () => void = notReady;
+  // Tracks whether `setupPlacesWatcher` has registered its IPC handlers. Re-running onboarding
+  // mid-session (e.g. user wipes mapos.json without quitting on macOS, then reloads) would
+  // otherwise re-call setupPlacesWatcher and collide with its own handlers.
+  let vaultActive = false;
+
+  async function teardownVault(): Promise<void> {
+    if (!vaultActive) return;
+    stopChat();
+    await stopWatcher();
+    closeDb();
+    vaultActive = false;
+  }
+
+  function bootVault(): void {
+    maposConfig = loadOrInitMaposConfig(appStateDir);
+    vaultRoot = getPrimaryVaultRoot(maposConfig);
+    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    stopChat = setupChat(mainWindow, places, vaultRoot);
+    vaultActive = true;
+  }
+
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
   registerAiConfigIpc(mainWindow);
+
+  // Vault management + onboarding IPCs are also vault-independent. They power both the
+  // first-launch onboarding flow and the in-app vault switcher.
+  registerMaposIpc(mainWindow, {
+    onOnboardingComplete: async () => {
+      // Renderer has already created a vault and saved AI config through existing IPCs.
+      // If a previous vault is active (e.g. user wiped mapos.json mid-session and is
+      // re-onboarding), tear it down first so handler registration doesn't collide.
+      await teardownVault();
+      bootVault();
+      mainWindow.webContents.reload();
+    }
+  });
+
+  if (!isOnboardingPending(appStateDir)) {
+    bootVault();
+  }
 
   ipcMain.handle("mapos:switch-vault", async (_event, targetPath: string) => {
     const result = setActiveVaultInConfig(appStateDir, targetPath);

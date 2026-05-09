@@ -132,6 +132,28 @@ const api = {
       ipcRenderer.removeAllListeners("fs:changed");
     }
   },
+  onboarding: {
+    getState: () =>
+      ipcRenderer.invoke("onboarding:get-state") as Promise<{ pending: boolean }>,
+    pickCreateLocation: (name: string) =>
+      ipcRenderer.invoke("onboarding:pick-create-location", name) as Promise<
+        | { canceled: true }
+        | { ok: false; error: string }
+        | { ok: true; targetPath: string; parentPath: string }
+      >,
+    pickExistingVault: () =>
+      ipcRenderer.invoke("onboarding:pick-existing-vault") as Promise<
+        { canceled: true } | { ok: false; error: string } | { ok: true; path: string }
+      >,
+    complete: (
+      draft:
+        | { kind: "create"; targetPath: string; name: string }
+        | { kind: "existing"; path: string }
+    ) =>
+      ipcRenderer.invoke("onboarding:complete", draft) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >
+  },
   mapos: {
     getVaultsConfig: () =>
       ipcRenderer.invoke("mapos:get-vaults-config") as Promise<{

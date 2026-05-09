@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { iconForFilename } from "../lib/file-icons";
+import { DEFAULT_VAULT_NAME, validateVaultName } from "../lib/vault-name";
 import type { PlaceRecord } from "./map-view";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -150,20 +151,6 @@ function vaultBasename(path: string): string {
 
 type AddVaultStep = "choose" | "name";
 
-const DEFAULT_VAULT_NAME = "MapOS Vault";
-
-function localValidateVaultName(name: string): { ok: true } | { ok: false; error: string } {
-  const trimmed = name.trim();
-  if (!trimmed) return { ok: false, error: "Name cannot be empty." };
-  if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return { ok: false, error: "Name cannot contain slashes." };
-  }
-  if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
-    return { ok: false, error: "Name cannot start with a dot." };
-  }
-  return { ok: true };
-}
-
 function VaultSwitcher() {
   const { isMobile } = useSidebar();
   const [vaultOptions, setVaultOptions] = useState<VaultOption[]>([]);
@@ -207,7 +194,7 @@ function VaultSwitcher() {
 
   const runCreateNewVault = useCallback(
     async (name: string) => {
-      const local = localValidateVaultName(name);
+      const local = validateVaultName(name);
       if (!local.ok) {
         setAddVaultError(local.error);
         return;

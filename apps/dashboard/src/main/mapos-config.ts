@@ -94,7 +94,9 @@ export type MaposJson = {
 };
 
 function defaultConfig(): MaposJson {
-  return { vaults: [DEFAULT_VAULT_PATH], ai: defaultAiConfig() };
+  // No default vault — onboarding registers the user's chosen vault. An empty list
+  // means "first launch / onboarding pending" everywhere it's read.
+  return { vaults: [], ai: defaultAiConfig() };
 }
 
 /**
@@ -178,9 +180,18 @@ function parseConfig(raw: string): MaposJson | null {
 }
 
 /**
+ * True iff `mapos.json` exists in the app state dir. Pure check — no side effects, no
+ * directory creation. Use this to detect a true first launch before deciding whether to
+ * boot into the main app or the onboarding flow.
+ */
+export function maposConfigExists(appStateDir: string): boolean {
+  return existsSync(join(appStateDir, MAPOS_CONFIG_FILENAME));
+}
+
+/**
  * Ensures the app state directory exists and returns `mapos.json` (creates default if missing).
  * Pass `app.getPath("userData")` from the Electron main process.
- * Invalid or empty `vaults` is repaired to the default vault path and written back.
+ * A corrupt config is repaired to the default (empty vaults) and written back.
  */
 export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
   mkdirSync(appStateDir, { recursive: true });
@@ -192,7 +203,7 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
   }
   const rawText = readFileSync(configPath, "utf-8");
   const parsed = parseConfig(rawText);
-  if (!parsed || parsed.vaults.length === 0) {
+  if (!parsed) {
     const cfg = defaultConfig();
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf-8");
     return cfg;
@@ -209,6 +220,17 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
     writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
   }
   return parsed;
+}
+
+/**
+ * Onboarding is pending if no config file exists yet, or one exists but no vaults are
+ * registered (e.g. the user closed the app mid-onboarding). The renderer reads this once
+ * at startup to decide whether to mount the main app or the onboarding screen.
+ */
+export function isOnboardingPending(appStateDir: string): boolean {
+  if (!maposConfigExists(appStateDir)) return true;
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  return cfg.vaults.length === 0;
 }
 
 export function getPrimaryVaultRoot(config: MaposJson): string {

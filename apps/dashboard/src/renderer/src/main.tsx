@@ -17,11 +17,25 @@ syncFromStorage();
 mq.addEventListener("change", () => {
   if (readTheme() === "system") applyDark(mq.matches);
 });
-import App from "./app";
 import { TooltipProvider } from "@mapos/ui/components/tooltip";
+import { useEffect, useState } from "react";
+import App from "./app";
+import { OnboardingScreen } from "./components/onboarding/onboarding-screen";
+
+function Root(): React.JSX.Element | null {
+  const [pending, setPending] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void window.api.onboarding.getState().then((s) => setPending(s.pending));
+  }, []);
+
+  if (pending === null) return null;
+  if (pending) return <OnboardingScreen />;
+  return <App />;
+}
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <TooltipProvider delay={300}>
-    <App />
+    <Root />
   </TooltipProvider>
 );

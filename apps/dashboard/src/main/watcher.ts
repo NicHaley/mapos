@@ -11,7 +11,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import chokidar from "chokidar";
-import { type BrowserWindow, app, dialog, ipcMain, shell } from "electron";
+import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
 import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
@@ -31,11 +31,7 @@ import {
   replaceFeaturePropertiesForFile,
   syncFeatureForFile
 } from "./db";
-import {
-  appendVaultToConfig,
-  loadOrInitMaposConfig,
-  vaultDotDir as vaultDotDirPath
-} from "./mapos-config";
+import { vaultDotDir as vaultDotDirPath } from "./mapos-config";
 import { parseWkt } from "./wkt";
 
 /**
@@ -177,7 +173,7 @@ function readDirTree(dirPath: string): FileNode[] {
  * Callers that are NOT activating the vault (e.g. creating/registering a background vault)
  * should call `closeDb()` immediately afterwards.
  */
-function initVaultOnDisk(vaultRoot: string): void {
+export function initVaultOnDisk(vaultRoot: string): void {
   const dotDir = vaultDotDirPath(vaultRoot);
   mkdirSync(dotDir, { recursive: true }); // also creates vaultRoot if missing
   initDb(dotDir);
@@ -653,72 +649,6 @@ export function setupPlacesWatcher(
 
   ipcMain.handle("fs:get-vault-root", () => vaultRoot);
 
-  ipcMain.handle("mapos:get-vaults-config", () => {
-    const appStateDir = app.getPath("userData");
-    const cfg = loadOrInitMaposConfig(appStateDir);
-    const vaults = cfg.vaults.map((p) => resolve(p.trim())).filter((p) => p.length > 0);
-    return { vaults, activeVaultPath: vaultRoot };
-  });
-
-  ipcMain.handle("mapos:set-folder-as-vault", async () => {
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
-      properties: ["openDirectory"],
-      title: "Choose folder to use as a vault"
-    });
-    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
-    const appStateDir = app.getPath("userData");
-    const result = appendVaultToConfig(appStateDir, picked.filePaths[0]);
-    if (!result.ok) return { ok: false as const, error: result.error };
-    initVaultOnDisk(resolve(picked.filePaths[0]));
-    closeDb();
-    return { ok: true as const, vaults: result.config.vaults.map((p) => resolve(p.trim())) };
-  });
-
-  ipcMain.handle("mapos:create-new-vault", async (_event, name: string) => {
-    const trimmed = typeof name === "string" ? name.trim() : "";
-    if (!trimmed) return { ok: false as const, error: "Name cannot be empty." };
-    if (trimmed.includes("/") || trimmed.includes("\\")) {
-      return { ok: false as const, error: "Name cannot contain slashes." };
-    }
-    if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
-      return { ok: false as const, error: "Name cannot start with a dot." };
-    }
-
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
-      properties: ["openDirectory", "createDirectory"],
-      title: "Choose where to create the new vault"
-    });
-    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
-    const parent = picked.filePaths[0];
-    const newPath = resolve(join(parent, trimmed));
-    if (existsSync(newPath)) {
-      return { ok: false as const, error: "A folder with that name already exists." };
-    }
-    try {
-      initVaultOnDisk(newPath);
-      closeDb();
-    } catch (e) {
-      return { ok: false as const, error: String(e) };
-    }
-    const appStateDir = app.getPath("userData");
-    const result = appendVaultToConfig(appStateDir, newPath);
-    if (!result.ok) {
-      try {
-        rmSync(newPath, { recursive: true, force: true });
-      } catch {
-        /* best-effort cleanup */
-      }
-      return { ok: false as const, error: result.error };
-    }
-    return {
-      ok: true as const,
-      path: newPath,
-      vaults: result.config.vaults.map((p) => resolve(p.trim()))
-    };
-  });
-
   ipcMain.handle(
     "fs:create-folder",
     (_event, args: { parentFolderPath: string; folderName: string }) => {
@@ -910,9 +840,6 @@ export function setupPlacesWatcher(
     "fs:delete-path",
     "fs:reveal-in-finder",
     "fs:get-vault-root",
-    "mapos:get-vaults-config",
-    "mapos:set-folder-as-vault",
-    "mapos:create-new-vault",
     "fs:create-folder",
     "fs:create-place-file",
     "places:query-bounds",

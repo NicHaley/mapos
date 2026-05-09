@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { type BrowserWindow, ipcMain } from "electron";
+import { app, type BrowserWindow, ipcMain } from "electron";
 import type { PersistedMessage, PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
@@ -21,6 +21,28 @@ import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
+
+/**
+ * In a packaged Electron build the Claude Agent SDK's native `claude` binary lives inside
+ * `app.asar`, but the OS can't `spawn()` an executable from an asar archive (ENOTDIR). The
+ * binary is unpacked to `app.asar.unpacked/...` by electron-builder, so we point the SDK
+ * at that real-filesystem path. In dev, the SDK's own resolution works fine.
+ */
+function resolveClaudeCodeExecutable(): string | undefined {
+  if (!app.isPackaged) return undefined;
+  const platformDir =
+    process.platform === "win32"
+      ? `@anthropic-ai/claude-agent-sdk-win32-${process.arch}`
+      : `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+  const binaryName = process.platform === "win32" ? "claude.exe" : "claude";
+  return join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "node_modules",
+    platformDir,
+    binaryName
+  );
+}
 
 export function setupChat(
   mainWindow: BrowserWindow,
@@ -155,10 +177,12 @@ export function setupChat(
 
       try {
         const { capabilities } = aiConfig;
+        const pathToClaudeCodeExecutable = resolveClaudeCodeExecutable();
         const q = query({
           prompt: message,
           options: {
             ...(conv.sdkSessionId ? { resume: conv.sdkSessionId } : {}),
+            ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}),
             abortController,
             cwd: vaultRoot,
             model: aiConfig.model,

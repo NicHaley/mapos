@@ -41,7 +41,6 @@ export function anthropicInfoContent(modelId: string): React.ReactNode {
       rows={[
         { label: "Context", value: ctxLabel(c.contextWindow) },
         { label: "Vision", value: c.supportsImages ? "Yes" : "No" },
-        { label: "Tools", value: c.supportsTools ? "Yes" : "No" },
         { label: "Thinking", value: thinkingLabel(c.thinking) }
       ]}
     />
@@ -57,8 +56,7 @@ export function ollamaCuratedInfoContent(model: (typeof OLLAMA_MODELS)[number]):
       rows={[
         { label: "Disk", value: model.size },
         { label: "Context", value: ctxLabel(c.contextWindow) },
-        { label: "Vision", value: c.supportsImages ? "Yes" : "No" },
-        { label: "Tools", value: c.supportsTools ? "Yes" : "No" }
+        { label: "Vision", value: c.supportsImages ? "Yes" : "No" }
       ]}
     />
   );

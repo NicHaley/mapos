@@ -16,8 +16,6 @@ export type AiProvider = "anthropic" | "local";
  * often advertises support that doesn't work in practice.
  */
 export type ModelCapabilities = {
-  /** Native function/tool calling. Without it, MapOS chat can't run vault tools. */
-  supportsTools: boolean;
   /**
    * Extended thinking. Mirrors the SDK's `ThinkingConfig` shape: "adaptive" for
    * Opus 4.6+ style, "enabled" for older fixed-budget thinking, false for none.
@@ -44,18 +42,16 @@ export type OllamaModel = {
 };
 
 const ANTHROPIC_DEFAULT: ModelCapabilities = {
-  supportsTools: true,
   thinking: "adaptive",
   supportsImages: true,
   contextWindow: 200_000
 };
 
 /**
- * Conservative default for unrecognized local models — no tools, no thinking, no images.
+ * Conservative default for unrecognized local models — no thinking, no images.
  * Curated entries below opt into stronger capabilities only after end-to-end verification.
  */
 const LOCAL_DEFAULT: ModelCapabilities = {
-  supportsTools: false,
   thinking: false,
   supportsImages: false,
   contextWindow: 32_768

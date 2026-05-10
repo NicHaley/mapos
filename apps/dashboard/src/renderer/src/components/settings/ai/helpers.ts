@@ -25,7 +25,6 @@ export function anthropicCapabilityMeta(modelId: string): string {
         : `${ctx} ctx`;
   const parts = [ctxText];
   if (entry.capabilities.supportsImages) parts.push("vision");
-  if (entry.capabilities.supportsTools) parts.push("tools");
   return parts.join(" · ");
 }
 

@@ -187,9 +187,8 @@ export function setupChat(
             cwd: vaultRoot,
             model: aiConfig.model,
             systemPrompt: buildMaposSystemPrompt(vaultRoot),
-            ...(capabilities.supportsTools
-              ? { allowedTools: [...ALLOWED_TOOLS], tools: [...ALLOWED_TOOLS] }
-              : {}),
+            allowedTools: [...ALLOWED_TOOLS],
+            tools: [...ALLOWED_TOOLS],
             includePartialMessages: true,
             ...(capabilities.thinking !== false
               ? { thinking: { type: capabilities.thinking } }

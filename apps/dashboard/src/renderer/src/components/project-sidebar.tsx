@@ -69,6 +69,7 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { InputGroup, InputGroupInput } from "@mapos/ui/components/input-group";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { ErrorTooltip, Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 const MAPOS_DRAG_MIME = "application/x-mapos-node";
@@ -1104,7 +1105,7 @@ export function ProjectSidebar({
             </Tooltip>
           </SidebarMenu>
         </SidebarGroup>
-        <SidebarGroup>
+        <SidebarGroup className="pb-0">
           <div className="group/group-header relative mb-0.5 flex flex-col">
             <CollapsibleGroupLabel
               label="Files"
@@ -1185,7 +1186,7 @@ export function ProjectSidebar({
                     {vaultRoot && dndBridge ? (
                       <div
                         aria-hidden
-                        className="h-2"
+                        className="h-6"
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.dataTransfer.dropEffect = "move";
@@ -1216,7 +1217,7 @@ export function ProjectSidebar({
             </div>
           )}
         </SidebarGroup>
-        <SidebarGroup>
+        <SidebarGroup className="pt-0">
           <div className="group/group-header relative mb-0.5 flex flex-col">
             <CollapsibleGroupLabel
               label="Conversations"
@@ -1258,13 +1259,7 @@ export function ProjectSidebar({
                           }
                         >
                           {isStreaming ? (
-                            <span
-                              aria-label="Streaming"
-                              className="relative flex size-3.5 shrink-0 items-center justify-center"
-                            >
-                              <span className="absolute inline-flex size-2 animate-ping rounded-full bg-white opacity-75" />
-                              <span className="relative inline-flex size-1.5 rounded-full bg-white" />
-                            </span>
+                            <PulseLoader aria-label="Streaming" color="text-white" />
                           ) : (
                             <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
                           )}

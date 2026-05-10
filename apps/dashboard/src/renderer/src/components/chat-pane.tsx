@@ -24,13 +24,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
+import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
 import type { MapOverlayPayload } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
   ArrowRightIcon,
-  BrainIcon,
   CheckIcon,
   ChevronDownIcon,
   EllipsisIcon,
@@ -576,7 +576,7 @@ export function ChatPane({
                 className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
                 aria-live="polite"
               >
-                <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+                <PulseLoader color="text-muted-foreground/70" />
                 <Shimmer as="span" duration={1}>
                   Working on it…
                 </Shimmer>

@@ -11,6 +11,7 @@ import {
 import { Reorder, motion } from "motion/react";
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { Separator } from "@mapos/ui/components/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
@@ -108,13 +109,7 @@ export function NavTabs({
                 )}
               >
                 {isStreaming ? (
-                  <span
-                    aria-label="Streaming"
-                    className="relative flex size-3.5 shrink-0 items-center justify-center"
-                  >
-                    <span className="absolute inline-flex size-2 animate-ping rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex size-1.5 rounded-full bg-white" />
-                  </span>
+                  <PulseLoader aria-label="Streaming" color="text-white" />
                 ) : (
                   <Icon className="size-3.5 shrink-0 opacity-70" />
                 )}

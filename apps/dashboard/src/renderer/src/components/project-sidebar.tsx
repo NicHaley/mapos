@@ -106,6 +106,58 @@ function fileIcon(name: string) {
   return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
 }
 
+type PendingDelete =
+  | { kind: "files"; nodes: FileNode[] }
+  | { kind: "conversations"; ids: string[]; titles: string[] }
+  | null;
+
+function displayNameForNode(node: FileNode): string {
+  return node.type === "file" ? node.name.replace(/\.(md|geojson)$/i, "") : node.name;
+}
+
+function summarizeNames(names: string[], max = 5): string {
+  if (names.length <= max) return names.map((n) => `"${n}"`).join(", ");
+  const head = names.slice(0, max).map((n) => `"${n}"`).join(", ");
+  return `${head} and ${names.length - max} more`;
+}
+
+function describePendingDelete(p: NonNullable<PendingDelete>): {
+  title: string;
+  description: string;
+} {
+  if (p.kind === "files") {
+    const { nodes } = p;
+    if (nodes.length === 1) {
+      const n = nodes[0];
+      const display = displayNameForNode(n);
+      return {
+        title: `Delete ${n.type === "directory" ? "folder" : "file"}?`,
+        description:
+          n.type === "directory"
+            ? `This will permanently delete "${display}" and all its contents.`
+            : `This will permanently delete "${display}".`
+      };
+    }
+    const names = nodes.map(displayNameForNode);
+    const folderCount = nodes.filter((n) => n.type === "directory").length;
+    const folderNote = folderCount > 0 ? " Folder contents are also deleted." : "";
+    return {
+      title: `Delete ${nodes.length} items?`,
+      description: `This will permanently delete ${summarizeNames(names)}.${folderNote}`
+    };
+  }
+  if (p.ids.length === 1) {
+    return {
+      title: "Delete conversation?",
+      description: `This will permanently delete "${p.titles[0]}".`
+    };
+  }
+  return {
+    title: `Delete ${p.ids.length} conversations?`,
+    description: `This will permanently delete ${summarizeNames(p.titles)}.`
+  };
+}
+
 function CollapsibleGroupLabel({
   label,
   open,
@@ -448,11 +500,13 @@ function FileTreeNode({
   depth,
   selectedFilePath,
   selectedFolderPath,
+  selectedPaths,
+  openFolders,
+  setFolderOpen,
   autoRenamePath,
   onAutoRenameConsumed,
-  onSelectPlace,
-  onSelectFolder,
-  onSelectGeoJson,
+  onPathClick,
+  onOpenInNewTab,
   onRequestDelete,
   onRenameComplete,
   onCreateFolderIn,
@@ -463,18 +517,20 @@ function FileTreeNode({
   depth: number;
   selectedFilePath?: string;
   selectedFolderPath?: string;
+  selectedPaths: Set<string>;
+  openFolders: Set<string>;
+  setFolderOpen: (path: string, open: boolean) => void;
   autoRenamePath?: string | null;
   onAutoRenameConsumed?: () => void;
-  onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
-  onSelectFolder?: (path: string, newTab?: boolean) => void;
-  onSelectGeoJson?: (path: string) => void;
+  onPathClick: (node: FileNode, e: React.MouseEvent) => void;
+  onOpenInNewTab: (node: FileNode) => void;
   onRequestDelete?: (node: FileNode) => void;
   onRenameComplete?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
   dnd?: SidebarDndBridge;
 }) {
-  const [open, setOpen] = useState(depth === 0);
+  const open = node.type === "directory" && openFolders.has(node.path);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -490,13 +546,13 @@ function FileTreeNode({
   useEffect(() => {
     if (!autoRenamePath || node.type !== "directory") return;
     if (autoRenamePath === node.path) {
-      setOpen(true);
+      setFolderOpen(node.path, true);
       startRename();
       onAutoRenameConsumed?.();
     } else if (autoRenamePath.startsWith(`${node.path}/`)) {
-      setOpen(true);
+      setFolderOpen(node.path, true);
     }
-  }, [autoRenamePath, node.path, node.type, onAutoRenameConsumed]);
+  }, [autoRenamePath, node.path, node.type, onAutoRenameConsumed, setFolderOpen]);
 
   function startRename() {
     const displayName =
@@ -571,6 +627,10 @@ function FileTreeNode({
 
   const menuItems = (
     <>
+      <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
+        <PlusIcon />
+        Open in New Tab
+      </ContextMenuItem>
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         <FolderOpenIcon />
         Reveal in Finder
@@ -589,6 +649,10 @@ function FileTreeNode({
 
   const dropdownMenuItems = (
     <>
+      <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
+        <PlusIcon />
+        Open in New Tab
+      </DropdownMenuItem>
       <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         <FolderOpenIcon />
         Reveal in Finder
@@ -607,6 +671,11 @@ function FileTreeNode({
 
   const folderMenuItems = (
     <>
+      <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
+        <PlusIcon />
+        Open in New Tab
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
         <SquarePenIcon />
         New Note
@@ -634,6 +703,11 @@ function FileTreeNode({
 
   const dropdownFolderMenuItems = (
     <>
+      <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
+        <PlusIcon />
+        Open in New Tab
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
         <SquarePenIcon />
         New Note
@@ -663,7 +737,10 @@ function FileTreeNode({
     "hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100";
 
   if (node.type === "directory") {
-    const isActive = node.path === selectedFolderPath;
+    const isActive =
+      selectedPaths.size > 1
+        ? selectedPaths.has(node.path)
+        : node.path === selectedFolderPath;
     const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
     return (
       <li className={cn("relative", folderDropZone && "rounded-md bg-sidebar-accent")}>
@@ -714,7 +791,7 @@ function FileTreeNode({
               )}
               onClick={() => {
                 if (isRenaming) return;
-                setOpen((o) => !o);
+                setFolderOpen(node.path, !open);
               }}
             >
               <ChevronRightIcon
@@ -731,12 +808,12 @@ function FileTreeNode({
               )}
               onClick={(e) => {
                 if (isRenaming) return;
-                onSelectFolder?.(node.path, e.metaKey || e.ctrlKey);
+                onPathClick(node, e);
               }}
               onDoubleClick={(e) => {
                 if (isRenaming) return;
                 e.preventDefault();
-                setOpen((o) => !o);
+                setFolderOpen(node.path, !open);
               }}
             >
               {open ? (
@@ -779,11 +856,13 @@ function FileTreeNode({
                 depth={depth + 1}
                 selectedFilePath={selectedFilePath}
                 selectedFolderPath={selectedFolderPath}
+                selectedPaths={selectedPaths}
+                openFolders={openFolders}
+                setFolderOpen={setFolderOpen}
                 autoRenamePath={autoRenamePath}
                 onAutoRenameConsumed={onAutoRenameConsumed}
-                onSelectPlace={onSelectPlace}
-                onSelectFolder={onSelectFolder}
-                onSelectGeoJson={onSelectGeoJson}
+                onPathClick={onPathClick}
+                onOpenInNewTab={onOpenInNewTab}
                 onRequestDelete={onRequestDelete}
                 onRenameComplete={onRenameComplete}
                 onCreateFolderIn={onCreateFolderIn}
@@ -797,7 +876,10 @@ function FileTreeNode({
     );
   }
 
-  const isActive = node.path === selectedFilePath;
+  const isActive =
+    selectedPaths.size > 1
+      ? selectedPaths.has(node.path)
+      : node.path === selectedFilePath;
   const parentFolder = parentDir(node.path);
 
   return (
@@ -828,14 +910,9 @@ function FileTreeNode({
                 e.stopPropagation();
                 dnd.onFolderDrop(e, parentFolder);
               }}
-              onClick={async (e) => {
+              onClick={(e) => {
                 if (isRenaming) return;
-                if (node.path.toLowerCase().endsWith(".geojson")) {
-                  onSelectGeoJson?.(node.path);
-                  return;
-                }
-                const place = await window.api.places.getByPath(node.path);
-                if (place) onSelectPlace?.(place, e.metaKey || e.ctrlKey);
+                onPathClick(node, e);
               }}
             />
           }
@@ -903,7 +980,7 @@ export function ProjectSidebar({
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [vaultRoot, setVaultRoot] = useState<string>("");
-  const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingRenamePath, setPendingRenamePath] = useState<string | null>(null);
@@ -915,10 +992,43 @@ export function ProjectSidebar({
   >("general");
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
   const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+  // Tracks top-level dir paths we've auto-opened at least once. Lets the watcher
+  // reload the tree without re-opening folders the user has manually collapsed.
+  const seenTopLevelRef = useRef<Set<string>>(new Set());
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [pathAnchor, setPathAnchor] = useState<string | null>(null);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+  const [convAnchor, setConvAnchor] = useState<string | null>(null);
+
+  const setFolderOpen = useCallback((path: string, open: boolean) => {
+    setOpenFolders((prev) => {
+      const wasOpen = prev.has(path);
+      if (wasOpen === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
     setTree(nodes);
+    const newTopLevelDirs: string[] = [];
+    for (const n of nodes) {
+      if (n.type === "directory" && !seenTopLevelRef.current.has(n.path)) {
+        newTopLevelDirs.push(n.path);
+        seenTopLevelRef.current.add(n.path);
+      }
+    }
+    if (newTopLevelDirs.length > 0) {
+      setOpenFolders((prev) => {
+        const next = new Set(prev);
+        for (const p of newTopLevelDirs) next.add(p);
+        return next;
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -983,20 +1093,193 @@ export function ProjectSidebar({
     };
   }, [vaultRoot, dragOverTarget, runMove]);
 
+  const flatVisiblePaths = useCallback((): { path: string; type: FileNode["type"] }[] => {
+    const out: { path: string; type: FileNode["type"] }[] = [];
+    function walk(node: FileNode) {
+      out.push({ path: node.path, type: node.type });
+      if (node.type === "directory" && openFolders.has(node.path) && node.children) {
+        for (const child of node.children) walk(child);
+      }
+    }
+    for (const root of tree) walk(root);
+    return out;
+  }, [tree, openFolders]);
+
+  const collectNodesByPaths = useCallback(
+    (paths: Set<string>): FileNode[] => {
+      const out: FileNode[] = [];
+      function walk(node: FileNode) {
+        if (paths.has(node.path)) out.push(node);
+        if (node.type === "directory" && node.children) {
+          for (const child of node.children) walk(child);
+        }
+      }
+      for (const root of tree) walk(root);
+      return out;
+    },
+    [tree]
+  );
+
+  const openPath = useCallback(
+    async (node: FileNode, newTab: boolean) => {
+      if (node.type === "directory") {
+        onSelectFolder?.(node.path, newTab);
+        return;
+      }
+      if (node.path.toLowerCase().endsWith(".geojson")) {
+        onSelectGeoJson?.(node.path);
+        return;
+      }
+      const place = await window.api.places.getByPath(node.path);
+      if (place) onSelectPlace?.(place, newTab);
+    },
+    [onSelectFolder, onSelectGeoJson, onSelectPlace]
+  );
+
+  const handlePathClick = useCallback(
+    (node: FileNode, e: React.MouseEvent) => {
+      // Clicking in the files scope clears the conversations multi-selection.
+      setSelectedConvIds((prev) => (prev.size === 0 ? prev : new Set()));
+      setConvAnchor(null);
+
+      if (e.shiftKey && pathAnchor) {
+        const flat = flatVisiblePaths();
+        const a = flat.findIndex((x) => x.path === pathAnchor);
+        const b = flat.findIndex((x) => x.path === node.path);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          setSelectedPaths(new Set(flat.slice(lo, hi + 1).map((x) => x.path)));
+          return;
+        }
+      }
+      if (e.metaKey || e.ctrlKey) {
+        setSelectedPaths((prev) => {
+          const next = new Set(prev);
+          if (next.has(node.path)) next.delete(node.path);
+          else next.add(node.path);
+          return next;
+        });
+        setPathAnchor(node.path);
+        return;
+      }
+      // Plain click: collapse multi-selection and open.
+      setSelectedPaths(new Set([node.path]));
+      setPathAnchor(node.path);
+      void openPath(node, false);
+    },
+    [pathAnchor, flatVisiblePaths, openPath]
+  );
+
+  const handleOpenInNewTab = useCallback(
+    (node: FileNode) => {
+      void openPath(node, true);
+    },
+    [openPath]
+  );
+
+  const handleConvClick = useCallback(
+    (
+      conv: ConversationMeta,
+      title: string,
+      e: React.MouseEvent,
+      orderedIds: string[]
+    ) => {
+      // Clicking in the conversations scope clears the files multi-selection.
+      setSelectedPaths((prev) => (prev.size === 0 ? prev : new Set()));
+      setPathAnchor(null);
+
+      if (e.shiftKey && convAnchor) {
+        const a = orderedIds.indexOf(convAnchor);
+        const b = orderedIds.indexOf(conv.id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          setSelectedConvIds(new Set(orderedIds.slice(lo, hi + 1)));
+          return;
+        }
+      }
+      if (e.metaKey || e.ctrlKey) {
+        setSelectedConvIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(conv.id)) next.delete(conv.id);
+          else next.add(conv.id);
+          return next;
+        });
+        setConvAnchor(conv.id);
+        return;
+      }
+      setSelectedConvIds(new Set([conv.id]));
+      setConvAnchor(conv.id);
+      onSelectChat?.(conv.id, title, false);
+    },
+    [convAnchor, onSelectChat]
+  );
+
   async function confirmDelete() {
     if (!pendingDelete || isDeleting) return;
     setDeleteError(null);
     setIsDeleting(true);
-    const result = await window.api.fs.deletePath(pendingDelete.path);
-    setIsDeleting(false);
-    if (!result.success) {
-      setDeleteError(result.error);
-      return;
+    if (pendingDelete.kind === "files") {
+      // Deleting a folder removes its contents; skip any selected descendants
+      // so we don't error out trying to delete files that already vanished.
+      const folderPaths = pendingDelete.nodes
+        .filter((n) => n.type === "directory")
+        .map((n) => n.path);
+      const toDelete = pendingDelete.nodes.filter((n) => {
+        for (const folder of folderPaths) {
+          if (n.path === folder) continue;
+          if (n.path.startsWith(`${folder}/`) || n.path.startsWith(`${folder}\\`)) {
+            return false;
+          }
+        }
+        return true;
+      });
+      for (const node of toDelete) {
+        const result = await window.api.fs.deletePath(node.path);
+        if (!result.success) {
+          setDeleteError(result.error);
+          setIsDeleting(false);
+          return;
+        }
+        onDeletePath?.(node.path, node.type);
+      }
+      setSelectedPaths(new Set());
+      setPathAnchor(null);
+    } else {
+      for (const id of pendingDelete.ids) {
+        onDeleteChat?.(id);
+      }
+      setSelectedConvIds(new Set());
+      setConvAnchor(null);
     }
-    onDeletePath?.(pendingDelete.path, pendingDelete.type);
+    setIsDeleting(false);
     setPendingDelete(null);
     await load();
   }
+
+  const requestDeleteSelection = useCallback(() => {
+    if (pendingDelete) return;
+    if (selectedPaths.size > 0) {
+      const nodes = collectNodesByPaths(selectedPaths);
+      if (nodes.length === 0) return;
+      setDeleteError(null);
+      setPendingDelete({ kind: "files", nodes });
+    } else if (selectedConvIds.size > 0) {
+      const ids = [...selectedConvIds];
+      const titles = ids.map((id) => {
+        const c = conversations.find((x) => x.id === id);
+        return c?.preview || "Chat";
+      });
+      setDeleteError(null);
+      setPendingDelete({ kind: "conversations", ids, titles });
+    }
+  }, [pendingDelete, selectedPaths, selectedConvIds, collectNodesByPaths, conversations]);
+
+  const clearMultiSelection = useCallback(() => {
+    setSelectedPaths((prev) => (prev.size === 0 ? prev : new Set()));
+    setPathAnchor(null);
+    setSelectedConvIds((prev) => (prev.size === 0 ? prev : new Set()));
+    setConvAnchor(null);
+  }, []);
 
   useShortcuts([
     { def: { key: "n", meta: true }, handler: () => void createNoteIn(vaultRoot) },
@@ -1006,7 +1289,10 @@ export function ProjectSidebar({
         setSettingsInitialPage("general");
         setSettingsOpen(true);
       }
-    }
+    },
+    { def: { key: "Backspace" }, handler: requestDeleteSelection },
+    { def: { key: "Delete" }, handler: requestDeleteSelection },
+    { def: { key: "Escape" }, handler: clearMultiSelection }
   ]);
 
   // Allow other components (e.g. chat empty state) to deep-link into a specific settings page.
@@ -1175,14 +1461,23 @@ export function ProjectSidebar({
                           depth={0}
                           selectedFilePath={selectedFilePath}
                           selectedFolderPath={selectedFolderPath}
+                          selectedPaths={selectedPaths}
+                          openFolders={openFolders}
+                          setFolderOpen={setFolderOpen}
                           autoRenamePath={pendingRenamePath}
                           onAutoRenameConsumed={() => setPendingRenamePath(null)}
-                          onSelectPlace={onSelectPlace}
-                          onSelectFolder={onSelectFolder}
-                          onSelectGeoJson={onSelectGeoJson}
+                          onPathClick={handlePathClick}
+                          onOpenInNewTab={handleOpenInNewTab}
                           onRequestDelete={(node) => {
                             setDeleteError(null);
-                            setPendingDelete(node);
+                            // If the right-clicked item is part of an active multi-selection,
+                            // delete the whole selection. Otherwise delete just the one.
+                            if (selectedPaths.size > 1 && selectedPaths.has(node.path)) {
+                              const nodes = collectNodesByPaths(selectedPaths);
+                              setPendingDelete({ kind: "files", nodes });
+                            } else {
+                              setPendingDelete({ kind: "files", nodes: [node] });
+                            }
                           }}
                           onRenameComplete={onRenamePath}
                           onCreateFolderIn={(path) => void createFolderIn(path)}
@@ -1249,78 +1544,107 @@ export function ProjectSidebar({
               {conversations.length === 0 ? (
                 <li className="px-2 py-1 text-xs text-sidebar-foreground/50">No conversations</li>
               ) : (
-                conversations.map((conv) => {
-                  const title = conv.preview || "Chat";
-                  const isActive = conv.id === activeChatConvId;
-                  const isStreaming = streamingConvIds.has(conv.id);
-                  return (
-                    <SidebarMenuItem key={conv.id}>
-                      <ContextMenu>
-                        <ContextMenuTrigger
-                          render={
-                            <SidebarMenuButton
-                              isActive={isActive}
-                              className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
-                              onClick={(e) =>
-                                onSelectChat?.(conv.id, title, e.metaKey || e.ctrlKey)
-                              }
-                            />
-                          }
-                        >
-                          {isStreaming ? (
-                            <PulseLoader aria-label="Streaming" color="text-white" />
-                          ) : (
-                            <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
-                          )}
-                          <span className="truncate">{title}</span>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          {isStreaming && (
-                            <ContextMenuItem onClick={() => onStopChat?.(conv.id)}>
-                              <SquareIcon />
-                              Stop
-                            </ContextMenuItem>
-                          )}
-                          <ContextMenuItem
-                            variant="destructive"
-                            onClick={() => onDeleteChat?.(conv.id)}
+                (() => {
+                  const orderedIds = conversations.map((c) => c.id);
+                  return conversations.map((conv) => {
+                    const title = conv.preview || "Chat";
+                    const isActive =
+                      selectedConvIds.size > 1
+                        ? selectedConvIds.has(conv.id)
+                        : conv.id === activeChatConvId;
+                    const isStreaming = streamingConvIds.has(conv.id);
+                    const requestDeleteConv = () => {
+                      if (selectedConvIds.size > 1 && selectedConvIds.has(conv.id)) {
+                        const ids = [...selectedConvIds];
+                        const titles = ids.map((id) => {
+                          const c = conversations.find((x) => x.id === id);
+                          return c?.preview || "Chat";
+                        });
+                        setPendingDelete({ kind: "conversations", ids, titles });
+                      } else {
+                        // Preserve existing single-conversation no-confirm UX.
+                        onDeleteChat?.(conv.id);
+                      }
+                    };
+                    return (
+                      <SidebarMenuItem key={conv.id}>
+                        <ContextMenu>
+                          <ContextMenuTrigger
+                            render={
+                              <SidebarMenuButton
+                                isActive={isActive}
+                                className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
+                                onClick={(e) => handleConvClick(conv, title, e, orderedIds)}
+                              />
+                            }
                           >
-                            <Trash2Icon />
-                            Delete
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <SidebarMenuAction
-                              showOnHover
-                              className="hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100"
+                            {isStreaming ? (
+                              <PulseLoader aria-label="Streaming" color="text-white" />
+                            ) : (
+                              <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+                            )}
+                            <span className="truncate">{title}</span>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem
+                              onClick={() => onSelectChat?.(conv.id, title, true)}
                             >
-                              <EllipsisIcon />
-                              <span className="sr-only">More actions</span>
-                            </SidebarMenuAction>
-                          }
-                        />
-                        <DropdownMenuContent side="right" align="start" className="w-auto">
-                          {isStreaming && (
-                            <DropdownMenuItem onClick={() => onStopChat?.(conv.id)}>
-                              <SquareIcon />
-                              Stop
+                              <PlusIcon />
+                              Open in New Tab
+                            </ContextMenuItem>
+                            {isStreaming && (
+                              <ContextMenuItem onClick={() => onStopChat?.(conv.id)}>
+                                <SquareIcon />
+                                Stop
+                              </ContextMenuItem>
+                            )}
+                            <ContextMenuSeparator />
+                            <ContextMenuItem variant="destructive" onClick={requestDeleteConv}>
+                              <Trash2Icon />
+                              {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)
+                                ? `Delete ${selectedConvIds.size} conversations`
+                                : "Delete"}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <SidebarMenuAction
+                                showOnHover
+                                className="hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100"
+                              >
+                                <EllipsisIcon />
+                                <span className="sr-only">More actions</span>
+                              </SidebarMenuAction>
+                            }
+                          />
+                          <DropdownMenuContent side="right" align="start" className="w-auto">
+                            <DropdownMenuItem
+                              onClick={() => onSelectChat?.(conv.id, title, true)}
+                            >
+                              <PlusIcon />
+                              Open in New Tab
                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => onDeleteChat?.(conv.id)}
-                          >
-                            <Trash2Icon />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </SidebarMenuItem>
-                  );
-                })
+                            {isStreaming && (
+                              <DropdownMenuItem onClick={() => onStopChat?.(conv.id)}>
+                                <SquareIcon />
+                                Stop
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" onClick={requestDeleteConv}>
+                              <Trash2Icon />
+                              {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)
+                                ? `Delete ${selectedConvIds.size} conversations`
+                                : "Delete"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </SidebarMenuItem>
+                    );
+                  });
+                })()
               )}
             </SidebarMenu>
           )}
@@ -1341,21 +1665,27 @@ export function ProjectSidebar({
         }}
       >
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete {pendingDelete?.type === "directory" ? "folder" : "file"}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.type === "directory"
-                ? `This will permanently delete "${pendingDelete?.name}" and all its contents.`
-                : `This will permanently delete "${pendingDelete?.name}".`}
-            </AlertDialogDescription>
-            {deleteError ? (
-              <AlertDialogDescription className="text-destructive">
-                {deleteError}
-              </AlertDialogDescription>
-            ) : null}
-          </AlertDialogHeader>
+          {(() => {
+            if (!pendingDelete) {
+              return (
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete?</AlertDialogTitle>
+                </AlertDialogHeader>
+              );
+            }
+            const { title, description } = describePendingDelete(pendingDelete);
+            return (
+              <AlertDialogHeader>
+                <AlertDialogTitle>{title}</AlertDialogTitle>
+                <AlertDialogDescription>{description}</AlertDialogDescription>
+                {deleteError ? (
+                  <AlertDialogDescription className="text-destructive">
+                    {deleteError}
+                  </AlertDialogDescription>
+                ) : null}
+              </AlertDialogHeader>
+            );
+          })()}
           <AlertDialogFooter>
             <AlertDialogCancel
               onClick={() => {

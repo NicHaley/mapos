@@ -605,33 +605,30 @@ export function PlaceCard({
               <Maximize2Icon />
             </Button>
           )}
-          {mode === "mini" ? (
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-              <XIcon />
-            </Button>
-          ) : (
-            place.previewMarkdown === undefined && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={<Button variant="ghost" size="icon" aria-label="More actions" />}
+          {mode === "full" && place.previewMarkdown === undefined && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="icon" aria-label="More actions" />}
+              >
+                <EllipsisIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteOpen(true);
+                  }}
                 >
-                  <EllipsisIcon />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="bottom" align="end">
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => {
-                      setDeleteError(null);
-                      setDeleteOpen(true);
-                    }}
-                  >
-                    <Trash2Icon />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+            <XIcon />
+          </Button>
         </div>
 
         {place.previewMarkdown === undefined &&

@@ -376,6 +376,7 @@ export function ChatPane({
   onUndo,
   onClearOverlay,
   onOpenFile,
+  onClose,
   onDeleted,
   mapOverlay,
   mapOverlayNonce,
@@ -393,6 +394,8 @@ export function ChatPane({
   onUndo: () => void;
   onClearOverlay: () => void;
   onOpenFile: (filePath: string) => void;
+  /** Close the chat pane without deleting the conversation. */
+  onClose: () => void;
   /** Called after the active conversation has been deleted on disk. */
   onDeleted: (convId: string) => void;
   mapOverlay: MapOverlayPayload;
@@ -480,22 +483,27 @@ export function ChatPane({
     <div className="flex h-full flex-col rounded-lg border border-sidebar-border bg-sidebar shadow-sm overflow-hidden">
       <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
         <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
-        {isSavedConversation && (
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-              <EllipsisIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="end">
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => void handleDeleteConversation()}
-              >
-                <Trash2Icon />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <div className="flex items-center gap-1">
+          {isSavedConversation && (
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                <EllipsisIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => void handleDeleteConversation()}
+                >
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+            <XIcon />
+          </Button>
+        </div>
       </div>
 
       <Conversation className="min-h-0">

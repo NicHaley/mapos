@@ -997,6 +997,10 @@ function App(): React.JSX.Element {
                 onAbort={() => chatStore.abort(activeChatConvId)}
                 onUndo={() => void chatStore.undo(activeChatConvId)}
                 onClearOverlay={() => chatStore.clearOverlay(activeChatConvId)}
+                onClose={() => {
+                  if (activeTabIndex >= 0) handleCloseTab(activeTabIndex);
+                  else setActiveChatConvId(null);
+                }}
                 onDeleted={handleChatDeleted}
                 onOpenFile={async (filePath) => {
                   const place = await window.api.places.getByPath(filePath);

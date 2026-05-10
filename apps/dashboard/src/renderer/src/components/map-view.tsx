@@ -931,6 +931,7 @@ const MapView = forwardRef<
         })()}
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
+        onLoad={() => sendViewport()}
         onMove={debouncedMove}
         onContextMenu={handleContextMenu}
         interactiveLayerIds={interactiveLayerIdsProp}

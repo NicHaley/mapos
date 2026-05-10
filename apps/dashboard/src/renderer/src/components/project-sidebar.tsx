@@ -666,15 +666,16 @@ function FileTreeNode({
     const isActive = node.path === selectedFolderPath;
     const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
     return (
-      <SidebarMenuItem className={cn(folderDropZone && "rounded-md bg-sidebar-accent")}>
+      <li className={cn("relative", folderDropZone && "rounded-md bg-sidebar-accent")}>
+        <div className="group/folder-row relative">
         <ContextMenu>
           <ContextMenuTrigger
             render={
               <div
                 className={cn(
                   "flex min-h-8 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md pl-1 pr-2 ring-sidebar-ring outline-hidden transition-[color,background-color,box-shadow]",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  "group-has-data-[sidebar=menu-action]/menu-item:pr-8",
+                  "group-hover/folder-row:bg-sidebar-accent group-hover/folder-row:text-sidebar-accent-foreground",
+                  "group-has-data-[sidebar=menu-action]/folder-row:pr-8",
                   isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
                   folderDropZone && "bg-sidebar-accent"
                 )}
@@ -752,7 +753,12 @@ function FileTreeNode({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <SidebarMenuAction showOnHover className={itemActionClass}>
+                <SidebarMenuAction
+                  className={cn(
+                    itemActionClass,
+                    "group-focus-within/folder-row:opacity-100 group-hover/folder-row:opacity-100 aria-expanded:opacity-100 md:opacity-0"
+                  )}
+                >
                   <EllipsisIcon />
                   <span className="sr-only">More actions</span>
                 </SidebarMenuAction>
@@ -763,6 +769,7 @@ function FileTreeNode({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        </div>
         {open && node.children && node.children.length > 0 && (
           <SidebarMenuSub className="translate-x-0">
             {node.children.map((child) => (
@@ -786,7 +793,7 @@ function FileTreeNode({
             ))}
           </SidebarMenuSub>
         )}
-      </SidebarMenuItem>
+      </li>
     );
   }
 
@@ -801,6 +808,7 @@ function FileTreeNode({
             <SidebarMenuButton
               // size="sm"
               isActive={isActive}
+              className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
               draggable={Boolean(dnd) && !isRenaming}
               onDragStart={(e) => {
                 if (!dnd || isRenaming) return;
@@ -1252,6 +1260,7 @@ export function ProjectSidebar({
                           render={
                             <SidebarMenuButton
                               isActive={isActive}
+                              className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
                               onClick={(e) =>
                                 onSelectChat?.(conv.id, title, e.metaKey || e.ctrlKey)
                               }
@@ -1281,6 +1290,34 @@ export function ProjectSidebar({
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <SidebarMenuAction
+                              showOnHover
+                              className="hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100"
+                            >
+                              <EllipsisIcon />
+                              <span className="sr-only">More actions</span>
+                            </SidebarMenuAction>
+                          }
+                        />
+                        <DropdownMenuContent side="right" align="start" className="w-auto">
+                          {isStreaming && (
+                            <DropdownMenuItem onClick={() => onStopChat?.(conv.id)}>
+                              <SquareIcon />
+                              Stop
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => onDeleteChat?.(conv.id)}
+                          >
+                            <Trash2Icon />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </SidebarMenuItem>
                   );
                 })

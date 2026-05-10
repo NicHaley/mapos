@@ -7,12 +7,13 @@ import {
   CollapsibleTrigger
 } from "@mapos/ui/components/collapsible";
 import { normalizeAssistantMarkdownSpacing } from "@mapos/ui/lib/normalize-assistant-markdown";
+import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import {
   createContext,
@@ -177,7 +178,7 @@ export const ReasoningTrigger = memo(
       >
         {children ?? (
           <>
-            <BrainIcon className="size-3.5" />
+            <PulseLoader animate={isStreaming} />
             {getThinkingMessage(isStreaming, duration)}
             <ChevronDownIcon
               className={cn("size-3.5 transition-transform", isOpen ? "rotate-180" : "rotate-0")}

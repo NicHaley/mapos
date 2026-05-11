@@ -534,6 +534,15 @@ function App(): React.JSX.Element {
     [chatStore, handleChatDeleted]
   );
 
+  const handleSidebarRenameChat = useCallback(
+    async (convId: string, title: string) => {
+      const result = await chatStore.renameConversation(convId, title);
+      if (result.success) await refreshConversations();
+      return result;
+    },
+    [chatStore, refreshConversations]
+  );
+
   useShortcuts([
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
@@ -983,9 +992,10 @@ function App(): React.JSX.Element {
               <ChatPane
                 key={activeChatConvId}
                 convId={activeChatConvId}
-                convTitle={
-                  conversations.find((c) => c.id === activeChatConvId)?.preview || "New Chat"
-                }
+                convTitle={(() => {
+                  const c = conversations.find((c) => c.id === activeChatConvId);
+                  return c?.title || c?.preview || "New Chat";
+                })()}
                 convState={chatStore.getConv(activeChatConvId)}
                 mapOverlay={mapOverlay}
                 mapOverlayNonce={mapOverlayNonce}
@@ -1122,6 +1132,7 @@ function App(): React.JSX.Element {
             onNewChat={handleNewChat}
             onSelectChat={handleSwitchChatConv}
             onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
+            onRenameChat={handleSidebarRenameChat}
             onStopChat={(convId) => chatStore.abort(convId)}
           />
         </SidebarProvider>

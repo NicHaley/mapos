@@ -82,7 +82,8 @@ export function setupChat(
         id,
         messages,
         sdkSessionId: meta?.sdkSessionId,
-        overlay: state.overlay
+        overlay: state.overlay,
+        ...(meta?.title ? { title: meta.title } : {})
       };
       conversations.set(id, conv);
       return conv;
@@ -407,6 +408,24 @@ export function setupChat(
     }
   });
 
+  ipcMain.handle("chat:rename-conversation", (_event, id: string, rawTitle: string) => {
+    const title = rawTitle.trim();
+    if (!title) return { success: false, error: "Title cannot be empty" };
+    try {
+      const entries = readConversationIndex();
+      const idx = entries.findIndex((e) => e.id === id);
+      if (idx < 0) return { success: false, error: "Conversation not found" };
+      entries[idx] = { ...entries[idx], title };
+      compactIndex(entries);
+      const conv = conversations.get(id);
+      if (conv) conv.title = title;
+      return { success: true };
+    } catch (err) {
+      console.error("[main] failed to rename conversation:", err);
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle("chat:delete-conversation", (_event, id: string) => {
     try {
       // Cancel any in-flight query first
@@ -432,7 +451,8 @@ export function setupChat(
     "chat:load-conversation",
     "chat:list-conversations",
     "chat:undo",
-    "chat:delete-conversation"
+    "chat:delete-conversation",
+    "chat:rename-conversation"
   ] as const;
   const CHAT_ON_CHANNELS = ["chat:send", "chat:abort", "chat:clear-overlay"] as const;
 

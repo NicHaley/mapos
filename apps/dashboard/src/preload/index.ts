@@ -326,6 +326,11 @@ const api = {
     loadConversation: (convId: string) => ipcRenderer.invoke("chat:load-conversation", convId),
     listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
     deleteConversation: (id: string) => ipcRenderer.invoke("chat:delete-conversation", id),
+    renameConversation: (id: string, title: string) =>
+      ipcRenderer.invoke("chat:rename-conversation", id, title) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     clearOverlay: (convId: string) => ipcRenderer.send("chat:clear-overlay", { convId }),
     onChunk: (cb: (data: ChatChunkPayload) => void) =>
       ipcRenderer.on("chat:chunk", (_e, d) => cb(d)),

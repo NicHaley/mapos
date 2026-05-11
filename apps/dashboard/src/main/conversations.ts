@@ -7,6 +7,7 @@ export type ActiveConversation = {
   messages: PersistedMessage[];
   sdkSessionId?: string;
   overlay?: MapOverlayPayload | null;
+  title?: string;
 };
 
 export type ConversationMeta = {
@@ -16,6 +17,7 @@ export type ConversationMeta = {
   messageCount: number;
   preview: string;
   sdkSessionId?: string;
+  title?: string;
 };
 
 let activeConversationsDir = "";
@@ -52,7 +54,8 @@ export function convToMeta(conv: ActiveConversation): ConversationMeta {
     updated_at: conv.messages[conv.messages.length - 1]?.timestamp ?? new Date().toISOString(),
     messageCount: conv.messages.length,
     preview: (firstUser?.content ?? "").slice(0, 100),
-    sdkSessionId: conv.sdkSessionId
+    sdkSessionId: conv.sdkSessionId,
+    ...(conv.title ? { title: conv.title } : {})
   };
 }
 

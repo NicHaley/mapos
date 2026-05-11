@@ -98,6 +98,8 @@ export type ConversationMeta = {
   updated_at: string;
   messageCount: number;
   preview: string;
+  /** User-renamed title. When unset, the UI falls back to `preview`. */
+  title?: string;
 };
 
 export type VaultOperation = {

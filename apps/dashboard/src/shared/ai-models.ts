@@ -23,6 +23,8 @@ export type ModelCapabilities = {
   thinking: "adaptive" | "enabled" | false;
   /** Vision input (image content blocks on user messages). */
   supportsImages: boolean;
+  /** Tool use through MapOS's chat path. */
+  supportsTools: boolean;
   /** Display-ready context window magnitude (e.g. "32K", "1M"). UX hint, not enforcement. */
   contextWindow: string;
 };
@@ -44,16 +46,18 @@ export type OllamaModel = {
 const ANTHROPIC_DEFAULT: ModelCapabilities = {
   thinking: "adaptive",
   supportsImages: true,
+  supportsTools: true,
   contextWindow: "200K"
 };
 
 /**
- * Conservative default for unrecognized local models — no thinking, no images.
+ * Conservative default for unrecognized local models — no thinking, no images, no tools.
  * Curated entries below opt into stronger capabilities only after end-to-end verification.
  */
 const LOCAL_DEFAULT: ModelCapabilities = {
   thinking: false,
   supportsImages: false,
+  supportsTools: false,
   contextWindow: "32K"
 };
 
@@ -81,35 +85,62 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     label: "LFM2.5 Thinking 1.2B",
     size: "0.8 GB",
     hint: "Tiny — runs on almost any machine.",
-    capabilities: { ...LOCAL_DEFAULT, contextWindow: "32K" }
+    capabilities: {
+      ...LOCAL_DEFAULT,
+      contextWindow: "32K",
+      thinking: "enabled",
+      supportsTools: true
+    }
   },
   {
     id: "ministral-3:3b",
     label: "Ministral 3B",
     size: "2.0 GB",
     hint: "Small and fast, light RAM use.",
-    capabilities: { ...LOCAL_DEFAULT, contextWindow: "128K" }
+    capabilities: {
+      ...LOCAL_DEFAULT,
+      contextWindow: "128K",
+      supportsImages: true,
+      supportsTools: true
+    }
   },
   {
     id: "qwen3.5:9b",
     label: "Qwen 3.5 9B",
     size: "5.4 GB",
     hint: "Sweet spot. Most popular tools model.",
-    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
+    capabilities: {
+      ...LOCAL_DEFAULT,
+      contextWindow: "256K",
+      thinking: "enabled",
+      supportsImages: true,
+      supportsTools: true
+    }
   },
   {
     id: "ministral-3:14b",
     label: "Ministral 14B",
     size: "8.5 GB",
     hint: "Higher quality if you have the RAM.",
-    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
+    capabilities: {
+      ...LOCAL_DEFAULT,
+      contextWindow: "256K",
+      supportsImages: true,
+      supportsTools: true
+    }
   },
   {
     id: "gemma4:26b",
     label: "Gemma 4 26B",
     size: "16 GB",
     hint: "Frontier-level reasoning. Needs 32GB+ RAM.",
-    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
+    capabilities: {
+      ...LOCAL_DEFAULT,
+      contextWindow: "256K",
+      thinking: "enabled",
+      supportsImages: true,
+      supportsTools: true
+    }
   }
 ];
 

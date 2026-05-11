@@ -4,6 +4,7 @@ import {
   FolderPlusIcon,
   MessageCircleIcon,
   MessageCirclePlusIcon,
+  PencilIcon,
   PlusIcon,
   SettingsIcon,
   SquareIcon,
@@ -61,7 +62,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from "@mapos/ui/components/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import {
+  ErrorTooltip,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 
 export function ProjectSidebar({
   selectedFilePath,
@@ -78,6 +85,7 @@ export function ProjectSidebar({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  onRenameChat,
   onStopChat
 }: {
   selectedFilePath?: string;
@@ -94,6 +102,7 @@ export function ProjectSidebar({
   onNewChat?: () => void;
   onSelectChat?: (convId: string, title: string, newTab?: boolean) => void;
   onDeleteChat?: (convId: string) => void;
+  onRenameChat?: (convId: string, title: string) => Promise<{ success: boolean; error?: string }>;
   onStopChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -118,6 +127,62 @@ export function ProjectSidebar({
   const [pathAnchor, setPathAnchor] = useState<string | null>(null);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convAnchor, setConvAnchor] = useState<string | null>(null);
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [convRenameDraft, setConvRenameDraft] = useState("");
+  const [convRenameError, setConvRenameError] = useState<string | null>(null);
+  const convRenameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingConvId) {
+      convRenameInputRef.current?.focus();
+      convRenameInputRef.current?.select();
+    }
+  }, [renamingConvId]);
+
+  const startRenameConv = useCallback((convId: string, currentTitle: string) => {
+    setRenamingConvId(convId);
+    setConvRenameDraft(currentTitle);
+    setConvRenameError(null);
+  }, []);
+
+  const cancelRenameConv = useCallback(() => {
+    setRenamingConvId(null);
+    setConvRenameError(null);
+  }, []);
+
+  const commitRenameConv = useCallback(async () => {
+    if (!renamingConvId || !onRenameChat) {
+      cancelRenameConv();
+      return;
+    }
+    const draft = convRenameDraft.trim();
+    if (!draft) {
+      setConvRenameError("Title cannot be empty");
+      convRenameInputRef.current?.focus();
+      return;
+    }
+    const result = await onRenameChat(renamingConvId, draft);
+    if (!result.success) {
+      setConvRenameError(result.error ?? "Rename failed");
+      convRenameInputRef.current?.focus();
+      return;
+    }
+    setRenamingConvId(null);
+    setConvRenameError(null);
+  }, [renamingConvId, convRenameDraft, onRenameChat, cancelRenameConv]);
+
+  const handleRenameConvKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void commitRenameConv();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelRenameConv();
+      }
+    },
+    [commitRenameConv, cancelRenameConv]
+  );
 
   const setFolderOpen = useCallback((path: string, open: boolean) => {
     setOpenFolders((prev) => {
@@ -380,7 +445,7 @@ export function ProjectSidebar({
       const ids = [...selectedConvIds];
       const titles = ids.map((id) => {
         const c = conversations.find((x) => x.id === id);
-        return c?.preview || "Chat";
+        return c?.title || c?.preview || "Chat";
       });
       setDeleteError(null);
       setPendingDelete({ kind: "conversations", ids, titles });
@@ -660,18 +725,19 @@ export function ProjectSidebar({
                 (() => {
                   const orderedIds = conversations.map((c) => c.id);
                   return conversations.map((conv) => {
-                    const title = conv.preview || "Chat";
+                    const title = conv.title || conv.preview || "Chat";
                     const isActive =
                       selectedConvIds.size > 1
                         ? selectedConvIds.has(conv.id)
                         : conv.id === activeChatConvId;
                     const isStreaming = streamingConvIds.has(conv.id);
+                    const isRenaming = renamingConvId === conv.id;
                     const requestDeleteConv = () => {
                       if (selectedConvIds.size > 1 && selectedConvIds.has(conv.id)) {
                         const ids = [...selectedConvIds];
                         const titles = ids.map((id) => {
                           const c = conversations.find((x) => x.id === id);
-                          return c?.preview || "Chat";
+                          return c?.title || c?.preview || "Chat";
                         });
                         setPendingDelete({ kind: "conversations", ids, titles });
                       } else {
@@ -687,7 +753,13 @@ export function ProjectSidebar({
                               <SidebarMenuButton
                                 isActive={isActive}
                                 className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
-                                onClick={(e) => handleConvClick(conv, title, e, orderedIds)}
+                                onClick={(e) => {
+                                  if (isRenaming) {
+                                    e.preventDefault();
+                                    return;
+                                  }
+                                  handleConvClick(conv, title, e, orderedIds);
+                                }}
                               />
                             }
                           >
@@ -696,7 +768,30 @@ export function ProjectSidebar({
                             ) : (
                               <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
                             )}
-                            <span className="truncate">{title}</span>
+                            {isRenaming ? (
+                              <ErrorTooltip error={convRenameError}>
+                                <input
+                                  ref={convRenameInputRef}
+                                  value={convRenameDraft}
+                                  onChange={(e) => {
+                                    setConvRenameDraft(e.target.value);
+                                    setConvRenameError(null);
+                                  }}
+                                  onKeyDown={handleRenameConvKeyDown}
+                                  onBlur={() => void commitRenameConv()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={cn(
+                                    "min-w-0 flex-1 h-5 box-border rounded p-0 text-sm leading-5",
+                                    "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
+                                    convRenameError
+                                      ? "ring-2 ring-inset ring-destructive"
+                                      : "ring-2 ring-inset ring-blue-500"
+                                  )}
+                                />
+                              </ErrorTooltip>
+                            ) : (
+                              <span className="truncate">{title}</span>
+                            )}
                           </ContextMenuTrigger>
                           <ContextMenuContent>
                             <ContextMenuItem
@@ -712,6 +807,10 @@ export function ProjectSidebar({
                               </ContextMenuItem>
                             )}
                             <ContextMenuSeparator />
+                            <ContextMenuItem onClick={() => startRenameConv(conv.id, title)}>
+                              <PencilIcon />
+                              Rename
+                            </ContextMenuItem>
                             <ContextMenuItem variant="destructive" onClick={requestDeleteConv}>
                               <Trash2Icon />
                               {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)
@@ -746,6 +845,10 @@ export function ProjectSidebar({
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => startRenameConv(conv.id, title)}>
+                              <PencilIcon />
+                              Rename
+                            </DropdownMenuItem>
                             <DropdownMenuItem variant="destructive" onClick={requestDeleteConv}>
                               <Trash2Icon />
                               {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)

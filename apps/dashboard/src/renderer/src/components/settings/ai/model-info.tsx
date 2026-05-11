@@ -1,5 +1,5 @@
 import { ANTHROPIC_MODELS, type OLLAMA_MODELS } from "@shared/ai-models";
-import { ctxLabel, thinkingLabel } from "./helpers";
+import { thinkingLabel } from "./helpers";
 import type { CustomEndpoint } from "./types";
 
 export function ModelInfo({
@@ -39,7 +39,7 @@ export function anthropicInfoContent(modelId: string): React.ReactNode {
     <ModelInfo
       fullId={entry.id}
       rows={[
-        { label: "Context", value: ctxLabel(c.contextWindow) },
+        { label: "Context", value: `${c.contextWindow} tokens` },
         { label: "Vision", value: c.supportsImages ? "Yes" : "No" },
         { label: "Thinking", value: thinkingLabel(c.thinking) }
       ]}
@@ -55,7 +55,7 @@ export function ollamaCuratedInfoContent(model: (typeof OLLAMA_MODELS)[number]):
       description={model.hint}
       rows={[
         { label: "Disk", value: model.size },
-        { label: "Context", value: ctxLabel(c.contextWindow) },
+        { label: "Context", value: `${c.contextWindow} tokens` },
         { label: "Vision", value: c.supportsImages ? "Yes" : "No" }
       ]}
     />

@@ -23,8 +23,8 @@ export type ModelCapabilities = {
   thinking: "adaptive" | "enabled" | false;
   /** Vision input (image content blocks on user messages). */
   supportsImages: boolean;
-  /** Approximate input context window in tokens. Best-effort; UX hint, not enforcement. */
-  contextWindow: number;
+  /** Display-ready context window magnitude (e.g. "32K", "1M"). UX hint, not enforcement. */
+  contextWindow: string;
 };
 
 export type AnthropicModel = {
@@ -44,7 +44,7 @@ export type OllamaModel = {
 const ANTHROPIC_DEFAULT: ModelCapabilities = {
   thinking: "adaptive",
   supportsImages: true,
-  contextWindow: 200_000
+  contextWindow: "200K"
 };
 
 /**
@@ -54,19 +54,19 @@ const ANTHROPIC_DEFAULT: ModelCapabilities = {
 const LOCAL_DEFAULT: ModelCapabilities = {
   thinking: false,
   supportsImages: false,
-  contextWindow: 32_768
+  contextWindow: "32K"
 };
 
 export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     id: "claude-opus-4-7",
     label: "Claude Opus 4.7",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
   },
   {
     id: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
   }
 ];
 
@@ -77,18 +77,39 @@ export const ANTHROPIC_MODELS: AnthropicModel[] = [
  */
 export const OLLAMA_MODELS: OllamaModel[] = [
   {
-    id: "qwen2.5:14b",
-    label: "Qwen 2.5 14B",
-    size: "8.4 GB",
-    hint: "Higher quality if you have the RAM.",
-    capabilities: LOCAL_DEFAULT
+    id: "lfm2.5-thinking:1.2b",
+    label: "LFM2.5 Thinking 1.2B",
+    size: "0.8 GB",
+    hint: "Tiny — runs on almost any machine.",
+    capabilities: { ...LOCAL_DEFAULT, contextWindow: "32K" }
   },
   {
-    id: "mistral-nemo:12b",
-    label: "Mistral Nemo 12B",
-    size: "7.1 GB",
-    hint: "Long context window.",
-    capabilities: LOCAL_DEFAULT
+    id: "ministral-3:3b",
+    label: "Ministral 3B",
+    size: "2.0 GB",
+    hint: "Small and fast, light RAM use.",
+    capabilities: { ...LOCAL_DEFAULT, contextWindow: "128K" }
+  },
+  {
+    id: "qwen3.5:9b",
+    label: "Qwen 3.5 9B",
+    size: "5.4 GB",
+    hint: "Sweet spot. Most popular tools model.",
+    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
+  },
+  {
+    id: "ministral-3:14b",
+    label: "Ministral 14B",
+    size: "8.5 GB",
+    hint: "Higher quality if you have the RAM.",
+    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
+  },
+  {
+    id: "gemma4:26b",
+    label: "Gemma 4 26B",
+    size: "16 GB",
+    hint: "Frontier-level reasoning. Needs 32GB+ RAM.",
+    capabilities: { ...LOCAL_DEFAULT, contextWindow: "256K" }
   }
 ];
 

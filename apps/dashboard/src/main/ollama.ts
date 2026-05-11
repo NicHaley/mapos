@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { BrowserWindow } from "electron";
 
 export type OllamaPullProgress = {
@@ -7,10 +9,88 @@ export type OllamaPullProgress = {
   status?: string;
 };
 
+type StoredPendingPull = { baseUrl: string; modelId: string };
+
+export type PendingPull = StoredPendingPull & {
+  /**
+   * True when the pull is still streaming in this process (not just persisted). The renderer
+   * uses this to decide whether to re-issue `pullModel` (false → fresh resume needed) or just
+   * hook up its UI to the existing stream (true → restarting would abort progress).
+   */
+  active: boolean;
+};
+
 const DETECT_TIMEOUT_MS = 1500;
+const PENDING_PULLS_FILENAME = "ollama-pending-pulls.json";
 
 /** Active pull controllers keyed by `${baseUrl}::${modelId}` so cancelPull can reach them. */
 const activePulls = new Map<string, AbortController>();
+
+/** Set once at startup by {@link setupOllamaPersistence}; null until then. */
+let appStateDirRef: string | null = null;
+
+/**
+ * Wire up the persistence directory for pending pulls. Must be called once during main
+ * process init before any pulls are started. Persisting which models are mid-download
+ * survives app restarts and computer-sleep network drops so the UI can resume the
+ * indicator (Ollama itself keeps the partial bytes on disk and re-pulling resumes).
+ */
+export function setupOllamaPersistence(appStateDir: string): void {
+  appStateDirRef = appStateDir;
+}
+
+function pendingPullsPath(): string | null {
+  return appStateDirRef ? join(appStateDirRef, PENDING_PULLS_FILENAME) : null;
+}
+
+function readPendingPullsFromDisk(): StoredPendingPull[] {
+  const p = pendingPullsPath();
+  if (!p || !existsSync(p)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf-8")) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (e): e is StoredPendingPull =>
+        !!e &&
+        typeof e === "object" &&
+        typeof (e as StoredPendingPull).baseUrl === "string" &&
+        typeof (e as StoredPendingPull).modelId === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writePendingPullsToDisk(pulls: StoredPendingPull[]): void {
+  const p = pendingPullsPath();
+  if (!p) return;
+  try {
+    writeFileSync(p, `${JSON.stringify(pulls, null, 2)}\n`, "utf-8");
+  } catch {
+    /* best-effort — losing the persistence file just means no resume on restart */
+  }
+}
+
+function addPendingPull(baseUrl: string, modelId: string): void {
+  const cur = readPendingPullsFromDisk();
+  if (cur.some((e) => e.baseUrl === baseUrl && e.modelId === modelId)) return;
+  cur.push({ baseUrl, modelId });
+  writePendingPullsToDisk(cur);
+}
+
+function removePendingPull(baseUrl: string, modelId: string): void {
+  const cur = readPendingPullsFromDisk();
+  const next = cur.filter((e) => !(e.baseUrl === baseUrl && e.modelId === modelId));
+  if (next.length !== cur.length) writePendingPullsToDisk(next);
+}
+
+/** Snapshot of pulls that should be in progress — survives app restarts. */
+export function getPendingPulls(): PendingPull[] {
+  return readPendingPullsFromDisk().map((p) => ({
+    ...p,
+    active: activePulls.has(pullKey(p.baseUrl, p.modelId))
+  }));
+}
 
 function pullKey(baseUrl: string, modelId: string): string {
   return `${baseUrl}::${modelId}`;
@@ -64,6 +144,9 @@ export async function pullModel(
   activePulls.get(key)?.abort();
   const controller = new AbortController();
   activePulls.set(key, controller);
+  // Record on disk so a crash/sleep/quit mid-download is recoverable; only success
+  // and explicit cancel clear it — transient errors keep the entry for next retry.
+  addPendingPull(baseUrl, modelId);
 
   const send = (payload: OllamaPullProgress): void => {
     if (!mainWindow.isDestroyed()) {
@@ -121,6 +204,7 @@ export async function pullModel(
       }
     }
     send({ modelId, status: "done", percent: 100 });
+    removePendingPull(baseUrl, modelId);
   } finally {
     activePulls.delete(key);
   }
@@ -130,6 +214,7 @@ export function cancelPull(baseUrl: string, modelId: string): void {
   const key = pullKey(baseUrl, modelId);
   activePulls.get(key)?.abort();
   activePulls.delete(key);
+  removePendingPull(baseUrl, modelId);
 }
 
 /**
@@ -146,4 +231,5 @@ export async function deleteModel(baseUrl: string, modelId: string): Promise<voi
     const text = await res.text().catch(() => "");
     throw new Error(`Ollama delete failed: HTTP ${res.status}${text ? `: ${text.slice(0, 240)}` : ""}`);
   }
+  removePendingPull(baseUrl, modelId);
 }

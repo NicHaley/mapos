@@ -38,6 +38,8 @@ export function AiTab(): React.JSX.Element {
   const [pullingModel, setPullingModel] = useState<string | null>(null);
   const [pullPercent, setPullPercent] = useState<number>(0);
   const [pullError, setPullError] = useState<string | null>(null);
+  /** Guards one-shot pending-pull recovery so tab unmount/remount doesn't restart healthy streams. */
+  const [resumeChecked, setResumeChecked] = useState(false);
 
   // Selection in flight (for optimistic emerald check)
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
@@ -92,6 +94,35 @@ export function AiTab(): React.JSX.Element {
       }
     });
   }, [pullingModel, refreshOllama]);
+
+  // Recover the loading indicator for a pull that was interrupted by app close, computer sleep,
+  // or a dropped network. Ollama keeps partial blob bytes on disk, so re-issuing /api/pull
+  // resumes from where it left off — we just need to know which model to re-issue for, which is
+  // what the persisted pending-pulls file tells us.
+  useEffect(() => {
+    if (resumeChecked) return;
+    if (detection !== "running") return;
+    if (pullingModel) return;
+    setResumeChecked(true);
+    void (async () => {
+      const pending = await window.api.aiConfig.ollamaGetPendingPulls();
+      const match = pending.find((p) => p.baseUrl === baseUrl);
+      if (!match) return;
+      // Model finished installing through another path (e.g. user ran `ollama pull` in a terminal)
+      // while MapOS was closed — just clear the stale entry; nothing to resume.
+      if (installed.includes(match.modelId)) {
+        void window.api.aiConfig.ollamaCancelPull(baseUrl, match.modelId);
+        return;
+      }
+      setPullError(null);
+      setPullingModel(match.modelId);
+      setPullPercent(0);
+      // If the pull is still streaming in this process (e.g. user just switched settings tabs),
+      // hooking up the listener above is enough — restarting would needlessly abort progress.
+      if (match.active) return;
+      void pullAndSelect(match.modelId);
+    })();
+  }, [detection, baseUrl, pullingModel, installed, resumeChecked]);
 
   function flashSaved(): void {
     setSavedMessage("Saved");

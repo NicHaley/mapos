@@ -12,7 +12,14 @@ import {
   updateCustomEndpoint
 } from "./ai-config";
 import { DEFAULT_OLLAMA_BASE_URL } from "./mapos-config";
-import { cancelPull, deleteModel, detectOllama, listInstalledModels, pullModel } from "./ollama";
+import {
+  cancelPull,
+  deleteModel,
+  detectOllama,
+  getPendingPulls,
+  listInstalledModels,
+  pullModel
+} from "./ollama";
 
 const HANDLE_CHANNELS = [
   "ai-config:get-status",
@@ -26,7 +33,8 @@ const HANDLE_CHANNELS = [
   "ai-config:ollama-list-installed",
   "ai-config:ollama-pull",
   "ai-config:ollama-cancel-pull",
-  "ai-config:ollama-delete"
+  "ai-config:ollama-delete",
+  "ai-config:ollama-get-pending-pulls"
 ] as const;
 
 /**
@@ -193,6 +201,7 @@ export function registerAiConfigIpc(mainWindow: BrowserWindow): () => void {
     cancelPull(args.baseUrl, args.modelId);
     return { ok: true as const };
   });
+  ipcMain.handle("ai-config:ollama-get-pending-pulls", () => getPendingPulls());
   ipcMain.handle(
     "ai-config:ollama-delete",
     async (_e, args: { baseUrl: string; modelId: string }) => {

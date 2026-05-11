@@ -1,12 +1,6 @@
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import type { AiSettingsState, CustomEndpoint, SheetTarget } from "./types";
 
-export function ctxLabel(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M tokens`;
-  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K tokens`;
-  return `${tokens} tokens`;
-}
-
 export function thinkingLabel(t: "adaptive" | "enabled" | false): string {
   if (t === "adaptive") return "Adaptive";
   if (t === "enabled") return "Enabled";
@@ -16,14 +10,7 @@ export function thinkingLabel(t: "adaptive" | "enabled" | false): string {
 export function anthropicCapabilityMeta(modelId: string): string {
   const entry = ANTHROPIC_MODELS.find((m) => m.id === modelId);
   if (!entry) return "Cloud model";
-  const ctx = entry.capabilities.contextWindow;
-  const ctxText =
-    ctx >= 1_000_000
-      ? "1M context"
-      : ctx >= 1000
-        ? `${Math.round(ctx / 1000)}K context`
-        : `${ctx} ctx`;
-  const parts = [ctxText];
+  const parts = [`${entry.capabilities.contextWindow} context`];
   if (entry.capabilities.supportsImages) parts.push("vision");
   return parts.join(" · ");
 }

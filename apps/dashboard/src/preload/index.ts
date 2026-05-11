@@ -291,6 +291,10 @@ const api = {
       ipcRenderer.invoke("ai-config:ollama-cancel-pull", { baseUrl, modelId }) as Promise<{
         ok: true;
       }>,
+    ollamaGetPendingPulls: () =>
+      ipcRenderer.invoke("ai-config:ollama-get-pending-pulls") as Promise<
+        Array<{ baseUrl: string; modelId: string; active: boolean }>
+      >,
     ollamaDelete: (baseUrl: string, modelId: string) =>
       ipcRenderer.invoke("ai-config:ollama-delete", { baseUrl, modelId }) as Promise<
         { ok: true } | { ok: false; error: string }

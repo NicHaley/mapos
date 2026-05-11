@@ -18,6 +18,7 @@ import {
   setActiveVaultInConfig
 } from "./mapos-config";
 import { registerMaposIpc } from "./mapos-ipc";
+import { setupOllamaPersistence } from "./ollama";
 import { setupPlacesWatcher } from "./watcher";
 
 function createWindow(): BrowserWindow {
@@ -135,6 +136,7 @@ app.whenReady().then(() => {
   }
 
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
+  setupOllamaPersistence(appStateDir);
   registerAiConfigIpc(mainWindow);
 
   // Vault management + onboarding IPCs are also vault-independent. They power both the

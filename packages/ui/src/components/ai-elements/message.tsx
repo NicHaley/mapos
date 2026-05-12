@@ -282,6 +282,8 @@ export const MessageResponse = memo(
         // Streamdown table wrapper defaults to `my-4 p-2 border bg-sidebar` on top of the inner scroll
         // container's own border — flatten it so only the inner border shows and remove the vertical gap.
         "[&_[data-streamdown=table-wrapper]]:!my-0 [&_[data-streamdown=table-wrapper]]:!p-0 [&_[data-streamdown=table-wrapper]]:!border-0 [&_[data-streamdown=table-wrapper]]:!bg-transparent",
+        // prose adds top/bottom margin directly to <table>; the wrapper already handles spacing.
+        "[&_table]:!my-0",
         className
       )}
       plugins={streamdownPlugins}

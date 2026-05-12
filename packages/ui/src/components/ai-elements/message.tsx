@@ -279,9 +279,13 @@ export const MessageResponse = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         // Streamdown list items use py-1; prose still applies paragraph margins to nested <p>.
         "[&_[data-streamdown=list-item]_p:first-child]:!mt-0 [&_[data-streamdown=list-item]_p:last-child]:!mb-0",
+        // Streamdown table wrapper defaults to `my-4 p-2 border bg-sidebar` on top of the inner scroll
+        // container's own border — flatten it so only the inner border shows and remove the vertical gap.
+        "[&_[data-streamdown=table-wrapper]]:!my-0 [&_[data-streamdown=table-wrapper]]:!p-0 [&_[data-streamdown=table-wrapper]]:!border-0 [&_[data-streamdown=table-wrapper]]:!bg-transparent",
         className
       )}
       plugins={streamdownPlugins}
+      controls={{ table: false }}
       {...props}
     >
       {typeof children === "string" ? normalizeAssistantMarkdownSpacing(children) : children}

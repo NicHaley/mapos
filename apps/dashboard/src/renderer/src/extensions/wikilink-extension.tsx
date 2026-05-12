@@ -24,8 +24,6 @@ import {
   type SuggestionOptions,
   type SuggestionProps
 } from "@tiptap/suggestion";
-import { SquareArrowOutUpRightIcon } from "lucide-react";
-
 export type { WikilinkItem };
 
 const WikilinkPluginKey = new PluginKey("wikilink");
@@ -35,12 +33,13 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
 
   return (
     <NodeViewWrapper as="span" style={{ display: "inline" }}>
-      <span
-        role={onClickWikilink ? "button" : undefined}
-        tabIndex={onClickWikilink ? 0 : undefined}
+      <a
+        data-wikilink=""
+        href={`#wikilink:${encodeURIComponent(node.attrs.title)}`}
         onClick={
           onClickWikilink
             ? (e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 onClickWikilink(node.attrs.title, e.metaKey || e.ctrlKey);
               }
@@ -50,6 +49,7 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
           onClickWikilink
             ? (e) => {
                 if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
                   e.stopPropagation();
                   onClickWikilink(node.attrs.title, e.metaKey || e.ctrlKey);
                 }
@@ -57,18 +57,12 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
             : undefined
         }
         className={cn(
-          "inline-flex items-center gap-0.5 underline underline-offset-2 decoration-sidebar-foreground/40",
-          "text-sidebar-foreground",
-          onClickWikilink ? "cursor-pointer hover:decoration-sidebar-foreground" : "cursor-default",
+          onClickWikilink ? "cursor-pointer" : "cursor-default",
           selected && "bg-sidebar-accent rounded"
         )}
       >
-        <SquareArrowOutUpRightIcon
-          className="size-3 shrink-0 no-underline"
-          style={{ textDecoration: "none" }}
-        />
         {node.attrs.title}
-      </span>
+      </a>
     </NodeViewWrapper>
   );
 }

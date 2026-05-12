@@ -185,8 +185,6 @@ function App(): React.JSX.Element {
   /** Places linked from [[wikilinks]] in the currently-open file; rendered gray. */
   const [linkedPlaces, setLinkedPlaces] = useState<PlaceRecord[]>([]);
   const mapRef = useRef<MapViewHandle>(null);
-  const selectedFolderRef = useRef(selectedFolder);
-  selectedFolderRef.current = selectedFolder;
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
 
@@ -606,12 +604,8 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      if (!selectedFolderRef.current) {
-        setSelectedFolder(null);
-        mapRef.current?.fitToPlace(place, getMapPadding(false));
-      }
     },
-    [placeMode, getMapPadding]
+    [placeMode]
   );
 
   // Sidebar file click — navigate within active tab (or background tab on cmd/ctrl+click)

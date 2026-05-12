@@ -26,7 +26,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
-import type { MapOverlayPayload } from "@shared/types";
+import type { MapOverlayPayload, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
@@ -43,9 +43,17 @@ import {
   Undo2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FeatureMessageProvider,
+  FeatureResolverProvider
+} from "../contexts/feature-resolver";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
+import { FeatureList } from "./feature-list";
 import { FolderPickerPopover } from "./folder-picker-popover";
+
+const STREAMDOWN_FEATURES_COMPONENTS = { features: FeatureList };
+const STREAMDOWN_FEATURES_ALLOWED_TAGS = { features: ["refs"] };
 
 const VAULT_FILE_TOOLS = new Set([
   "mcp__mapos__write_vault_file",
@@ -383,7 +391,10 @@ export function ChatPane({
   onAddAllOverlayToVault,
   addAllOverlayBusy,
   isSavedConversation,
-  defaultParentFolderPath
+  defaultParentFolderPath,
+  placesByPath,
+  selectedFilePath,
+  onOpenFeature
 }: {
   convId: string;
   /** Display name for the active conversation (preview text or "New Chat" before first message). */
@@ -407,6 +418,12 @@ export function ChatPane({
   isSavedConversation: boolean;
   /** Folder pre-selected as the default destination in the folder picker. */
   defaultParentFolderPath: string | null;
+  /** Renderer-side mirror of indexed vault places, keyed by file path. Used to resolve `<features vault:...>` refs. */
+  placesByPath: Map<string, PlaceRecord>;
+  /** File path of the currently-selected place. Used to highlight matching `<features>` rows. */
+  selectedFilePath: string | null;
+  /** Open a feature; when restoreOverlay is provided, replay it before opening. */
+  onOpenFeature: (place: PlaceRecord, restoreOverlay?: MapOverlayPayload) => void;
 }): React.JSX.Element {
   const {
     messages,
@@ -479,7 +496,18 @@ export function ChatPane({
     streamingContent === "" &&
     activeToolCalls.length === 0;
 
+  const featureResolverValue = useMemo(
+    () => ({
+      getPlace: (filePath: string) => placesByPath.get(filePath),
+      liveOverlay: mapOverlay,
+      selectedFilePath,
+      onOpenFeature
+    }),
+    [placesByPath, mapOverlay, selectedFilePath, onOpenFeature]
+  );
+
   return (
+    <FeatureResolverProvider value={featureResolverValue}>
     <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
       <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
         <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
@@ -571,7 +599,14 @@ export function ChatPane({
                 )}
                 {msg.content && (
                   <MessageContent>
-                    <MessageResponse>{msg.content}</MessageResponse>
+                    <FeatureMessageProvider overlaySnapshot={msg.overlaySnapshot ?? null}>
+                      <MessageResponse
+                        components={STREAMDOWN_FEATURES_COMPONENTS}
+                        allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+                      >
+                        {msg.content}
+                      </MessageResponse>
+                    </FeatureMessageProvider>
                   </MessageContent>
                 )}
               </Message>
@@ -613,7 +648,15 @@ export function ChatPane({
               )}
               {streamingContent && (
                 <MessageContent>
-                  <MessageResponse isAnimating>{streamingContent}</MessageResponse>
+                  <FeatureMessageProvider overlaySnapshot={null}>
+                    <MessageResponse
+                      isAnimating
+                      components={STREAMDOWN_FEATURES_COMPONENTS}
+                      allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+                    >
+                      {streamingContent}
+                    </MessageResponse>
+                  </FeatureMessageProvider>
                 </MessageContent>
               )}
             </Message>
@@ -694,5 +737,6 @@ export function ChatPane({
         </PromptInput>
       </div>
     </div>
+    </FeatureResolverProvider>
   );
 }

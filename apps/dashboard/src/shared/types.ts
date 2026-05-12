@@ -90,6 +90,8 @@ export type PersistedMessage = {
   thinking?: string;
   toolCalls?: PersistedToolCall[];
   timestamp: string;
+  /** Overlay captured when this message contained `<features refs="overlay:..."/>` so stale refs stay resolvable. */
+  overlaySnapshot?: MapOverlayPayload;
 };
 
 export type ConversationMeta = {

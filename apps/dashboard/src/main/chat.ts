@@ -28,6 +28,12 @@ import { parsePlaceFile } from "./watcher";
  * binary is unpacked to `app.asar.unpacked/...` by electron-builder, so we point the SDK
  * at that real-filesystem path. In dev, the SDK's own resolution works fine.
  */
+/** Matches any `<features>` tag whose `refs` attribute contains an `overlay:` entry. */
+const OVERLAY_REF_PATTERN = /<features\b[^>]*\brefs=["'][^"']*\boverlay:/i;
+function hasOverlayRef(text: string): boolean {
+  return OVERLAY_REF_PATTERN.test(text);
+}
+
 function resolveClaudeCodeExecutable(): string | undefined {
   if (!app.isPackaged) return undefined;
   const platformDir =
@@ -323,7 +329,10 @@ export function setupChat(
               content: fullText,
               thinking: fullThinking || undefined,
               toolCalls: fullToolCalls.length > 0 ? fullToolCalls : undefined,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              ...(hasOverlayRef(fullText) && conv.overlay
+                ? { overlaySnapshot: conv.overlay }
+                : {})
             };
             conv.messages.push(assistantMsg);
             appendMessage(conv, assistantMsg);

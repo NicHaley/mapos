@@ -27,6 +27,8 @@ export type ChatMessage = {
   toolCalls?: ActiveToolCall[];
   /** When set on an error row, renderer surfaces a Reconfigure link that deep-links into Settings. */
   reconfigureProvider?: "ai";
+  /** Overlay captured at message-persist time; used to resolve stale `<features overlay:...>` refs. */
+  overlaySnapshot?: MapOverlayPayload;
 };
 
 export type ConvChatState = {
@@ -207,7 +209,8 @@ function hydrateMessages(messages: ConversationLoadResult["messages"]): ChatMess
     thinking: msg.thinking,
     toolCalls: msg.toolCalls?.map(
       (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
-    )
+    ),
+    ...(msg.overlaySnapshot ? { overlaySnapshot: msg.overlaySnapshot } : {})
   }));
 }
 

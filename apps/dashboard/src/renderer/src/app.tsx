@@ -27,6 +27,7 @@ import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
 import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
 import { useOverlayVaultSync } from "./hooks/use-overlay-vault-sync";
 import { usePathSync } from "./hooks/use-path-sync";
+import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
@@ -386,6 +387,7 @@ function App(): React.JSX.Element {
   const isFullscreen = useFullscreen();
 
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
+  const placesByPath = usePlacesIndex();
   useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
 
   /** AI `pan_to` from chat: route through the map handle so the camera respects
@@ -631,6 +633,24 @@ function App(): React.JSX.Element {
       }
     },
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
+  );
+
+  /** Chat <features> row click: pan to the feature and open it in mini mode.
+   *  When the row references a stale overlay id, replay the message's snapshot first. */
+  const handleOpenFeatureFromChat = useCallback(
+    (place: PlaceRecord, restoreOverlay?: MapOverlayPayload) => {
+      if (restoreOverlay) {
+        setMapOverlay(restoreOverlay);
+        setMapOverlayNonce((n) => n + 1);
+      }
+      setSelectionPulseAnchor(null);
+      setMapPeekPlace(null);
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      mapRef.current?.fitToPlace(place, getMapPadding(false));
+    },
+    [getMapPadding]
   );
 
   // Sidebar folder click — navigate within active tab (or background tab on cmd/ctrl+click)
@@ -1010,6 +1030,9 @@ function App(): React.JSX.Element {
                   const place = await window.api.places.getByPath(filePath);
                   if (place) handleSelectPlaceFromSidebar(place);
                 }}
+                placesByPath={placesByPath}
+                selectedFilePath={selectedPlace?.filePath ?? null}
+                onOpenFeature={handleOpenFeatureFromChat}
               />
             )}
             <ResizeHandle

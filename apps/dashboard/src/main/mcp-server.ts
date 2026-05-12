@@ -136,7 +136,26 @@ For any vault file write or delete, use write_vault_file or delete_vault_file �
 ## Display vs. action intent
 
 - If the user asks you to find, show, search, explore, or preview → use render_overlay_on_map for ephemeral display. Do not write files.
-- If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.`;
+- If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.
+
+## Listing features in chat
+
+When referencing features in a response, you may emit a \`<features>\` tag and the UI will render a clickable, interactive list connected to the map. Use it whenever a flat list of features would be more useful than prose mentions.
+
+Syntax: \`<features refs="<entry>,<entry>,..."/>\` — a single self-closing tag with a comma-separated \`refs\` attribute. Each entry has the form \`<kind>:<id>\`:
+
+- \`vault:<file-path>\` — a saved vault file (use the same path returned by \`query_spatial_index\`)
+- \`overlay:<id>\` — a feature currently rendered on the map by \`render_overlay_on_map\`. The id must match the \`id\` you supplied to that tool.
+
+Order is preserved in the rendered list.
+
+**Hard rule:** any \`overlay:\` ref MUST be preceded by a \`render_overlay_on_map\` call earlier in the same response. The ids must match. Otherwise the ref will render as a stale row.
+
+Example — after a geocode_search for ramen + render_overlay_on_map with ids \`r1\`, \`r2\`, plus two saved places:
+
+\`\`\`
+<features refs="vault:tokyo-2026/kinka-izakaya.md,overlay:r1,vault:tokyo-2026/ichiran.md,overlay:r2"/>
+\`\`\``;
 }
 
 export function createMaposMcpServer(

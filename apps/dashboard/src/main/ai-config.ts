@@ -39,6 +39,18 @@ function decrypt(encryptedBase64: string): string {
   return safeStorage.decryptString(buf);
 }
 
+/**
+ * Ollama follows the Docker convention: a bare model name (no `:tag`) implicitly means `:latest`
+ * at inference time, but `/api/ps` always reports the fully-tagged name. We canonicalize on save
+ * so `qwen3.6` and `qwen3.6:latest` are stored identically — and so the value the user sees in
+ * Settings matches what `ollama list` shows. Empty strings are passed through unchanged so the
+ * caller can still error on "model is required".
+ */
+function withDefaultTag(model: string): string {
+  if (model.length === 0) return model;
+  return model.includes(":") ? model : `${model}:latest`;
+}
+
 /** One custom endpoint as exposed to the renderer — never carries the encrypted token. */
 export type AdvancedEndpointView = {
   id: string;
@@ -170,7 +182,7 @@ export function updateAiSettings(update: AiSettingsUpdate): { ok: true } | { ok:
       if (update.local.magic) {
         partial.local.magic = {};
         if (typeof update.local.magic.model === "string") {
-          partial.local.magic.model = update.local.magic.model.trim();
+          partial.local.magic.model = withDefaultTag(update.local.magic.model.trim());
         }
       }
       if (update.local.advanced && "activeId" in update.local.advanced) {
@@ -193,10 +205,11 @@ export function addCustomEndpoint(
     return { ok: false, error: "Secure storage isn't available on this system." };
   }
   const baseUrl = input.baseUrl?.trim() || DEFAULT_OLLAMA_BASE_URL;
-  const model = input.model?.trim() ?? "";
-  if (model.length === 0) {
+  const trimmedModel = input.model?.trim() ?? "";
+  if (trimmedModel.length === 0) {
     return { ok: false, error: "Model is required." };
   }
+  const model = withDefaultTag(trimmedModel);
   const label = input.label?.trim() || "Custom";
   let encryptedAuthToken: string | null = null;
   if (typeof input.authToken === "string" && input.authToken.trim().length > 0) {
@@ -245,7 +258,7 @@ export function updateCustomEndpoint(
     id: current.id,
     label: trimmedLabel ?? current.label,
     baseUrl: trimmedBase || current.baseUrl,
-    model: trimmedModel ?? current.model,
+    model: trimmedModel !== undefined ? withDefaultTag(trimmedModel) : current.model,
     encryptedAuthToken
   };
   const endpoints = [...cfg.local.advanced.endpoints];

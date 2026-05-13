@@ -98,6 +98,10 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
       }));
     }
     case "user_message":
+      // Keep `modelLoaded` as-is: Ollama's `/api/ps` is slow to respond while the request
+      // is in flight (2-3s), so resetting every send would flash "Loading model…" needlessly.
+      // Trade-off: if Ollama unloads after its keep-alive idle window, the next send shows
+      // "Working on it…" through the reload — minor; the poller will set it true again next time.
       return updateConv(state, action.convId, (c) => ({
         ...c,
         canUndo: false,

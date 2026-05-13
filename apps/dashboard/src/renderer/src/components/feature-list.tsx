@@ -1,5 +1,5 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { MapPinIcon, SparklesIcon } from "lucide-react";
+import { MapPinIcon } from "lucide-react";
 import { type MouseEvent, useMemo } from "react";
 import type {
   MapOverlayPayload,
@@ -91,16 +91,20 @@ function placeFromOverlayMatch(match: OverlayMatch): PlaceRecord {
   };
 }
 
-/** Vault subtitle = parent folder relative path. Overlay subtitle = first line of preview_markdown. */
-function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null): string | null {
+/** Vault subtitle = parent folder. Overlay subtitle = first non-redundant line of preview_markdown. */
+function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null, title: string): string | null {
   if (entry.kind === "vault" && place) {
     const slash = place.filePath.lastIndexOf("/");
     if (slash <= 0) return null;
     return place.filePath.slice(0, slash);
   }
   if (entry.kind === "overlay" && place?.previewMarkdown) {
-    const firstLine = place.previewMarkdown.split("\n").find((l) => l.trim().length > 0);
-    return firstLine?.trim() ?? null;
+    const firstLine = place.previewMarkdown
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (!firstLine || firstLine === title) return null;
+    return firstLine;
   }
   return null;
 }
@@ -123,10 +127,9 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
   const { selectedFilePath, onOpenFeature } = useFeatureResolver();
   const { entry, place, restoreOverlay, stale } = resolved;
 
-  const Icon = entry.kind === "vault" ? MapPinIcon : SparklesIcon;
   const title =
     place?.title ?? (entry.kind === "vault" ? slugTitleFromPath(entry.path) : "Overlay feature");
-  const subtitle = rowSubtitle(entry, place);
+  const subtitle = rowSubtitle(entry, place, title);
   const isSelected = !stale && place != null && selectedFilePath === place.filePath;
 
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
@@ -141,9 +144,9 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
       disabled={stale}
       onClick={handleClick}
       className={cn(
-        "flex w-full items-start gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors",
+        "flex w-full items-start gap-2.5 px-2.5 py-2 text-left transition-colors",
         "hover:bg-sidebar-accent/50",
-        isSelected && "border-primary/40 bg-sidebar-accent/60",
+        isSelected && "bg-sidebar-accent/60",
         stale && "cursor-default opacity-50 hover:bg-transparent"
       )}
       title={
@@ -154,10 +157,10 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
           : undefined
       }
     >
-      <Icon
+      <MapPinIcon
         className={cn(
           "size-3.5 shrink-0 mt-0.5",
-          entry.kind === "vault" ? "text-muted-foreground" : "text-amber-500"
+          entry.kind === "vault" ? "text-foreground/80" : "text-muted-foreground/70"
         )}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -205,7 +208,7 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
   if (resolved.length === 0) return null;
 
   return (
-    <div className="not-prose my-2 flex flex-col gap-0.5 rounded-md border border-sidebar-border/60 bg-sidebar-accent/20 p-1">
+    <div className="not-prose rounded-lg overflow-hiddenmy-2 flex border border-sidebar-border/60 flex-col divide-y divide-sidebar-border bg-sidebar-accent/20">
       {resolved.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}

@@ -543,6 +543,24 @@ function App(): React.JSX.Element {
     [chatStore, refreshConversations]
   );
 
+  /** Topbar chat tabs cache their title in the nav entry (defaulted to "New Chat"
+   * at creation). Sync it from the conversations index so the tab follows the
+   * same `title || preview || "Chat"` rule the sidebar uses — without this the
+   * topbar stays on "New Chat" until the tab is closed and reopened. */
+  useEffect(() => {
+    const convsById = new Map(conversations.map((c) => [c.id, c]));
+    for (const tab of nav.tabs) {
+      const current = tab.history[tab.cursor];
+      if (current?.kind !== "chat") continue;
+      const conv = convsById.get(current.convId);
+      if (!conv) continue;
+      const expected = conv.title || conv.preview || "Chat";
+      if (expected !== current.title) {
+        dispatchNav({ type: "update-chat-title", convId: current.convId, title: expected });
+      }
+    }
+  }, [conversations, nav.tabs, dispatchNav]);
+
   useShortcuts([
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
@@ -648,7 +666,8 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, getMapPadding(false));
+      // Chat pane is open when this fires (the click came from it), so the main pane occupies left padding.
+      mapRef.current?.fitToPlace(place, getMapPadding(true));
     },
     [getMapPadding]
   );

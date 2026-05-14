@@ -1,4 +1,4 @@
 provider: generic
-url: https://updates.mapos.app
+url: https://updates.mapos.md
 channel: latest
 updaterCacheDirName: dashboard-updater

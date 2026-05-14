@@ -1,3 +1,4 @@
 provider: generic
-url: https://example.com/auto-updates
+url: https://updates.mapos.app
+channel: latest
 updaterCacheDirName: dashboard-updater

@@ -319,6 +319,41 @@ const api = {
       };
     }
   },
+  updater: {
+    check: () => ipcRenderer.invoke("updater:check") as Promise<unknown>,
+    install: () => ipcRenderer.invoke("updater:install") as Promise<void>,
+    onAvailable: (
+      cb: (data: { version: string; releaseDate: string }) => void
+    ): (() => void) => {
+      const listener = (_e: unknown, data: { version: string; releaseDate: string }): void =>
+        cb(data);
+      ipcRenderer.on("updater:available", listener);
+      return () => {
+        ipcRenderer.off("updater:available", listener);
+      };
+    },
+    onDownloaded: (cb: (data: { version: string }) => void): (() => void) => {
+      const listener = (_e: unknown, data: { version: string }): void => cb(data);
+      ipcRenderer.on("updater:downloaded", listener);
+      return () => {
+        ipcRenderer.off("updater:downloaded", listener);
+      };
+    },
+    onProgress: (cb: (data: { percent: number }) => void): (() => void) => {
+      const listener = (_e: unknown, data: { percent: number }): void => cb(data);
+      ipcRenderer.on("updater:progress", listener);
+      return () => {
+        ipcRenderer.off("updater:progress", listener);
+      };
+    },
+    onError: (cb: (data: { message: string }) => void): (() => void) => {
+      const listener = (_e: unknown, data: { message: string }): void => cb(data);
+      ipcRenderer.on("updater:error", listener);
+      return () => {
+        ipcRenderer.off("updater:error", listener);
+      };
+    }
+  },
   chat: {
     send: (convId: string, message: string) =>
       ipcRenderer.send("chat:send", { convId, message }),

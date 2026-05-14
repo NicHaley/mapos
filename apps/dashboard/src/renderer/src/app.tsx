@@ -20,6 +20,7 @@ import { PhotonSearchPopover } from "./components/photon-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
+import { UpdateBanner } from "./components/update-banner";
 import { useChatStore } from "./hooks/use-chat-store";
 import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
@@ -999,6 +1000,7 @@ function App(): React.JSX.Element {
         className="fixed inset-x-0 bottom-0 pointer-events-none"
         style={{ top: TOP_BAR_HEIGHT, transform: "translateZ(0)" }}
       >
+        <UpdateBanner />
         {/* Main pane — full-height place panel and chat tab share this column. */}
         {((isFull && selectedPlace) || activeChatConvId) && (
           <div

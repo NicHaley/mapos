@@ -219,6 +219,18 @@ declare global {
         /** Returns a cleanup function. */
         onChanged: (cb: () => void) => () => void;
       };
+      updater: {
+        check: () => Promise<unknown>;
+        install: () => Promise<void>;
+        /** Returns a cleanup function. */
+        onAvailable: (cb: (data: { version: string; releaseDate: string }) => void) => () => void;
+        /** Returns a cleanup function. */
+        onDownloaded: (cb: (data: { version: string }) => void) => () => void;
+        /** Returns a cleanup function. */
+        onProgress: (cb: (data: { percent: number }) => void) => () => void;
+        /** Returns a cleanup function. */
+        onError: (cb: (data: { message: string }) => void) => () => void;
+      };
       chat: {
         send: (convId: string, message: string) => void;
         abort: (convId: string) => void;

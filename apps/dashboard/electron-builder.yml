@@ -46,5 +46,11 @@ appImage:
 npmRebuild: false
 publish:
   provider: generic
-  url: https://example.com/auto-updates
+  # Cloudflare R2 public bucket. Either:
+  #   * a custom domain bound to the bucket (recommended): https://updates.mapos.app
+  #   * the r2.dev URL (testing only, rate-limited): https://pub-<HASH>.r2.dev
+  # Upload latest-mac.yml + the artefacts produced by electron-builder to the bucket root
+  # after each `pnpm --filter @mapos/dashboard build:mac`.
+  url: https://updates.mapos.app
+  channel: latest
 

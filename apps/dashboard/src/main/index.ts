@@ -57,6 +57,23 @@ function createWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
+  // Plain <a href> clicks (e.g. MapLibre attribution: maplibre.org, protomaps.com,
+  // openstreetmap.org) navigate the renderer itself. Redirect off-app URLs to the
+  // user's default browser so the app shell isn't replaced.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const currentUrl = mainWindow.webContents.getURL();
+    try {
+      const target = new URL(url);
+      const current = new URL(currentUrl);
+      if (target.origin !== current.origin) {
+        event.preventDefault();
+        shell.openExternal(url);
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {

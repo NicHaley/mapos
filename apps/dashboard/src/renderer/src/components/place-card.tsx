@@ -163,7 +163,7 @@ function PlaceCardMarkdownPane({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        link: { openOnClick: false }
+        link: { openOnClick: true }
       }),
       Markdown,
       TabIndent,

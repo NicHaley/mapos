@@ -122,6 +122,9 @@
 .tiptap p {
   margin: 0;
 }
+.tiptap a {
+  cursor: pointer;
+}
 .tiptap a:not([data-wikilink])::after {
   content: "";
   display: inline-block;

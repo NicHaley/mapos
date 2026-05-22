@@ -19,6 +19,7 @@ export function setupAppMenu(): void {
       submenu: [
         { role: "about" },
         {
+          id: "check-for-updates",
           label: "Check for Updates…",
           click: () => checkForUpdatesManually()
         },

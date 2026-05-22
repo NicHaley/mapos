@@ -787,8 +787,6 @@ function PropertiesPanelInner({
         onReorder={handleReorder}
         className="flex flex-col"
         as="div"
-        layout
-        layoutRoot
       >
         {fileKeys.map((key) => (
           <Reorder.Item
@@ -796,6 +794,7 @@ function PropertiesPanelInner({
             value={key}
             className="group grid h-8 grid-cols-2 items-center"
             as="div"
+            layout="position"
           >
             <div className="flex min-h-0 min-w-0 items-center">
               <PropertyKey

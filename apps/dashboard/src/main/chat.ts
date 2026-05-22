@@ -198,7 +198,14 @@ export function setupChat(
             tools: [...ALLOWED_TOOLS],
             includePartialMessages: true,
             ...(capabilities.thinking !== false
-              ? { thinking: { type: capabilities.thinking } }
+              ? {
+                  thinking: {
+                    type: capabilities.thinking,
+                    ...(capabilities.thinkingDisplay
+                      ? { display: capabilities.thinkingDisplay }
+                      : {})
+                  }
+                }
               : {}),
             mcpServers: {
               mapos: makeMcpServerForConv(convId)

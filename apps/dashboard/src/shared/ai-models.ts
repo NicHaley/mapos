@@ -21,6 +21,13 @@ export type ModelCapabilities = {
    * Opus 4.6+ style, "enabled" for older fixed-budget thinking, false for none.
    */
   thinking: "adaptive" | "enabled" | false;
+  /**
+   * How thinking is surfaced to the chat UI. Maps to the SDK's `display` field
+   * on `ThinkingConfig`. Required for adaptive thinking — the CLI default
+   * (since SDK 0.2.x) suppresses thinking deltas, so leaving it unset means no
+   * train-of-thought in the sidebar.
+   */
+  thinkingDisplay?: "summarized" | "omitted";
   /** Vision input (image content blocks on user messages). */
   supportsImages: boolean;
   /** Tool use through MapOS's chat path. */
@@ -45,6 +52,7 @@ export type OllamaModel = {
 
 const ANTHROPIC_DEFAULT: ModelCapabilities = {
   thinking: "adaptive",
+  thinkingDisplay: "summarized",
   supportsImages: true,
   supportsTools: true,
   contextWindow: "200K"

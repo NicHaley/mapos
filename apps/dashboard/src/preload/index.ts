@@ -352,6 +352,24 @@ const api = {
       return () => {
         ipcRenderer.off("updater:error", listener);
       };
+    },
+    onManualResult: (
+      cb: (data:
+        | { status: "checking" }
+        | { status: "up-to-date" }
+        | { status: "error"; message: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        data:
+          | { status: "checking" }
+          | { status: "up-to-date" }
+          | { status: "error"; message: string }
+      ): void => cb(data);
+      ipcRenderer.on("updater:manual-result", listener);
+      return () => {
+        ipcRenderer.off("updater:manual-result", listener);
+      };
     }
   },
   chat: {

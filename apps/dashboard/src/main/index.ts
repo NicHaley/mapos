@@ -7,6 +7,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { registerAiConfigIpc } from "./ai-config-ipc";
+import { setupAppMenu } from "./app-menu";
 import { setupChat } from "./chat";
 import { closeDb } from "./db";
 import {
@@ -157,6 +158,7 @@ app.whenReady().then(() => {
   setupOllamaPersistence(appStateDir);
   registerAiConfigIpc(mainWindow);
   setupUpdater(mainWindow);
+  setupAppMenu();
 
   // Vault management + onboarding IPCs are also vault-independent. They power both the
   // first-launch onboarding flow and the in-app vault switcher.

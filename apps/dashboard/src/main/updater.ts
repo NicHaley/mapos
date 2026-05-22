@@ -169,13 +169,13 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
     }
   });
 
-  ipcMain.handle("updater:check", () => {
-    checkForUpdatesManually();
-  });
   ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
+  // Banner-initiated retry after a download failure. Bare checkForUpdates so the
+  // manual-check dialog/menu side effects don't fire — the banner UI owns the feedback.
+  ipcMain.handle("updater:retry", () => autoUpdater.checkForUpdates());
 
   // Skip auto-check in dev: there's no signed build to install, and the placeholder URL
-  // returns 404 noise. Devs can still trigger via the menu / updater:check IPC.
+  // returns 404 noise. Devs can still trigger via the menu.
   if (!is.dev) {
     void autoUpdater.checkForUpdates().catch((err: unknown) => {
       send(mainWindow, "updater:error", {
@@ -185,8 +185,8 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   }
 
   return () => {
-    ipcMain.removeHandler("updater:check");
     ipcMain.removeHandler("updater:install");
+    ipcMain.removeHandler("updater:retry");
     autoUpdater.removeAllListeners();
     activeWindow = null;
     clearManualCheck();

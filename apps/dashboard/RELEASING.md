@@ -23,13 +23,6 @@ Updates are distributed through a Cloudflare R2 bucket exposed at `https://updat
   ```
   Generate the app-specific password at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords. The `.env` file is gitignored.
 
-### Blocking gaps before the first real release
-
-These must be fixed before clients on macOS will accept any auto-update:
-
-- **Code signing + notarization.** `electron-builder.yml` currently has `notarize: false` and no `mac.identity`. macOS Squirrel will reject unsigned/un-notarized updates. Add an Apple Developer ID cert and enable notarization before shipping to real users.
-- **`appId`.** Still the template default `com.electron.app` in `electron-builder.yml`. Change it *before* the first real release — changing it later orphans every installed client (they'll never see the new app as an update of the old one).
-
 ---
 
 ## Release steps

@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 type UpdateState =
   | { phase: "idle" }
   | { phase: "downloading"; version: string; percent: number }
-  | { phase: "downloaded"; version: string };
+  | { phase: "downloaded"; version: string }
+  | { phase: "failed"; version: string; message: string };
 
 /**
  * Persistent in-app banner for the in-flight auto-update flow (download
@@ -20,8 +21,9 @@ export function UpdateBanner(): React.JSX.Element | null {
       setState({ phase: "downloading", version, percent: 0 });
     });
     const offProgress = window.api.updater.onProgress(({ percent }) => {
+      // Progress can resume from a failed retry — treat `failed` as a downloading source too.
       setState((s) =>
-        s.phase === "downloading"
+        s.phase === "downloading" || s.phase === "failed"
           ? { phase: "downloading", version: s.version, percent }
           : s
       );
@@ -29,12 +31,14 @@ export function UpdateBanner(): React.JSX.Element | null {
     const offDownloaded = window.api.updater.onDownloaded(({ version }) => {
       setState({ phase: "downloaded", version });
     });
-    const offError = window.api.updater.onError(() => {
-      // If a download was in progress and failed, drop the stuck progress bar.
-      // The native dialog (for manual checks) or background silence (for auto
-      // checks) handles surfacing the failure.
+    const offError = window.api.updater.onError(({ message }) => {
+      // Surface failures only when an update was in flight (we know the version).
+      // Errors in `idle` are background-check noise — stay silent to match the
+      // existing UX for auto-checks.
       setState((s) =>
-        s.phase === "downloading" || s.phase === "downloaded" ? { phase: "idle" } : s
+        s.phase === "downloading" || s.phase === "downloaded" || s.phase === "failed"
+          ? { phase: "failed", version: s.version, message }
+          : s
       );
     });
     return () => {
@@ -58,11 +62,23 @@ export function UpdateBanner(): React.JSX.Element | null {
         <span className="text-muted-foreground">
           Downloading update… {Math.round(state.percent)}%
         </span>
-      ) : (
+      ) : state.phase === "downloaded" ? (
         <>
           <span className="text-foreground">Update {state.version} ready</span>
           <Button size="sm" onClick={() => void window.api.updater.install()}>
             Restart
+          </Button>
+        </>
+      ) : (
+        <>
+          <span
+            className="max-w-[40ch] truncate text-destructive"
+            title={state.message || undefined}
+          >
+            Update {state.version} failed
+          </span>
+          <Button size="sm" onClick={() => void window.api.updater.retry()}>
+            Retry
           </Button>
         </>
       )}

@@ -320,8 +320,8 @@ const api = {
     }
   },
   updater: {
-    check: () => ipcRenderer.invoke("updater:check") as Promise<unknown>,
     install: () => ipcRenderer.invoke("updater:install") as Promise<void>,
+    retry: () => ipcRenderer.invoke("updater:retry") as Promise<void>,
     onAvailable: (
       cb: (data: { version: string; releaseDate: string }) => void
     ): (() => void) => {

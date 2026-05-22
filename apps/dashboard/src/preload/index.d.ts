@@ -220,8 +220,8 @@ declare global {
         onChanged: (cb: () => void) => () => void;
       };
       updater: {
-        check: () => Promise<unknown>;
         install: () => Promise<void>;
+        retry: () => Promise<void>;
         /** Returns a cleanup function. */
         onAvailable: (cb: (data: { version: string; releaseDate: string }) => void) => () => void;
         /** Returns a cleanup function. */

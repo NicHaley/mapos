@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: md.mapos.app
 productName: MapOS
 directories:
   buildResources: build

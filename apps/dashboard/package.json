@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -16,7 +16,8 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "release": "./scripts/publish-release.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",
@@ -26,6 +27,7 @@
     "@turf/bbox": "^7.3.4",
     "better-sqlite3": "^12.8.0",
     "drizzle-orm": "^0.44.2",
+    "electron-updater": "^6.6.2",
     "gray-matter": "^4.0.3",
     "wellknown": "^0.5.0",
     "zod": "^4.0.0"

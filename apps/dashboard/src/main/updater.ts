@@ -7,8 +7,9 @@ import {
   ipcMain,
   nativeImage
 } from "electron";
-import type { ProgressInfo, UpdateInfo } from "electron-updater";
-import { autoUpdater } from "electron-updater";
+import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-updater";
+
+const { autoUpdater } = electronUpdater;
 import iconPng from "../../resources/icon.png?asset";
 
 const send = (win: BrowserWindow, channel: string, payload?: unknown): void => {

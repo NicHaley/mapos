@@ -1,143 +1,48 @@
-# Turborepo starter
+# MapOS
 
-This Turborepo starter is maintained by the Turborepo core team.
+A local-first desktop app where the map is the primary interface for your personal files and places.
 
-## Using this example
+[License: AGPL-3.0](LICENSE)
 
-Run the following command:
+> Status: early development.
+
+## About
+
+MapOS turns your file system into a spatial canvas. Save places, plan trips, and explore your world, all backed by plain markdown files on disk and a local spatial index. Nothing is uploaded; your files are yours.
+
+A conversational AI agent in the sidebar can read, write, and reason about your vault: finding places near you, summarizing trips, or curating collections from across your files.
+
+The vault format is fully compatible with [Obsidian](https://obsidian.md/), so the same directory works in both apps.
+
+## Tech Stack
+
+- **[Electron](https://www.electronjs.org/)**: desktop runtime
+- **[React](https://react.dev/)** + **[TypeScript](https://www.typescriptlang.org/)**: UI
+- **[MapLibre GL](https://maplibre.org/)**: map rendering
+- **[SQLite](https://www.sqlite.org/)** + **SpatiaLite**: local spatial index
+- **[Tiptap](https://tiptap.dev/)**: editor
+- **[Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript)**: AI agent
+- **[Tailwind CSS](https://tailwindcss.com/)**: styling
+- **[shadcn/ui](https://ui.shadcn.com/)**: UI components
+- **[Turborepo](https://turborepo.dev/)** + **[pnpm](https://pnpm.io/)**: monorepo
+
+## Development
+
+Requires Node 18+ and pnpm.
 
 ```sh
-npx create-turbo@latest
+pnpm install
+pnpm dev          # desktop app (Electron)
 ```
 
-## What's inside?
+## Contributing
 
-This Turborepo includes the following packages/apps:
+MapOS is in early development. Issues and PRs are welcome. Please open an issue to discuss larger changes before opening a PR.
 
-### Apps and Packages
+## Contact
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
-```
-
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+Nicholas Haley, [hello@nichaley.com](mailto:hello@nichaley.com)
 
 ## License
 
-MapOS is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
-
-In plain English: you are free to use, modify, and redistribute MapOS — including for commercial purposes — provided that any derivative work, including software you make available to others over a network, is also released under the AGPL-3.0 with full source code. If you build on MapOS, your users have the same freedoms you do.
-
-"MapOS" is a trademark of Nicholas Haley. The license covers the code, not the name — forks and derivatives must use a different name.
+Distributed under the [AGPL-3.0-only](LICENSE) license.

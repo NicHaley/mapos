@@ -100,13 +100,17 @@ app.whenReady().then(() => {
   });
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    // 'unsafe-inline' is required only for Vite HMR in dev; production loads bundled scripts.
+    const scriptSrc = is.dev
+      ? "script-src 'self' 'unsafe-inline' blob:"
+      : "script-src 'self' blob:";
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
           [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' blob:",
+            scriptSrc,
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io",
             "connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io https://valhalla1.openstreetmap.de",

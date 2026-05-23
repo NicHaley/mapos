@@ -66,7 +66,13 @@ export function Landing() {
         </main>
 
         <footer className="flex items-center justify-center gap-2.5 font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
-          <span>© 2026 MapOS</span>
+          <span>
+            © 2026 MapOS • Made by{" "}
+            <a href="https://github.com/NicHaley" className="underline">
+              Nic
+            </a>{" "}
+            in Montreal
+          </span>
         </footer>
       </div>
     </>

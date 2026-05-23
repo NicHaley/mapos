@@ -1,6 +1,7 @@
 {
   "name": "mapos",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --filter=@mapos/dashboard",

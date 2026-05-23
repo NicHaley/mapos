@@ -133,3 +133,11 @@ Learn more about the power of Turborepo:
 - [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
 - [Configuration Options](https://turborepo.dev/docs/reference/configuration)
 - [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+
+## License
+
+MapOS is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+
+In plain English: you are free to use, modify, and redistribute MapOS — including for commercial purposes — provided that any derivative work, including software you make available to others over a network, is also released under the AGPL-3.0 with full source code. If you build on MapOS, your users have the same freedoms you do.
+
+"MapOS" is a trademark of Nicholas Haley. The license covers the code, not the name — forks and derivatives must use a different name.

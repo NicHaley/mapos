@@ -9,7 +9,7 @@ export function MapOSLogo() {
         className="font-[family-name:var(--font-geist-sans)] text-[17px] font-semibold tracking-[-0.01em]"
         aria-hidden
       >
-        mapOS
+        MapOS
       </span>
     </div>
   );

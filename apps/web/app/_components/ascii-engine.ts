@@ -34,6 +34,10 @@ export interface SceneOptions {
   sunSize?: number;
   arcCenterY?: number;
   arcRadius?: number;
+  // If set (0..1), arcCenterY is derived so the rim sits at this fraction of
+  // the visible canvas from the top, regardless of cell aspect or grid shape.
+  // Wins over arcCenterY.
+  rimFraction?: number;
   sunArcSpan?: number;
   flareLength?: number;
   starburst?: number;
@@ -58,10 +62,9 @@ export interface RenderedFrame {
 const ASCII_RAMPS: Record<AsciiRamp, string> = {
   classic: " .:-=+*#%@",
   sparse: "  .  .:-+*#",
-  dense:
-    " .'`,^:\";~-_+<>i!lI?/\\|()1{}[]rcvunxzjftLCJUYXZO0Qoahkbdpqwm*WMB8&%$#@",
+  dense: " .'`,^:\";~-_+<>i!lI?/\\|()1{}[]rcvunxzjftLCJUYXZO0Qoahkbdpqwm*WMB8&%$#@",
   blocks: " ░▒▓█",
-  dots: " ·∙•●◉",
+  dots: " ·∙•●◉"
 };
 
 // Normalized viewport extents — must match the mapping in renderFrame.
@@ -83,7 +86,7 @@ function sampleScene(
   t: number,
   ambientT: number,
   yScale: number,
-  opts: SceneOptions,
+  opts: SceneOptions
 ): { b: number; kind: CellKind } {
   const {
     sunSize = 0.1,
@@ -92,15 +95,21 @@ function sampleScene(
     sunArcSpan = 0.55,
     flareLength = 1.6,
     starburst = 1.0,
-    disableStars = false,
+    disableStars = false
   } = opts;
 
-  // Sun position: vertical rise, centered horizontally.
+  // Sun position: vertical rise, centered horizontally. Both the rim reference
+  // and the travel span are divided by yScale so the sun lands at the same
+  // pixel-fraction of the earth's visible radius on any aspect ratio — without
+  // this, large yScale (mobile portrait) sends the sun far off-canvas above
+  // the visible rim, because rimTopY would use unscaled arcRadius while the
+  // visible rim sits at arcRadius/yScale from the planet center.
   const sx = 0;
   const phi = 0;
-  const rimTopY = arcCenterY + arcRadius * Math.cos(phi);
-  const startY = rimTopY - sunArcSpan * 0.4;
-  const endY = rimTopY + sunArcSpan * 0.6;
+  const rimTopY = arcCenterY + (arcRadius / yScale) * Math.cos(phi);
+  const span = sunArcSpan / yScale;
+  const startY = rimTopY - span * 0.4;
+  const endY = rimTopY + span * 0.6;
   const sy = startY + (endY - startY) * t;
 
   const dxS = x - sx;
@@ -114,9 +123,14 @@ function sampleScene(
   // Planet geometry — computed up here so the sun-core early-return below
   // can suppress the bright core glyphs while the sun is still rising behind
   // the limb (otherwise '@' chars render *over* the earth).
+  // yScale-corrected planet geometry: dy must be scaled the same way as the
+  // sun's dyAdj so the planet renders as a visual circle regardless of grid
+  // cell aspect or container shape. Without this, the planet stretches into
+  // an ellipse on aspect ratios that diverge from VIEW_W:VIEW_H.
   const dxA = x;
   const dyA = y - arcCenterY;
-  const distArc = Math.sqrt(dxA * dxA + dyA * dyA);
+  const dyAScaled = dyA * yScale;
+  const distArc = Math.sqrt(dxA * dxA + dyAScaled * dyAScaled);
   const insidePlanet = distArc < arcRadius - 0.005;
 
   // Brightness envelope: dark → bright → settle. After rise (t=1) the sun
@@ -144,9 +158,7 @@ function sampleScene(
   // brightness boundaries swap each frame even when the rise is complete.
   const shimmer =
     1 +
-    0.05 *
-      Math.sin(ambientT * 1.7 + dxS * 4.1 + dyS * 2.7) *
-      Math.sin(ambientT * 0.9 + dxS * 1.3);
+    0.05 * Math.sin(ambientT * 1.7 + dxS * 4.1 + dyS * 2.7) * Math.sin(ambientT * 0.9 + dxS * 1.3);
 
   let b = 0;
   if (!insidePlanet && distSun < sunSize * 0.45) {
@@ -167,11 +179,7 @@ function sampleScene(
   b = Math.max(b, streak);
 
   const streakY2 = Math.exp(-((dyAdj / 0.16) ** 2));
-  const streak2 =
-    Math.exp(-((dxS / (flareLength * 0.8)) ** 2)) *
-    streakY2 *
-    0.6 *
-    flareBoost;
+  const streak2 = Math.exp(-((dxS / (flareLength * 0.8)) ** 2)) * streakY2 * 0.6 * flareBoost;
   b = Math.max(b, streak2);
 
   // Starburst rays.
@@ -184,7 +192,7 @@ function sampleScene(
     Math.PI,
     -Math.PI / 2,
     (-3 * Math.PI) / 4,
-    (3 * Math.PI) / 4,
+    (3 * Math.PI) / 4
   ];
   const spokeWeights = [1.0, 0.9, 0.55, 0.55, 1.0, 0.9, 0.5, 0.5];
   let ray = 0;
@@ -193,8 +201,7 @@ function sampleScene(
     while (da > Math.PI) da -= 2 * Math.PI;
     while (da < -Math.PI) da += 2 * Math.PI;
     const angularFalloff = Math.exp(-((da / 0.1) ** 2));
-    const radial =
-      Math.exp(-((distSun / 1.0) ** 2)) * (1 - Math.exp(-distSun / 0.04));
+    const radial = Math.exp(-((distSun / 1.0) ** 2)) * (1 - Math.exp(-distSun / 0.04));
     ray = Math.max(ray, angularFalloff * radial * spokeWeights[i]);
   }
   b = Math.max(b, ray * 1.05 * starburst * flareBoost);
@@ -202,18 +209,17 @@ function sampleScene(
   // Apply ambient shimmer to corona/halo/flare/ray cells (not the core).
   b *= shimmer;
 
-  // Planet limb arc — uses dxA/dyA/distArc/insidePlanet computed above.
+  // Planet limb arc — uses dxA/dyAScaled/distArc/insidePlanet computed above.
   const arcDelta = distArc - arcRadius;
   let arcBrightness = 0;
   if (Math.abs(arcDelta) < 0.1) {
     const rimBand = Math.exp(-((arcDelta / 0.025) ** 2));
-    const pointPhi = Math.atan2(x, y - arcCenterY);
+    const pointPhi = Math.atan2(dxA, dyAScaled);
     let dPhi = pointPhi - 0;
     while (dPhi > Math.PI) dPhi -= 2 * Math.PI;
     while (dPhi < -Math.PI) dPhi += 2 * Math.PI;
     const arcGlow = Math.exp(-((dPhi / 0.7) ** 2));
-    arcBrightness =
-      rimBand * (0.45 + 0.55 * arcGlow) * (0.55 + 0.45 * intensity);
+    arcBrightness = rimBand * (0.45 + 0.55 * arcGlow) * (0.55 + 0.45 * intensity);
   }
 
   // Inside planet body — crush to near-black, but allow rim glow through.
@@ -232,13 +238,11 @@ function sampleScene(
     // foreshorten naturally because longitude changes fast there for small
     // dy, so the texture compresses and slows visually as a real sphere does.
     if (arcBrightness < 0.1) {
-      const dz2 = arcRadius * arcRadius - dxA * dxA - dyA * dyA;
+      const dz2 = arcRadius * arcRadius - dxA * dxA - dyAScaled * dyAScaled;
       if (dz2 > 0) {
         const dz = Math.sqrt(dz2);
-        const lat = Math.asin(
-          Math.max(-1, Math.min(1, dxA / arcRadius)),
-        );
-        const lng = Math.atan2(dyA, dz) - ambientT * 0.07;
+        const lat = Math.asin(Math.max(-1, Math.min(1, dxA / arcRadius)));
+        const lng = Math.atan2(dyAScaled, dz) - ambientT * 0.07;
         const u = lng * 2.4;
         const v = lat * 2.4;
         const n =
@@ -264,8 +268,7 @@ function sampleScene(
     const h = Math.sin(cellX * 12.9898 + cellY * 78.233) * 43758.5453;
     const hf = h - Math.floor(h);
     if (hf > 0.985) {
-      const tw =
-        0.5 + 0.5 * Math.sin(ambientT * 2.4 + cellX * 0.7 + cellY * 1.3);
+      const tw = 0.5 + 0.5 * Math.sin(ambientT * 2.4 + cellX * 0.7 + cellY * 1.3);
       // Brighter rare stars, dimmer common ones — gives a sense of depth.
       const baseB = hf > 0.997 ? 0.35 : hf > 0.992 ? 0.22 : 0.15;
       const starB = baseB + 0.3 * tw;
@@ -289,17 +292,25 @@ export function renderFrame({
   ambientT,
   cellAspect = 1.75,
   ramp = "classic",
-  opts = {},
+  opts = {}
 }: RenderArgs): RenderedFrame {
   // yScale makes a brightness contour `dx² + (yScale*dy)² = R²` render as a
   // visual circle on screen given the normalized viewport (VIEW_W × VIEW_H)
   // and the actual character cell aspect (height/width).
   // Derivation: equate horizontal and vertical pixel extents of the contour.
   const yScale =
-    rows > 1 && cols > 1
-      ? (cellAspect * (rows - 1) * VIEW_W) / ((cols - 1) * VIEW_H)
-      : 1;
+    rows > 1 && cols > 1 ? (cellAspect * (rows - 1) * VIEW_W) / ((cols - 1) * VIEW_H) : 1;
   const at = ambientT ?? t;
+
+  // Resolve arcCenterY from rimFraction. The planet's top edge (rim) sits at
+  // y = arcCenterY + arcRadius/yScale (since dy*yScale = arcRadius at the top
+  // of the yScale-corrected circle). Solving for arcCenterY:
+  let resolvedOpts: SceneOptions = opts;
+  if (opts.rimFraction !== undefined && opts.arcCenterY === undefined) {
+    const arcRadius = opts.arcRadius ?? 1.75;
+    const rimY = VIEW_TOP - opts.rimFraction * VIEW_H;
+    resolvedOpts = { ...opts, arcCenterY: rimY - arcRadius / yScale };
+  }
 
   const lines: string[] = [];
   const meta: CellKind[][] = [];
@@ -309,7 +320,7 @@ export function renderFrame({
     for (let c = 0; c < cols; c++) {
       const x = (c / (cols - 1)) * VIEW_W - VIEW_W / 2;
       const y = VIEW_TOP - (r / (rows - 1)) * VIEW_H;
-      const s = sampleScene(x, y, t, at, yScale, opts);
+      const s = sampleScene(x, y, t, at, yScale, resolvedOpts);
       line += brightnessToGlyph(s.b, ramp);
       metaRow.push(s.kind);
     }

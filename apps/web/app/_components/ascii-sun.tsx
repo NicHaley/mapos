@@ -1,12 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type AsciiRamp,
-  type CellKind,
-  renderFrame,
-  type SceneOptions,
-} from "./ascii-engine";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type AsciiRamp, type CellKind, type SceneOptions, renderFrame } from "./ascii-engine";
 
 interface AsciiSunProps {
   speed?: number;
@@ -41,8 +36,8 @@ function useTimeChannels(speed: number): { riseT: number; ambientT: number } {
   return time;
 }
 
-const PALETTE: Record<CellKind, string> = {
-  sky: "#404040",
+const FG: Record<CellKind, string> = {
+  sky: "transparent",
   star: "#a3a3a3",
   planet: "#171717",
   surface: "#3a3a3a",
@@ -50,35 +45,50 @@ const PALETTE: Record<CellKind, string> = {
   flare: "#a3a3a3",
   "flare-hot": "#e5e5e5",
   "sun-body": "#fafafa",
-  "sun-core": "#ffffff",
+  "sun-core": "#ffffff"
 };
 
-export function AsciiSun({
-  speed = 1,
-  ramp = "classic",
-  scene,
-}: AsciiSunProps) {
+// Cells that should occlude the underlying starfield render with a solid bg.
+// Sky and flare/sun cells stay transparent so stars peek through ambient glow.
+const BG: Record<CellKind, string | undefined> = {
+  sky: undefined,
+  star: undefined,
+  planet: "#0a0a0a",
+  surface: "#0a0a0a",
+  rim: "#0a0a0a",
+  flare: undefined,
+  "flare-hot": undefined,
+  "sun-body": "#0a0a0a",
+  "sun-core": "#0a0a0a"
+};
+
+export function AsciiSun({ speed = 1, ramp = "classic", scene }: AsciiSunProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [grid, setGrid] = useState({ cols: 80, rows: 32, aspect: 1.75 });
+  // SSR/hydration renders the default grid briefly before the client measures.
+  // Stay invisible until the first measurement lands, then fade in.
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       const rect = el.getBoundingClientRect();
       const probe = document.createElement("span");
       probe.textContent = "M";
-      probe.style.cssText =
-        "position:absolute;visibility:hidden;font:inherit;white-space:pre;";
+      probe.style.cssText = "position:absolute;visibility:hidden;font:inherit;white-space:pre;";
       el.appendChild(probe);
       const cw = probe.getBoundingClientRect().width || 8;
       const ch = probe.getBoundingClientRect().height || 16;
       el.removeChild(probe);
-      const cols = Math.max(40, Math.min(280, Math.floor(rect.width / cw)));
-      const rows = Math.max(18, Math.min(120, Math.floor(rect.height / ch)));
+      const cols = Math.max(40, Math.min(360, Math.floor(rect.width / cw)));
+      const rows = Math.max(18, Math.min(200, Math.floor(rect.height / ch)));
       const aspect = ch / cw;
       setGrid({ cols, rows, aspect });
-    });
+    };
+    measure();
+    setReady(true);
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -94,9 +104,9 @@ export function AsciiSun({
         ambientT,
         cellAspect: grid.aspect,
         ramp,
-        opts: scene,
+        opts: scene
       }),
-    [grid.cols, grid.rows, grid.aspect, riseT, ambientT, ramp, scene],
+    [grid.cols, grid.rows, grid.aspect, riseT, ambientT, ramp, scene]
   );
 
   const colored = useMemo(() => {
@@ -124,7 +134,7 @@ export function AsciiSun({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] sm:text-[11px]"
+      className={`relative flex h-full w-full items-start justify-center overflow-hidden font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
       ref={wrapRef}
     >
       <pre
@@ -138,7 +148,10 @@ export function AsciiSun({
               <span
                 // biome-ignore lint/suspicious/noArrayIndexKey: run order within a row is stable per frame
                 key={j}
-                style={{ color: PALETTE[run.kind] }}
+                style={{
+                  color: FG[run.kind],
+                  backgroundColor: BG[run.kind]
+                }}
               >
                 {run.text}
               </span>

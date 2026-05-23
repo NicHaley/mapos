@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 interface AsciiStarfieldProps {
   density?: number;
@@ -24,22 +24,20 @@ function pickGlyphSet(h: number): string {
   return FAINT;
 }
 
-export function AsciiStarfield({
-  density = 0.009,
-}: AsciiStarfieldProps) {
+export function AsciiStarfield({ density = 0.009 }: AsciiStarfieldProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [grid, setGrid] = useState({ cols: 120, rows: 60 });
   const [ambientT, setAmbientT] = useState(0);
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       const rect = el.getBoundingClientRect();
       const probe = document.createElement("span");
       probe.textContent = "M";
-      probe.style.cssText =
-        "position:absolute;visibility:hidden;font:inherit;white-space:pre;";
+      probe.style.cssText = "position:absolute;visibility:hidden;font:inherit;white-space:pre;";
       el.appendChild(probe);
       const cw = probe.getBoundingClientRect().width || 8;
       const ch = probe.getBoundingClientRect().height || 16;
@@ -47,7 +45,10 @@ export function AsciiStarfield({
       const cols = Math.max(40, Math.floor(rect.width / cw));
       const rows = Math.max(20, Math.floor(rect.height / ch));
       setGrid({ cols, rows });
-    });
+    };
+    measure();
+    setReady(true);
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -79,7 +80,7 @@ export function AsciiStarfield({
             row: r,
             phase: hf * 17.3 + bucket * 9.1,
             rate: 0.6 + bucket * 1.6 + Math.abs(h2) * 0.5,
-            glyphSet: pickGlyphSet(hf),
+            glyphSet: pickGlyphSet(hf)
           });
         }
       }
@@ -104,7 +105,7 @@ export function AsciiStarfield({
 
   return (
     <div
-      className="h-full w-full font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] sm:text-[11px]"
+      className={`h-full w-full font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
       ref={wrapRef}
       aria-hidden="true"
     >

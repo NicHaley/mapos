@@ -66,12 +66,6 @@ export const MAPOS_TOOL_NAMES = [
   "compute_bbox"
 ] as const;
 
-/**
- * Built-in Pi tools we expose to the agent. Pi ships read/bash/edit/write/grep/find
- * as factories (createReadTool etc.); only the names are listed here. WebSearch and
- * WebFetch are not provided by Pi — if the agent needs them they have to be defined
- * as custom tools (not yet ported).
- */
 export const BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "edit", "write"] as const;
 
 export const ALLOWED_TOOLS = [...BUILTIN_TOOL_NAMES, ...MAPOS_TOOL_NAMES] as const;

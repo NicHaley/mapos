@@ -75,9 +75,7 @@ const TOOL_LABELS: Record<string, string> = {
   Bash: "Running Command",
   Read: "Reading File",
   Glob: "Searching Files",
-  Grep: "Searching Content",
-  WebSearch: "Searching Web",
-  WebFetch: "Fetching URL"
+  Grep: "Searching Content"
 };
 
 function toolLabel(name: string): string {
@@ -103,10 +101,6 @@ function toolPreview(call: ActiveToolCall): string | null {
       return str("pattern");
     case "Grep":
       return str("pattern");
-    case "WebFetch":
-      return str("url");
-    case "WebSearch":
-      return str("query");
     case "mcp__mapos__pan_to": {
       const lat = fields.lat;
       const lng = fields.lng;

@@ -1,10 +1,18 @@
+import type { ModelCapabilities } from "@shared/ai-models";
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import type { AiSettingsState, CustomEndpoint, SheetTarget } from "./types";
 
-export function thinkingLabel(t: "adaptive" | "enabled" | false): string {
-  if (t === "adaptive") return "Adaptive";
-  if (t === "enabled") return "Enabled";
-  return "No";
+const THINKING_LABELS: Record<ModelCapabilities["thinking"], string> = {
+  off: "No",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Very high"
+};
+
+export function thinkingLabel(t: ModelCapabilities["thinking"]): string {
+  return THINKING_LABELS[t];
 }
 
 export function anthropicCapabilityMeta(modelId: string): string {

@@ -30,6 +30,7 @@ import {
   saveConvState,
   setConversationsDir
 } from "./conversations";
+import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
@@ -296,11 +297,18 @@ export function setupChat(
     const modelRegistry = ModelRegistry.inMemory(authStorage);
     const model = resolveModel(aiConfig, authStorage, modelRegistry);
 
+    // Pi's `thinkingLevel` option doesn't include "off" — the only way to disable
+    // thinking at construction time is to omit the field and rely on the model's
+    // own clamping (local models registered with `reasoning: false` clamp to off).
+    const thinking = resolveCapabilities(aiConfig.provider, aiConfig.model).thinking;
+    const thinkingLevel = thinking === "off" ? undefined : thinking;
+
     const { session } = await createAgentSession({
       cwd: vaultRoot,
       authStorage,
       modelRegistry,
       model,
+      thinkingLevel,
       tools: ["read", "bash", "grep", "find"],
       customTools: makeMaposToolsForConv(convId),
       sessionManager: SessionManager.inMemory()

@@ -34,7 +34,7 @@ import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
-import { ALLOWED_TOOLS, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
+import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
 
 /** Matches any `<features>` tag whose `refs` attribute contains an `overlay:` entry. */
@@ -303,14 +303,21 @@ export function setupChat(
     const thinking = resolveCapabilities(aiConfig.provider, aiConfig.model).thinking;
     const thinkingLevel = thinking === "off" ? undefined : thinking;
 
+    // Pi's `tools:` is a global allowlist that filters BOTH built-ins AND customTools
+    // (see pi-coding-agent agent-session.js:1799). So we need to enumerate the custom
+    // tool names alongside the built-ins; deriving from the actual definitions avoids
+    // a hand-maintained list that can drift from `buildMaposCustomTools`.
+    const customTools = makeMaposToolsForConv(convId);
+    const customToolNames = customTools.map((t) => t.name);
+
     const { session } = await createAgentSession({
       cwd: vaultRoot,
       authStorage,
       modelRegistry,
       model,
       thinkingLevel,
-      tools: ["read", "bash", "grep", "find"],
-      customTools: makeMaposToolsForConv(convId),
+      tools: [...BUILTIN_TOOL_NAMES, ...customToolNames],
+      customTools,
       sessionManager: SessionManager.inMemory()
     });
 
@@ -333,6 +340,19 @@ export function setupChat(
     const turn = turnStates.get(convId);
     if (!turn) return;
     if (mainWindow.isDestroyed()) return;
+
+    // Provider errors arrive as a `message_end` with `stopReason: "error"` and
+    // `errorMessage` set, NOT as a `message_update` of type `"error"`. Surface it
+    // so the UI doesn't hang silently.
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const msg = event.message;
+      if (msg.stopReason === "error" && msg.errorMessage) {
+        console.error("[chat] provider error:", msg.errorMessage);
+        mainWindow.webContents.send("chat:error", { convId, message: msg.errorMessage });
+        finishTurn(convId);
+        return;
+      }
+    }
 
     switch (event.type) {
       case "message_update": {
@@ -606,6 +626,3 @@ export function setupChat(
     for (const ch of CHAT_ON_CHANNELS) ipcMain.removeAllListeners(ch);
   };
 }
-
-// ALLOWED_TOOLS is exported for parity with the old surface in case callers reference it.
-export { ALLOWED_TOOLS };

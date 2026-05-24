@@ -47,28 +47,18 @@ const TEXT_RESULT = (text: string) => ({
   details: {}
 });
 
-export const MAPOS_TOOL_NAMES = [
-  "render_overlay_on_map",
-  "clear_map_overlay",
-  "query_spatial_index",
-  "index_file",
-  "rebuild_index",
-  "get_viewport",
-  "pan_to",
-  "write_vault_file",
-  "delete_vault_file",
-  "rename_vault_file",
-  "geocode_search",
-  "reverse_geocode",
-  "get_directions",
-  "get_isochrone",
-  "get_matrix",
-  "compute_bbox"
+// Pi's full built-in tool surface. See https://pi.dev/docs/latest/sdk#tools.
+// We expose all of them; the system prompt (`buildMaposSystemPrompt`) steers the
+// agent toward MapOS custom tools (`write_vault_file`, etc.) for vault mutations.
+export const BUILTIN_TOOL_NAMES = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "grep",
+  "find",
+  "ls"
 ] as const;
-
-export const BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "edit", "write"] as const;
-
-export const ALLOWED_TOOLS = [...BUILTIN_TOOL_NAMES, ...MAPOS_TOOL_NAMES] as const;
 
 type ViewportState = {
   north: number;
@@ -217,7 +207,7 @@ export function buildMaposCustomTools(
               })
             ),
             coordinates: Type.Optional(
-              Type.Array(Type.Tuple([Type.Number(), Type.Number()]), {
+              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 }), {
                 description:
                   "Array of [longitude, latitude] pairs. Use only for short, hand-built lines."
               })
@@ -235,10 +225,13 @@ export function buildMaposCustomTools(
       polygons: Type.Optional(
         Type.Array(
           Type.Object({
-            coordinates: Type.Array(Type.Array(Type.Tuple([Type.Number(), Type.Number()])), {
-              description:
-                "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
-            }),
+            coordinates: Type.Array(
+              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
+              {
+                description:
+                  "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
+              }
+            ),
             title: Type.Optional(Type.String()),
             id: Type.Optional(Type.String()),
             preview_markdown: Type.Optional(

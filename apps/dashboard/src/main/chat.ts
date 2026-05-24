@@ -8,7 +8,13 @@ import {
   ModelRegistry,
   SessionManager
 } from "@earendil-works/pi-coding-agent";
-import { getModel, type Api, type Model } from "@earendil-works/pi-ai";
+import {
+  getModel,
+  type Api,
+  type AssistantMessage,
+  type Message,
+  type Model
+} from "@earendil-works/pi-ai";
 import { type BrowserWindow, ipcMain } from "electron";
 import type { PersistedMessage, PersistedToolCall, PlaceRecord, UndoEntry } from "../shared/types";
 import {
@@ -108,6 +114,75 @@ function resolveModel(
   return model;
 }
 
+/**
+ * Convert MapOS's persisted message history to Pi's `AgentMessage[]` shape so a freshly
+ * created session can see the prior turns. MapOS flattens text + thinking + tool calls
+ * into one `PersistedMessage` per assistant turn; Pi expects a sequence of
+ * `AssistantMessage` blocks interleaved with `ToolResultMessage` entries. We approximate:
+ * - one `AssistantMessage` containing thinking → text → toolCall blocks
+ * - one `ToolResultMessage` per tool call, immediately after.
+ *
+ * Synthesized usage/stopReason are zeros — they're required by the type but only matter
+ * for analytics on freshly-generated turns, not replayed history.
+ */
+function hydrateMessages(persisted: PersistedMessage[], model: Model<Api>): Message[] {
+  const zeroUsage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+  };
+  const out: Message[] = [];
+  for (const msg of persisted) {
+    const ts = Date.parse(msg.timestamp) || Date.now();
+    if (msg.role === "user") {
+      out.push({ role: "user", content: msg.content, timestamp: ts });
+      continue;
+    }
+    const content: AssistantMessage["content"] = [];
+    if (msg.thinking) {
+      content.push({ type: "thinking", thinking: msg.thinking });
+    }
+    if (msg.content) {
+      content.push({ type: "text", text: msg.content });
+    }
+    if (msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        const args =
+          tc.input && typeof tc.input === "object" && !Array.isArray(tc.input)
+            ? (tc.input as Record<string, unknown>)
+            : {};
+        content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: args });
+      }
+    }
+    out.push({
+      role: "assistant",
+      content,
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: zeroUsage,
+      stopReason: "stop",
+      timestamp: ts
+    });
+    if (msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        out.push({
+          role: "toolResult",
+          toolCallId: tc.id,
+          toolName: tc.name,
+          content: [{ type: "text", text: tc.result ?? "" }],
+          isError: tc.isError ?? false,
+          timestamp: ts
+        });
+      }
+    }
+  }
+  return out;
+}
+
 type SessionEntry = {
   session: AgentSession;
   unsubscribe: () => void;
@@ -201,7 +276,8 @@ export function setupChat(
 
   async function ensureSessionForConv(
     convId: string,
-    aiConfig: ReturnType<typeof loadAiConfigForRequest>
+    aiConfig: ReturnType<typeof loadAiConfigForRequest>,
+    priorMessages: PersistedMessage[]
   ): Promise<AgentSession> {
     const existing = sessions.get(convId);
     const key = configKeyFor(aiConfig);
@@ -229,6 +305,13 @@ export function setupChat(
       customTools: makeMaposToolsForConv(convId),
       sessionManager: SessionManager.inMemory()
     });
+
+    // Replay persisted history so the agent can see prior turns. Only applies when
+    // the session is freshly created (e.g. after an app restart or a config change);
+    // ongoing sessions already hold their own state.
+    if (priorMessages.length > 0) {
+      session.state.messages = hydrateMessages(priorMessages, model);
+    }
 
     const unsubscribe = session.subscribe((event) => {
       handleAgentEvent(convId, event);
@@ -353,6 +436,10 @@ export function setupChat(
         conversations.set(convId, conv);
       }
 
+      // Capture prior history BEFORE appending the new user message — `session.prompt()`
+      // adds the new message itself, so seeding it here would duplicate it.
+      const priorMessages = [...conv.messages];
+
       const userMsg: PersistedMessage = {
         role: "user",
         content: message,
@@ -381,7 +468,7 @@ export function setupChat(
       }
 
       try {
-        const session = await ensureSessionForConv(convId, aiConfig);
+        const session = await ensureSessionForConv(convId, aiConfig, priorMessages);
 
         // Refresh system prompt every turn so vault path is current.
         session.state.systemPrompt = buildMaposSystemPrompt(vaultRoot);

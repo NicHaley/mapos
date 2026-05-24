@@ -59,14 +59,29 @@ function resolveModel(
     return getModel("anthropic", aiConfig.model as never) as Model<Api>;
   }
 
-  const baseUrl = aiConfig.baseUrl.replace(/\/+$/, "");
+  // Pi's openai-completions provider uses the OpenAI SDK, which appends `/chat/completions`
+  // to baseUrl. Ollama serves its OpenAI-compatible API at `/v1/chat/completions`, so we
+  // need to ensure baseUrl ends with `/v1` when the user supplied a bare host:port.
+  const trimmed = aiConfig.baseUrl.replace(/\/+$/, "");
+  const parsed = (() => {
+    try {
+      return new URL(trimmed);
+    } catch {
+      return null;
+    }
+  })();
+  const baseUrl =
+    parsed && (parsed.pathname === "" || parsed.pathname === "/") ? `${trimmed}/v1` : trimmed;
+
   // Ollama doesn't validate the token but pi-ai requires a non-empty string when
   // authHeader is true. Fall back to MapOS's existing placeholder.
-  authStorage.setRuntimeApiKey(LOCAL_PROVIDER_KEY, aiConfig.authToken || "ollama");
+  const apiKey = aiConfig.authToken || "ollama";
+  authStorage.setRuntimeApiKey(LOCAL_PROVIDER_KEY, apiKey);
 
   modelRegistry.registerProvider(LOCAL_PROVIDER_KEY, {
     name: baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") ? "Local" : "Custom",
     baseUrl,
+    apiKey,
     api: "openai-completions",
     authHeader: true,
     models: [

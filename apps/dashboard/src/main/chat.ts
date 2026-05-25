@@ -11,22 +11,26 @@ import {
 import {
   getModel,
   type Api,
-  type AssistantMessage,
   type Message,
-  type Model
+  type Model,
+  type TextContent,
+  type UserMessage
 } from "@earendil-works/pi-ai";
 import { type BrowserWindow, ipcMain } from "electron";
-import type { PersistedMessage, PersistedToolCall, PlaceRecord, UndoEntry } from "../shared/types";
+import type { OverlaySnapshotEntry, PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
-  appendMessage,
+  appendMessages,
+  appendOverlaySnapshot,
   appendToIndex,
   compactIndex,
   getConversationFilePath,
+  getConversationOverlaysFilePath,
   getConversationStateFilePath,
   initConversationsDir,
   loadConvState,
   readConversationIndex,
+  readOverlaySnapshots,
   saveConvState,
   setConversationsDir
 } from "./conversations";
@@ -63,7 +67,17 @@ function resolveModel(
 ): Model<Api> {
   if (aiConfig.provider === "anthropic") {
     authStorage.setRuntimeApiKey("anthropic", aiConfig.apiKey);
-    return getModel("anthropic", aiConfig.model as never) as Model<Api>;
+    // `getModel` is typed to require a known model id but actually returns `undefined`
+    // for unknown ones at runtime. Check explicitly so a stale settings value surfaces
+    // as a clear "reconfigure" prompt instead of a downstream crash inside Pi.
+    const model = getModel("anthropic", aiConfig.model as never) as Model<Api> | undefined;
+    if (!model) {
+      throw new AiConfigError(
+        "AI_NOT_CONFIGURED",
+        `Anthropic model "${aiConfig.model}" isn't recognized by Pi. Pick a different model in Settings.`
+      );
+    }
+    return model;
   }
 
   // Pi's openai-completions provider uses the OpenAI SDK, which appends `/chat/completions`
@@ -115,75 +129,6 @@ function resolveModel(
   return model;
 }
 
-/**
- * Convert MapOS's persisted message history to Pi's `AgentMessage[]` shape so a freshly
- * created session can see the prior turns. MapOS flattens text + thinking + tool calls
- * into one `PersistedMessage` per assistant turn; Pi expects a sequence of
- * `AssistantMessage` blocks interleaved with `ToolResultMessage` entries. We approximate:
- * - one `AssistantMessage` containing thinking → text → toolCall blocks
- * - one `ToolResultMessage` per tool call, immediately after.
- *
- * Synthesized usage/stopReason are zeros — they're required by the type but only matter
- * for analytics on freshly-generated turns, not replayed history.
- */
-function hydrateMessages(persisted: PersistedMessage[], model: Model<Api>): Message[] {
-  const zeroUsage = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-  };
-  const out: Message[] = [];
-  for (const msg of persisted) {
-    const ts = Date.parse(msg.timestamp) || Date.now();
-    if (msg.role === "user") {
-      out.push({ role: "user", content: msg.content, timestamp: ts });
-      continue;
-    }
-    const content: AssistantMessage["content"] = [];
-    if (msg.thinking) {
-      content.push({ type: "thinking", thinking: msg.thinking });
-    }
-    if (msg.content) {
-      content.push({ type: "text", text: msg.content });
-    }
-    if (msg.toolCalls) {
-      for (const tc of msg.toolCalls) {
-        const args =
-          tc.input && typeof tc.input === "object" && !Array.isArray(tc.input)
-            ? (tc.input as Record<string, unknown>)
-            : {};
-        content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: args });
-      }
-    }
-    out.push({
-      role: "assistant",
-      content,
-      api: model.api,
-      provider: model.provider,
-      model: model.id,
-      usage: zeroUsage,
-      stopReason: "stop",
-      timestamp: ts
-    });
-    if (msg.toolCalls) {
-      for (const tc of msg.toolCalls) {
-        out.push({
-          role: "toolResult",
-          toolCallId: tc.id,
-          toolName: tc.name,
-          content: [{ type: "text", text: tc.result ?? "" }],
-          isError: tc.isError ?? false,
-          timestamp: ts
-        });
-      }
-    }
-  }
-  return out;
-}
-
 type SessionEntry = {
   session: AgentSession;
   unsubscribe: () => void;
@@ -191,11 +136,10 @@ type SessionEntry = {
   configKey: string;
 };
 
-/** Per-turn streaming accumulators, keyed by convId. */
+/** Per-turn bookkeeping. Persistence comes from `session.state.messages`, not here. */
 type TurnState = {
-  text: string;
-  thinking: string;
-  toolCalls: PersistedToolCall[];
+  /** `session.state.messages.length` snapshot taken just before `session.prompt()`. */
+  priorLen: number;
   /** Set when the agent loop has emitted agent_end so finishTurn() runs exactly once. */
   finished: boolean;
 };
@@ -227,7 +171,7 @@ export function setupChat(
       const lines = readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
       const messages = lines.flatMap((line) => {
         try {
-          return [JSON.parse(line) as PersistedMessage];
+          return [JSON.parse(line) as Message];
         } catch {
           return [];
         }
@@ -278,7 +222,7 @@ export function setupChat(
   async function ensureSessionForConv(
     convId: string,
     aiConfig: ReturnType<typeof loadAiConfigForRequest>,
-    priorMessages: PersistedMessage[]
+    priorMessages: Message[]
   ): Promise<AgentSession> {
     const existing = sessions.get(convId);
     const key = configKeyFor(aiConfig);
@@ -323,9 +267,10 @@ export function setupChat(
 
     // Replay persisted history so the agent can see prior turns. Only applies when
     // the session is freshly created (e.g. after an app restart or a config change);
-    // ongoing sessions already hold their own state.
+    // ongoing sessions already hold their own state. Messages are already in Pi's
+    // native shape on disk — no conversion needed.
     if (priorMessages.length > 0) {
-      session.state.messages = hydrateMessages(priorMessages, model);
+      session.state.messages = priorMessages;
     }
 
     const unsubscribe = session.subscribe((event) => {
@@ -358,16 +303,13 @@ export function setupChat(
       case "message_update": {
         const ev = event.assistantMessageEvent;
         if (ev.type === "text_delta") {
-          turn.text += ev.delta;
           mainWindow.webContents.send("chat:chunk", { convId, text: ev.delta });
         } else if (ev.type === "thinking_delta") {
-          turn.thinking += ev.delta;
           mainWindow.webContents.send("chat:thinking_chunk", { convId, text: ev.delta });
         }
         break;
       }
       case "tool_execution_start": {
-        turn.toolCalls.push({ id: event.toolCallId, name: event.toolName, input: event.args });
         mainWindow.webContents.send("chat:tool_call", {
           convId,
           id: event.toolCallId,
@@ -377,16 +319,10 @@ export function setupChat(
         break;
       }
       case "tool_execution_end": {
-        const tc = turn.toolCalls.find((t) => t.id === event.toolCallId);
-        const resultText = extractToolResultText(event.result);
-        if (tc) {
-          tc.result = resultText;
-          tc.isError = event.isError;
-        }
         mainWindow.webContents.send("chat:tool_result", {
           convId,
           tool_use_id: event.toolCallId,
-          content: resultText,
+          content: extractToolResultText(event.result),
           isError: event.isError
         });
         break;
@@ -415,30 +351,61 @@ export function setupChat(
     if (!turn || turn.finished) return;
     turn.finished = true;
     const conv = conversations.get(convId);
-    if (!conv) return;
+    const sessionEntry = sessions.get(convId);
+    if (!conv || !sessionEntry) {
+      turnStates.delete(convId);
+      return;
+    }
 
-    const assistantMsg: PersistedMessage = {
-      role: "assistant",
-      content: turn.text,
-      thinking: turn.thinking || undefined,
-      toolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : undefined,
-      timestamp: new Date().toISOString(),
-      ...(hasOverlayRef(turn.text) && conv.overlay ? { overlaySnapshot: conv.overlay } : {})
-    };
-    conv.messages.push(assistantMsg);
-    appendMessage(conv, assistantMsg);
+    // Everything the agent appended this turn lives in session.state.messages
+    // beyond `priorLen`. That includes the UserMessage that `session.prompt()`
+    // pushed, which we already persisted up front — so skip the first row.
+    const all = sessionEntry.session.state.messages;
+    const newRows = all.slice(turn.priorLen + 1);
+    if (newRows.length > 0) {
+      conv.messages.push(...newRows);
+      appendMessages(conv, newRows);
+    }
+
+    // Overlay refs in the assistant text need to resolve even after the live
+    // overlay has been replaced. Snapshot the current overlay keyed by the
+    // last assistant message's timestamp so renderer-side lookups work.
+    let overlaySnapshot: OverlaySnapshotEntry | undefined;
+    const lastAssistant = [...newRows].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant && conv.overlay) {
+      const text = lastAssistant.content
+        .filter((b): b is TextContent => b.type === "text")
+        .map((b) => b.text)
+        .join("");
+      if (hasOverlayRef(text)) {
+        overlaySnapshot = {
+          messageTimestamp: lastAssistant.timestamp,
+          overlay: conv.overlay
+        };
+        appendOverlaySnapshot(convId, overlaySnapshot);
+      }
+    }
 
     if (!mainWindow.isDestroyed()) {
       const canUndo = (undoEntries.get(convId)?.operations.length ?? 0) > 0;
-      mainWindow.webContents.send("chat:done", { convId, canUndo });
+      mainWindow.webContents.send("chat:done", {
+        convId,
+        canUndo,
+        newMessages: newRows,
+        ...(overlaySnapshot ? { overlaySnapshot } : {})
+      });
     }
     turnStates.delete(convId);
   }
 
   ipcMain.handle("chat:load-conversation", (_event, id: string) => {
     const conv = ensureLoaded(id);
-    if (!conv) return { messages: [], overlay: null };
-    return { messages: conv.messages, overlay: conv.overlay ?? null };
+    if (!conv) return { messages: [], overlay: null, overlaySnapshots: [] };
+    return {
+      messages: conv.messages,
+      overlay: conv.overlay ?? null,
+      overlaySnapshots: readOverlaySnapshots(id)
+    };
   });
 
   ipcMain.handle("chat:list-conversations", () => readConversationIndex());
@@ -454,9 +421,8 @@ export function setupChat(
         await existing.session.abort().catch(() => {});
       }
 
-      // Reset undo stack and turn state for this new turn.
+      // Reset undo stack for this new turn.
       undoEntries.set(convId, { operations: [] });
-      turnStates.set(convId, { text: "", thinking: "", toolCalls: [], finished: false });
 
       let conv = ensureLoaded(convId);
       if (!conv) {
@@ -464,17 +430,17 @@ export function setupChat(
         conversations.set(convId, conv);
       }
 
-      // Capture prior history BEFORE appending the new user message — `session.prompt()`
-      // adds the new message itself, so seeding it here would duplicate it.
-      const priorMessages = [...conv.messages];
-
-      const userMsg: PersistedMessage = {
+      // Persist the user message up front in Pi's native shape so a crash
+      // mid-stream doesn't lose it. `session.prompt()` will push an equivalent
+      // UserMessage into state; finishTurn skips it when slicing.
+      const userMsg: UserMessage = {
         role: "user",
         content: message,
-        timestamp: new Date().toISOString()
+        timestamp: Date.now()
       };
+      const priorMessages = [...conv.messages];
       conv.messages.push(userMsg);
-      appendMessage(conv, userMsg);
+      appendMessages(conv, [userMsg]);
 
       let aiConfig: ReturnType<typeof loadAiConfigForRequest>;
       try {
@@ -491,7 +457,6 @@ export function setupChat(
                 : undefined
           });
         }
-        turnStates.delete(convId);
         return;
       }
 
@@ -505,6 +470,13 @@ export function setupChat(
           conv.sdkSessionId = session.sessionId;
           appendToIndex(conv);
         }
+
+        // Snapshot length before prompt() so finishTurn can slice exactly what
+        // this turn appended.
+        turnStates.set(convId, {
+          priorLen: session.state.messages.length,
+          finished: false
+        });
 
         await session.prompt(message);
         // agent_end event handler calls finishTurn; nothing more to do here.
@@ -595,6 +567,8 @@ export function setupChat(
       if (existsSync(convFile)) rmSync(convFile);
       const stateFile = getConversationStateFilePath(id);
       if (existsSync(stateFile)) rmSync(stateFile);
+      const overlaysFile = getConversationOverlaysFilePath(id);
+      if (existsSync(overlaysFile)) rmSync(overlaysFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
       conversations.delete(id);

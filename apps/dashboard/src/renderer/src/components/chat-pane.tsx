@@ -26,6 +26,12 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
+import type {
+  AssistantMessage as PiAssistantMessage,
+  TextContent,
+  ToolResultMessage as PiToolResultMessage,
+  UserMessage as PiUserMessage
+} from "@earendil-works/pi-ai";
 import type { MapOverlayPayload, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
@@ -367,6 +373,101 @@ function mapOverlayFeatureCount(o: MapOverlayPayload): number {
   return o.points.length + o.lines.length + o.polygons.length;
 }
 
+function userMessageText(msg: PiUserMessage): string {
+  if (typeof msg.content === "string") return msg.content;
+  for (const block of msg.content) {
+    if (block.type === "text") return block.text;
+  }
+  return "";
+}
+
+function toolResultText(msg: PiToolResultMessage): string {
+  return msg.content
+    .filter((c): c is TextContent => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+}
+
+/**
+ * Render one bubble for a Pi `AssistantMessage` by walking its content blocks.
+ * Concatenates text and thinking blocks (rendered in fixed slots — same UX
+ * as live streaming). Tool calls are paired with their `ToolResultMessage`
+ * via a lookup map built once per render in the parent.
+ */
+function AssistantBubble({
+  msg,
+  toolResultsById,
+  overlaySnapshot,
+  onOpenFile
+}: {
+  msg: PiAssistantMessage;
+  toolResultsById: Map<string, PiToolResultMessage>;
+  overlaySnapshot: MapOverlayPayload | null;
+  onOpenFile: (filePath: string) => void;
+}): React.JSX.Element | null {
+  let text = "";
+  let thinking = "";
+  const toolCalls: ActiveToolCall[] = [];
+
+  for (const block of msg.content) {
+    if (block.type === "text") {
+      text += block.text;
+    } else if (block.type === "thinking") {
+      thinking += block.thinking;
+    } else if (block.type === "toolCall") {
+      const result = toolResultsById.get(block.id);
+      toolCalls.push({
+        id: block.id,
+        name: block.name,
+        input: block.arguments,
+        ...(result
+          ? {
+              result: toolResultText(result),
+              isError: result.isError,
+              status: result.isError ? ("error" as const) : ("done" as const)
+            }
+          : { status: "done" as const })
+      });
+    }
+  }
+
+  if (!text && !thinking && toolCalls.length === 0) return null;
+
+  return (
+    <Message from="assistant">
+      {thinking && (
+        <Reasoning>
+          <ReasoningTrigger />
+          <ReasoningContent>{thinking}</ReasoningContent>
+        </Reasoning>
+      )}
+      {toolCalls.length > 0 && (
+        <div className="w-full flex flex-col gap-2">
+          {toolCalls.map((tc) =>
+            VAULT_FILE_TOOLS.has(tc.name) ? (
+              <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
+            ) : (
+              <ToolCallRow key={tc.id} call={tc} />
+            )
+          )}
+        </div>
+      )}
+      {text && (
+        <MessageContent>
+          <FeatureMessageProvider overlaySnapshot={overlaySnapshot}>
+            <MessageResponse
+              components={STREAMDOWN_FEATURES_COMPONENTS}
+              allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+            >
+              {text}
+            </MessageResponse>
+          </FeatureMessageProvider>
+        </MessageContent>
+      )}
+    </Message>
+  );
+}
+
 const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
 
 export function ChatPane({
@@ -421,12 +522,22 @@ export function ChatPane({
 }): React.JSX.Element {
   const {
     messages,
+    overlaySnapshots,
     streamingContent,
     streamingThinking,
     activeToolCalls,
     assistantPending,
     canUndo
   } = convState;
+
+  /** Build once per render so AssistantBubble can pair each ToolCall block with its result. */
+  const toolResultsById = useMemo(() => {
+    const m = new Map<string, PiToolResultMessage>();
+    for (const row of messages) {
+      if (row.role === "toolResult") m.set(row.toolCallId, row);
+    }
+    return m;
+  }, [messages]);
   const loading =
     assistantPending ||
     streamingContent !== "" ||
@@ -555,55 +666,44 @@ export function ChatPane({
               />
             )}
 
-          {messages.map((msg) => {
-            return msg.role === "error" ? (
-              <div
-                key={msg.id}
-                className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                {msg.reconfigureProvider === "ai" && (
-                  <button
-                    type="button"
-                    onClick={openAiSettings}
-                    className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
-                  >
-                    Reconfigure →
-                  </button>
-                )}
-              </div>
-            ) : (
-              <Message key={msg.id} from={msg.role}>
-                {msg.thinking && (
-                  <Reasoning>
-                    <ReasoningTrigger />
-                    <ReasoningContent>{msg.thinking}</ReasoningContent>
-                  </Reasoning>
-                )}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="w-full flex flex-col gap-2">
-                    {msg.toolCalls.map((tc) =>
-                      VAULT_FILE_TOOLS.has(tc.name) ? (
-                        <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
-                      ) : (
-                        <ToolCallRow key={tc.id} call={tc} />
-                      )
-                    )}
-                  </div>
-                )}
-                {msg.content && (
+          {messages.map((msg, idx) => {
+            if (msg.role === "error") {
+              return (
+                <div
+                  key={msg.id}
+                  className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                  {msg.reconfigureProvider === "ai" && (
+                    <button
+                      type="button"
+                      onClick={openAiSettings}
+                      className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                    >
+                      Reconfigure →
+                    </button>
+                  )}
+                </div>
+              );
+            }
+            if (msg.role === "toolResult") return null;
+            if (msg.role === "user") {
+              return (
+                <Message key={`${msg.timestamp}_${idx}`} from="user">
                   <MessageContent>
-                    <FeatureMessageProvider overlaySnapshot={msg.overlaySnapshot ?? null}>
-                      <MessageResponse
-                        components={STREAMDOWN_FEATURES_COMPONENTS}
-                        allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
-                      >
-                        {msg.content}
-                      </MessageResponse>
-                    </FeatureMessageProvider>
+                    <MessageResponse>{userMessageText(msg)}</MessageResponse>
                   </MessageContent>
-                )}
-              </Message>
+                </Message>
+              );
+            }
+            return (
+              <AssistantBubble
+                key={`${msg.timestamp}_${idx}`}
+                msg={msg}
+                toolResultsById={toolResultsById}
+                overlaySnapshot={overlaySnapshots[msg.timestamp] ?? null}
+                onOpenFile={onOpenFile}
+              />
             );
           })}
 

@@ -1,3 +1,5 @@
+import type { Message } from "@earendil-works/pi-ai";
+
 export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
@@ -51,14 +53,6 @@ export type FileNode = {
   children?: FileNode[];
 };
 
-export type PersistedToolCall = {
-  id: string;
-  name: string;
-  input: unknown;
-  result?: string;
-  isError?: boolean;
-};
-
 export type ChatToolCallPayload = {
   convId: string;
   id: string;
@@ -74,7 +68,14 @@ export type ChatToolResultPayload = {
 };
 
 export type ChatChunkPayload = { convId: string; text: string };
-export type ChatDonePayload = { convId: string; canUndo: boolean };
+export type ChatDonePayload = {
+  convId: string;
+  canUndo: boolean;
+  /** Pi-native messages that the agent appended this turn (assistant + toolResult rows). */
+  newMessages: Message[];
+  /** Set when an assistant message in this turn mentioned an overlay ref worth pinning. */
+  overlaySnapshot?: OverlaySnapshotEntry;
+};
 export type ChatErrorPayload = {
   convId: string;
   message: string;
@@ -84,14 +85,15 @@ export type ChatErrorPayload = {
   reconfigureProvider?: "ai";
 };
 
-export type PersistedMessage = {
-  role: "user" | "assistant";
-  content: string;
-  thinking?: string;
-  toolCalls?: PersistedToolCall[];
-  timestamp: string;
-  /** Overlay captured when this message contained `<features refs="overlay:..."/>` so stale refs stay resolvable. */
-  overlaySnapshot?: MapOverlayPayload;
+/**
+ * Overlay snapshot pinned to an assistant message whose text mentions an
+ * `overlay:` ref. Stored in a sidecar JSONL so historic refs stay resolvable
+ * after the live overlay has been replaced or cleared. The key is the
+ * assistant message's epoch-ms timestamp (Pi `AssistantMessage.timestamp`).
+ */
+export type OverlaySnapshotEntry = {
+  messageTimestamp: number;
+  overlay: MapOverlayPayload;
 };
 
 export type ConversationMeta = {
@@ -119,6 +121,7 @@ export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
 
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {
-  messages: PersistedMessage[];
+  messages: Message[];
   overlay: MapOverlayPayload | null;
+  overlaySnapshots: OverlaySnapshotEntry[];
 };

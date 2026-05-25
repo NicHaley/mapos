@@ -29,9 +29,19 @@ export type ModelCapabilities = {
   supportsImages: boolean;
   /** Tool use through MapOS's chat path. */
   supportsTools: boolean;
-  /** Display-ready context window magnitude (e.g. "32K", "1M"). UX hint, not enforcement. */
-  contextWindow: string;
+  /**
+   * Maximum context window in tokens. Source of truth for both Pi's compaction
+   * budget (passed through `ModelRegistry.registerProvider` for local models)
+   * and the display label in Settings (rendered via {@link formatContextWindow}).
+   */
+  contextWindow: number;
 };
+
+/** Display label for a token count, e.g. 256_000 → "256K", 1_000_000 → "1M". */
+export function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
+  return `${Math.round(tokens / 1_000)}K`;
+}
 
 export type AnthropicModel = {
   id: string;
@@ -51,7 +61,7 @@ const ANTHROPIC_DEFAULT: ModelCapabilities = {
   thinking: "high",
   supportsImages: true,
   supportsTools: true,
-  contextWindow: "200K"
+  contextWindow: 200_000
 };
 
 /**
@@ -62,19 +72,19 @@ const LOCAL_DEFAULT: ModelCapabilities = {
   thinking: "off",
   supportsImages: false,
   supportsTools: false,
-  contextWindow: "32K"
+  contextWindow: 32_000
 };
 
 export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     id: "claude-opus-4-7",
     label: "Claude Opus 4.7",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
   },
   {
     id: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
   }
 ];
 
@@ -91,7 +101,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Tiny — runs on almost any machine.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "32K",
+      contextWindow: 32_000,
       thinking: "medium",
       supportsTools: true
     }
@@ -103,7 +113,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Small and fast, light RAM use.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "128K",
+      contextWindow: 128_000,
       supportsImages: true,
       supportsTools: true
     }
@@ -115,7 +125,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Sweet spot. Most popular tools model.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
+      contextWindow: 256_000,
       thinking: "medium",
       supportsImages: true,
       supportsTools: true
@@ -128,7 +138,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Higher quality if you have the RAM.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
+      contextWindow: 256_000,
       supportsImages: true,
       supportsTools: true
     }
@@ -140,7 +150,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Frontier-level reasoning. Needs 32GB+ RAM.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
+      contextWindow: 256_000,
       thinking: "medium",
       supportsImages: true,
       supportsTools: true

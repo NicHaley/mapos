@@ -62,31 +62,32 @@ const STREAMDOWN_FEATURES_COMPONENTS = { features: FeatureList };
 const STREAMDOWN_FEATURES_ALLOWED_TAGS = { features: ["refs"] };
 
 const VAULT_FILE_TOOLS = new Set([
-  "mcp__mapos__write_vault_file",
-  "mcp__mapos__delete_vault_file",
-  "mcp__mapos__rename_vault_file"
+  "write_vault_file",
+  "delete_vault_file",
+  "rename_vault_file"
 ]);
 
 const TOOL_LABELS: Record<string, string> = {
-  mcp__mapos__render_overlay_on_map: "Rendering On Map",
-  mcp__mapos__clear_map_overlay: "Clearing Overlay",
-  mcp__mapos__query_spatial_index: "Querying Vault",
-  mcp__mapos__index_file: "Indexing File",
-  mcp__mapos__rebuild_index: "Rebuilding Index",
-  mcp__mapos__get_viewport: "Getting Viewport",
-  mcp__mapos__pan_to: "Panning Map",
-  mcp__mapos__write_vault_file: "Writing File",
-  mcp__mapos__delete_vault_file: "Deleting File",
-  mcp__mapos__rename_vault_file: "Renaming File",
-  Bash: "Running Command",
-  Read: "Reading File",
-  Glob: "Searching Files",
-  Grep: "Searching Content"
+  render_overlay_on_map: "Rendering On Map",
+  clear_map_overlay: "Clearing Overlay",
+  query_spatial_index: "Querying Vault",
+  index_file: "Indexing File",
+  rebuild_index: "Rebuilding Index",
+  get_viewport: "Getting Viewport",
+  pan_to: "Panning Map",
+  write_vault_file: "Writing File",
+  delete_vault_file: "Deleting File",
+  rename_vault_file: "Renaming File",
+  bash: "Running Command",
+  read: "Reading File",
+  find: "Searching Files",
+  grep: "Searching Content",
+  ls: "Listing Directory"
 };
 
 function toolLabel(name: string): string {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
-  return name.replace(/^mcp__[^_]+(?:__[^_]+)*?__/, "").replace(/_/g, " ");
+  return name.replace(/_/g, " ");
 }
 
 /** One-line preview of the operative argument so generic labels like "Running Command" show what's actually running. */
@@ -99,15 +100,15 @@ function toolPreview(call: ActiveToolCall): string | null {
     return typeof v === "string" && v.length > 0 ? v : null;
   };
   switch (call.name) {
-    case "Bash":
+    case "bash":
       return str("command")?.split("\n")[0] ?? null;
-    case "Read":
-      return str("file_path");
-    case "Glob":
+    case "read":
+    case "ls":
+      return str("path");
+    case "find":
+    case "grep":
       return str("pattern");
-    case "Grep":
-      return str("pattern");
-    case "mcp__mapos__pan_to": {
+    case "pan_to": {
       const lat = fields.lat;
       const lng = fields.lng;
       return typeof lat === "number" && typeof lng === "number"

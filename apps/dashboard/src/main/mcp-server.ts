@@ -47,18 +47,12 @@ const TEXT_RESULT = (text: string) => ({
   details: {}
 });
 
-// Pi's full built-in tool surface. See https://pi.dev/docs/latest/sdk#tools.
-// We expose all of them; the system prompt (`buildMaposSystemPrompt`) steers the
-// agent toward MapOS custom tools (`write_vault_file`, etc.) for vault mutations.
-export const BUILTIN_TOOL_NAMES = [
-  "read",
-  "bash",
-  "edit",
-  "write",
-  "grep",
-  "find",
-  "ls"
-] as const;
+// Read-only built-ins plus `bash` (kept for legitimate shell needs like `exiftool`
+// during photo import). `write` and `edit` are deliberately omitted: any vault
+// mutation must go through `write_vault_file`/`delete_vault_file`/`rename_vault_file`
+// so undo tracking and spatial-index updates stay in sync. Raw bash redirects to
+// vault paths are forbidden by the system prompt.
+export const BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"] as const;
 
 type ViewportState = {
   north: number;

@@ -99,6 +99,8 @@ function resolveModel(
   const apiKey = aiConfig.authToken || "ollama";
   authStorage.setRuntimeApiKey(LOCAL_PROVIDER_KEY, apiKey);
 
+  const { contextWindow } = resolveCapabilities("local", aiConfig.model);
+
   modelRegistry.registerProvider(LOCAL_PROVIDER_KEY, {
     name: baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") ? "Local" : "Custom",
     baseUrl,
@@ -113,7 +115,7 @@ function resolveModel(
         reasoning: false,
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 32768,
+        contextWindow,
         maxTokens: 4096
       }
     ]

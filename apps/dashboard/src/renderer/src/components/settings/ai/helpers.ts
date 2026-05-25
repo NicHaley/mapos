@@ -1,5 +1,5 @@
 import type { ModelCapabilities } from "@shared/ai-models";
-import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
+import { ANTHROPIC_MODELS, OLLAMA_MODELS, formatContextWindow } from "@shared/ai-models";
 import type { AiSettingsState, CustomEndpoint, SheetTarget } from "./types";
 
 const THINKING_LABELS: Record<ModelCapabilities["thinking"], string> = {
@@ -18,7 +18,7 @@ export function thinkingLabel(t: ModelCapabilities["thinking"]): string {
 export function anthropicCapabilityMeta(modelId: string): string {
   const entry = ANTHROPIC_MODELS.find((m) => m.id === modelId);
   if (!entry) return "Cloud model";
-  const parts = [`${entry.capabilities.contextWindow} context`];
+  const parts = [`${formatContextWindow(entry.capabilities.contextWindow)} context`];
   if (entry.capabilities.supportsImages) parts.push("vision");
   return parts.join(" · ");
 }

@@ -390,18 +390,21 @@ function toolResultText(msg: PiToolResultMessage): string {
 }
 
 /**
- * Render one bubble for a Pi `AssistantMessage` by walking its content blocks.
- * Concatenates text and thinking blocks (rendered in fixed slots — same UX
- * as live streaming). Tool calls are paired with their `ToolResultMessage`
- * via a lookup map built once per render in the parent.
+ * Render one bubble for a run of consecutive `AssistantMessage`s from Pi.
+ *
+ * Pi splits a single agent turn into multiple `assistant` messages interleaved
+ * with `toolResult` messages — text, then tool calls, then more text after the
+ * results come back. Rendering each one as its own bubble visually fragments a
+ * turn that the user perceives as a single response, so we merge the content
+ * blocks across the group into one bubble (matching the live-streaming UX).
  */
 function AssistantBubble({
-  msg,
+  msgs,
   toolResultsById,
   overlaySnapshot,
   onOpenFile
 }: {
-  msg: PiAssistantMessage;
+  msgs: PiAssistantMessage[];
   toolResultsById: Map<string, PiToolResultMessage>;
   overlaySnapshot: MapOverlayPayload | null;
   onOpenFile: (filePath: string) => void;
@@ -410,25 +413,27 @@ function AssistantBubble({
   let thinking = "";
   const toolCalls: ActiveToolCall[] = [];
 
-  for (const block of msg.content) {
-    if (block.type === "text") {
-      text += block.text;
-    } else if (block.type === "thinking") {
-      thinking += block.thinking;
-    } else if (block.type === "toolCall") {
-      const result = toolResultsById.get(block.id);
-      toolCalls.push({
-        id: block.id,
-        name: block.name,
-        input: block.arguments,
-        ...(result
-          ? {
-              result: toolResultText(result),
-              isError: result.isError,
-              status: result.isError ? ("error" as const) : ("done" as const)
-            }
-          : { status: "done" as const })
-      });
+  for (const msg of msgs) {
+    for (const block of msg.content) {
+      if (block.type === "text") {
+        text += block.text;
+      } else if (block.type === "thinking") {
+        thinking += block.thinking;
+      } else if (block.type === "toolCall") {
+        const result = toolResultsById.get(block.id);
+        toolCalls.push({
+          id: block.id,
+          name: block.name,
+          input: block.arguments,
+          ...(result
+            ? {
+                result: toolResultText(result),
+                isError: result.isError,
+                status: result.isError ? ("error" as const) : ("done" as const)
+              }
+            : { status: "done" as const })
+        });
+      }
     }
   }
 
@@ -667,46 +672,72 @@ export function ChatPane({
               />
             )}
 
-          {messages.map((msg, idx) => {
-            if (msg.role === "error") {
-              return (
-                <div
-                  key={msg.id}
-                  className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                >
-                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                  {msg.reconfigureProvider === "ai" && (
-                    <button
-                      type="button"
-                      onClick={openAiSettings}
-                      className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
-                    >
-                      Reconfigure →
-                    </button>
-                  )}
-                </div>
+          {(() => {
+            // Walk the message list and merge consecutive assistant messages
+            // (toolResult rows between them don't break the group) into a
+            // single bubble. User and error rows flush the group.
+            const rendered: React.JSX.Element[] = [];
+            let group: PiAssistantMessage[] = [];
+
+            const flush = (): void => {
+              if (group.length === 0) return;
+              const last = group[group.length - 1];
+              if (!last) {
+                group = [];
+                return;
+              }
+              rendered.push(
+                <AssistantBubble
+                  key={`assistant_${group[0]?.timestamp}_${rendered.length}`}
+                  msgs={group}
+                  toolResultsById={toolResultsById}
+                  overlaySnapshot={overlaySnapshots[last.timestamp] ?? null}
+                  onOpenFile={onOpenFile}
+                />
               );
+              group = [];
+            };
+
+            for (let idx = 0; idx < messages.length; idx++) {
+              const msg = messages[idx];
+              if (!msg) continue;
+              if (msg.role === "assistant") {
+                group.push(msg);
+                continue;
+              }
+              if (msg.role === "toolResult") continue;
+              flush();
+              if (msg.role === "error") {
+                rendered.push(
+                  <div
+                    key={msg.id}
+                    className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  >
+                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                    {msg.reconfigureProvider === "ai" && (
+                      <button
+                        type="button"
+                        onClick={openAiSettings}
+                        className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                      >
+                        Reconfigure →
+                      </button>
+                    )}
+                  </div>
+                );
+              } else if (msg.role === "user") {
+                rendered.push(
+                  <Message key={`${msg.timestamp}_${idx}`} from="user">
+                    <MessageContent>
+                      <MessageResponse>{userMessageText(msg)}</MessageResponse>
+                    </MessageContent>
+                  </Message>
+                );
+              }
             }
-            if (msg.role === "toolResult") return null;
-            if (msg.role === "user") {
-              return (
-                <Message key={`${msg.timestamp}_${idx}`} from="user">
-                  <MessageContent>
-                    <MessageResponse>{userMessageText(msg)}</MessageResponse>
-                  </MessageContent>
-                </Message>
-              );
-            }
-            return (
-              <AssistantBubble
-                key={`${msg.timestamp}_${idx}`}
-                msg={msg}
-                toolResultsById={toolResultsById}
-                overlaySnapshot={overlaySnapshots[msg.timestamp] ?? null}
-                onOpenFile={onOpenFile}
-              />
-            );
-          })}
+            flush();
+            return rendered;
+          })()}
 
           {awaitingFirstToken && (
             <Message from="assistant">

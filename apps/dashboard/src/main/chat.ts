@@ -1,73 +1,169 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import { app, type BrowserWindow, ipcMain } from "electron";
-import type { PersistedMessage, PlaceRecord, UndoEntry } from "../shared/types";
+import {
+  type AgentSession,
+  type AgentSessionEvent,
+  AuthStorage,
+  createAgentSession,
+  ModelRegistry,
+  SessionManager
+} from "@earendil-works/pi-coding-agent";
+import {
+  getModel,
+  type Api,
+  type Message,
+  type Model,
+  type TextContent,
+  type UserMessage
+} from "@earendil-works/pi-ai";
+import { type BrowserWindow, ipcMain } from "electron";
+import type { OverlaySnapshotEntry, PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
-  appendMessage,
+  appendMessages,
+  appendOverlaySnapshot,
   appendToIndex,
   compactIndex,
   getConversationFilePath,
+  getConversationOverlaysFilePath,
   getConversationStateFilePath,
   initConversationsDir,
   loadConvState,
   readConversationIndex,
+  readOverlaySnapshots,
   saveConvState,
   setConversationsDir
 } from "./conversations";
+import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
-import { ALLOWED_TOOLS, buildMaposSystemPrompt, createMaposMcpServer } from "./mcp-server";
+import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
 
-/**
- * In a packaged Electron build the Claude Agent SDK's native `claude` binary lives inside
- * `app.asar`, but the OS can't `spawn()` an executable from an asar archive (ENOTDIR). The
- * binary is unpacked to `app.asar.unpacked/...` by electron-builder, so we point the SDK
- * at that real-filesystem path. In dev, the SDK's own resolution works fine.
- */
 /** Matches any `<features>` tag whose `refs` attribute contains an `overlay:` entry. */
 const OVERLAY_REF_PATTERN = /<features\b[^>]*\brefs=["'][^"']*\boverlay:/i;
 function hasOverlayRef(text: string): boolean {
   return OVERLAY_REF_PATTERN.test(text);
 }
 
-function resolveClaudeCodeExecutable(): string | undefined {
-  if (!app.isPackaged) return undefined;
-  const platformDir =
-    process.platform === "win32"
-      ? `@anthropic-ai/claude-agent-sdk-win32-${process.arch}`
-      : `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
-  const binaryName = process.platform === "win32" ? "claude.exe" : "claude";
-  return join(
-    process.resourcesPath,
-    "app.asar.unpacked",
-    "node_modules",
-    platformDir,
-    binaryName
-  );
+const LOCAL_PROVIDER_KEY = "mapos-local";
+
+/**
+ * Resolve a Pi {@link Model} from MapOS's request config, going through {@link ModelRegistry}
+ * for both providers so we plug into Pi's standard auth/model lifecycle:
+ *
+ * - **Anthropic** — `getModel("anthropic", id)` returns a model from Pi's bundled `MODELS` map.
+ *   AuthStorage is given the user's key under `"anthropic"`.
+ * - **Local / custom OpenAI-compatible** — `modelRegistry.registerProvider()` declares a
+ *   MapOS-owned provider (Ollama, LiteLLM proxy, OpenAI itself, ...) with the user's
+ *   `baseUrl` and a single model row. Pi's built-in `streamOpenAICompletions` handles
+ *   the wire format; the registry handles auth resolution.
+ */
+function resolveModel(
+  aiConfig: ReturnType<typeof loadAiConfigForRequest>,
+  authStorage: AuthStorage,
+  modelRegistry: ModelRegistry
+): Model<Api> {
+  if (aiConfig.provider === "anthropic") {
+    authStorage.setRuntimeApiKey("anthropic", aiConfig.apiKey);
+    // `getModel` is typed to require a known model id but actually returns `undefined`
+    // for unknown ones at runtime. Check explicitly so a stale settings value surfaces
+    // as a clear "reconfigure" prompt instead of a downstream crash inside Pi.
+    const model = getModel("anthropic", aiConfig.model as never) as Model<Api> | undefined;
+    if (!model) {
+      throw new AiConfigError(
+        "AI_NOT_CONFIGURED",
+        `Anthropic model "${aiConfig.model}" isn't recognized by Pi. Pick a different model in Settings.`
+      );
+    }
+    return model;
+  }
+
+  // Pi's openai-completions provider uses the OpenAI SDK, which appends `/chat/completions`
+  // to baseUrl. Ollama serves its OpenAI-compatible API at `/v1/chat/completions`, so we
+  // need to ensure baseUrl ends with `/v1` when the user supplied a bare host:port.
+  const trimmed = aiConfig.baseUrl.replace(/\/+$/, "");
+  const parsed = (() => {
+    try {
+      return new URL(trimmed);
+    } catch {
+      return null;
+    }
+  })();
+  const baseUrl =
+    parsed && (parsed.pathname === "" || parsed.pathname === "/") ? `${trimmed}/v1` : trimmed;
+
+  // Ollama doesn't validate the token but pi-ai requires a non-empty string when
+  // authHeader is true. Fall back to MapOS's existing placeholder.
+  const apiKey = aiConfig.authToken || "ollama";
+  authStorage.setRuntimeApiKey(LOCAL_PROVIDER_KEY, apiKey);
+
+  const { contextWindow } = resolveCapabilities("local", aiConfig.model);
+
+  modelRegistry.registerProvider(LOCAL_PROVIDER_KEY, {
+    name: baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") ? "Local" : "Custom",
+    baseUrl,
+    apiKey,
+    api: "openai-completions",
+    authHeader: true,
+    models: [
+      {
+        id: aiConfig.model,
+        name: aiConfig.model,
+        api: "openai-completions",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow,
+        maxTokens: 4096
+      }
+    ]
+  });
+
+  const model = modelRegistry.find(LOCAL_PROVIDER_KEY, aiConfig.model);
+  if (!model) {
+    throw new AiConfigError(
+      "AI_NOT_CONFIGURED",
+      `Couldn't register local model "${aiConfig.model}" at ${baseUrl} with Pi's ModelRegistry.`
+    );
+  }
+  return model;
 }
+
+type SessionEntry = {
+  session: AgentSession;
+  unsubscribe: () => void;
+  /** Hash of the ai-config used to construct the session; invalidated when settings change. */
+  configKey: string;
+};
+
+/** Per-turn bookkeeping. Persistence comes from `session.state.messages`, not here. */
+type TurnState = {
+  /** `session.state.messages.length` snapshot taken just before `session.prompt()`. */
+  priorLen: number;
+  /** Set when the agent loop has emitted agent_end so finishTurn() runs exactly once. */
+  finished: boolean;
+};
 
 export function setupChat(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   vaultRoot: string
 ): () => void {
-  // Conversations live inside the vault's .mapos/ folder so they're scoped per-vault and travel with it.
   setConversationsDir(join(vaultDotDir(vaultRoot), "conversations"));
 
-  /** In-flight Claude Agent SDK queries, keyed by convId. Lets multiple chats stream concurrently. */
-  const queries = new Map<string, { close: () => void }>();
+  /** Long-lived Pi agent sessions keyed by convId. Reused across messages for multi-turn. */
+  const sessions = new Map<string, SessionEntry>();
   /** Conversation state in memory. Hydrated lazily when a tab loads or sends. */
   const conversations = new Map<string, ActiveConversation>();
-  /** Per-turn undo stack, keyed by convId — undo is scoped to the most recent turn of that conversation. */
+  /** Per-turn undo stack, keyed by convId. */
   const undoEntries = new Map<string, UndoEntry>();
+  /** Active turn streaming state, keyed by convId. */
+  const turnStates = new Map<string, TurnState>();
 
   initConversationsDir();
 
-  /** Load conversation from disk into the in-memory map (idempotent). */
   function ensureLoaded(id: string): ActiveConversation | null {
     const existing = conversations.get(id);
     if (existing) return existing;
@@ -77,7 +173,7 @@ export function setupChat(
       const lines = readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
       const messages = lines.flatMap((line) => {
         try {
-          return [JSON.parse(line) as PersistedMessage];
+          return [JSON.parse(line) as Message];
         } catch {
           return [];
         }
@@ -98,16 +194,15 @@ export function setupChat(
     }
   }
 
-  /** Build a fresh MCP server for a specific conversation; closures bind callbacks to convId. */
-  function makeMcpServerForConv(convId: string) {
-    return createMaposMcpServer(
+  /** Build a fresh MCP tool set bound to this conversation's callbacks. */
+  function makeMaposToolsForConv(convId: string) {
+    return buildMaposCustomTools(
       mainWindow,
       places,
       vaultRoot,
       (op) => {
         const entry = undoEntries.get(convId);
         if (!entry) return;
-        // Only snapshot the first write per path per turn (keep original pre-turn content).
         if (!entry.operations.some((o) => o.path === op.path)) {
           entry.operations.push(op);
         }
@@ -122,29 +217,213 @@ export function setupChat(
     );
   }
 
+  function configKeyFor(aiConfig: ReturnType<typeof loadAiConfigForRequest>): string {
+    return `${aiConfig.provider}|${aiConfig.model}|${aiConfig.apiKey || aiConfig.authToken || aiConfig.baseUrl}`;
+  }
+
+  async function ensureSessionForConv(
+    convId: string,
+    aiConfig: ReturnType<typeof loadAiConfigForRequest>,
+    priorMessages: Message[]
+  ): Promise<AgentSession> {
+    const existing = sessions.get(convId);
+    const key = configKeyFor(aiConfig);
+    if (existing && existing.configKey === key) {
+      return existing.session;
+    }
+    if (existing) {
+      existing.unsubscribe();
+      existing.session.dispose();
+      sessions.delete(convId);
+    }
+
+    const authStorage = AuthStorage.inMemory();
+    // Pi's ModelRegistry.create() reads ~/.pi/agent/models.json by default; use inMemory()
+    // so MapOS doesn't leak custom-provider state into the user's home directory.
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    const model = resolveModel(aiConfig, authStorage, modelRegistry);
+
+    // Pi's `thinkingLevel` option doesn't include "off" — the only way to disable
+    // thinking at construction time is to omit the field and rely on the model's
+    // own clamping (local models registered with `reasoning: false` clamp to off).
+    const thinking = resolveCapabilities(aiConfig.provider, aiConfig.model).thinking;
+    const thinkingLevel = thinking === "off" ? undefined : thinking;
+
+    // Pi's `tools:` is a global allowlist that filters BOTH built-ins AND customTools
+    // (see pi-coding-agent agent-session.js:1799). So we need to enumerate the custom
+    // tool names alongside the built-ins; deriving from the actual definitions avoids
+    // a hand-maintained list that can drift from `buildMaposCustomTools`.
+    const customTools = makeMaposToolsForConv(convId);
+    const customToolNames = customTools.map((t) => t.name);
+
+    const { session } = await createAgentSession({
+      cwd: vaultRoot,
+      authStorage,
+      modelRegistry,
+      model,
+      thinkingLevel,
+      tools: [...BUILTIN_TOOL_NAMES, ...customToolNames],
+      customTools,
+      sessionManager: SessionManager.inMemory()
+    });
+
+    // Replay persisted history so the agent can see prior turns. Only applies when
+    // the session is freshly created (e.g. after an app restart or a config change);
+    // ongoing sessions already hold their own state. Messages are already in Pi's
+    // native shape on disk — no conversion needed.
+    if (priorMessages.length > 0) {
+      session.state.messages = priorMessages;
+    }
+
+    const unsubscribe = session.subscribe((event) => {
+      handleAgentEvent(convId, event);
+    });
+
+    sessions.set(convId, { session, unsubscribe, configKey: key });
+    return session;
+  }
+
+  function handleAgentEvent(convId: string, event: AgentSessionEvent): void {
+    const turn = turnStates.get(convId);
+    if (!turn) return;
+    if (mainWindow.isDestroyed()) return;
+
+    // Provider errors arrive as a `message_end` with `stopReason: "error"` and
+    // `errorMessage` set, NOT as a `message_update` of type `"error"`. Surface it
+    // so the UI doesn't hang silently.
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const msg = event.message;
+      if (msg.stopReason === "error" && msg.errorMessage) {
+        console.error("[chat] provider error:", msg.errorMessage);
+        mainWindow.webContents.send("chat:error", { convId, message: msg.errorMessage });
+        finishTurn(convId);
+        return;
+      }
+    }
+
+    switch (event.type) {
+      case "message_update": {
+        const ev = event.assistantMessageEvent;
+        if (ev.type === "text_delta") {
+          mainWindow.webContents.send("chat:chunk", { convId, text: ev.delta });
+        } else if (ev.type === "thinking_delta") {
+          mainWindow.webContents.send("chat:thinking_chunk", { convId, text: ev.delta });
+        }
+        break;
+      }
+      case "tool_execution_start": {
+        mainWindow.webContents.send("chat:tool_call", {
+          convId,
+          id: event.toolCallId,
+          name: event.toolName,
+          input: event.args
+        });
+        break;
+      }
+      case "tool_execution_end": {
+        mainWindow.webContents.send("chat:tool_result", {
+          convId,
+          tool_use_id: event.toolCallId,
+          content: extractToolResultText(event.result),
+          isError: event.isError
+        });
+        break;
+      }
+      case "agent_end": {
+        finishTurn(convId);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function extractToolResultText(result: unknown): string {
+    if (!result || typeof result !== "object") return "";
+    const r = result as { content?: Array<{ type?: string; text?: string }> };
+    if (!Array.isArray(r.content)) return "";
+    return r.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join("");
+  }
+
+  function finishTurn(convId: string): void {
+    const turn = turnStates.get(convId);
+    if (!turn || turn.finished) return;
+    turn.finished = true;
+    const conv = conversations.get(convId);
+    const sessionEntry = sessions.get(convId);
+    if (!conv || !sessionEntry) {
+      turnStates.delete(convId);
+      return;
+    }
+
+    // Everything the agent appended this turn lives in session.state.messages
+    // beyond `priorLen`. That includes the UserMessage that `session.prompt()`
+    // pushed, which we already persisted up front — so skip the first row.
+    const all = sessionEntry.session.state.messages;
+    const newRows = all.slice(turn.priorLen + 1);
+    if (newRows.length > 0) {
+      conv.messages.push(...newRows);
+      appendMessages(conv, newRows);
+    }
+
+    // Overlay refs in the assistant text need to resolve even after the live
+    // overlay has been replaced. Snapshot the current overlay keyed by the
+    // last assistant message's timestamp so renderer-side lookups work.
+    let overlaySnapshot: OverlaySnapshotEntry | undefined;
+    const lastAssistant = [...newRows].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant && conv.overlay) {
+      const text = lastAssistant.content
+        .filter((b): b is TextContent => b.type === "text")
+        .map((b) => b.text)
+        .join("");
+      if (hasOverlayRef(text)) {
+        overlaySnapshot = {
+          messageTimestamp: lastAssistant.timestamp,
+          overlay: conv.overlay
+        };
+        appendOverlaySnapshot(convId, overlaySnapshot);
+      }
+    }
+
+    if (!mainWindow.isDestroyed()) {
+      const canUndo = (undoEntries.get(convId)?.operations.length ?? 0) > 0;
+      mainWindow.webContents.send("chat:done", {
+        convId,
+        canUndo,
+        newMessages: newRows,
+        ...(overlaySnapshot ? { overlaySnapshot } : {})
+      });
+    }
+    turnStates.delete(convId);
+  }
+
   ipcMain.handle("chat:load-conversation", (_event, id: string) => {
     const conv = ensureLoaded(id);
-    if (!conv) return { messages: [], overlay: null };
-    return { messages: conv.messages, overlay: conv.overlay ?? null };
+    if (!conv) return { messages: [], overlay: null, overlaySnapshots: [] };
+    return {
+      messages: conv.messages,
+      overlay: conv.overlay ?? null,
+      overlaySnapshots: readOverlaySnapshots(id)
+    };
   });
 
-  ipcMain.handle("chat:list-conversations", () => {
-    return readConversationIndex();
-  });
+  ipcMain.handle("chat:list-conversations", () => readConversationIndex());
 
   ipcMain.on(
     "chat:send",
     async (_event, payload: { convId: string; message: string }): Promise<void> => {
       const { convId, message } = payload;
 
-      // Cancel any in-flight query for this conv (resend / retry case).
-      const inflight = queries.get(convId);
-      if (inflight) {
-        inflight.close();
-        queries.delete(convId);
+      // If a turn is in-flight, abort it before starting a new one.
+      const existing = sessions.get(convId);
+      if (existing?.session.isStreaming) {
+        await existing.session.abort().catch(() => {});
       }
 
-      // Reset undo stack for this conv's new turn.
+      // Reset undo stack for this new turn.
       undoEntries.set(convId, { operations: [] });
 
       let conv = ensureLoaded(convId);
@@ -153,15 +432,18 @@ export function setupChat(
         conversations.set(convId, conv);
       }
 
-      const userMsg: PersistedMessage = {
+      // Persist the user message up front in Pi's native shape so a crash
+      // mid-stream doesn't lose it. `session.prompt()` will push an equivalent
+      // UserMessage into state; finishTurn skips it when slicing.
+      const userMsg: UserMessage = {
         role: "user",
         content: message,
-        timestamp: new Date().toISOString()
+        timestamp: Date.now()
       };
+      const priorMessages = [...conv.messages];
       conv.messages.push(userMsg);
-      appendMessage(conv, userMsg);
+      appendMessages(conv, [userMsg]);
 
-      // Resolve provider config per request (no cache) so changes in Settings take effect immediately.
       let aiConfig: ReturnType<typeof loadAiConfigForRequest>;
       try {
         aiConfig = loadAiConfigForRequest();
@@ -180,211 +462,42 @@ export function setupChat(
         return;
       }
 
-      const abortController = new AbortController();
-
       try {
-        const { capabilities } = aiConfig;
-        const pathToClaudeCodeExecutable = resolveClaudeCodeExecutable();
-        const q = query({
-          prompt: message,
-          options: {
-            ...(conv.sdkSessionId ? { resume: conv.sdkSessionId } : {}),
-            ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}),
-            abortController,
-            cwd: vaultRoot,
-            model: aiConfig.model,
-            systemPrompt: buildMaposSystemPrompt(vaultRoot),
-            allowedTools: [...ALLOWED_TOOLS],
-            tools: [...ALLOWED_TOOLS],
-            includePartialMessages: true,
-            ...(capabilities.thinking !== false
-              ? {
-                  thinking: {
-                    type: capabilities.thinking,
-                    ...(capabilities.thinkingDisplay
-                      ? { display: capabilities.thinkingDisplay }
-                      : {})
-                  }
-                }
-              : {}),
-            mcpServers: {
-              mapos: makeMcpServerForConv(convId)
-            },
-            env: {
-              ...process.env,
-              ...(aiConfig.provider === "local"
-                ? {
-                    ANTHROPIC_BASE_URL: aiConfig.baseUrl,
-                    ANTHROPIC_AUTH_TOKEN: aiConfig.authToken,
-                    ANTHROPIC_API_KEY: ""
-                  }
-                : {
-                    ANTHROPIC_API_KEY: aiConfig.apiKey
-                  }),
-              MAPOS_VAULT_ROOT: vaultRoot
-            }
-          }
+        const session = await ensureSessionForConv(convId, aiConfig, priorMessages);
+
+        // Refresh system prompt every turn so vault path is current.
+        session.state.systemPrompt = buildMaposSystemPrompt(vaultRoot);
+
+        if (!conv.sdkSessionId) {
+          conv.sdkSessionId = session.sessionId;
+          appendToIndex(conv);
+        }
+
+        // Snapshot length before prompt() so finishTurn can slice exactly what
+        // this turn appended.
+        turnStates.set(convId, {
+          priorLen: session.state.messages.length,
+          finished: false
         });
 
-        queries.set(convId, q);
-
-        let fullText = "";
-        let fullThinking = "";
-        const fullToolCalls: Array<{
-          id: string;
-          name: string;
-          input: unknown;
-          result?: string;
-          isError?: boolean;
-        }> = [];
-
-        for await (const msg of q) {
-          if (mainWindow.isDestroyed()) break;
-
-          if (msg.type === "stream_event") {
-            const event = (
-              msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
-            ).event;
-            if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
-              const text = event.delta.text ?? "";
-              fullText += text;
-              mainWindow.webContents.send("chat:chunk", { convId, text });
-            } else if (
-              event?.type === "content_block_delta" &&
-              event.delta?.type === "thinking_delta"
-            ) {
-              const thinking = (event.delta as { thinking?: string }).thinking ?? "";
-              fullThinking += thinking;
-              mainWindow.webContents.send("chat:thinking_chunk", { convId, text: thinking });
-            }
-          } else if (msg.type === "assistant") {
-            const content = (
-              msg as {
-                message?: {
-                  content?: Array<{
-                    type?: string;
-                    text?: string;
-                    id?: string;
-                    name?: string;
-                    input?: unknown;
-                  }>;
-                };
-              }
-            ).message?.content;
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (block.type === "tool_use" && block.name) {
-                  const id = block.id ?? "";
-                  fullToolCalls.push({ id, name: block.name, input: block.input ?? {} });
-                  mainWindow.webContents.send("chat:tool_call", {
-                    convId,
-                    id,
-                    name: block.name,
-                    input: block.input ?? {}
-                  });
-                }
-              }
-            }
-          } else if (msg.type === "user") {
-            const userMsg = msg as {
-              message?: {
-                content?: Array<{
-                  type?: string;
-                  tool_use_id?: string;
-                  content?: unknown;
-                  is_error?: boolean;
-                }>;
-              };
-            };
-            const content = userMsg.message?.content;
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (block.type === "tool_result" && block.tool_use_id) {
-                  const resultText =
-                    typeof block.content === "string"
-                      ? block.content
-                      : Array.isArray(block.content)
-                        ? (block.content as Array<{ type?: string; text?: string }>)
-                            .filter((b) => b.type === "text")
-                            .map((b) => b.text ?? "")
-                            .join("")
-                        : "";
-                  const isError = block.is_error ?? false;
-                  const tc = fullToolCalls.find((t) => t.id === block.tool_use_id);
-                  if (tc) {
-                    tc.result = resultText;
-                    tc.isError = isError;
-                  }
-                  mainWindow.webContents.send("chat:tool_result", {
-                    convId,
-                    tool_use_id: block.tool_use_id,
-                    content: resultText,
-                    isError
-                  });
-                }
-              }
-            }
-          } else if (msg.type === "system" && (msg as { subtype?: string }).subtype === "init") {
-            const initSessionId = (msg as { session_id?: string }).session_id;
-            if (initSessionId) {
-              conv.sdkSessionId = initSessionId;
-              appendToIndex(conv);
-            }
-          } else if (msg.type === "result" && (msg as { subtype?: string }).subtype === "success") {
-            const assistantMsg: PersistedMessage = {
-              role: "assistant",
-              content: fullText,
-              thinking: fullThinking || undefined,
-              toolCalls: fullToolCalls.length > 0 ? fullToolCalls : undefined,
-              timestamp: new Date().toISOString(),
-              ...(hasOverlayRef(fullText) && conv.overlay
-                ? { overlaySnapshot: conv.overlay }
-                : {})
-            };
-            conv.messages.push(assistantMsg);
-            appendMessage(conv, assistantMsg);
-            if (!mainWindow.isDestroyed()) {
-              const canUndo = (undoEntries.get(convId)?.operations.length ?? 0) > 0;
-              mainWindow.webContents.send("chat:done", { convId, canUndo });
-            }
-            break;
-          } else if (msg.type === "result" && (msg as { subtype?: string }).subtype !== "success") {
-            const errMsg = (msg as { errors?: string[] }).errors?.join("; ") ?? "Unknown error";
-            if (!mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("chat:error", { convId, message: errMsg });
-            }
-            break;
-          } else if (
-            (msg as { type?: string }).type === "assistant" &&
-            (msg as { error?: string }).error
-          ) {
-            if (!mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("chat:error", {
-                convId,
-                message: (msg as { error: string }).error
-              });
-            }
-            break;
-          }
-        }
+        await session.prompt(message);
+        // agent_end event handler calls finishTurn; nothing more to do here.
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") return;
         const errMsg = err instanceof Error ? err.message : String(err);
         if (!mainWindow.isDestroyed()) {
           mainWindow.webContents.send("chat:error", { convId, message: errMsg });
         }
-      } finally {
-        queries.delete(convId);
+        turnStates.delete(convId);
       }
     }
   );
 
-  ipcMain.on("chat:abort", (_event, payload: { convId: string }) => {
-    const q = queries.get(payload.convId);
-    if (q) {
-      q.close();
-      queries.delete(payload.convId);
+  ipcMain.on("chat:abort", async (_event, payload: { convId: string }) => {
+    const entry = sessions.get(payload.convId);
+    if (entry) {
+      await entry.session.abort().catch(() => {});
     }
+    turnStates.delete(payload.convId);
   });
 
   ipcMain.handle("chat:undo", async (_event, convId: string) => {
@@ -396,11 +509,9 @@ export function setupChat(
     for (const op of [...entry.operations].reverse()) {
       try {
         if (op.previousContent === null) {
-          // File was created this turn — delete it
           removeFeatures([op.path]);
           if (existsSync(op.path)) rmSync(op.path);
         } else {
-          // File was modified or deleted — restore it
           mkdirSync(dirname(op.path), { recursive: true });
           writeFileSync(op.path, op.previousContent, "utf-8");
           const record = await parsePlaceFile(op.path);
@@ -431,7 +542,9 @@ export function setupChat(
       const entries = readConversationIndex();
       const idx = entries.findIndex((e) => e.id === id);
       if (idx < 0) return { success: false, error: "Conversation not found" };
-      entries[idx] = { ...entries[idx], title };
+      const existing = entries[idx];
+      if (!existing) return { success: false, error: "Conversation not found" };
+      entries[idx] = { ...existing, title };
       compactIndex(entries);
       const conv = conversations.get(id);
       if (conv) conv.title = title;
@@ -442,18 +555,22 @@ export function setupChat(
     }
   });
 
-  ipcMain.handle("chat:delete-conversation", (_event, id: string) => {
+  ipcMain.handle("chat:delete-conversation", async (_event, id: string) => {
     try {
-      // Cancel any in-flight query first
-      const q = queries.get(id);
-      if (q) {
-        q.close();
-        queries.delete(id);
+      const entry = sessions.get(id);
+      if (entry) {
+        await entry.session.abort().catch(() => {});
+        entry.unsubscribe();
+        entry.session.dispose();
+        sessions.delete(id);
       }
+      turnStates.delete(id);
       const convFile = getConversationFilePath(id);
       if (existsSync(convFile)) rmSync(convFile);
       const stateFile = getConversationStateFilePath(id);
       if (existsSync(stateFile)) rmSync(stateFile);
+      const overlaysFile = getConversationOverlaysFilePath(id);
+      if (existsSync(overlaysFile)) rmSync(overlaysFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
       conversations.delete(id);
@@ -473,10 +590,14 @@ export function setupChat(
   const CHAT_ON_CHANNELS = ["chat:send", "chat:abort", "chat:clear-overlay"] as const;
 
   return function stopChat(): void {
-    for (const q of queries.values()) q.close();
-    queries.clear();
+    for (const entry of sessions.values()) {
+      entry.unsubscribe();
+      entry.session.dispose();
+    }
+    sessions.clear();
     conversations.clear();
     undoEntries.clear();
+    turnStates.clear();
     for (const ch of CHAT_HANDLE_CHANNELS) ipcMain.removeHandler(ch);
     for (const ch of CHAT_ON_CHANNELS) ipcMain.removeAllListeners(ch);
   };

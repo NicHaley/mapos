@@ -12,7 +12,6 @@ import type {
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
-  PersistedMessage,
   PlaceRecord,
   PlaceUpdate,
   PropertyType

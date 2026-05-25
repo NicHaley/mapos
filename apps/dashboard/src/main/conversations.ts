@@ -1,10 +1,11 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { MapOverlayPayload, PersistedMessage } from "../shared/types";
+import type { Message } from "@earendil-works/pi-ai";
+import type { MapOverlayPayload, OverlaySnapshotEntry } from "../shared/types";
 
 export type ActiveConversation = {
   id: string;
-  messages: PersistedMessage[];
+  messages: Message[];
   sdkSessionId?: string;
   overlay?: MapOverlayPayload | null;
   title?: string;
@@ -46,14 +47,30 @@ export function saveConvState(id: string, state: { overlay: MapOverlayPayload | 
   }
 }
 
+function firstUserText(messages: Message[]): string {
+  const m = messages.find((x) => x.role === "user");
+  if (!m) return "";
+  if (typeof m.content === "string") return m.content;
+  for (const block of m.content) {
+    if (block.type === "text") return block.text;
+  }
+  return "";
+}
+
+function toIso(ts: number | undefined): string {
+  return new Date(ts ?? Date.now()).toISOString();
+}
+
 export function convToMeta(conv: ActiveConversation): ConversationMeta {
-  const firstUser = conv.messages.find((m) => m.role === "user");
+  // toolResult messages exist purely as protocol scaffolding — they don't represent
+  // a logical message to the user, so they're excluded from the count.
+  const visible = conv.messages.filter((m) => m.role !== "toolResult");
   return {
     id: conv.id,
-    created_at: conv.messages[0]?.timestamp ?? new Date().toISOString(),
-    updated_at: conv.messages[conv.messages.length - 1]?.timestamp ?? new Date().toISOString(),
-    messageCount: conv.messages.length,
-    preview: (firstUser?.content ?? "").slice(0, 100),
+    created_at: toIso(conv.messages[0]?.timestamp),
+    updated_at: toIso(conv.messages[conv.messages.length - 1]?.timestamp),
+    messageCount: visible.length,
+    preview: firstUserText(conv.messages).slice(0, 100),
     sdkSessionId: conv.sdkSessionId,
     ...(conv.title ? { title: conv.title } : {})
   };
@@ -106,16 +123,17 @@ export function initConversationsDir(): void {
   if (entries.length > 0) compactIndex(entries);
 }
 
-export function appendMessage(conv: ActiveConversation, msg: PersistedMessage): void {
+export function appendMessages(conv: ActiveConversation, msgs: Message[]): void {
+  if (msgs.length === 0) return;
   try {
     appendFileSync(
       join(activeConversationsDir, `${conv.id}.jsonl`),
-      `${JSON.stringify(msg)}\n`,
+      `${msgs.map((m) => JSON.stringify(m)).join("\n")}\n`,
       "utf-8"
     );
     appendToIndex(conv);
   } catch (err) {
-    console.error("[main] failed to append message:", err);
+    console.error("[main] failed to append messages:", err);
   }
 }
 
@@ -125,4 +143,35 @@ export function getConversationFilePath(id: string): string {
 
 export function getConversationStateFilePath(id: string): string {
   return join(activeConversationsDir, `${id}.state.json`);
+}
+
+export function getConversationOverlaysFilePath(id: string): string {
+  return join(activeConversationsDir, `${id}.overlays.jsonl`);
+}
+
+export function appendOverlaySnapshot(convId: string, entry: OverlaySnapshotEntry): void {
+  try {
+    appendFileSync(getConversationOverlaysFilePath(convId), `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch (err) {
+    console.error("[main] failed to append overlay snapshot:", err);
+  }
+}
+
+export function readOverlaySnapshots(convId: string): OverlaySnapshotEntry[] {
+  try {
+    const p = getConversationOverlaysFilePath(convId);
+    if (!existsSync(p)) return [];
+    return readFileSync(p, "utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as OverlaySnapshotEntry];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
 }

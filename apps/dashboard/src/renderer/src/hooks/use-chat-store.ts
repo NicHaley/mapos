@@ -1,10 +1,10 @@
+import type { Message } from "@earendil-works/pi-ai";
 import type {
   ChatChunkPayload,
   ChatDonePayload,
   ChatErrorPayload,
   ChatToolCallPayload,
   ChatToolResultPayload,
-  ConversationLoadResult,
   MapOverlayPayload
 } from "@shared/types";
 import { nanoid } from "nanoid";
@@ -19,20 +19,22 @@ export type ActiveToolCall = {
   status: "running" | "done" | "error";
 };
 
-export type ChatMessage = {
+/** Client-side error rows interleaved with Pi messages in the store. */
+export type ErrorRow = {
+  role: "error";
   id: string;
-  role: "user" | "assistant" | "error";
   content: string;
-  thinking?: string;
-  toolCalls?: ActiveToolCall[];
-  /** When set on an error row, renderer surfaces a Reconfigure link that deep-links into Settings. */
+  /** When set, renderer surfaces a Reconfigure link that deep-links into Settings. */
   reconfigureProvider?: "ai";
-  /** Overlay captured at message-persist time; used to resolve stale `<features overlay:...>` refs. */
-  overlaySnapshot?: MapOverlayPayload;
 };
 
+/** Discriminated union of what the chat pane renders, in order. */
+export type StoredRow = Message | ErrorRow;
+
 export type ConvChatState = {
-  messages: ChatMessage[];
+  messages: StoredRow[];
+  /** Overlay snapshots keyed by assistant message timestamp. Pins stale `overlay:` refs. */
+  overlaySnapshots: Record<number, MapOverlayPayload>;
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ActiveToolCall[];
@@ -48,7 +50,12 @@ type ChatStoreState = {
 };
 
 type ChatStoreAction =
-  | { type: "loaded"; convId: string; messages: ChatMessage[] }
+  | {
+      type: "loaded";
+      convId: string;
+      messages: Message[];
+      overlaySnapshots: Record<number, MapOverlayPayload>;
+    }
   | { type: "user_message"; convId: string; content: string }
   | { type: "chunk"; convId: string; text: string }
   | { type: "thinking_chunk"; convId: string; text: string }
@@ -60,7 +67,13 @@ type ChatStoreAction =
       content: string;
       isError: boolean;
     }
-  | { type: "done"; convId: string; canUndo: boolean }
+  | {
+      type: "done";
+      convId: string;
+      canUndo: boolean;
+      newMessages: Message[];
+      snapshot?: { messageTimestamp: number; overlay: MapOverlayPayload };
+    }
   | { type: "undo_confirmed"; convId: string }
   | { type: "error"; convId: string; message: string; reconfigureProvider?: "ai" }
   | { type: "abort"; convId: string }
@@ -68,6 +81,7 @@ type ChatStoreAction =
 
 export const emptyConv: ConvChatState = {
   messages: [],
+  overlaySnapshots: {},
   streamingContent: "",
   streamingThinking: "",
   activeToolCalls: [],
@@ -94,21 +108,28 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
       return updateConv(state, action.convId, () => ({
         ...emptyConv,
         messages: action.messages,
+        overlaySnapshots: action.overlaySnapshots,
         loaded: true
       }));
     }
-    case "user_message":
+    case "user_message": {
       // Keep `modelLoaded` as-is: Ollama's `/api/ps` is slow to respond while the request
       // is in flight (2-3s), so resetting every send would flash "Loading model…" needlessly.
       // Trade-off: if Ollama unloads after its keep-alive idle window, the next send shows
       // "Working on it…" through the reload — minor; the poller will set it true again next time.
+      const userMsg: Message = {
+        role: "user",
+        content: action.content,
+        timestamp: Date.now()
+      };
       return updateConv(state, action.convId, (c) => ({
         ...c,
         canUndo: false,
         assistantPending: true,
         loaded: true,
-        messages: [...c.messages, { id: nanoid(), role: "user", content: action.content }]
+        messages: [...c.messages, userMsg]
       }));
+    }
     case "chunk":
       return updateConv(state, action.convId, (c) => ({
         ...c,
@@ -142,30 +163,21 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
         )
       }));
     case "done":
-      return updateConv(state, action.convId, (c) => {
-        const newMessages =
-          c.streamingContent || c.activeToolCalls.length > 0
-            ? [
-                ...c.messages,
-                {
-                  id: nanoid(),
-                  role: "assistant" as const,
-                  content: c.streamingContent,
-                  thinking: c.streamingThinking || undefined,
-                  toolCalls: c.activeToolCalls.length > 0 ? c.activeToolCalls : undefined
-                }
-              ]
-            : c.messages;
-        return {
-          ...c,
-          messages: newMessages,
-          streamingContent: "",
-          streamingThinking: "",
-          activeToolCalls: [],
-          assistantPending: false,
-          canUndo: action.canUndo
-        };
-      });
+      return updateConv(state, action.convId, (c) => ({
+        ...c,
+        messages: [...c.messages, ...action.newMessages],
+        overlaySnapshots: action.snapshot
+          ? {
+              ...c.overlaySnapshots,
+              [action.snapshot.messageTimestamp]: action.snapshot.overlay
+            }
+          : c.overlaySnapshots,
+        streamingContent: "",
+        streamingThinking: "",
+        activeToolCalls: [],
+        assistantPending: false,
+        canUndo: action.canUndo
+      }));
     case "undo_confirmed":
       return updateConv(state, action.convId, (c) => ({ ...c, canUndo: false }));
     case "error":
@@ -174,8 +186,8 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
         messages: [
           ...c.messages,
           {
-            id: nanoid(),
             role: "error",
+            id: nanoid(),
             content: `Error: ${action.message}`,
             ...(action.reconfigureProvider
               ? { reconfigureProvider: action.reconfigureProvider }
@@ -203,19 +215,6 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
       return { byId: next };
     }
   }
-}
-
-function hydrateMessages(messages: ConversationLoadResult["messages"]): ChatMessage[] {
-  return messages.map((msg) => ({
-    id: nanoid(),
-    role: msg.role,
-    content: msg.content,
-    thinking: msg.thinking,
-    toolCalls: msg.toolCalls?.map(
-      (tc) => ({ ...tc, status: tc.isError ? "error" : "done" }) as ActiveToolCall
-    ),
-    ...(msg.overlaySnapshot ? { overlaySnapshot: msg.overlaySnapshot } : {})
-  }));
 }
 
 export type ChatStore = {
@@ -257,7 +256,13 @@ export function useChatStore(): ChatStore {
       })
     );
     window.api.chat.onDone((d: ChatDonePayload) =>
-      dispatch({ type: "done", convId: d.convId, canUndo: d.canUndo })
+      dispatch({
+        type: "done",
+        convId: d.convId,
+        canUndo: d.canUndo,
+        newMessages: d.newMessages,
+        ...(d.overlaySnapshot ? { snapshot: d.overlaySnapshot } : {})
+      })
     );
     window.api.chat.onError((d: ChatErrorPayload) =>
       dispatch({
@@ -280,8 +285,16 @@ export function useChatStore(): ChatStore {
       const existing = inFlightLoads.current.get(convId);
       if (existing) return existing;
       const p = (async () => {
-        const { messages, overlay } = await window.api.chat.loadConversation(convId);
-        dispatch({ type: "loaded", convId, messages: hydrateMessages(messages) });
+        const { messages, overlay, overlaySnapshots } =
+          await window.api.chat.loadConversation(convId);
+        const snapshotMap: Record<number, MapOverlayPayload> = {};
+        for (const s of overlaySnapshots) snapshotMap[s.messageTimestamp] = s.overlay;
+        dispatch({
+          type: "loaded",
+          convId,
+          messages,
+          overlaySnapshots: snapshotMap
+        });
         return overlay;
       })().finally(() => {
         inFlightLoads.current.delete(convId);

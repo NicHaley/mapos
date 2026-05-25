@@ -26,6 +26,12 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
+import type {
+  AssistantMessage as PiAssistantMessage,
+  TextContent,
+  ToolResultMessage as PiToolResultMessage,
+  UserMessage as PiUserMessage
+} from "@earendil-works/pi-ai";
 import type { MapOverlayPayload, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
@@ -56,33 +62,32 @@ const STREAMDOWN_FEATURES_COMPONENTS = { features: FeatureList };
 const STREAMDOWN_FEATURES_ALLOWED_TAGS = { features: ["refs"] };
 
 const VAULT_FILE_TOOLS = new Set([
-  "mcp__mapos__write_vault_file",
-  "mcp__mapos__delete_vault_file",
-  "mcp__mapos__rename_vault_file"
+  "write_vault_file",
+  "delete_vault_file",
+  "rename_vault_file"
 ]);
 
 const TOOL_LABELS: Record<string, string> = {
-  mcp__mapos__render_overlay_on_map: "Rendering On Map",
-  mcp__mapos__clear_map_overlay: "Clearing Overlay",
-  mcp__mapos__query_spatial_index: "Querying Vault",
-  mcp__mapos__index_file: "Indexing File",
-  mcp__mapos__rebuild_index: "Rebuilding Index",
-  mcp__mapos__get_viewport: "Getting Viewport",
-  mcp__mapos__pan_to: "Panning Map",
-  mcp__mapos__write_vault_file: "Writing File",
-  mcp__mapos__delete_vault_file: "Deleting File",
-  mcp__mapos__rename_vault_file: "Renaming File",
-  Bash: "Running Command",
-  Read: "Reading File",
-  Glob: "Searching Files",
-  Grep: "Searching Content",
-  WebSearch: "Searching Web",
-  WebFetch: "Fetching URL"
+  render_overlay_on_map: "Rendering On Map",
+  clear_map_overlay: "Clearing Overlay",
+  query_spatial_index: "Querying Vault",
+  index_file: "Indexing File",
+  rebuild_index: "Rebuilding Index",
+  get_viewport: "Getting Viewport",
+  pan_to: "Panning Map",
+  write_vault_file: "Writing File",
+  delete_vault_file: "Deleting File",
+  rename_vault_file: "Renaming File",
+  bash: "Running Command",
+  read: "Reading File",
+  find: "Searching Files",
+  grep: "Searching Content",
+  ls: "Listing Directory"
 };
 
 function toolLabel(name: string): string {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
-  return name.replace(/^mcp__[^_]+(?:__[^_]+)*?__/, "").replace(/_/g, " ");
+  return name.replace(/_/g, " ");
 }
 
 /** One-line preview of the operative argument so generic labels like "Running Command" show what's actually running. */
@@ -95,19 +100,15 @@ function toolPreview(call: ActiveToolCall): string | null {
     return typeof v === "string" && v.length > 0 ? v : null;
   };
   switch (call.name) {
-    case "Bash":
+    case "bash":
       return str("command")?.split("\n")[0] ?? null;
-    case "Read":
-      return str("file_path");
-    case "Glob":
+    case "read":
+    case "ls":
+      return str("path");
+    case "find":
+    case "grep":
       return str("pattern");
-    case "Grep":
-      return str("pattern");
-    case "WebFetch":
-      return str("url");
-    case "WebSearch":
-      return str("query");
-    case "mcp__mapos__pan_to": {
+    case "pan_to": {
       const lat = fields.lat;
       const lng = fields.lng;
       return typeof lat === "number" && typeof lng === "number"
@@ -373,6 +374,106 @@ function mapOverlayFeatureCount(o: MapOverlayPayload): number {
   return o.points.length + o.lines.length + o.polygons.length;
 }
 
+function userMessageText(msg: PiUserMessage): string {
+  if (typeof msg.content === "string") return msg.content;
+  for (const block of msg.content) {
+    if (block.type === "text") return block.text;
+  }
+  return "";
+}
+
+function toolResultText(msg: PiToolResultMessage): string {
+  return msg.content
+    .filter((c): c is TextContent => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+}
+
+/**
+ * Render one bubble for a run of consecutive `AssistantMessage`s from Pi.
+ *
+ * Pi splits a single agent turn into multiple `assistant` messages interleaved
+ * with `toolResult` messages — text, then tool calls, then more text after the
+ * results come back. Rendering each one as its own bubble visually fragments a
+ * turn that the user perceives as a single response, so we merge the content
+ * blocks across the group into one bubble (matching the live-streaming UX).
+ */
+function AssistantBubble({
+  msgs,
+  toolResultsById,
+  overlaySnapshot,
+  onOpenFile
+}: {
+  msgs: PiAssistantMessage[];
+  toolResultsById: Map<string, PiToolResultMessage>;
+  overlaySnapshot: MapOverlayPayload | null;
+  onOpenFile: (filePath: string) => void;
+}): React.JSX.Element | null {
+  let text = "";
+  let thinking = "";
+  const toolCalls: ActiveToolCall[] = [];
+
+  for (const msg of msgs) {
+    for (const block of msg.content) {
+      if (block.type === "text") {
+        text += block.text;
+      } else if (block.type === "thinking") {
+        thinking += block.thinking;
+      } else if (block.type === "toolCall") {
+        const result = toolResultsById.get(block.id);
+        toolCalls.push({
+          id: block.id,
+          name: block.name,
+          input: block.arguments,
+          ...(result
+            ? {
+                result: toolResultText(result),
+                isError: result.isError,
+                status: result.isError ? ("error" as const) : ("done" as const)
+              }
+            : { status: "done" as const })
+        });
+      }
+    }
+  }
+
+  if (!text && !thinking && toolCalls.length === 0) return null;
+
+  return (
+    <Message from="assistant">
+      {thinking && (
+        <Reasoning>
+          <ReasoningTrigger />
+          <ReasoningContent>{thinking}</ReasoningContent>
+        </Reasoning>
+      )}
+      {toolCalls.length > 0 && (
+        <div className="w-full flex flex-col gap-2">
+          {toolCalls.map((tc) =>
+            VAULT_FILE_TOOLS.has(tc.name) ? (
+              <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
+            ) : (
+              <ToolCallRow key={tc.id} call={tc} />
+            )
+          )}
+        </div>
+      )}
+      {text && (
+        <MessageContent>
+          <FeatureMessageProvider overlaySnapshot={overlaySnapshot}>
+            <MessageResponse
+              components={STREAMDOWN_FEATURES_COMPONENTS}
+              allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+            >
+              {text}
+            </MessageResponse>
+          </FeatureMessageProvider>
+        </MessageContent>
+      )}
+    </Message>
+  );
+}
+
 const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
 
 export function ChatPane({
@@ -427,12 +528,22 @@ export function ChatPane({
 }): React.JSX.Element {
   const {
     messages,
+    overlaySnapshots,
     streamingContent,
     streamingThinking,
     activeToolCalls,
     assistantPending,
     canUndo
   } = convState;
+
+  /** Build once per render so AssistantBubble can pair each ToolCall block with its result. */
+  const toolResultsById = useMemo(() => {
+    const m = new Map<string, PiToolResultMessage>();
+    for (const row of messages) {
+      if (row.role === "toolResult") m.set(row.toolCallId, row);
+    }
+    return m;
+  }, [messages]);
   const loading =
     assistantPending ||
     streamingContent !== "" ||
@@ -561,57 +672,72 @@ export function ChatPane({
               />
             )}
 
-          {messages.map((msg) => {
-            return msg.role === "error" ? (
-              <div
-                key={msg.id}
-                className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                {msg.reconfigureProvider === "ai" && (
-                  <button
-                    type="button"
-                    onClick={openAiSettings}
-                    className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+          {(() => {
+            // Walk the message list and merge consecutive assistant messages
+            // (toolResult rows between them don't break the group) into a
+            // single bubble. User and error rows flush the group.
+            const rendered: React.JSX.Element[] = [];
+            let group: PiAssistantMessage[] = [];
+
+            const flush = (): void => {
+              if (group.length === 0) return;
+              const last = group[group.length - 1];
+              if (!last) {
+                group = [];
+                return;
+              }
+              rendered.push(
+                <AssistantBubble
+                  key={`assistant_${group[0]?.timestamp}_${rendered.length}`}
+                  msgs={group}
+                  toolResultsById={toolResultsById}
+                  overlaySnapshot={overlaySnapshots[last.timestamp] ?? null}
+                  onOpenFile={onOpenFile}
+                />
+              );
+              group = [];
+            };
+
+            for (let idx = 0; idx < messages.length; idx++) {
+              const msg = messages[idx];
+              if (!msg) continue;
+              if (msg.role === "assistant") {
+                group.push(msg);
+                continue;
+              }
+              if (msg.role === "toolResult") continue;
+              flush();
+              if (msg.role === "error") {
+                rendered.push(
+                  <div
+                    key={msg.id}
+                    className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
                   >
-                    Reconfigure →
-                  </button>
-                )}
-              </div>
-            ) : (
-              <Message key={msg.id} from={msg.role}>
-                {msg.thinking && (
-                  <Reasoning>
-                    <ReasoningTrigger />
-                    <ReasoningContent>{msg.thinking}</ReasoningContent>
-                  </Reasoning>
-                )}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="w-full flex flex-col gap-2">
-                    {msg.toolCalls.map((tc) =>
-                      VAULT_FILE_TOOLS.has(tc.name) ? (
-                        <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
-                      ) : (
-                        <ToolCallRow key={tc.id} call={tc} />
-                      )
+                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                    {msg.reconfigureProvider === "ai" && (
+                      <button
+                        type="button"
+                        onClick={openAiSettings}
+                        className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                      >
+                        Reconfigure →
+                      </button>
                     )}
                   </div>
-                )}
-                {msg.content && (
-                  <MessageContent>
-                    <FeatureMessageProvider overlaySnapshot={msg.overlaySnapshot ?? null}>
-                      <MessageResponse
-                        components={STREAMDOWN_FEATURES_COMPONENTS}
-                        allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
-                      >
-                        {msg.content}
-                      </MessageResponse>
-                    </FeatureMessageProvider>
-                  </MessageContent>
-                )}
-              </Message>
-            );
-          })}
+                );
+              } else if (msg.role === "user") {
+                rendered.push(
+                  <Message key={`${msg.timestamp}_${idx}`} from="user">
+                    <MessageContent>
+                      <MessageResponse>{userMessageText(msg)}</MessageResponse>
+                    </MessageContent>
+                  </Message>
+                );
+              }
+            }
+            flush();
+            return rendered;
+          })()}
 
           {awaitingFirstToken && (
             <Message from="assistant">

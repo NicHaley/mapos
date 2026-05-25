@@ -7,6 +7,8 @@
  * request branches off its capabilities automatically.
  */
 
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+
 export type AiProvider = "anthropic" | "local";
 
 /**
@@ -17,24 +19,29 @@ export type AiProvider = "anthropic" | "local";
  */
 export type ModelCapabilities = {
   /**
-   * Extended thinking. Mirrors the SDK's `ThinkingConfig` shape: "adaptive" for
-   * Opus 4.6+ style, "enabled" for older fixed-budget thinking, false for none.
+   * Reasoning effort to pass to Pi. `"off"` disables thinking; the other values
+   * are forwarded verbatim as `thinkingLevel`. Pi clamps to the model's
+   * supported range, so over-specifying (e.g. "high" on a model that tops out
+   * at "medium") is safe.
    */
-  thinking: "adaptive" | "enabled" | false;
-  /**
-   * How thinking is surfaced to the chat UI. Maps to the SDK's `display` field
-   * on `ThinkingConfig`. Required for adaptive thinking — the CLI default
-   * (since SDK 0.2.x) suppresses thinking deltas, so leaving it unset means no
-   * train-of-thought in the sidebar.
-   */
-  thinkingDisplay?: "summarized" | "omitted";
+  thinking: ModelThinkingLevel;
   /** Vision input (image content blocks on user messages). */
   supportsImages: boolean;
   /** Tool use through MapOS's chat path. */
   supportsTools: boolean;
-  /** Display-ready context window magnitude (e.g. "32K", "1M"). UX hint, not enforcement. */
-  contextWindow: string;
+  /**
+   * Maximum context window in tokens. Source of truth for both Pi's compaction
+   * budget (passed through `ModelRegistry.registerProvider` for local models)
+   * and the display label in Settings (rendered via {@link formatContextWindow}).
+   */
+  contextWindow: number;
 };
+
+/** Display label for a token count, e.g. 256_000 → "256K", 1_000_000 → "1M". */
+export function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
+  return `${Math.round(tokens / 1_000)}K`;
+}
 
 export type AnthropicModel = {
   id: string;
@@ -51,11 +58,10 @@ export type OllamaModel = {
 };
 
 const ANTHROPIC_DEFAULT: ModelCapabilities = {
-  thinking: "adaptive",
-  thinkingDisplay: "summarized",
+  thinking: "high",
   supportsImages: true,
   supportsTools: true,
-  contextWindow: "200K"
+  contextWindow: 200_000
 };
 
 /**
@@ -63,22 +69,22 @@ const ANTHROPIC_DEFAULT: ModelCapabilities = {
  * Curated entries below opt into stronger capabilities only after end-to-end verification.
  */
 const LOCAL_DEFAULT: ModelCapabilities = {
-  thinking: false,
+  thinking: "off",
   supportsImages: false,
   supportsTools: false,
-  contextWindow: "32K"
+  contextWindow: 32_000
 };
 
 export const ANTHROPIC_MODELS: AnthropicModel[] = [
   {
     id: "claude-opus-4-7",
     label: "Claude Opus 4.7",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
   },
   {
     id: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
-    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: "1M" }
+    capabilities: { ...ANTHROPIC_DEFAULT, contextWindow: 1_000_000 }
   }
 ];
 
@@ -95,8 +101,8 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Tiny — runs on almost any machine.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "32K",
-      thinking: "enabled",
+      contextWindow: 32_000,
+      thinking: "medium",
       supportsTools: true
     }
   },
@@ -107,7 +113,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Small and fast, light RAM use.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "128K",
+      contextWindow: 128_000,
       supportsImages: true,
       supportsTools: true
     }
@@ -119,8 +125,8 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Sweet spot. Most popular tools model.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
-      thinking: "enabled",
+      contextWindow: 256_000,
+      thinking: "medium",
       supportsImages: true,
       supportsTools: true
     }
@@ -132,7 +138,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Higher quality if you have the RAM.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
+      contextWindow: 256_000,
       supportsImages: true,
       supportsTools: true
     }
@@ -144,8 +150,8 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     hint: "Frontier-level reasoning. Needs 32GB+ RAM.",
     capabilities: {
       ...LOCAL_DEFAULT,
-      contextWindow: "256K",
-      thinking: "enabled",
+      contextWindow: 256_000,
+      thinking: "medium",
       supportsImages: true,
       supportsTools: true
     }

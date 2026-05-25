@@ -7,9 +7,9 @@ import {
   writeFileSync
 } from "node:fs";
 import { dirname, sep } from "node:path";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type BrowserWindow, ipcMain } from "electron";
-import { z } from "zod";
+import { Type } from "typebox";
 import {
   computeBbox,
   forwardGeocode,
@@ -42,30 +42,17 @@ function errorPayload(err: unknown): string {
   return JSON.stringify({ error: message });
 }
 
-export const ALLOWED_TOOLS = [
-  "Bash",
-  "Read",
-  "Glob",
-  "Grep",
-  "WebSearch",
-  "WebFetch",
-  "mcp__mapos__render_overlay_on_map",
-  "mcp__mapos__clear_map_overlay",
-  "mcp__mapos__query_spatial_index",
-  "mcp__mapos__index_file",
-  "mcp__mapos__rebuild_index",
-  "mcp__mapos__get_viewport",
-  "mcp__mapos__pan_to",
-  "mcp__mapos__write_vault_file",
-  "mcp__mapos__delete_vault_file",
-  "mcp__mapos__rename_vault_file",
-  "mcp__mapos__geocode_search",
-  "mcp__mapos__reverse_geocode",
-  "mcp__mapos__get_directions",
-  "mcp__mapos__get_isochrone",
-  "mcp__mapos__get_matrix",
-  "mcp__mapos__compute_bbox"
-] as const;
+const TEXT_RESULT = (text: string) => ({
+  content: [{ type: "text" as const, text }],
+  details: {}
+});
+
+// Read-only built-ins plus `bash` (kept for legitimate shell needs like `exiftool`
+// during photo import). `write` and `edit` are deliberately omitted: any vault
+// mutation must go through `write_vault_file`/`delete_vault_file`/`rename_vault_file`
+// so undo tracking and spatial-index updates stay in sync. Raw bash redirects to
+// vault paths are forbidden by the system prompt.
+export const BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"] as const;
 
 type ViewportState = {
   north: number;
@@ -89,7 +76,7 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 
 ## Vault location (authoritative — use exactly this path)
 The MapOS vault root on this machine is: ${vaultRoot}
-The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in Bash). For Glob, Grep, Read, Bash, and any file search or listing tools, search only under this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts — always use the absolute path above.
+The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in bash). For find, grep, read, bash, and any file search or listing tools, search only under this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts — always use the absolute path above.
 
 ## Place files and frontmatter
 
@@ -131,7 +118,7 @@ After showing results on the map, do not explain how to interact with the UI (e.
 
 ## File operations
 
-For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw Bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
+For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
 ## Display vs. action intent
 
@@ -158,24 +145,21 @@ Example — after a geocode_search for ramen + render_overlay_on_map with ids \`
 \`\`\``;
 }
 
-export function createMaposMcpServer(
+export function buildMaposCustomTools(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   maposDir: string,
   onVaultWrite: (op: VaultOperation) => void,
   onOverlayUpdate: (overlay: MapOverlayPayload | null) => void,
   getOverlay: () => MapOverlayPayload | null | undefined
-) {
+): ToolDefinition[] {
   // Pass-by-reference store for large geometries returned to the agent.
-  // The agent gets a short id and hands it back to render tools instead
-  // of re-emitting tens of thousands of tokens of coordinates/polyline.
   const routeStore = new Map<string, [number, number][]>();
   let routeSeq = 0;
   const stashRoute = (coords: [number, number][]): string => {
     routeSeq++;
     const id = `route_${routeSeq}`;
     routeStore.set(id, coords);
-    // Bound memory: keep last 50 routes.
     if (routeStore.size > 50) {
       const oldest = routeStore.keys().next().value;
       if (oldest != null) routeStore.delete(oldest);
@@ -183,577 +167,579 @@ export function createMaposMcpServer(
     return id;
   };
 
-  return createSdkMcpServer({
-    name: "mapos",
-    version: "1.0.0",
-    tools: [
-      tool(
-        "render_overlay_on_map",
-        "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
-        {
-          points: z
-            .array(
-              z.object({
-                lat: z.number().describe("Latitude in decimal degrees"),
-                lng: z.number().describe("Longitude in decimal degrees"),
-                title: z.string().describe("Display name for the marker"),
-                id: z.string().optional().describe("Unique identifier for the point"),
-                preview_markdown: z
-                  .string()
-                  .optional()
-                  .describe("Optional markdown shown in the place preview card before save")
+  const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
+  const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
+
+  const renderOverlayOnMap = defineTool({
+    name: "render_overlay_on_map",
+    label: "Render map overlay",
+    description:
+      "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
+    parameters: Type.Object({
+      points: Type.Optional(
+        Type.Array(
+          Type.Object({
+            lat: Type.Number({ description: "Latitude in decimal degrees" }),
+            lng: Type.Number({ description: "Longitude in decimal degrees" }),
+            title: Type.String({ description: "Display name for the marker" }),
+            id: Type.Optional(Type.String({ description: "Unique identifier for the point" })),
+            preview_markdown: Type.Optional(
+              Type.String({
+                description: "Optional markdown shown in the place preview card before save"
               })
             )
-            .optional()
-            .default([]),
-          lines: z
-            .array(
-              z
-                .object({
-                  route_id: z
-                    .string()
-                    .optional()
-                    .describe(
-                      "Opaque id returned by get_directions. Preferred for routes — server resolves to the full geometry without re-transmitting it through the LLM."
-                    ),
-                  coordinates: z
-                    .array(z.tuple([z.number(), z.number()]))
-                    .optional()
-                    .describe(
-                      "Array of [longitude, latitude] pairs. Use only for short, hand-built lines."
-                    ),
-                  title: z.string().optional(),
-                  id: z.string().optional(),
-                  preview_markdown: z
-                    .string()
-                    .optional()
-                    .describe("Optional markdown shown in the place preview card before save")
-                })
-                .refine((l) => !!l.route_id || !!l.coordinates, {
-                  message: "Each line must include `route_id` or `coordinates`."
-                })
-            )
-            .optional()
-            .default([]),
-          polygons: z
-            .array(
-              z.object({
-                coordinates: z
-                  .array(z.array(z.tuple([z.number(), z.number()])))
-                  .describe(
-                    "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
-                  ),
-                title: z.string().optional(),
-                id: z.string().optional(),
-                preview_markdown: z
-                  .string()
-                  .optional()
-                  .describe("Optional markdown shown in the place preview card before save")
+          })
+        )
+      ),
+      lines: Type.Optional(
+        Type.Array(
+          Type.Object({
+            route_id: Type.Optional(
+              Type.String({
+                description:
+                  "Opaque id returned by get_directions. Preferred for routes — server resolves to the full geometry without re-transmitting it through the LLM."
+              })
+            ),
+            coordinates: Type.Optional(
+              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 }), {
+                description:
+                  "Array of [longitude, latitude] pairs. Use only for short, hand-built lines."
+              })
+            ),
+            title: Type.Optional(Type.String()),
+            id: Type.Optional(Type.String()),
+            preview_markdown: Type.Optional(
+              Type.String({
+                description: "Optional markdown shown in the place preview card before save"
               })
             )
-            .optional()
-            .default([]),
-          layer_name: z
-            .string()
-            .optional()
-            .default("search-results")
-            .describe("Name for this overlay layer")
-        },
-        async (args) => {
-          if (!mainWindow.isDestroyed()) {
-            const points = (args.points ?? []).map((p, i) => ({
-              id: p.id ?? `overlay-point-${i}`,
-              lat: p.lat,
-              lng: p.lng,
-              title: p.title,
-              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
-            }));
-            const lines = (args.lines ?? []).map((l, i) => {
-              let coordinates: [number, number][];
-              if (l.route_id) {
-                const stored = routeStore.get(l.route_id);
-                if (!stored) {
-                  throw new Error(
-                    `Unknown route_id "${l.route_id}". Routes are cached in-memory; if the server restarted or the route was evicted, call get_directions again.`
-                  );
-                }
-                coordinates = stored;
-              } else {
-                coordinates = l.coordinates ?? [];
-              }
-              return {
-                id: l.id ?? `overlay-line-${i}`,
-                coordinates,
-                title: l.title,
-                ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
-              };
-            });
-            const polygons = (args.polygons ?? []).map((p, i) => ({
-              id: p.id ?? `overlay-polygon-${i}`,
-              coordinates: p.coordinates.map((ring) => {
-                if (ring.length < 2) return ring;
-                const [first, last] = [ring[0], ring[ring.length - 1]];
-                const isClosed = first[0] === last[0] && first[1] === last[1];
-                return isClosed ? ring : [...ring, ring[0]];
-              }),
-              title: p.title,
-              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
-            }));
-            const payload: MapOverlayPayload = {
-              layerName: args.layer_name,
-              points,
-              lines,
-              polygons
-            };
-            mainWindow.webContents.send("map:overlay", payload);
-            onOverlayUpdate(payload);
-          }
-          const counts = {
-            points: (args.points ?? []).length,
-            lines: (args.lines ?? []).length,
-            polygons: (args.polygons ?? []).length
-          };
-          const parts = [
-            counts.points && `${counts.points} points`,
-            counts.lines && `${counts.lines} lines`,
-            counts.polygons && `${counts.polygons} polygons`
-          ].filter(Boolean);
-          return {
-            content: [{ type: "text", text: `Displayed ${parts.join(", ")} on map` }]
-          };
-        }
+          })
+        )
       ),
-      tool(
-        "clear_map_overlay",
-        "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
-        {},
-        async () => {
-          if (getOverlay() != null) {
-            if (!mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("map:overlay-clear");
-            }
-            onOverlayUpdate(null);
-          }
-          return {
-            content: [{ type: "text", text: "Overlay cleared" }]
-          };
-        }
-      ),
-      tool(
-        "query_spatial_index",
-        "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key.",
-        {
-          bounds: z.object({
-            north: z.number(),
-            south: z.number(),
-            east: z.number(),
-            west: z.number()
-          }),
-          filters: z
-            .object({
-              folderPath: z.string().optional(),
-              properties: z.record(z.string(), z.array(z.string())).optional()
-            })
-            .optional()
-        },
-        async (args) => {
-          const results = querySpatialIndex(args.bounds, args.filters);
-          return { content: [{ type: "text", text: JSON.stringify(results) }] };
-        }
-      ),
-      tool(
-        "index_file",
-        "Re-index a specific file into the spatial index after writing it. Call this after creating or editing a place file so the map updates immediately.",
-        {
-          path: z
-            .string()
-            .describe("Absolute path to the place file (must be under the MapOS vault)")
-        },
-        async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    reason: `Path must be under vault (${maposDir})`
-                  })
-                }
-              ]
-            };
-          }
-          const record = await parsePlaceFile(args.path);
-          syncFeatureForFile(args.path, record);
-          if (record) {
-            return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
-          }
-          return {
-            content: [
+      polygons: Type.Optional(
+        Type.Array(
+          Type.Object({
+            coordinates: Type.Array(
+              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
               {
-                type: "text",
-                text: JSON.stringify({ success: false, reason: "Could not parse file" })
+                description:
+                  "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
               }
-            ]
-          };
-        }
+            ),
+            title: Type.Optional(Type.String()),
+            id: Type.Optional(Type.String()),
+            preview_markdown: Type.Optional(
+              Type.String({
+                description: "Optional markdown shown in the place preview card before save"
+              })
+            )
+          })
+        )
       ),
-      tool(
-        "rebuild_index",
-        "Clear and rebuild the entire spatial index by re-scanning all place files. Use if the index seems stale or corrupt.",
-        {},
-        async () => {
-          const count = rebuildIndexFromPlaces(places);
-          return { content: [{ type: "text", text: JSON.stringify({ count }) }] };
-        }
-      ),
-      tool(
-        "get_viewport",
-        "Returns the current map viewport: bounding box, center coordinates, and zoom level.",
-        {},
-        async () => {
-          if (!lastViewport) {
-            return {
-              content: [
-                { type: "text", text: JSON.stringify({ error: "Viewport not yet available" }) }
-              ]
-            };
-          }
-          return { content: [{ type: "text", text: JSON.stringify(lastViewport) }] };
-        }
-      ),
-      tool(
-        "pan_to",
-        "Move the map camera to a location. Use after rendering search results or creating a new place.",
-        {
-          lat: z.number().describe("Latitude"),
-          lng: z.number().describe("Longitude"),
-          zoom: z.number().optional().describe("Zoom level 0-20, default 14")
-        },
-        async (args) => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("map:pan-to", {
-              lat: args.lat,
-              lng: args.lng,
-              zoom: args.zoom
-            });
-          }
-          return { content: [{ type: "text", text: `Map panning to ${args.lat}, ${args.lng}` }] };
-        }
-      ),
-      tool(
-        "geocode_search",
-        "Forward geocode a free-text query (place name or address) via Photon/OpenStreetMap. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng.",
-        {
-          query: z.string().describe("Search query, e.g. place name or address"),
-          limit: z.number().int().min(1).max(20).optional().default(8),
-          lang: z
-            .string()
-            .optional()
-            .describe("ISO 639-1 language code for labels, e.g. 'en', 'fr'"),
-          bbox: z
-            .object({
-              north: z.number(),
-              south: z.number(),
-              east: z.number(),
-              west: z.number()
-            })
-            .optional()
-            .describe("Optional bias rectangle; results near this box score higher")
-        },
-        async (args) => {
-          try {
-            const results = await forwardGeocode(args.query, {
-              limit: args.limit,
-              lang: args.lang,
-              bbox: args.bbox
-            });
-            return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: errorPayload(err) }] };
-          }
-        }
-      ),
-      tool(
-        "reverse_geocode",
-        "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap. Returns nearby named feature(s).",
-        {
-          lat: z.number(),
-          lng: z.number(),
-          limit: z.number().int().min(1).max(10).optional().default(1),
-          lang: z.string().optional()
-        },
-        async (args) => {
-          try {
-            const results = await reverseGeocode(
-              { lat: args.lat, lng: args.lng },
-              { limit: args.limit, lang: args.lang }
-            );
-            return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: errorPayload(err) }] };
-          }
-        }
-      ),
-      tool(
-        "get_directions",
-        "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
-        {
-          locations: z
-            .array(z.object({ lat: z.number(), lng: z.number() }))
-            .min(2)
-            .describe("Ordered list of waypoints; must have at least two"),
-          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
-        },
-        async (args) => {
-          try {
-            const route = await getDirections({
-              locations: args.locations,
-              costing: args.costing
-            });
-            const route_id = stashRoute(route.geometry.coordinates);
-            const visible = {
-              distanceMeters: route.distanceMeters,
-              durationSeconds: route.durationSeconds,
-              route_id,
-              pointCount: route.geometry.coordinates.length,
-              maneuvers: route.maneuvers
-            };
-            return { content: [{ type: "text", text: JSON.stringify(visible) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: errorPayload(err) }] };
-          }
-        }
-      ),
-      tool(
-        "get_isochrone",
-        "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has a GeoJSON Polygon ready to render.",
-        {
-          lat: z.number(),
-          lng: z.number(),
-          minutes_contours: z
-            .array(z.number().positive().max(120))
-            .min(1)
-            .max(4)
-            .describe("Time contours in minutes, e.g. [5, 10, 15]"),
-          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
-        },
-        async (args) => {
-          try {
-            const iso = await getIsochrone({
-              location: { lat: args.lat, lng: args.lng },
-              minutesContours: args.minutes_contours,
-              costing: args.costing
-            });
-            return { content: [{ type: "text", text: JSON.stringify(iso) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: errorPayload(err) }] };
-          }
-        }
-      ),
-      tool(
-        "get_matrix",
-        "Pairwise travel distance/time between sources and targets via Valhalla. Returns cells[sourceIdx][targetIdx] with distanceMeters/durationSeconds (null where unreachable). Keep N small against the community Valhalla instance — prefer ≤ 10 sources × 10 targets.",
-        {
-          sources: z.array(z.object({ lat: z.number(), lng: z.number() })).min(1).max(25),
-          targets: z.array(z.object({ lat: z.number(), lng: z.number() })).min(1).max(25),
-          costing: z.enum(["auto", "pedestrian", "bicycle"]).default("pedestrian")
-        },
-        async (args) => {
-          try {
-            const matrix = await getMatrix({
-              sources: args.sources,
-              targets: args.targets,
-              costing: args.costing
-            });
-            return { content: [{ type: "text", text: JSON.stringify(matrix) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: errorPayload(err) }] };
-          }
-        }
-      ),
-      tool(
-        "compute_bbox",
-        "Compute the bounding box that contains a set of lat/lng points. Useful for framing a viewport around search results or a route. Returns { north, south, east, west } or null for an empty list.",
-        {
-          points: z.array(z.object({ lat: z.number(), lng: z.number() }))
-        },
-        async (args) => {
-          const b = computeBbox(args.points);
-          return { content: [{ type: "text", text: JSON.stringify(b) }] };
-        }
-      ),
-      tool(
-        "write_vault_file",
-        "Write or overwrite a vault file. Use this for ALL vault file writes — never use Bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this.",
-        {
-          path: z.string().describe("Absolute path within the MapOS vault"),
-          content: z.string().describe("Full file content to write")
-        },
-        async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: `Path must be within vault (${maposDir})`
-                  })
-                }
-              ]
-            };
-          }
-          // Snapshot existing content for undo (only first write per path per turn)
-          const previousContent = existsSync(args.path) ? readFileSync(args.path, "utf-8") : null;
-          onVaultWrite({ path: args.path, previousContent });
-          // Write file
-          mkdirSync(dirname(args.path), { recursive: true });
-          writeFileSync(args.path, args.content, "utf-8");
-          // Index in spatial DB if it's a place file
-          try {
-            const record = await parsePlaceFile(args.path);
-            syncFeatureForFile(args.path, record);
-          } catch {
-            // Not a place file — skip indexing
-          }
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  path: args.path,
-                  action: previousContent === null ? "created" : "modified",
-                  previousContent,
-                  newContent: args.content
-                })
-              }
-            ]
-          };
-        }
-      ),
-      tool(
-        "delete_vault_file",
-        "Delete a vault file. Use this instead of Bash rm. Handles undo tracking and spatial index cleanup automatically.",
-        {
-          path: z.string().describe("Absolute path within the MapOS vault to delete")
-        },
-        async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: `Path must be within vault (${maposDir})`
-                  })
-                }
-              ]
-            };
-          }
-          if (!existsSync(args.path)) {
-            return {
-              content: [
-                { type: "text", text: JSON.stringify({ success: false, error: "File not found" }) }
-              ]
-            };
-          }
-          // Snapshot for undo
-          const previousContent = readFileSync(args.path, "utf-8");
-          onVaultWrite({ path: args.path, previousContent });
-          // Remove from spatial index and EAV, then delete
-          removeFeatures([args.path]);
-          removeFeaturePropertiesForFile(args.path);
-          rmSync(args.path);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  path: args.path,
-                  action: "deleted",
-                  previousContent,
-                  newContent: null
-                })
-              }
-            ]
-          };
-        }
-      ),
-      tool(
-        "rename_vault_file",
-        "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically.",
-        {
-          fromPath: z.string().describe("Current absolute path of the file within the vault"),
-          toPath: z.string().describe("New absolute path within the vault")
-        },
-        async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const fromUnder = args.fromPath === maposDir || args.fromPath.startsWith(vaultPrefix);
-          const toUnder = args.toPath === maposDir || args.toPath.startsWith(vaultPrefix);
-          if (!fromUnder || !toUnder) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({ success: false, error: "Both paths must be within vault" })
-                }
-              ]
-            };
-          }
-          if (!existsSync(args.fromPath)) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({ success: false, error: "Source file not found" })
-                }
-              ]
-            };
-          }
-          const content = readFileSync(args.fromPath, "utf-8");
-          // Track both sides for undo
-          onVaultWrite({ path: args.fromPath, previousContent: content });
-          onVaultWrite({
-            path: args.toPath,
-            previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null
-          });
-          mkdirSync(dirname(args.toPath), { recursive: true });
-          renameSync(args.fromPath, args.toPath);
-          removeFeatures([args.fromPath]);
-          removeFeaturePropertiesForFile(args.fromPath);
-          try {
-            const record = await parsePlaceFile(args.toPath);
-            syncFeatureForFile(args.toPath, record);
-          } catch {
-            // Not a place file
-          }
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  path: args.toPath,
-                  fromPath: args.fromPath,
-                  action: "renamed",
-                  previousContent: content,
-                  newContent: content
-                })
-              }
-            ]
-          };
-        }
+      layer_name: Type.Optional(
+        Type.String({
+          default: "search-results",
+          description: "Name for this overlay layer"
+        })
       )
-    ]
+    }),
+    execute: async (_toolCallId, args) => {
+      if (!mainWindow.isDestroyed()) {
+        const points = (args.points ?? []).map((p, i) => ({
+          id: p.id ?? `overlay-point-${i}`,
+          lat: p.lat,
+          lng: p.lng,
+          title: p.title,
+          ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
+        }));
+        const lines = (args.lines ?? []).map((l, i) => {
+          let coordinates: [number, number][];
+          if (l.route_id) {
+            const stored = routeStore.get(l.route_id);
+            if (!stored) {
+              throw new Error(
+                `Unknown route_id "${l.route_id}". Routes are cached in-memory; if the server restarted or the route was evicted, call get_directions again.`
+              );
+            }
+            coordinates = stored;
+          } else {
+            coordinates = (l.coordinates ?? []) as [number, number][];
+          }
+          return {
+            id: l.id ?? `overlay-line-${i}`,
+            coordinates,
+            title: l.title,
+            ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
+          };
+        });
+        const polygons = (args.polygons ?? []).map((p, i) => ({
+          id: p.id ?? `overlay-polygon-${i}`,
+          coordinates: (p.coordinates as [number, number][][]).map((ring) => {
+            if (ring.length < 2) return ring;
+            const first = ring[0];
+            const last = ring[ring.length - 1];
+            if (!first || !last) return ring;
+            const isClosed = first[0] === last[0] && first[1] === last[1];
+            return isClosed ? ring : [...ring, first];
+          }),
+          title: p.title,
+          ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
+        }));
+        const payload: MapOverlayPayload = {
+          layerName: args.layer_name ?? "search-results",
+          points,
+          lines,
+          polygons
+        };
+        mainWindow.webContents.send("map:overlay", payload);
+        onOverlayUpdate(payload);
+      }
+      const counts = {
+        points: (args.points ?? []).length,
+        lines: (args.lines ?? []).length,
+        polygons: (args.polygons ?? []).length
+      };
+      const parts = [
+        counts.points && `${counts.points} points`,
+        counts.lines && `${counts.lines} lines`,
+        counts.polygons && `${counts.polygons} polygons`
+      ].filter(Boolean);
+      return TEXT_RESULT(`Displayed ${parts.join(", ")} on map`);
+    }
   });
+
+  const clearMapOverlay = defineTool({
+    name: "clear_map_overlay",
+    label: "Clear map overlay",
+    description:
+      "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (getOverlay() != null) {
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("map:overlay-clear");
+        }
+        onOverlayUpdate(null);
+      }
+      return TEXT_RESULT("Overlay cleared");
+    }
+  });
+
+  const querySpatialIndexTool = defineTool({
+    name: "query_spatial_index",
+    label: "Query spatial index",
+    description:
+      "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key.",
+    parameters: Type.Object({
+      bounds: Type.Object({
+        north: Type.Number(),
+        south: Type.Number(),
+        east: Type.Number(),
+        west: Type.Number()
+      }),
+      filters: Type.Optional(
+        Type.Object({
+          folderPath: Type.Optional(Type.String()),
+          properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      const results = querySpatialIndex(args.bounds, args.filters);
+      return TEXT_RESULT(JSON.stringify(results));
+    }
+  });
+
+  const indexFile = defineTool({
+    name: "index_file",
+    label: "Index file",
+    description:
+      "Re-index a specific file into the spatial index after writing it. Call this after creating or editing a place file so the map updates immediately.",
+    parameters: Type.Object({
+      path: Type.String({
+        description: "Absolute path to the place file (must be under the MapOS vault)"
+      })
+    }),
+    execute: async (_id, args) => {
+      if (!isUnderVault(args.path)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, reason: `Path must be under vault (${maposDir})` })
+        );
+      }
+      const record = await parsePlaceFile(args.path);
+      syncFeatureForFile(args.path, record);
+      if (record) return TEXT_RESULT(JSON.stringify({ success: true }));
+      return TEXT_RESULT(JSON.stringify({ success: false, reason: "Could not parse file" }));
+    }
+  });
+
+  const rebuildIndex = defineTool({
+    name: "rebuild_index",
+    label: "Rebuild spatial index",
+    description:
+      "Clear and rebuild the entire spatial index by re-scanning all place files. Use if the index seems stale or corrupt.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const count = rebuildIndexFromPlaces(places);
+      return TEXT_RESULT(JSON.stringify({ count }));
+    }
+  });
+
+  const getViewport = defineTool({
+    name: "get_viewport",
+    label: "Get viewport",
+    description:
+      "Returns the current map viewport: bounding box, center coordinates, and zoom level.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!lastViewport) {
+        return TEXT_RESULT(JSON.stringify({ error: "Viewport not yet available" }));
+      }
+      return TEXT_RESULT(JSON.stringify(lastViewport));
+    }
+  });
+
+  const panTo = defineTool({
+    name: "pan_to",
+    label: "Pan map",
+    description:
+      "Move the map camera to a location. Use after rendering search results or creating a new place.",
+    parameters: Type.Object({
+      lat: Type.Number({ description: "Latitude" }),
+      lng: Type.Number({ description: "Longitude" }),
+      zoom: Type.Optional(Type.Number({ description: "Zoom level 0-20, default 14" }))
+    }),
+    execute: async (_id, args) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("map:pan-to", {
+          lat: args.lat,
+          lng: args.lng,
+          zoom: args.zoom
+        });
+      }
+      return TEXT_RESULT(`Map panning to ${args.lat}, ${args.lng}`);
+    }
+  });
+
+  const geocodeSearch = defineTool({
+    name: "geocode_search",
+    label: "Geocode search",
+    description:
+      "Forward geocode a free-text query (place name or address) via Photon/OpenStreetMap. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query, e.g. place name or address" }),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 8 })),
+      lang: Type.Optional(
+        Type.String({ description: "ISO 639-1 language code for labels, e.g. 'en', 'fr'" })
+      ),
+      bbox: Type.Optional(
+        Type.Object(
+          {
+            north: Type.Number(),
+            south: Type.Number(),
+            east: Type.Number(),
+            west: Type.Number()
+          },
+          { description: "Optional bias rectangle; results near this box score higher" }
+        )
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = await forwardGeocode(args.query, {
+          limit: args.limit ?? 8,
+          lang: args.lang,
+          bbox: args.bbox
+        });
+        return TEXT_RESULT(JSON.stringify({ results }));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const reverseGeocodeTool = defineTool({
+    name: "reverse_geocode",
+    label: "Reverse geocode",
+    description:
+      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap. Returns nearby named feature(s).",
+    parameters: Type.Object({
+      lat: Type.Number(),
+      lng: Type.Number(),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, default: 1 })),
+      lang: Type.Optional(Type.String())
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = await reverseGeocode(
+          { lat: args.lat, lng: args.lng },
+          { limit: args.limit ?? 1, lang: args.lang }
+        );
+        return TEXT_RESULT(JSON.stringify({ results }));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const getDirectionsTool = defineTool({
+    name: "get_directions",
+    label: "Get directions",
+    description:
+      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
+    parameters: Type.Object({
+      locations: Type.Array(
+        Type.Object({ lat: Type.Number(), lng: Type.Number() }),
+        {
+          minItems: 2,
+          description: "Ordered list of waypoints; must have at least two"
+        }
+      ),
+      costing: Type.Optional(
+        Type.Union(
+          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
+          { default: "pedestrian" }
+        )
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        const route = await getDirections({
+          locations: args.locations,
+          costing: args.costing ?? "pedestrian"
+        });
+        const route_id = stashRoute(route.geometry.coordinates);
+        const visible = {
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+          route_id,
+          pointCount: route.geometry.coordinates.length,
+          maneuvers: route.maneuvers
+        };
+        return TEXT_RESULT(JSON.stringify(visible));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const getIsochroneTool = defineTool({
+    name: "get_isochrone",
+    label: "Get isochrone",
+    description:
+      "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has a GeoJSON Polygon ready to render.",
+    parameters: Type.Object({
+      lat: Type.Number(),
+      lng: Type.Number(),
+      minutes_contours: Type.Array(Type.Number({ exclusiveMinimum: 0, maximum: 120 }), {
+        minItems: 1,
+        maxItems: 4,
+        description: "Time contours in minutes, e.g. [5, 10, 15]"
+      }),
+      costing: Type.Optional(
+        Type.Union(
+          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
+          { default: "pedestrian" }
+        )
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        const iso = await getIsochrone({
+          location: { lat: args.lat, lng: args.lng },
+          minutesContours: args.minutes_contours,
+          costing: args.costing ?? "pedestrian"
+        });
+        return TEXT_RESULT(JSON.stringify(iso));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const getMatrixTool = defineTool({
+    name: "get_matrix",
+    label: "Get distance/time matrix",
+    description:
+      "Pairwise travel distance/time between sources and targets via Valhalla. Returns cells[sourceIdx][targetIdx] with distanceMeters/durationSeconds (null where unreachable). Keep N small against the community Valhalla instance — prefer ≤ 10 sources × 10 targets.",
+    parameters: Type.Object({
+      sources: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
+        minItems: 1,
+        maxItems: 25
+      }),
+      targets: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
+        minItems: 1,
+        maxItems: 25
+      }),
+      costing: Type.Optional(
+        Type.Union(
+          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
+          { default: "pedestrian" }
+        )
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        const matrix = await getMatrix({
+          sources: args.sources,
+          targets: args.targets,
+          costing: args.costing ?? "pedestrian"
+        });
+        return TEXT_RESULT(JSON.stringify(matrix));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const computeBboxTool = defineTool({
+    name: "compute_bbox",
+    label: "Compute bounding box",
+    description:
+      "Compute the bounding box that contains a set of lat/lng points. Useful for framing a viewport around search results or a route. Returns { north, south, east, west } or null for an empty list.",
+    parameters: Type.Object({
+      points: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }))
+    }),
+    execute: async (_id, args) => {
+      const b = computeBbox(args.points);
+      return TEXT_RESULT(JSON.stringify(b));
+    }
+  });
+
+  const writeVaultFile = defineTool({
+    name: "write_vault_file",
+    label: "Write vault file",
+    description:
+      "Write or overwrite a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      content: Type.String({ description: "Full file content to write" })
+    }),
+    execute: async (_id, args) => {
+      if (!isUnderVault(args.path)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+        );
+      }
+      const previousContent = existsSync(args.path) ? readFileSync(args.path, "utf-8") : null;
+      onVaultWrite({ path: args.path, previousContent });
+      mkdirSync(dirname(args.path), { recursive: true });
+      writeFileSync(args.path, args.content, "utf-8");
+      try {
+        const record = await parsePlaceFile(args.path);
+        syncFeatureForFile(args.path, record);
+      } catch {
+        // Not a place file — skip indexing
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          path: args.path,
+          action: previousContent === null ? "created" : "modified",
+          previousContent,
+          newContent: args.content
+        })
+      );
+    }
+  });
+
+  const deleteVaultFile = defineTool({
+    name: "delete_vault_file",
+    label: "Delete vault file",
+    description:
+      "Delete a vault file. Use this instead of bash rm. Handles undo tracking and spatial index cleanup automatically.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault to delete" })
+    }),
+    execute: async (_id, args) => {
+      if (!isUnderVault(args.path)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+        );
+      }
+      if (!existsSync(args.path)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+      }
+      const previousContent = readFileSync(args.path, "utf-8");
+      onVaultWrite({ path: args.path, previousContent });
+      removeFeatures([args.path]);
+      removeFeaturePropertiesForFile(args.path);
+      rmSync(args.path);
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          path: args.path,
+          action: "deleted",
+          previousContent,
+          newContent: null
+        })
+      );
+    }
+  });
+
+  const renameVaultFile = defineTool({
+    name: "rename_vault_file",
+    label: "Rename vault file",
+    description:
+      "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically.",
+    parameters: Type.Object({
+      fromPath: Type.String({ description: "Current absolute path of the file within the vault" }),
+      toPath: Type.String({ description: "New absolute path within the vault" })
+    }),
+    execute: async (_id, args) => {
+      if (!isUnderVault(args.fromPath) || !isUnderVault(args.toPath)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: "Both paths must be within vault" })
+        );
+      }
+      if (!existsSync(args.fromPath)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "Source file not found" }));
+      }
+      const content = readFileSync(args.fromPath, "utf-8");
+      onVaultWrite({ path: args.fromPath, previousContent: content });
+      onVaultWrite({
+        path: args.toPath,
+        previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null
+      });
+      mkdirSync(dirname(args.toPath), { recursive: true });
+      renameSync(args.fromPath, args.toPath);
+      removeFeatures([args.fromPath]);
+      removeFeaturePropertiesForFile(args.fromPath);
+      try {
+        const record = await parsePlaceFile(args.toPath);
+        syncFeatureForFile(args.toPath, record);
+      } catch {
+        // Not a place file
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          path: args.toPath,
+          fromPath: args.fromPath,
+          action: "renamed",
+          previousContent: content,
+          newContent: content
+        })
+      );
+    }
+  });
+
+  return [
+    renderOverlayOnMap,
+    clearMapOverlay,
+    querySpatialIndexTool,
+    indexFile,
+    rebuildIndex,
+    getViewport,
+    panTo,
+    geocodeSearch,
+    reverseGeocodeTool,
+    getDirectionsTool,
+    getIsochroneTool,
+    getMatrixTool,
+    computeBboxTool,
+    writeVaultFile,
+    deleteVaultFile,
+    renameVaultFile
+  ];
 }

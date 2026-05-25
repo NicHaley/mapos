@@ -32,6 +32,9 @@ importers:
       '@electron-toolkit/utils':
         specifier: ^4.0.0
         version: 4.0.0(electron@39.6.1)
+      '@mapos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@mapos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -238,6 +241,19 @@ importers:
       wrangler:
         specifier: ^4.90.1
         version: 4.90.1
+
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.3.6
+    devDependencies:
+      '@types/geojson':
+        specifier: ^7946.0.16
+        version: 7946.0.16
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
 
   packages/ui:
     devDependencies:

@@ -1,5 +1,5 @@
 import { bbox } from "@turf/bbox";
-import type { BBox, LatLng } from "./types";
+import type { BBox, LatLng } from "@mapos/contracts";
 
 /**
  * Compute the bounding box for a set of points. Returns null when the list is

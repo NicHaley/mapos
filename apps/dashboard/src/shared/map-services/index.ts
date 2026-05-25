@@ -11,7 +11,7 @@ export type {
   MatrixCell,
   Route,
   RouteCosting
-} from "./types";
+} from "@mapos/contracts";
 export { forwardGeocode, reverseGeocode } from "./geocoding";
 export type { ForwardGeocodeOptions, ReverseGeocodeOptions } from "./geocoding";
 export { getDirections, getMatrix, mapMatchRoute } from "./routing";

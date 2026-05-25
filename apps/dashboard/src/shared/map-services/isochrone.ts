@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { VALHALLA_BASE } from "./config";
 import { fetchJson } from "./http";
-import type { Isochrone, LatLng, RouteCosting } from "./types";
+import type { Isochrone, LatLng, RouteCosting } from "@mapos/contracts";
 
 const PositionSchema = z.array(z.number());
 

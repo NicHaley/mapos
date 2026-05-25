@@ -1,0 +1,48 @@
+import { z } from "zod";
+import { LatLngSchema } from "../primitives";
+
+export const RouteCostingSchema = z.enum(["auto", "pedestrian", "bicycle"]);
+export type RouteCosting = z.infer<typeof RouteCostingSchema>;
+
+export const ManeuverSchema = z.object({
+  /** Narrative instruction, e.g. "Turn right onto King Street". */
+  instruction: z.string(),
+  distanceMeters: z.number(),
+  durationSeconds: z.number(),
+  /** Valhalla maneuver type code (kept for UI icon mapping). */
+  type: z.number()
+});
+export type Maneuver = z.infer<typeof ManeuverSchema>;
+
+/**
+ * Lax GeoJSON LineString validation. The provider adapter is responsible for
+ * producing a well-formed geometry; this only verifies the shape so a bad
+ * server response is caught before being handed to the renderer.
+ */
+const LineStringSchema = z.custom<GeoJSON.LineString>((data) => {
+  if (typeof data !== "object" || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  return obj.type === "LineString" && Array.isArray(obj.coordinates);
+});
+
+export const RouteSchema = z.object({
+  distanceMeters: z.number(),
+  durationSeconds: z.number(),
+  geometry: LineStringSchema,
+  maneuvers: z.array(ManeuverSchema)
+});
+export type Route = z.infer<typeof RouteSchema>;
+
+export const MatrixCellSchema = z.object({
+  distanceMeters: z.number().nullable(),
+  durationSeconds: z.number().nullable()
+});
+export type MatrixCell = z.infer<typeof MatrixCellSchema>;
+
+export const MatrixSchema = z.object({
+  sources: z.array(LatLngSchema),
+  targets: z.array(LatLngSchema),
+  /** Row-major, cells[sourceIdx][targetIdx]. */
+  cells: z.array(z.array(MatrixCellSchema))
+});
+export type Matrix = z.infer<typeof MatrixSchema>;

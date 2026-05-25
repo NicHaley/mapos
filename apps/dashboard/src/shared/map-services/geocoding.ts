@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PHOTON_BASE } from "./config";
 import { fetchJson } from "./http";
-import type { GeocodeResult, LatLng } from "./types";
+import type { GeocodeResult, LatLng } from "@mapos/contracts";
 
 const DEFAULT_LIMIT = 8;
 

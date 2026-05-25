@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { VALHALLA_BASE } from "./config";
 import { fetchJson } from "./http";
-import type { LatLng, Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "./types";
+import type { LatLng, Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "@mapos/contracts";
 
 /**
  * Decode a Google-style encoded polyline with 6 digits of precision (Valhalla's

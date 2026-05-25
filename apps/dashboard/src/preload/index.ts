@@ -1,3 +1,9 @@
+import type {
+  GeocodeForwardRequest,
+  GeocodeResult,
+  GeocodeReverseRequest,
+  TileStyleRequest
+} from "@mapos/contracts";
 import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
@@ -388,6 +394,14 @@ const api = {
       ipcRenderer.removeAllListeners("chat:tool_call");
       ipcRenderer.removeAllListeners("chat:tool_result");
     }
+  },
+  services: {
+    geocodingForward: (req: GeocodeForwardRequest) =>
+      ipcRenderer.invoke("services:geocoding-forward", req) as Promise<GeocodeResult[]>,
+    geocodingReverse: (req: GeocodeReverseRequest) =>
+      ipcRenderer.invoke("services:geocoding-reverse", req) as Promise<GeocodeResult[]>,
+    tilesStyleUrl: (req: TileStyleRequest) =>
+      ipcRenderer.invoke("services:tiles-style-url", req) as Promise<string>
   }
 };
 

@@ -1,7 +1,12 @@
+import type {
+  Endpoint,
+  GeocodeForwardRequest,
+  GeocodeResult,
+  GeocodeReverseRequest
+} from "@mapos/contracts";
 import { z } from "zod";
-import { PHOTON_BASE } from "./config";
-import { fetchJson } from "./http";
-import type { GeocodeResult, LatLng } from "@mapos/contracts";
+import { fetchJson } from "../http";
+import type { AdapterContext } from "../types";
 
 const DEFAULT_LIMIT = 8;
 
@@ -83,30 +88,22 @@ function featureToResult(feature: PhotonFeature, index: number): GeocodeResult |
   return result;
 }
 
-export type ForwardGeocodeOptions = {
-  signal?: AbortSignal;
-  limit?: number;
-  /** ISO 639-1 language code, e.g. "en", "fr". Passed through to Photon. */
-  lang?: string;
-  /** Optional bias rectangle for results. */
-  bbox?: { north: number; south: number; east: number; west: number };
-};
-
-export async function forwardGeocode(
-  query: string,
-  options: ForwardGeocodeOptions = {}
+export async function forward(
+  req: GeocodeForwardRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
 ): Promise<GeocodeResult[]> {
-  const q = query.trim();
+  const q = req.query.trim();
   if (!q) return [];
-  const limit = options.limit ?? DEFAULT_LIMIT;
+  const limit = req.limit ?? DEFAULT_LIMIT;
   const params = new URLSearchParams({ q, limit: String(limit) });
-  if (options.lang) params.set("lang", options.lang);
-  if (options.bbox) {
-    const { west, south, east, north } = options.bbox;
+  if (req.lang) params.set("lang", req.lang);
+  if (req.bbox) {
+    const { west, south, east, north } = req.bbox;
     params.set("bbox", `${west},${south},${east},${north}`);
   }
-  const url = `${PHOTON_BASE}/api/?${params.toString()}`;
-  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: options.signal });
+  const url = `${ep.url}/api/?${params.toString()}`;
+  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: ctx.signal });
   const out: GeocodeResult[] = [];
   const features = data.features ?? [];
   for (let i = 0; i < features.length; i++) {
@@ -118,25 +115,20 @@ export async function forwardGeocode(
   return out;
 }
 
-export type ReverseGeocodeOptions = {
-  signal?: AbortSignal;
-  limit?: number;
-  lang?: string;
-};
-
-export async function reverseGeocode(
-  point: LatLng,
-  options: ReverseGeocodeOptions = {}
+export async function reverse(
+  req: GeocodeReverseRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
 ): Promise<GeocodeResult[]> {
-  const limit = options.limit ?? 1;
+  const limit = req.limit ?? 1;
   const params = new URLSearchParams({
-    lat: String(point.lat),
-    lon: String(point.lng),
+    lat: String(req.point.lat),
+    lon: String(req.point.lng),
     limit: String(limit)
   });
-  if (options.lang) params.set("lang", options.lang);
-  const url = `${PHOTON_BASE}/reverse?${params.toString()}`;
-  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: options.signal });
+  if (req.lang) params.set("lang", req.lang);
+  const url = `${ep.url}/reverse?${params.toString()}`;
+  const data = await fetchJson(url, PhotonResponseSchema, undefined, { signal: ctx.signal });
   const out: GeocodeResult[] = [];
   const features = data.features ?? [];
   for (let i = 0; i < features.length; i++) {

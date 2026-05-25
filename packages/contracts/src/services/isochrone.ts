@@ -1,4 +1,14 @@
 import { z } from "zod";
+import { LatLngSchema } from "../primitives";
+import { RouteCostingSchema } from "./routing";
+
+export const IsochroneRequestSchema = z.object({
+  location: LatLngSchema,
+  /** Contours in minutes, e.g. [5, 10, 15]. At least one required. */
+  minutesContours: z.array(z.number().positive()).min(1),
+  costing: RouteCostingSchema
+});
+export type IsochroneRequest = z.infer<typeof IsochroneRequestSchema>;
 
 /**
  * Lax GeoJSON Polygon validation. The provider adapter is responsible for

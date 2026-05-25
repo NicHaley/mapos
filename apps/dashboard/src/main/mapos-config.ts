@@ -84,6 +84,34 @@ function defaultAiConfig(): AiConfig {
   return AiConfigSchema.parse(undefined);
 }
 
+/**
+ * Three-mode connection config. `community` is the free path against public OSS
+ * providers; `mapos_cloud` and `self_hosted` route through a MapOS server. Any
+ * invalid persisted shape falls back to `community` via `.catch()` so a broken
+ * config never bricks startup.
+ */
+const ServicesConfigSchema = z
+  .discriminatedUnion("mode", [
+    z.object({ mode: z.literal("community") }),
+    z.object({
+      mode: z.literal("mapos_cloud"),
+      authToken: z.string().optional()
+    }),
+    z.object({
+      mode: z.literal("self_hosted"),
+      baseUrl: z.string().min(1),
+      authToken: z.string().optional()
+    })
+  ])
+  .catch(() => ({ mode: "community" as const }));
+
+export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
+export type ServicesMode = ServicesConfig["mode"];
+
+function defaultServicesConfig(): ServicesConfig {
+  return ServicesConfigSchema.parse(undefined);
+}
+
 export type MaposJson = {
   /** Absolute paths to vault roots. Order is stable; active vault is tracked separately. */
   vaults: string[];
@@ -91,12 +119,14 @@ export type MaposJson = {
   activeVault?: string;
   /** AI provider configuration (global, not per-vault). */
   ai: AiConfig;
+  /** Network services configuration (community / cloud / self-hosted). */
+  services: ServicesConfig;
 };
 
 function defaultConfig(): MaposJson {
   // No default vault — onboarding registers the user's chosen vault. An empty list
   // means "first launch / onboarding pending" everywhere it's read.
-  return { vaults: [], ai: defaultAiConfig() };
+  return { vaults: [], ai: defaultAiConfig(), services: defaultServicesConfig() };
 }
 
 /**
@@ -169,10 +199,12 @@ function parseConfig(raw: string): MaposJson | null {
     if (!Array.isArray(vaults) || vaults.some((v) => typeof v !== "string")) return null;
     const activeVault = (parsed as { activeVault?: unknown }).activeVault;
     const ai = parseAiConfig((parsed as { ai?: unknown }).ai);
+    const services = ServicesConfigSchema.parse((parsed as { services?: unknown }).services);
     return {
       vaults: [...vaults],
       ...(typeof activeVault === "string" ? { activeVault } : {}),
-      ai
+      ai,
+      services
     };
   } catch {
     return null;
@@ -265,7 +297,8 @@ export function appendVaultToConfig(
   const next: MaposJson = {
     vaults: [...normalized, resolved],
     ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
-    ai: cfg.ai
+    ai: cfg.ai,
+    services: cfg.services
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -286,7 +319,12 @@ export function setActiveVaultInConfig(
     return { ok: false, error: "Vault not found in config." };
   }
   // Keep vaults[] order stable; only update activeVault pointer.
-  const next: MaposJson = { vaults: normalized, activeVault: resolved, ai: cfg.ai };
+  const next: MaposJson = {
+    vaults: normalized,
+    activeVault: resolved,
+    ai: cfg.ai,
+    services: cfg.services
+  };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
     `${JSON.stringify(next, null, 2)}\n`,
@@ -318,7 +356,8 @@ export function renameVaultInConfig(
   const next: MaposJson = {
     vaults: nextVaults,
     ...(nextActive ? { activeVault: nextActive } : {}),
-    ai: cfg.ai
+    ai: cfg.ai,
+    services: cfg.services
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -347,7 +386,8 @@ export function removeVaultFromConfig(
   const next: MaposJson = {
     vaults: nextVaults,
     ...(nextActive ? { activeVault: nextActive } : {}),
-    ai: cfg.ai
+    ai: cfg.ai,
+    services: cfg.services
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -387,6 +427,7 @@ export function updateAiConfigInFile(
   const next: MaposJson = {
     vaults: cfg.vaults,
     ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
+    services: cfg.services,
     ai: {
       provider: partial.provider ?? cfg.ai.provider,
       anthropic: { ...cfg.ai.anthropic, ...(partial.anthropic ?? {}) },

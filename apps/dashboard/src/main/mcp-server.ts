@@ -10,15 +10,9 @@ import { dirname, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type BrowserWindow, ipcMain } from "electron";
 import { Type } from "typebox";
-import {
-  computeBbox,
-  forwardGeocode,
-  getDirections,
-  getIsochrone,
-  getMatrix,
-  MapServiceError,
-  reverseGeocode
-} from "../shared/map-services";
+import { MapServiceError } from "@mapos/service-adapters";
+import { computeBbox } from "./bbox";
+import { getServiceClient } from "./services/client";
 import type { MapOverlayPayload, PlaceRecord, VaultOperation } from "../shared/types";
 import {
   querySpatialIndex,
@@ -446,7 +440,8 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        const results = await forwardGeocode(args.query, {
+        const results = await getServiceClient().geocoding.forward({
+          query: args.query,
           limit: args.limit ?? 8,
           lang: args.lang,
           bbox: args.bbox
@@ -471,10 +466,11 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        const results = await reverseGeocode(
-          { lat: args.lat, lng: args.lng },
-          { limit: args.limit ?? 1, lang: args.lang }
-        );
+        const results = await getServiceClient().geocoding.reverse({
+          point: { lat: args.lat, lng: args.lng },
+          limit: args.limit ?? 1,
+          lang: args.lang
+        });
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
@@ -504,7 +500,7 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        const route = await getDirections({
+        const route = await getServiceClient().routing.directions({
           locations: args.locations,
           costing: args.costing ?? "pedestrian"
         });
@@ -545,7 +541,7 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        const iso = await getIsochrone({
+        const iso = await getServiceClient().isochrones.contours({
           location: { lat: args.lat, lng: args.lng },
           minutesContours: args.minutes_contours,
           costing: args.costing ?? "pedestrian"
@@ -580,7 +576,7 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        const matrix = await getMatrix({
+        const matrix = await getServiceClient().routing.matrix({
           sources: args.sources,
           targets: args.targets,
           costing: args.costing ?? "pedestrian"

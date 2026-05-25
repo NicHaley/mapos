@@ -1,7 +1,7 @@
+import type { Endpoint, Isochrone, IsochroneRequest } from "@mapos/contracts";
 import { z } from "zod";
-import { VALHALLA_BASE } from "./config";
-import { fetchJson } from "./http";
-import type { Isochrone, LatLng, RouteCosting } from "@mapos/contracts";
+import { fetchJson } from "../http";
+import type { AdapterContext } from "../types";
 
 const PositionSchema = z.array(z.number());
 
@@ -30,13 +30,6 @@ const ValhallaIsochroneResponseSchema = z.object({
   features: z.array(ValhallaIsochroneFeatureSchema).optional()
 });
 
-export type GetIsochroneInput = {
-  location: LatLng;
-  /** Contours in minutes, e.g. [5, 10, 15]. At least one required. */
-  minutesContours: number[];
-  costing: RouteCosting;
-};
-
 /** Take the outer ring of a Polygon or of the first polygon in a MultiPolygon. */
 function toPolygon(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): GeoJSON.Polygon | null {
   if (geom.type === "Polygon") {
@@ -55,34 +48,32 @@ function toPolygon(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): GeoJSON.Polygo
   return null;
 }
 
-export async function getIsochrone(
-  input: GetIsochroneInput,
-  opts: { signal?: AbortSignal } = {}
+export async function contours(
+  req: IsochroneRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
 ): Promise<Isochrone> {
-  if (input.minutesContours.length === 0) {
-    throw new Error("getIsochrone requires at least one contour");
-  }
   const body = {
-    locations: [{ lat: input.location.lat, lon: input.location.lng }],
-    costing: input.costing,
-    contours: input.minutesContours.map((time) => ({ time })),
+    locations: [{ lat: req.location.lat, lon: req.location.lng }],
+    costing: req.costing,
+    contours: req.minutesContours.map((time) => ({ time })),
     polygons: true
   };
   const data = await fetchJson(
-    `${VALHALLA_BASE}/isochrone`,
+    `${ep.url}/isochrone`,
     ValhallaIsochroneResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
-    { signal: opts.signal }
+    { signal: ctx.signal }
   );
   const features = data.features ?? [];
-  const contours: Isochrone["contours"] = [];
+  const out: Isochrone["contours"] = [];
   for (const f of features) {
     const minutes = f.properties?.contour;
     if (typeof minutes !== "number" || !f.geometry) continue;
     const polygon = toPolygon(f.geometry);
     if (!polygon) continue;
-    contours.push({ minutes, polygon });
+    out.push({ minutes, polygon });
   }
-  contours.sort((a, b) => a.minutes - b.minutes);
-  return { contours };
+  out.sort((a, b) => a.minutes - b.minutes);
+  return { contours: out };
 }

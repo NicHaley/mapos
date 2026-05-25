@@ -17,12 +17,20 @@ export default defineConfig({
           "picomatch",
           "braces",
           "fill-range",
-          "to-regex-range"
+          "to-regex-range",
+          "@mapos/contracts",
+          "@mapos/service-adapters"
         ]
       }
     }
   },
-  preload: {},
+  preload: {
+    build: {
+      externalizeDeps: {
+        exclude: ["@mapos/contracts", "@mapos/service-adapters"]
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {

@@ -32,11 +32,32 @@ import { SquarePenIcon } from "lucide-react";
 
 export type { PlaceRecord };
 
-const PROTOMAPS_KEY = import.meta.env.RENDERER_VITE_PROTOMAPS_KEY as string;
-
-function useDarkMapStyle() {
+/**
+ * Resolves the active tile style URL via the main-process dispatcher. Returns
+ * null on first render and during dark-mode transitions until the IPC settles
+ * (sub-millisecond in practice). Callers gate the MapGL render on a non-null
+ * value to avoid handing MapLibre an empty string.
+ */
+function useDarkMapStyle(): string | null {
   const isDark = useDarkMode();
-  return `https://api.protomaps.com/styles/v5/${isDark ? "black" : "light"}/en.json?key=${PROTOMAPS_KEY}`;
+  const [styleUrl, setStyleUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.api.services
+      .tilesStyleUrl({ isDark })
+      .then((url) => {
+        if (!cancelled) setStyleUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setStyleUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDark]);
+
+  return styleUrl;
 }
 
 type GeoJSONPoint = { type: "Point"; coordinates: [number, number] };
@@ -914,6 +935,12 @@ const MapView = forwardRef<
 
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
+
+  // Tile style URL is fetched async from main. Render an empty wrapper meanwhile
+  // so the layout doesn't shift; MapLibre can't handle a null/empty mapStyle.
+  if (!mapStyle) {
+    return <div style={{ position: "relative", width: "100%", height: "100%" }} />;
+  }
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>

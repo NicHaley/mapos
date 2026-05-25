@@ -4,6 +4,20 @@ import { LatLngSchema } from "../primitives";
 export const RouteCostingSchema = z.enum(["auto", "pedestrian", "bicycle"]);
 export type RouteCosting = z.infer<typeof RouteCostingSchema>;
 
+export const RouteDirectionsRequestSchema = z.object({
+  /** Ordered list of waypoints; must have at least two. */
+  locations: z.array(LatLngSchema).min(2),
+  costing: RouteCostingSchema
+});
+export type RouteDirectionsRequest = z.infer<typeof RouteDirectionsRequestSchema>;
+
+export const RouteMatrixRequestSchema = z.object({
+  sources: z.array(LatLngSchema).min(1),
+  targets: z.array(LatLngSchema).min(1),
+  costing: RouteCostingSchema
+});
+export type RouteMatrixRequest = z.infer<typeof RouteMatrixRequestSchema>;
+
 export const ManeuverSchema = z.object({
   /** Narrative instruction, e.g. "Turn right onto King Street". */
   instruction: z.string(),

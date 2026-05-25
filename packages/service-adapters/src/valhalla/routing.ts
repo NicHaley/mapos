@@ -1,7 +1,15 @@
+import type {
+  Endpoint,
+  Maneuver,
+  Matrix,
+  MatrixCell,
+  Route,
+  RouteDirectionsRequest,
+  RouteMatrixRequest
+} from "@mapos/contracts";
 import { z } from "zod";
-import { VALHALLA_BASE } from "./config";
-import { fetchJson } from "./http";
-import type { LatLng, Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "@mapos/contracts";
+import { fetchJson } from "../http";
+import type { AdapterContext } from "../types";
 
 /**
  * Decode a Google-style encoded polyline with 6 digits of precision (Valhalla's
@@ -77,28 +85,21 @@ const ValhallaRouteResponseSchema = z.object({
     .optional()
 });
 
-export type GetDirectionsInput = {
-  locations: LatLng[]; // ≥2
-  costing: RouteCosting;
-};
-
-export async function getDirections(
-  input: GetDirectionsInput,
-  opts: { signal?: AbortSignal } = {}
+export async function directions(
+  req: RouteDirectionsRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
 ): Promise<Route> {
-  if (input.locations.length < 2) {
-    throw new Error("getDirections requires at least two locations");
-  }
   const body = {
-    locations: input.locations.map((l) => ({ lat: l.lat, lon: l.lng })),
-    costing: input.costing,
+    locations: req.locations.map((l) => ({ lat: l.lat, lon: l.lng })),
+    costing: req.costing,
     directions_options: { units: "kilometers" as const }
   };
   const data = await fetchJson(
-    `${VALHALLA_BASE}/route`,
+    `${ep.url}/route`,
     ValhallaRouteResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
-    { signal: opts.signal }
+    { signal: ctx.signal }
   );
   const trip = data.trip;
   if (!trip || !Array.isArray(trip.legs) || trip.legs.length === 0) {
@@ -149,30 +150,22 @@ const ValhallaMatrixResponseSchema = z.object({
   sources_to_targets: z.array(z.array(ValhallaMatrixCellSchema)).optional()
 });
 
-export type GetMatrixInput = {
-  sources: LatLng[];
-  targets: LatLng[];
-  costing: RouteCosting;
-};
-
-export async function getMatrix(
-  input: GetMatrixInput,
-  opts: { signal?: AbortSignal } = {}
+export async function matrix(
+  req: RouteMatrixRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
 ): Promise<Matrix> {
-  if (input.sources.length === 0 || input.targets.length === 0) {
-    throw new Error("getMatrix requires at least one source and one target");
-  }
   const body = {
-    sources: input.sources.map((l) => ({ lat: l.lat, lon: l.lng })),
-    targets: input.targets.map((l) => ({ lat: l.lat, lon: l.lng })),
-    costing: input.costing,
+    sources: req.sources.map((l) => ({ lat: l.lat, lon: l.lng })),
+    targets: req.targets.map((l) => ({ lat: l.lat, lon: l.lng })),
+    costing: req.costing,
     units: "kilometers"
   };
   const data = await fetchJson(
-    `${VALHALLA_BASE}/sources_to_targets`,
+    `${ep.url}/sources_to_targets`,
     ValhallaMatrixResponseSchema,
     { method: "POST", body: JSON.stringify(body) },
-    { signal: opts.signal }
+    { signal: ctx.signal }
   );
   const rows = data.sources_to_targets ?? [];
   const cells: MatrixCell[][] = rows.map((row) =>
@@ -182,68 +175,8 @@ export async function getMatrix(
     }))
   );
   return {
-    sources: input.sources,
-    targets: input.targets,
+    sources: req.sources,
+    targets: req.targets,
     cells
-  };
-}
-
-export type MapMatchInput = {
-  shape: LatLng[];
-  costing: RouteCosting;
-};
-
-/**
- * Snap a sequence of raw GPS points to the road network and return a Route.
- * Uses Valhalla's `trace_route` with `shape_match: "map_snap"`.
- */
-export async function mapMatchRoute(
-  input: MapMatchInput,
-  opts: { signal?: AbortSignal } = {}
-): Promise<Route> {
-  if (input.shape.length < 2) {
-    throw new Error("mapMatchRoute requires at least two shape points");
-  }
-  const body = {
-    shape: input.shape.map((l) => ({ lat: l.lat, lon: l.lng })),
-    costing: input.costing,
-    shape_match: "map_snap",
-    directions_options: { units: "kilometers" as const }
-  };
-  const data = await fetchJson(
-    `${VALHALLA_BASE}/trace_route`,
-    ValhallaRouteResponseSchema,
-    { method: "POST", body: JSON.stringify(body) },
-    { signal: opts.signal }
-  );
-  const trip = data.trip;
-  if (!trip || !Array.isArray(trip.legs) || trip.legs.length === 0) {
-    throw new Error("Valhalla returned no matched trip");
-  }
-  const allCoords: [number, number][] = [];
-  const maneuvers: Maneuver[] = [];
-  for (const leg of trip.legs) {
-    if (leg.shape) {
-      const decoded = decodePolyline6(leg.shape);
-      for (let i = 0; i < decoded.length; i++) {
-        if (i === 0 && allCoords.length > 0) continue;
-        const pt = decoded[i];
-        if (pt) allCoords.push(pt);
-      }
-    }
-    for (const m of leg.maneuvers ?? []) {
-      maneuvers.push({
-        instruction: m.instruction ?? "",
-        distanceMeters: Math.round((m.length ?? 0) * 1000),
-        durationSeconds: Math.round(m.time ?? 0),
-        type: m.type ?? 0
-      });
-    }
-  }
-  return {
-    distanceMeters: Math.round((trip.summary?.length ?? 0) * 1000),
-    durationSeconds: Math.round(trip.summary?.time ?? 0),
-    geometry: { type: "LineString", coordinates: allCoords },
-    maneuvers
   };
 }

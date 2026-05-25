@@ -1,3 +1,9 @@
+import type {
+  GeocodeForwardRequest,
+  GeocodeResult,
+  GeocodeReverseRequest,
+  TileStyleRequest
+} from "@mapos/contracts";
 import type { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   ChatChunkPayload,
@@ -247,6 +253,11 @@ declare global {
         onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
         onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;
         removeListeners: () => void;
+      };
+      services: {
+        geocodingForward: (req: GeocodeForwardRequest) => Promise<GeocodeResult[]>;
+        geocodingReverse: (req: GeocodeReverseRequest) => Promise<GeocodeResult[]>;
+        tilesStyleUrl: (req: TileStyleRequest) => Promise<string>;
       };
     };
   }

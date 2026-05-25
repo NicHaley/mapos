@@ -27,6 +27,7 @@ import {
   removeFeatures,
   syncFeatureForFile
 } from "./db";
+import { resolveWithinRoot } from "./path-safety";
 import { parsePlaceFile } from "./watcher";
 
 function errorPayload(err: unknown): string {
@@ -370,9 +371,8 @@ export function createMaposMcpServer(
             .describe("Absolute path to the place file (must be under the MapOS vault)")
         },
         async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
+          const check = await resolveWithinRoot(args.path, maposDir);
+          if (!check.ok) {
             return {
               content: [
                 {
@@ -593,9 +593,8 @@ export function createMaposMcpServer(
           content: z.string().describe("Full file content to write")
         },
         async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
+          const check = await resolveWithinRoot(args.path, maposDir);
+          if (!check.ok) {
             return {
               content: [
                 {
@@ -644,9 +643,8 @@ export function createMaposMcpServer(
           path: z.string().describe("Absolute path within the MapOS vault to delete")
         },
         async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const underVault = args.path === maposDir || args.path.startsWith(vaultPrefix);
-          if (!underVault) {
+          const check = await resolveWithinRoot(args.path, maposDir);
+          if (!check.ok) {
             return {
               content: [
                 {
@@ -697,10 +695,9 @@ export function createMaposMcpServer(
           toPath: z.string().describe("New absolute path within the vault")
         },
         async (args) => {
-          const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-          const fromUnder = args.fromPath === maposDir || args.fromPath.startsWith(vaultPrefix);
-          const toUnder = args.toPath === maposDir || args.toPath.startsWith(vaultPrefix);
-          if (!fromUnder || !toUnder) {
+          const fromCheck = await resolveWithinRoot(args.fromPath, maposDir);
+          const toCheck = await resolveWithinRoot(args.toPath, maposDir);
+          if (!fromCheck.ok || !toCheck.ok) {
             return {
               content: [
                 {

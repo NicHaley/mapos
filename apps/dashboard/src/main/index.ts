@@ -54,8 +54,26 @@ function createWindow(): BrowserWindow {
   mainWindow.on("enter-full-screen", () => sendFullscreenState(true));
   mainWindow.on("leave-full-screen", () => sendFullscreenState(false));
 
+  // Whitelist protocols handed to shell.openExternal — otherwise javascript:, file:,
+  // and OS-registered protocol handlers (slack://, vscode://, etc.) can be triggered
+  // by any URL string that reaches this code path.
+  const openExternalSafely = (rawUrl: string): void => {
+    try {
+      const target = new URL(rawUrl);
+      if (
+        target.protocol === "http:" ||
+        target.protocol === "https:" ||
+        target.protocol === "mailto:"
+      ) {
+        shell.openExternal(rawUrl);
+      }
+    } catch {
+      // Invalid URL; ignore.
+    }
+  };
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    openExternalSafely(details.url);
     return { action: "deny" };
   });
 
@@ -69,7 +87,7 @@ function createWindow(): BrowserWindow {
       const current = new URL(currentUrl);
       if (target.origin !== current.origin) {
         event.preventDefault();
-        shell.openExternal(url);
+        openExternalSafely(url);
       }
     } catch {
       event.preventDefault();

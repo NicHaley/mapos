@@ -32,6 +32,7 @@ import {
   syncFeatureForFile
 } from "./db";
 import { vaultDotDir as vaultDotDirPath } from "./mapos-config";
+import { resolveWithinRoot } from "./path-safety";
 import { parseWkt } from "./wkt";
 
 /**
@@ -356,9 +357,8 @@ export function setupPlacesWatcher(
   });
 
   ipcMain.handle("fs:read-file", async (_event, filePath: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { error: "Path outside vault" };
+    const check = await resolveWithinRoot(filePath, vaultRoot);
+    if (!check.ok) return { error: check.error };
     try {
       const raw = await readFile(filePath, "utf-8");
       const { content, data } = matter(raw);
@@ -375,9 +375,8 @@ export function setupPlacesWatcher(
   });
 
   ipcMain.handle("fs:write-file", async (_event, filePath: string, content: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    const check = await resolveWithinRoot(filePath, vaultRoot);
+    if (!check.ok) return { success: false, error: check.error };
     try {
       writeVaultFile(filePath, content);
       return { success: true };
@@ -390,9 +389,8 @@ export function setupPlacesWatcher(
   // Reads the current file, regex-extracts the frontmatter block, then writes
   // frontmatter + new body — so the renderer never has to round-trip YAML.
   ipcMain.handle("fs:write-place-body", async (_event, filePath: string, body: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    const check = await resolveWithinRoot(filePath, vaultRoot);
+    if (!check.ok) return { success: false, error: check.error };
     try {
       const raw = await readFile(filePath, "utf-8");
       // Match the YAML front-matter block including the trailing newline after ---
@@ -412,9 +410,8 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:write-frontmatter-property",
     async (_event, filePath: string, key: string, value: unknown) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-      if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-        return { success: false, error: "Path outside vault" };
+      const check = await resolveWithinRoot(filePath, vaultRoot);
+      if (!check.ok) return { success: false, error: check.error };
       try {
         const raw = await readFile(filePath, "utf-8");
         const parsed = matter(raw);
@@ -448,9 +445,8 @@ export function setupPlacesWatcher(
 
   // Rewrite frontmatter with keys in the given order, preserving all values and the body.
   ipcMain.handle("fs:reorder-frontmatter", async (_event, filePath: string, keyOrder: string[]) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    const check = await resolveWithinRoot(filePath, vaultRoot);
+    if (!check.ok) return { success: false, error: check.error };
     try {
       const raw = await readFile(filePath, "utf-8");
       const parsed = matter(raw);
@@ -477,10 +473,8 @@ export function setupPlacesWatcher(
   });
 
   ipcMain.handle("fs:rename-file", async (_event, oldPath: string, newName: string) => {
-    // Ensure we only get files within the vault.
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-
-    if (!oldPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+    const check = await resolveWithinRoot(oldPath, vaultRoot);
+    if (!check.ok) return { success: false, error: check.error };
 
     const safeName = newName.replace(/[/\\]/g, "").trim();
 
@@ -491,8 +485,6 @@ export function setupPlacesWatcher(
     const oldExt = oldPath.match(/\.[^./\\]+$/)?.[0] ?? ".md";
     const finalName = isDir || safeName.includes(".") ? safeName : `${safeName}${oldExt}`;
     const newPath = uniquePathInDir(dir, finalName, isDir, oldPath);
-
-    if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
 
     try {
       pendingRenameOldPaths.add(oldPath);
@@ -537,14 +529,10 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:move-into",
     async (_event, sourcePath: string, destinationFolderPath: string) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-
-      if (sourcePath !== vaultRoot && !sourcePath.startsWith(vaultPrefix)) {
-        return { success: false as const, error: "Path outside vault" };
-      }
-      if (destinationFolderPath !== vaultRoot && !destinationFolderPath.startsWith(vaultPrefix)) {
-        return { success: false as const, error: "Path outside vault" };
-      }
+      const srcCheck = await resolveWithinRoot(sourcePath, vaultRoot);
+      if (!srcCheck.ok) return { success: false as const, error: srcCheck.error };
+      const dstCheck = await resolveWithinRoot(destinationFolderPath, vaultRoot);
+      if (!dstCheck.ok) return { success: false as const, error: dstCheck.error };
 
       let destStat: Stats;
       try {
@@ -583,10 +571,6 @@ export function setupPlacesWatcher(
       }
 
       const newPath = uniquePathInDir(destinationFolderPath, basename(sourcePath), sourceIsDir);
-
-      if (!newPath.startsWith(vaultPrefix)) {
-        return { success: false as const, error: "Path outside vault" };
-      }
 
       try {
         renameSync(sourcePath, newPath);
@@ -628,10 +612,8 @@ export function setupPlacesWatcher(
   );
 
   ipcMain.handle("fs:delete-path", async (_event, targetPath: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (targetPath !== vaultRoot && !targetPath.startsWith(vaultPrefix)) {
-      return { success: false as const, error: "Path outside vault" };
-    }
+    const check = await resolveWithinRoot(targetPath, vaultRoot);
+    if (!check.ok) return { success: false as const, error: check.error };
     if (targetPath === vaultRoot) {
       return { success: false as const, error: "Cannot delete vault root" };
     }
@@ -651,19 +633,15 @@ export function setupPlacesWatcher(
 
   ipcMain.handle(
     "fs:create-folder",
-    (_event, args: { parentFolderPath: string; folderName: string }) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+    async (_event, args: { parentFolderPath: string; folderName: string }) => {
       const parent = args.parentFolderPath;
-      if (parent !== vaultRoot && !parent.startsWith(vaultPrefix))
-        return { success: false as const, error: "Path outside vault" };
+      const check = await resolveWithinRoot(parent, vaultRoot);
+      if (!check.ok) return { success: false as const, error: check.error };
 
       const safeName = args.folderName.replace(/[/\\]/g, "").trim();
       if (!safeName) return { success: false as const, error: "Empty name" };
 
       const candidate = uniquePathInDir(parent, safeName, true);
-
-      if (!candidate.startsWith(vaultPrefix))
-        return { success: false as const, error: "Path outside vault" };
 
       try {
         mkdirSync(candidate);
@@ -689,13 +667,11 @@ export function setupPlacesWatcher(
         includePlaceFrontmatterDefaults?: boolean;
       }
     ) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
       let dir: string;
       if (args.parentFolderPath) {
         const p = args.parentFolderPath;
-        if (p !== vaultRoot && !p.startsWith(vaultPrefix)) {
-          return { success: false as const, error: "Path outside vault" };
-        }
+        const check = await resolveWithinRoot(p, vaultRoot);
+        if (!check.ok) return { success: false as const, error: check.error };
         dir = p;
       } else {
         dir = vaultRoot;

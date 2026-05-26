@@ -20,6 +20,7 @@ import {
 } from "./mapos-config";
 import { registerMaposIpc } from "./mapos-ipc";
 import { setupOllamaPersistence } from "./ollama";
+import { registerServicesIpc } from "./services-ipc";
 import { setupUpdater } from "./updater";
 import { setupPlacesWatcher } from "./watcher";
 
@@ -157,6 +158,7 @@ app.whenReady().then(() => {
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
   setupOllamaPersistence(appStateDir);
   registerAiConfigIpc(mainWindow);
+  registerServicesIpc();
   setupUpdater(mainWindow);
   setupAppMenu();
 

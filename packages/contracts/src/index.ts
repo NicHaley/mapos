@@ -9,20 +9,38 @@ export {
 } from "./registry";
 export type { AdapterId, AuthCredential, Endpoint, ServiceId } from "./registry";
 
-export { GeocodeResultSchema } from "./services/geocoding";
-export type { GeocodeResult } from "./services/geocoding";
+export {
+  GeocodeForwardRequestSchema,
+  GeocodeResultSchema,
+  GeocodeReverseRequestSchema
+} from "./services/geocoding";
+export type {
+  GeocodeForwardRequest,
+  GeocodeResult,
+  GeocodeReverseRequest
+} from "./services/geocoding";
 
-export { IsochroneSchema } from "./services/isochrone";
-export type { Isochrone } from "./services/isochrone";
+export { IsochroneRequestSchema, IsochroneSchema } from "./services/isochrone";
+export type { Isochrone, IsochroneRequest } from "./services/isochrone";
 
 export {
   ManeuverSchema,
   MatrixCellSchema,
   MatrixSchema,
   RouteCostingSchema,
+  RouteDirectionsRequestSchema,
+  RouteMatrixRequestSchema,
   RouteSchema
 } from "./services/routing";
-export type { Maneuver, Matrix, MatrixCell, Route, RouteCosting } from "./services/routing";
+export type {
+  Maneuver,
+  Matrix,
+  MatrixCell,
+  Route,
+  RouteCosting,
+  RouteDirectionsRequest,
+  RouteMatrixRequest
+} from "./services/routing";
 
 export { TileStyleRequestSchema } from "./services/tiles";
 export type { TileStyleRequest } from "./services/tiles";

@@ -26,6 +26,7 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@mapos/contracts": "workspace:*",
+    "@mapos/service-adapters": "workspace:*",
     "@mapos/ui": "workspace:*",
     "@turf/bbox": "^7.3.4",
     "better-sqlite3": "^12.8.0",

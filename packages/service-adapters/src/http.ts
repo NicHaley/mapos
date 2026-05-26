@@ -1,5 +1,7 @@
 import type { z } from "zod";
-import { DEFAULT_TIMEOUT_MS, USER_AGENT } from "./config";
+
+const USER_AGENT = "MapOS/1.0 (+https://github.com/mapos)";
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class MapServiceError extends Error {
   readonly status: number;
@@ -46,7 +48,7 @@ function combineSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefin
   return ctrl.signal;
 }
 
-const LOG_PREFIX = "[map-services]";
+const LOG_PREFIX = "[service-adapters]";
 
 /** Short path+query summary for console logs — avoids echoing full hostnames on every line. */
 function shortUrl(url: string): string {

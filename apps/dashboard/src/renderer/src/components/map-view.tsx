@@ -49,7 +49,8 @@ function useDarkMapStyle(): string | null {
       .then((url) => {
         if (!cancelled) setStyleUrl(url);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[map-view] failed to resolve tile style URL", err);
         if (!cancelled) setStyleUrl(null);
       });
     return () => {

@@ -1,15 +1,21 @@
-import type {
-  GeocodeForwardRequest,
-  GeocodeResult,
-  GeocodeReverseRequest,
-  Isochrone,
-  IsochroneRequest,
-  Matrix,
-  Route,
-  RouteDirectionsRequest,
-  RouteMatrixRequest,
-  ServiceId,
-  TileStyleRequest
+import {
+  type GeocodeForwardRequest,
+  GeocodeForwardRequestSchema,
+  type GeocodeResult,
+  type GeocodeReverseRequest,
+  GeocodeReverseRequestSchema,
+  type Isochrone,
+  type IsochroneRequest,
+  IsochroneRequestSchema,
+  type Matrix,
+  type Route,
+  type RouteDirectionsRequest,
+  RouteDirectionsRequestSchema,
+  type RouteMatrixRequest,
+  RouteMatrixRequestSchema,
+  type ServiceId,
+  type TileStyleRequest,
+  TileStyleRequestSchema
 } from "@mapos/contracts";
 import type {
   AdapterContext,
@@ -69,29 +75,29 @@ export function createClient(config: ServicesConfig, credentials: ClientCredenti
     geocoding: {
       forward: (req: GeocodeForwardRequest, ctx?: AdapterContext): Promise<GeocodeResult[]> => {
         const { capability, endpoint } = get("geocoding", "geocoding");
-        return capability.forward(req, endpoint, ctx);
+        return capability.forward(GeocodeForwardRequestSchema.parse(req), endpoint, ctx);
       },
       reverse: (req: GeocodeReverseRequest, ctx?: AdapterContext): Promise<GeocodeResult[]> => {
         const { capability, endpoint } = get("geocoding", "geocoding");
-        return capability.reverse(req, endpoint, ctx);
+        return capability.reverse(GeocodeReverseRequestSchema.parse(req), endpoint, ctx);
       }
     },
 
     routing: {
       directions: (req: RouteDirectionsRequest, ctx?: AdapterContext): Promise<Route> => {
         const { capability, endpoint } = get("routing", "routing");
-        return capability.directions(req, endpoint, ctx);
+        return capability.directions(RouteDirectionsRequestSchema.parse(req), endpoint, ctx);
       },
       matrix: (req: RouteMatrixRequest, ctx?: AdapterContext): Promise<Matrix> => {
         const { capability, endpoint } = get("routing", "routing");
-        return capability.matrix(req, endpoint, ctx);
+        return capability.matrix(RouteMatrixRequestSchema.parse(req), endpoint, ctx);
       }
     },
 
     isochrones: {
       contours: (req: IsochroneRequest, ctx?: AdapterContext): Promise<Isochrone> => {
         const { capability, endpoint } = get("isochrones", "isochrones");
-        return capability.contours(req, endpoint, ctx);
+        return capability.contours(IsochroneRequestSchema.parse(req), endpoint, ctx);
       }
     },
 
@@ -99,7 +105,7 @@ export function createClient(config: ServicesConfig, credentials: ClientCredenti
       /** Synchronous — the renderer needs a URL string immediately for MapLibre. */
       styleUrl: (req: TileStyleRequest): string => {
         const { capability, endpoint } = get("tiles", "tiles");
-        return capability.styleUrl(req, endpoint);
+        return capability.styleUrl(TileStyleRequestSchema.parse(req), endpoint);
       }
     },
 

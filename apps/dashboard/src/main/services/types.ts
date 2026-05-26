@@ -4,6 +4,6 @@
  * fetched after sign-in — not user-edited values that belong in `mapos.json`.
  */
 export type ClientCredentials = {
-  /** Protomaps API key for community tiles. Sourced from RENDERER_VITE_PROTOMAPS_KEY. */
+  /** Protomaps API key for community tiles. Sourced from MAIN_VITE_PROTOMAPS_KEY. */
   protomapsApiKey?: string;
 };

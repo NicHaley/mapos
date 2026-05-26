@@ -9,6 +9,7 @@ import icon from "../../resources/icon.png?asset";
 import { registerAiConfigIpc } from "./ai-config-ipc";
 import { setupAppMenu } from "./app-menu";
 import { setupChat } from "./chat";
+import { buildCsp, setActiveServicesForCsp } from "./csp";
 import { closeDb } from "./db";
 import {
   getPrimaryVaultRoot,
@@ -104,17 +105,7 @@ app.whenReady().then(() => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [
-          [
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' blob:",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io",
-            "connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io https://valhalla1.openstreetmap.de",
-            "worker-src 'self' blob:",
-            "font-src 'self' data:"
-          ].join("; ")
-        ]
+        "Content-Security-Policy": [buildCsp()]
       }
     });
   });
@@ -130,6 +121,7 @@ app.whenReady().then(() => {
     throw new Error("Vault not initialized — onboarding has not completed.");
   };
   let maposConfig = loadOrInitMaposConfig(appStateDir);
+  setActiveServicesForCsp(maposConfig.services);
   let vaultRoot = "";
   let places: Awaited<ReturnType<typeof setupPlacesWatcher>>["places"] = new Map();
   let stopWatcher: () => Promise<void> = async () => notReady();

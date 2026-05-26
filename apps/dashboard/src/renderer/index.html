@@ -3,11 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <title>Electron</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.protomaps.com https://protomaps.github.io; connect-src 'self' https://api.protomaps.com https://protomaps.github.io https://photon.komoot.io; worker-src 'self' blob:; font-src 'self' data:"
-    />
+    <!--
+      CSP is set per-request from the main process (src/main/csp.ts) so it can
+      reflect the active services mode. The meta-tag CSP that used to live here
+      intersect-blocked the dynamic header policy whenever the user switched to
+      self-hosted or cloud mode — header CSP is now the single source of truth.
+    -->
   </head>
 
   <body>

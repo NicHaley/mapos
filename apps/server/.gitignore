@@ -1,0 +1,5 @@
+.env
+.wrangler/
+dist/
+node_modules/
+*.log

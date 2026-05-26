@@ -1,7 +1,6 @@
-import type { Adapter } from "../types";
 import { forward, reverse } from "./geocoding";
 
-export const photonAdapter: Adapter = {
-  id: "photon",
+export const photonAdapter = {
+  id: "photon" as const,
   geocoding: { forward, reverse }
 };

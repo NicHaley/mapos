@@ -22,33 +22,17 @@ export type AdapterContext = {
 };
 
 export interface GeocodingCapability {
-  forward(
-    req: GeocodeForwardRequest,
-    ep: Endpoint,
-    ctx?: AdapterContext
-  ): Promise<GeocodeResult[]>;
-  reverse(
-    req: GeocodeReverseRequest,
-    ep: Endpoint,
-    ctx?: AdapterContext
-  ): Promise<GeocodeResult[]>;
+  forward(req: GeocodeForwardRequest, ep: Endpoint, ctx?: AdapterContext): Promise<GeocodeResult[]>;
+  reverse(req: GeocodeReverseRequest, ep: Endpoint, ctx?: AdapterContext): Promise<GeocodeResult[]>;
 }
 
 export interface RoutingCapability {
-  directions(
-    req: RouteDirectionsRequest,
-    ep: Endpoint,
-    ctx?: AdapterContext
-  ): Promise<Route>;
+  directions(req: RouteDirectionsRequest, ep: Endpoint, ctx?: AdapterContext): Promise<Route>;
   matrix(req: RouteMatrixRequest, ep: Endpoint, ctx?: AdapterContext): Promise<Matrix>;
 }
 
 export interface IsochroneCapability {
-  contours(
-    req: IsochroneRequest,
-    ep: Endpoint,
-    ctx?: AdapterContext
-  ): Promise<Isochrone>;
+  contours(req: IsochroneRequest, ep: Endpoint, ctx?: AdapterContext): Promise<Isochrone>;
 }
 
 export interface TileCapability {

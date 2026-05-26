@@ -1,6 +1,9 @@
 export { BBoxSchema, LatLngSchema } from "./primitives";
 export type { BBox, LatLng } from "./primitives";
 
+export { ErrorCodeSchema, ErrorDetailSchema, ErrorResponseSchema } from "./errors";
+export type { ErrorCode, ErrorDetail, ErrorResponse } from "./errors";
+
 export {
   AdapterIdSchema,
   AuthCredentialSchema,

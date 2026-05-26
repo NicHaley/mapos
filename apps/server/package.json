@@ -1,0 +1,28 @@
+{
+  "name": "@mapos/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "build:node": "esbuild src/index.node.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.mjs --packages=external",
+    "start:node": "node dist/server.mjs",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@mapos/contracts": "workspace:*",
+    "@mapos/service-adapters": "workspace:*",
+    "hono": "^4.6.14",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "@types/geojson": "^7946.0.16",
+    "esbuild": "^0.24.0",
+    "typescript": "5.9.2",
+    "wrangler": "^4.90.1"
+  }
+}

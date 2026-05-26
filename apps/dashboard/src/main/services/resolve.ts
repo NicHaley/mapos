@@ -1,5 +1,5 @@
 import type { Endpoint, ServiceId } from "@mapos/contracts";
-import { type Adapter, adapters, defaultEndpoints } from "@mapos/service-adapters";
+import { type Adapter, adapters, defaultEndpoints, maposV1Adapter } from "@mapos/service-adapters";
 import type { ServicesConfig } from "../mapos-config";
 import { ServiceUnavailableError } from "./errors";
 import type { ClientCredentials } from "./types";
@@ -19,6 +19,17 @@ const communityProviderForService = {
   tiles: "protomaps"
 } as const satisfies Partial<Record<ServiceId, keyof typeof defaultEndpoints>>;
 
+/**
+ * Services the MapOS server (`mapos_v1` adapter) implements. Web search is out
+ * of scope for v1 — the server has no `/v1/search` endpoint yet.
+ */
+const SERVER_SUPPORTED_SERVICES: readonly ServiceId[] = [
+  "geocoding",
+  "routing",
+  "isochrones",
+  "tiles"
+] as const;
+
 export function resolve(
   serviceId: ServiceId,
   config: ServicesConfig,
@@ -27,12 +38,14 @@ export function resolve(
   if (config.mode === "community") {
     return resolveCommunity(serviceId, credentials);
   }
-  // mapos_cloud and self_hosted both dispatch via the (not-yet-built) mapos_v1
-  // adapter against a single base URL. Until that adapter exists, every service
-  // call in these modes is unavailable.
+  if (config.mode === "self_hosted") {
+    return resolveServer(serviceId, config.baseUrl, config.authToken);
+  }
+  // mapos_cloud requires both the auth/billing flow and a deployed api.mapos.md,
+  // neither of which exist in v1. Users are routed back to Community or self-hosted.
   throw new ServiceUnavailableError(
     serviceId,
-    `${config.mode} mode requires the MapOS server adapter, which is not yet implemented`
+    "MapOS Cloud is not yet available — use Community mode or a self-hosted server"
   );
 }
 
@@ -49,6 +62,20 @@ function resolveCommunity(serviceId: ServiceId, credentials: ClientCredentials):
     adapter: adapters[providerId],
     endpoint: communityEndpoint(providerId, credentials)
   };
+}
+
+function resolveServer(serviceId: ServiceId, baseUrl: string, authToken?: string): Resolution {
+  if (!SERVER_SUPPORTED_SERVICES.includes(serviceId)) {
+    throw new ServiceUnavailableError(
+      serviceId,
+      `service "${serviceId}" is not implemented by the MapOS server`
+    );
+  }
+  const endpoint: Endpoint = {
+    url: baseUrl.replace(/\/+$/, ""),
+    ...(authToken ? { auth: { type: "bearer", value: authToken } } : {})
+  };
+  return { adapter: maposV1Adapter, endpoint };
 }
 
 function communityEndpoint(

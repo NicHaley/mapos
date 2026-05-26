@@ -1,5 +1,4 @@
 import type { Endpoint, TileStyleRequest } from "@mapos/contracts";
-import type { Adapter } from "../types";
 
 /**
  * Build a Protomaps v5 basemap style URL. The API key (if any) comes from
@@ -14,7 +13,7 @@ function styleUrl(req: TileStyleRequest, ep: Endpoint): string {
   return `${ep.url}/styles/v5/${variant}/en.json${keyParam}`;
 }
 
-export const protomapsAdapter: Adapter = {
-  id: "protomaps",
+export const protomapsAdapter = {
+  id: "protomaps" as const,
   tiles: { styleUrl }
 };

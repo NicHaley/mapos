@@ -2,12 +2,13 @@ import * as geocoding from "./geocoding";
 import * as isochrone from "./isochrone";
 import * as routing from "./routing";
 import { styleUrl } from "./tiles";
+import * as webSearch from "./web-search";
 
 /**
- * The MapOS v1 server adapter. Implements all four capabilities by POSTing
- * contract requests to the MapOS server and parsing the response. The
- * `Endpoint.url` should be the server's origin (e.g. "https://api.mapos.md"
- * or "http://localhost:8787"); per-route paths are appended internally.
+ * The MapOS v1 server adapter. Implements every capability by POSTing contract
+ * requests to the MapOS server and parsing the response. The `Endpoint.url`
+ * should be the server's origin (e.g. "https://api.mapos.md" or
+ * "http://localhost:8787"); per-route paths are appended internally.
  *
  * `Endpoint.auth` (when set to `type: "bearer"`) is forwarded as an
  * `Authorization: Bearer` header. Bearer is the only auth shape this adapter
@@ -19,5 +20,6 @@ export const maposV1Adapter = {
   geocoding,
   routing,
   isochrones: { contours: isochrone.contours },
-  tiles: { styleUrl }
+  tiles: { styleUrl },
+  webSearch: { search: webSearch.search }
 };

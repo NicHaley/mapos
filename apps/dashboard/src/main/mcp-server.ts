@@ -110,6 +110,10 @@ Call \`clear_map_overlay\` when starting a new search or when the user asks to c
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
+## Web search
+
+- \`web_search\` — search the web for current information or external facts the vault can't answer (opening hours, recent news, articles). Returns results with title, url, and a snippet; pass \`recency\` to restrict to a recent window. This is not a geocoder — for turning place names into coordinates, use \`geocode_search\`. Web search requires a configured MapOS server; if it returns an error about availability, tell the user it needs server mode rather than retrying.
+
 ## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
@@ -588,6 +592,42 @@ export function buildMaposCustomTools(
     }
   });
 
+  const webSearchTool = defineTool({
+    name: "web_search",
+    label: "Web search",
+    description:
+      "Search the web for current information, news, or external facts not in the vault. Returns results with title, url, and a snippet. Use for questions the user's files can't answer (opening hours, recent events, articles). Only available when MapOS is configured against a server — surfaces an error otherwise.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query" }),
+      maxResults: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 20, default: 5, description: "Max results to return" })
+      ),
+      recency: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("day"),
+            Type.Literal("week"),
+            Type.Literal("month"),
+            Type.Literal("year")
+          ],
+          { description: "Restrict results to a recency window relative to now" }
+        )
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        const response = await getServiceClient().webSearch.search({
+          query: args.query,
+          maxResults: args.maxResults ?? 5,
+          recency: args.recency
+        });
+        return TEXT_RESULT(JSON.stringify(response));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
   const computeBboxTool = defineTool({
     name: "compute_bbox",
     label: "Compute bounding box",
@@ -733,6 +773,7 @@ export function buildMaposCustomTools(
     getDirectionsTool,
     getIsochroneTool,
     getMatrixTool,
+    webSearchTool,
     computeBboxTool,
     writeVaultFile,
     deleteVaultFile,

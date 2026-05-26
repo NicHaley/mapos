@@ -8,6 +8,7 @@ import { registerHealth } from "./routes/health";
 import { registerIsochrones } from "./routes/isochrones";
 import { registerRouting } from "./routes/routing";
 import { registerTiles } from "./routes/tiles";
+import { registerWebSearch } from "./routes/web-search";
 
 /**
  * Always-permitted origins. Localhost on any port covers Vite dev servers and
@@ -70,6 +71,7 @@ export function createApp(): Hono {
   registerRouting(app);
   registerIsochrones(app);
   registerTiles(app);
+  registerWebSearch(app);
 
   app.notFound((c) =>
     errorResponse(c, "not_found", `route not found: ${c.req.method} ${c.req.path}`)

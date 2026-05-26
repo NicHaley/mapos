@@ -78,6 +78,7 @@ const TOOL_LABELS: Record<string, string> = {
   write_vault_file: "Writing File",
   delete_vault_file: "Deleting File",
   rename_vault_file: "Renaming File",
+  web_search: "Searching Web",
   bash: "Running Command",
   read: "Reading File",
   find: "Searching Files",
@@ -108,6 +109,8 @@ function toolPreview(call: ActiveToolCall): string | null {
     case "find":
     case "grep":
       return str("pattern");
+    case "web_search":
+      return str("query");
     case "pan_to": {
       const lat = fields.lat;
       const lng = fields.lng;

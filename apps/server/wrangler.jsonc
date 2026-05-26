@@ -9,11 +9,13 @@
     "VALHALLA_URL": "https://valhalla1.openstreetmap.de",
     "PROTOMAPS_STYLE_URL_BASE": "https://api.protomaps.com",
     "PROTOMAPS_TILE_URL_TEMPLATE": "https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt",
+    "TAVILY_URL": "https://api.tavily.com",
     "ALLOWED_ORIGINS": "",
     "NODE_ENV": "production"
   }
   // Secrets (set via `wrangler secret put`):
   //   PROTOMAPS_API_KEY
+  //   TAVILY_API_KEY
   // Custom domain binding (configure once in CF dashboard):
   //   routes: [{ pattern: "api.mapos.md", custom_domain: true }]
 }

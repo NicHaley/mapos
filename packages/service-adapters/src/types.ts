@@ -9,7 +9,9 @@ import type {
   Route,
   RouteDirectionsRequest,
   RouteMatrixRequest,
-  TileStyleRequest
+  TileStyleRequest,
+  WebSearchRequest,
+  WebSearchResponse
 } from "@mapos/contracts";
 
 /**
@@ -40,6 +42,10 @@ export interface TileCapability {
   styleUrl(req: TileStyleRequest, ep: Endpoint): string;
 }
 
+export interface WebSearchCapability {
+  search(req: WebSearchRequest, ep: Endpoint, ctx?: AdapterContext): Promise<WebSearchResponse>;
+}
+
 /**
  * An adapter bundles one or more capabilities under a single provider id. A
  * provider may implement any subset — Photon only does geocoding, Valhalla does
@@ -51,4 +57,5 @@ export type Adapter = {
   routing?: RoutingCapability;
   isochrones?: IsochroneCapability;
   tiles?: TileCapability;
+  webSearch?: WebSearchCapability;
 };

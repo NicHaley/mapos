@@ -20,14 +20,16 @@ const communityProviderForService = {
 } as const satisfies Partial<Record<ServiceId, keyof typeof defaultEndpoints>>;
 
 /**
- * Services the MapOS server (`mapos_v1` adapter) implements. Web search is out
- * of scope for v1 — the server has no `/v1/search` endpoint yet.
+ * Services the MapOS server (`mapos_v1` adapter) implements. Web search is
+ * server-only — the server holds the Tavily key and exposes it at
+ * `POST /v1/web-search`; there is no community provider.
  */
 const SERVER_SUPPORTED_SERVICES: readonly ServiceId[] = [
   "geocoding",
   "routing",
   "isochrones",
-  "tiles"
+  "tiles",
+  "webSearch"
 ] as const;
 
 export function resolve(

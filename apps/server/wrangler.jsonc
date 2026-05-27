@@ -8,7 +8,7 @@
     "PHOTON_URL": "https://photon.komoot.io",
     "VALHALLA_URL": "https://valhalla1.openstreetmap.de",
     "PROTOMAPS_STYLE_URL_BASE": "https://api.protomaps.com",
-    "PROTOMAPS_TILE_URL_TEMPLATE": "https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt",
+    "PROTOMAPS_TILE_URL_TEMPLATE": "https://api.protomaps.com/tiles/v4/{z}/{x}/{y}.mvt",
     "TAVILY_URL": "https://api.tavily.com",
     "ALLOWED_ORIGINS": "",
     "NODE_ENV": "production"

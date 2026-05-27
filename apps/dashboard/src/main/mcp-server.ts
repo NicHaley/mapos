@@ -64,6 +64,16 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
 });
 
 export function buildMaposSystemPrompt(vaultRoot: string): string {
+  // Only document web search when the active services mode can actually serve it
+  // (self-hosted). In community mode there's no provider, and the tool is omitted
+  // from the tool set entirely (see buildMaposCustomTools), so don't advertise it.
+  const webSearchSection = getServiceClient().isAvailable("webSearch")
+    ? `## Web search
+
+- \`web_search\` — search the web for current information or external facts the vault can't answer (opening hours, recent news, articles). Returns results with title, url, and a snippet; pass \`recency\` to restrict to a recent time window. This is not a geocoder — to turn place names into coordinates, use \`geocode_search\`.
+
+`
+    : "";
   return `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
 
 MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth.
@@ -110,11 +120,7 @@ Call \`clear_map_overlay\` when starting a new search or when the user asks to c
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
-## Web search
-
-- \`web_search\` — search the web for current information or external facts the vault can't answer (opening hours, recent news, articles). Returns results with title, url, and a snippet; pass \`recency\` to restrict to a recent window. This is not a geocoder — for turning place names into coordinates, use \`geocode_search\`. Web search requires a configured MapOS server; if it returns an error about availability, tell the user it needs server mode rather than retrying.
-
-## File operations
+${webSearchSection}## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
@@ -760,6 +766,13 @@ export function buildMaposCustomTools(
     }
   });
 
+  // Web search has no community provider — only expose the tool when the active
+  // services mode can actually serve it (self-hosted MapOS server). Omitting it
+  // (rather than letting it error) keeps the agent from offering web search it
+  // can't deliver. The services mode is stable per process, so build-time gating
+  // is sufficient.
+  const webSearchAvailable = getServiceClient().isAvailable("webSearch");
+
   return [
     renderOverlayOnMap,
     clearMapOverlay,
@@ -773,7 +786,7 @@ export function buildMaposCustomTools(
     getDirectionsTool,
     getIsochroneTool,
     getMatrixTool,
-    webSearchTool,
+    ...(webSearchAvailable ? [webSearchTool] : []),
     computeBboxTool,
     writeVaultFile,
     deleteVaultFile,

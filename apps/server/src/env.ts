@@ -13,7 +13,7 @@ export const EnvSchema = z.object({
   PROTOMAPS_STYLE_URL_BASE: z.string().url().default("https://api.protomaps.com"),
   PROTOMAPS_TILE_URL_TEMPLATE: z
     .string()
-    .default("https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt"),
+    .default("https://api.protomaps.com/tiles/v4/{z}/{x}/{y}.mvt"),
   TAVILY_URL: z.url().default("https://api.tavily.com"),
 
   // Secrets. Optional at the type level so we can produce a clean error at request

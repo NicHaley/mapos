@@ -90,17 +90,28 @@ function defaultAiConfig(): AiConfig {
  * invalid persisted shape falls back to `community` via `.catch()` so a broken
  * config never bricks startup.
  */
+/**
+ * Slug of a downloaded region pack (e.g. "monaco") layered *on top of* the base
+ * mode. It's an overlay, not a mode: capabilities the pack provides locally
+ * (today only geocoding, from `<userData>/regions/<offlineRegion>/geocode.sqlite`)
+ * are served offline, while everything else still uses the base mode. This is why
+ * you can run self_hosted tiles and offline geocoding at the same time.
+ */
+const offlineRegion = z.string().optional();
+
 const ServicesConfigSchema = z
   .discriminatedUnion("mode", [
-    z.object({ mode: z.literal("community") }),
+    z.object({ mode: z.literal("community"), offlineRegion }),
     z.object({
       mode: z.literal("mapos_cloud"),
-      authToken: z.string().optional()
+      authToken: z.string().optional(),
+      offlineRegion
     }),
     z.object({
       mode: z.literal("self_hosted"),
       baseUrl: z.string().min(1),
-      authToken: z.string().optional()
+      authToken: z.string().optional(),
+      offlineRegion
     })
   ])
   .catch(() => ({ mode: "community" as const }));

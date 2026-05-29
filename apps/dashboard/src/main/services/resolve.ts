@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { Endpoint, ServiceId } from "@mapos/contracts";
 import { type Adapter, adapters, defaultEndpoints, maposV1Adapter } from "@mapos/service-adapters";
 import type { ServicesConfig } from "../mapos-config";
 import { ServiceUnavailableError } from "./errors";
+import { offlineAdapter } from "./offline";
 import type { ClientCredentials } from "./types";
 
 export type Resolution = { adapter: Adapter; endpoint: Endpoint };
@@ -37,6 +40,12 @@ export function resolve(
   config: ServicesConfig,
   credentials: ClientCredentials
 ): Resolution {
+  // Offline overlay wins for capabilities a downloaded region pack provides
+  // locally; otherwise we fall through to the base mode. This keeps tiles/routing
+  // on the base mode (e.g. self_hosted proxy) while geocoding goes local.
+  const offline = resolveOfflineOverlay(serviceId, config, credentials);
+  if (offline) return offline;
+
   if (config.mode === "community") {
     return resolveCommunity(serviceId, credentials);
   }
@@ -49,6 +58,26 @@ export function resolve(
     serviceId,
     "MapOS Cloud is not yet available — use Community mode or a self-hosted server"
   );
+}
+
+/**
+ * Returns a local resolution when `offlineRegion` is set and the pack actually
+ * provides this capability, else null (fall through to the base mode). Today only
+ * geocoding is available offline; tiles/routing will be added as those packs land.
+ * A missing/undownloaded pack returns null rather than throwing, so the base mode
+ * transparently serves the request.
+ */
+function resolveOfflineOverlay(
+  serviceId: ServiceId,
+  config: ServicesConfig,
+  credentials: ClientCredentials
+): Resolution | null {
+  if (serviceId !== "geocoding") return null;
+  const region = config.offlineRegion;
+  if (!region || !credentials.regionsDir) return null;
+  const dbPath = join(credentials.regionsDir, region, "geocode.sqlite");
+  if (!existsSync(dbPath)) return null;
+  return { adapter: offlineAdapter, endpoint: { url: dbPath } };
 }
 
 function resolveCommunity(serviceId: ServiceId, credentials: ClientCredentials): Resolution {

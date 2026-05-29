@@ -1,13 +1,21 @@
+import { join } from "node:path";
 import { app } from "electron";
 import { loadOrInitMaposConfig } from "../mapos-config";
 import { type MaposServiceClient, createClient } from "./index";
+import { closeOfflineGeocodeConnections } from "./offline";
+import type { ClientCredentials } from "./types";
 
 let cached: MaposServiceClient | null = null;
 
-function readCredentials(): { protomapsApiKey?: string } {
+function readCredentials(): ClientCredentials {
+  const creds: ClientCredentials = {
+    // Region packs live in userData, alongside index.db — large, derived, sync-excluded.
+    regionsDir: join(app.getPath("userData"), "regions")
+  };
   // Build-time injected by electron-vite. Declared in env.d.ts.
   const key = import.meta.env.MAIN_VITE_PROTOMAPS_KEY as string | undefined;
-  return key && key.length > 0 ? { protomapsApiKey: key } : {};
+  if (key && key.length > 0) creds.protomapsApiKey = key;
+  return creds;
 }
 
 /**
@@ -25,4 +33,6 @@ export function getServiceClient(): MaposServiceClient {
 
 export function invalidateServiceClient(): void {
   cached = null;
+  // Drop cached SQLite handles so a region switch doesn't read a stale file.
+  closeOfflineGeocodeConnections();
 }

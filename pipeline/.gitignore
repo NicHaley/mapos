@@ -1,0 +1,7 @@
+# Build scratch and generated artifacts — never commit these.
+work/
+dist/
+# Planetiler cache (downloaded base layers + temp)
+data/
+tools/planetiler.jar
+*.osm.pbf

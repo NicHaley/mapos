@@ -1,0 +1,21 @@
+{
+  "name": "@mapos/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Region build pipeline: OSM extract -> PMTiles + Valhalla tiles + geocode SQLite",
+  "scripts": {
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.19.1",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.2"
+  }
+}

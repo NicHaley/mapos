@@ -1,0 +1,7 @@
+# Makes pipeline a self-contained pnpm root, separate from the app workspace.
+# The pipeline is a Node build tool, so its better-sqlite3 is compiled for the
+# Node ABI — distinct from the dashboard's Electron-ABI build, same npm version
+# (so identical SQLite / FTS5 / R-tree features).
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

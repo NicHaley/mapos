@@ -122,12 +122,15 @@ app.whenReady().then(() => {
   const mainWindow = createWindow();
   const appStateDir = app.getPath("userData");
 
-  // Serve downloaded region packs (offline tiles/style + pmtiles) to the renderer,
-  // and the global glyphs/sprites bundled with the app.
-  registerRegionProtocol(join(appStateDir, "regions"));
+  // Serve downloaded region packs (offline tiles/style) to the renderer, and the
+  // global glyphs/sprites + world basemap bundled with the app.
   const basemapAssetsDir = app.isPackaged
     ? join(process.resourcesPath, "basemap-assets")
     : join(__dirname, "../../resources/basemap-assets");
+  registerRegionProtocol(
+    join(appStateDir, "regions"),
+    join(basemapAssetsDir, "basemap", "world.pmtiles")
+  );
   registerAssetProtocol(basemapAssetsDir);
 
   // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user

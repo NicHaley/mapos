@@ -29,13 +29,19 @@ VALHALLA_IMAGE ?= ghcr.io/gis-ops/docker-valhalla/valhalla:latest
 # via HTTP range requests — the schema matches the app's Protomaps style exactly.
 PROTOMAPS_BUILD_BASE ?= https://build.protomaps.com
 TILES_MAXZOOM ?= 15
+# Whole-world low-zoom basemap maxzoom. This is the always-on "low-fi" backdrop
+# the app renders outside downloaded regions, so keep it small — z6 is country /
+# major-road level. Built once (region-independent) and bundled with the app.
+WORLD_MAXZOOM ?= 6
+# Where the bundled world basemap lands in the dashboard's extraResources.
+DASHBOARD_ASSETS ?= ../apps/dashboard/resources/basemap-assets
 # rclone remote name pointing at your R2 bucket (rclone config -> type s3, provider Cloudflare).
 R2_REMOTE ?= r2:mapos-regions
 
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
 
-.PHONY: all extract pmtiles valhalla geocode manifest upload clean distclean
+.PHONY: all extract pmtiles valhalla geocode manifest upload clean distclean world bundle-world
 
 all: pmtiles valhalla geocode manifest
 	@echo "==> $(REGION)@$(VERSION) built into $(DIST)"
@@ -98,6 +104,34 @@ geocode: $(REGION_PBF)
 	osmium export $(WORK)/geocode-src.osm.pbf -f geojsonseq \
 	  -c geocode/export-config.json --overwrite \
 	  | pnpm exec tsx geocode/build-geocode.ts $(DIST)/geocode.sqlite --region "$(REGION)"
+
+# --------------------------------------------------------------- 4. world ----
+# Whole-world low-zoom basemap, built ONCE (not per region). The app renders this
+# as an always-on low-fi backdrop so the map is never blank outside a downloaded
+# region; the region pmtiles overlays crisp detail on top. Same Protomaps schema
+# as the regions, so the app's generated style covers both with one layer set.
+
+world:
+	@mkdir -p dist/_world
+	@set -e; \
+	build=""; \
+	for i in $$(seq 0 14); do d=$$(date -v-$${i}d +%Y%m%d); \
+	  if curl -fsI "$(PROTOMAPS_BUILD_BASE)/$$d.pmtiles" >/dev/null 2>&1; then build=$$d; break; fi; done; \
+	if [ -z "$$build" ]; then echo "no Protomaps build found in last 14 days" >&2; exit 1; fi; \
+	echo "==> extracting whole-world z0-$(WORLD_MAXZOOM) from Protomaps build $$build"; \
+	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" dist/_world/world.pmtiles \
+	  --bbox=-180,-85.0511,180,85.0511 --maxzoom=$(WORLD_MAXZOOM)
+	@ls -lh dist/_world/world.pmtiles
+
+# Copy the built world basemap into the dashboard's bundled assets (shipped via
+# electron-builder extraResources, served over mapos-asset://basemap/world.pmtiles).
+bundle-world: dist/_world/world.pmtiles
+	@mkdir -p $(DASHBOARD_ASSETS)/basemap
+	cp dist/_world/world.pmtiles $(DASHBOARD_ASSETS)/basemap/world.pmtiles
+	@echo "==> bundled world basemap into $(DASHBOARD_ASSETS)/basemap"
+
+dist/_world/world.pmtiles:
+	$(MAKE) world
 
 # ------------------------------------------------------------ manifest/up ----
 

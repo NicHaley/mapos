@@ -21,9 +21,18 @@ import {
 } from "./mapos-config";
 import { registerMaposIpc } from "./mapos-ipc";
 import { setupOllamaPersistence } from "./ollama";
+import {
+  registerAssetProtocol,
+  registerLocalSchemes,
+  registerRegionProtocol
+} from "./region-protocol";
 import { registerServicesIpc } from "./services-ipc";
 import { setupUpdater } from "./updater";
 import { setupPlacesWatcher } from "./watcher";
+
+// Privileged-scheme registration must happen before app `ready`, so it runs at
+// module load. The handlers themselves are attached inside whenReady.
+registerLocalSchemes();
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -112,6 +121,14 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow();
   const appStateDir = app.getPath("userData");
+
+  // Serve downloaded region packs (offline tiles/style + pmtiles) to the renderer,
+  // and the global glyphs/sprites bundled with the app.
+  registerRegionProtocol(join(appStateDir, "regions"));
+  const basemapAssetsDir = app.isPackaged
+    ? join(process.resourcesPath, "basemap-assets")
+    : join(__dirname, "../../resources/basemap-assets");
+  registerAssetProtocol(basemapAssetsDir);
 
   // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user
   // completes the flow; `bootVault()` populates them and is also reused by switch/rename/delete.

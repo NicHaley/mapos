@@ -19,6 +19,8 @@ import MapGL, {
   useMap
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+// Side-effect import: registers the pmtiles:// protocol for offline tiles.
+import "@renderer/lib/pmtiles-protocol";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";

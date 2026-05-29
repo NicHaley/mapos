@@ -1,10 +1,9 @@
 # MapOS region build pipeline
 #
-# One OSM extract -> three artifacts (PMTiles + Valhalla tiles + geocode SQLite)
+# One region -> three artifacts (PMTiles + Valhalla tiles + geocode SQLite)
 # -> versioned dist/ layout + manifest -> R2. Designed to run on the Mac mini.
 #
 # Quick start (tiny test region):
-#   make tools           # one-time: fetch planetiler.jar
 #   make all             # builds Monaco end to end into dist/
 #   make upload          # push dist/ to R2 (needs rclone remote configured)
 #
@@ -16,35 +15,30 @@
 
 REGION   ?= monaco
 SRC_URL  ?= https://download.geofabrik.de/europe/monaco-latest.osm.pbf
-# Optional bbox "minlng,minlat,maxlng,maxlat" to clip SRC down to a metro.
+# Optional bbox "minlng,minlat,maxlng,maxlat". Clips the OSM extract (valhalla,
+# geocode) AND bounds the tile extract. If empty, tiles derive their bbox from
+# the OSM extract's data bounds.
 BBOX     ?=
 # Version = OSM data date. The build machine's clock is fine here.
 VERSION  ?= $(shell date +%F)
 
 WORK     := work/$(REGION)
 DIST     := dist/$(REGION)/$(VERSION)
-PLANETILER_JAR ?= tools/planetiler.jar
-PLANETILER_VERSION ?= 0.8.3
 VALHALLA_IMAGE ?= ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+# Protomaps daily planet basemap builds. We `pmtiles extract` a region from these
+# via HTTP range requests — the schema matches the app's Protomaps style exactly.
+PROTOMAPS_BUILD_BASE ?= https://build.protomaps.com
+TILES_MAXZOOM ?= 15
 # rclone remote name pointing at your R2 bucket (rclone config -> type s3, provider Cloudflare).
 R2_REMOTE ?= r2:mapos-regions
 
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
 
-.PHONY: all tools extract pmtiles valhalla geocode manifest upload clean distclean
+.PHONY: all extract pmtiles valhalla geocode manifest upload clean distclean
 
 all: pmtiles valhalla geocode manifest
 	@echo "==> $(REGION)@$(VERSION) built into $(DIST)"
-
-# ----------------------------------------------------------------- tooling ----
-
-tools: $(PLANETILER_JAR)
-
-$(PLANETILER_JAR):
-	@mkdir -p tools
-	curl -L -o $@ \
-	  https://github.com/onthegomap/planetiler/releases/download/v$(PLANETILER_VERSION)/planetiler.jar
 
 # --------------------------------------------------------------- 0. extract ----
 
@@ -63,15 +57,22 @@ endif
 extract: $(REGION_PBF)
 
 # ------------------------------------------------------------- 1. PMTiles ----
+# Extract the region from the freshest Protomaps planet build (range requests, so
+# only the bbox tiles transfer). Protomaps basemap schema = the app's style works
+# unchanged. The OSM extract is used only to derive a bbox when BBOX is unset.
 
-pmtiles: $(REGION_PBF) $(PLANETILER_JAR)
+pmtiles: $(REGION_PBF)
 	@mkdir -p $(DIST)
-	# --download fetches the OpenMapTiles base layers (water polygons, natural
-	# earth, lake centerlines) into data/sources/ once, then reuses them.
-	java -Xmx12g -jar $(PLANETILER_JAR) \
-	  --osm-path=$(REGION_PBF) \
-	  --output=$(DIST)/$(REGION).pmtiles \
-	  --download --force
+	@set -e; \
+	bbox="$(BBOX)"; \
+	if [ -z "$$bbox" ]; then bbox=$$(osmium fileinfo -e -g data.bbox $(REGION_PBF) | tr -d '()'); fi; \
+	build=""; \
+	for i in $$(seq 0 14); do d=$$(date -v-$${i}d +%Y%m%d); \
+	  if curl -fsI "$(PROTOMAPS_BUILD_BASE)/$$d.pmtiles" >/dev/null 2>&1; then build=$$d; break; fi; done; \
+	if [ -z "$$build" ]; then echo "no Protomaps build found in last 14 days" >&2; exit 1; fi; \
+	echo "==> extracting bbox $$bbox from Protomaps build $$build"; \
+	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" $(DIST)/$(REGION).pmtiles \
+	  --bbox=$$bbox --maxzoom=$(TILES_MAXZOOM)
 
 # ------------------------------------------------------------ 2. Valhalla ----
 # The gis-ops turnkey image builds tiles from any .pbf dropped in /custom_files

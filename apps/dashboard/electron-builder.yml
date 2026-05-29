@@ -9,8 +9,14 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Bundled separately via extraResources (served over mapos-asset://); keep out of the asar.
+  - '!resources/basemap-assets/**'
 asarUnpack:
   - resources/**
+# Global basemap glyphs/sprites copied to <app>/Resources/basemap-assets (process.resourcesPath).
+extraResources:
+  - from: resources/basemap-assets
+    to: basemap-assets
 win:
   executableName: MapOS
 nsis:

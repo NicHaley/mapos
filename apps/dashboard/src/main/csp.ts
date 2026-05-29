@@ -44,8 +44,23 @@ function originOf(url: string): string | null {
 }
 
 export function buildCsp(): string {
-  const connectSrc = new Set<string>(["'self'", ...ALWAYS_ALLOWED_CDN_ORIGINS]);
-  const imgSrc = new Set<string>(["'self'", "data:", "blob:", ...ALWAYS_ALLOWED_CDN_ORIGINS]);
+  // Local offline schemes: `mapos-region:` (per-region tiles/style + pmtiles range
+  // fetches) and `mapos-asset:` (bundled glyphs/sprites). Always allowed; they only
+  // resolve when a pack is installed / assets are bundled.
+  const connectSrc = new Set<string>([
+    "'self'",
+    "mapos-region:",
+    "mapos-asset:",
+    ...ALWAYS_ALLOWED_CDN_ORIGINS
+  ]);
+  const imgSrc = new Set<string>([
+    "'self'",
+    "data:",
+    "blob:",
+    "mapos-region:",
+    "mapos-asset:",
+    ...ALWAYS_ALLOWED_CDN_ORIGINS
+  ]);
 
   if (activeServices.mode === "community") {
     for (const o of COMMUNITY_CONNECT_ORIGINS) connectSrc.add(o);

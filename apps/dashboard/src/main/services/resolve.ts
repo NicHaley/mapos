@@ -72,12 +72,24 @@ function resolveOfflineOverlay(
   config: ServicesConfig,
   credentials: ClientCredentials
 ): Resolution | null {
-  if (serviceId !== "geocoding") return null;
   const region = config.offlineRegion;
   if (!region || !credentials.regionsDir) return null;
-  const dbPath = join(credentials.regionsDir, region, "geocode.sqlite");
-  if (!existsSync(dbPath)) return null;
-  return { adapter: offlineAdapter, endpoint: { url: dbPath } };
+  const regionDir = join(credentials.regionsDir, region);
+
+  if (serviceId === "geocoding") {
+    const dbPath = join(regionDir, "geocode.sqlite");
+    if (!existsSync(dbPath)) return null;
+    // endpoint.url carries the sqlite path for the offline geocoding adapter.
+    return { adapter: offlineAdapter, endpoint: { url: dbPath } };
+  }
+  if (serviceId === "tiles") {
+    const pmtiles = join(regionDir, `${region}.pmtiles`);
+    if (!existsSync(pmtiles)) return null;
+    // endpoint.url carries the region slug; the tiles adapter builds the
+    // mapos-region:// style URL from it.
+    return { adapter: offlineAdapter, endpoint: { url: region } };
+  }
+  return null;
 }
 
 function resolveCommunity(serviceId: ServiceId, credentials: ClientCredentials): Resolution {

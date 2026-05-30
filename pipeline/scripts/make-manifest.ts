@@ -1,22 +1,27 @@
 #!/usr/bin/env tsx
 /**
- * Generate / merge the R2 manifest the client reads to discover regions.
+ * Rebuild the R2 manifest the client reads to discover regions.
  *
- * Scans dist/<region>/<version>/ for the three artifacts, records size + sha256,
- * and merges the entry into dist/manifest.json (keeping other regions intact).
+ * The manifest is regenerated from a scan of dist/ — it always mirrors what is on
+ * disk (and, after `make upload`, what is on R2). Per region we keep only the
+ * newest --retain versions (default 2: the live version + the previous one, so a
+ * client mid-download isn't broken during a rollout). Older versions are dropped
+ * from the manifest here and pruned from disk/R2 by `make prune`.
+ *
+ * Region display metadata (name, group) lives in a per-region sidecar
+ * dist/<region>/region.json, written here when --name/--group are passed at build
+ * time so later scans stay deterministic without re-passing the flags.
  *
  * Usage:
- *   tsx make-manifest.ts --dist dist --region monaco --version 2026-05-28 --name Monaco
- *   tsx make-manifest.ts --dist dist --region berlin --version 2026-05-30 \
- *     --name Berlin --group germany --group-name Germany
- *
- * Regions are flat (keyed by slug); --group threads a region into a top-level
- * `groups` map so the download UI can render a country that expands into its
- * sub-regions. A group is presentation only — its members are normal regions.
+ *   # refresh a region's sidecar, then rebuild the manifest:
+ *   tsx make-manifest.ts --dist dist --region berlin --name Berlin \
+ *     --group germany --group-name Germany --retain 2
+ *   # just rebuild the manifest from whatever is already in dist:
+ *   tsx make-manifest.ts --dist dist
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ARTIFACTS = {
@@ -30,14 +35,7 @@ type VersionEntry = { path: string; total_bytes: number; artifacts: Record<strin
 type RegionEntry = { name?: string; group?: string; latest: string; versions: Record<string, VersionEntry> };
 type GroupEntry = { name: string; regions: string[] };
 type Manifest = { schema: number; groups: Record<string, GroupEntry>; regions: Record<string, RegionEntry> };
-
-function arg(name: string, fallback?: string): string {
-  const i = process.argv.indexOf(`--${name}`);
-  if (i >= 0 && process.argv[i + 1]) return process.argv[i + 1];
-  if (fallback !== undefined) return fallback;
-  console.error(`missing required --${name}`);
-  process.exit(1);
-}
+type RegionMeta = { name?: string; group?: string; groupName?: string };
 
 function optArg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -55,60 +53,97 @@ function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-const dist = arg("dist", "dist");
-const region = arg("region");
-const version = arg("version");
-const name = optArg("name");
-const group = optArg("group");
-const groupName = optArg("group-name");
+function isDir(p: string): boolean {
+  return existsSync(p) && statSync(p).isDirectory();
+}
 
-const regionDir = join(dist, region, version);
-const artifacts: Record<string, ArtifactEntry> = {};
-for (const [key, nameFor] of Object.entries(ARTIFACTS)) {
-  const file = nameFor(region);
-  const path = join(regionDir, file);
-  if (!existsSync(path)) {
-    console.warn(`  warning: missing ${path}, skipping ${key}`);
-    continue;
+// Subdirectories sorted newest-first. Version dirs are ISO dates (YYYY-MM-DD) or
+// fixed tags like "dev", which sort lexicographically the way we want.
+function versionDirs(regionDir: string): string[] {
+  return readdirSync(regionDir)
+    .filter((v) => isDir(join(regionDir, v)))
+    .sort()
+    .reverse();
+}
+
+const dist = optArg("dist") ?? "dist";
+const retain = Math.max(1, Number.parseInt(optArg("retain") ?? "2", 10));
+const region = optArg("region");
+
+// 1. Upsert the region's metadata sidecar from any provided flags (merge, so a
+//    partial invocation doesn't wipe fields set earlier).
+if (region) {
+  const name = optArg("name");
+  const group = optArg("group");
+  const groupName = optArg("group-name");
+  if (name || group || groupName) {
+    const regionDir = join(dist, region);
+    if (!isDir(regionDir)) {
+      console.error(`region dir ${regionDir} does not exist`);
+      process.exit(1);
+    }
+    const metaPath = join(regionDir, "region.json");
+    const meta: RegionMeta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, "utf8")) : {};
+    if (name) meta.name = name;
+    if (group) meta.group = group;
+    if (groupName) meta.groupName = groupName;
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   }
-  artifacts[key] = { file, bytes: statSync(path).size, sha256: sha256(path) };
+}
+
+// 2. Rebuild the manifest from a scan of dist/.
+const manifest: Manifest = { schema: 2, groups: {}, regions: {} };
+
+for (const entry of readdirSync(dist).sort()) {
+  // Skip hidden files and reserved prefixes (_world is a bundled asset, not a region).
+  if (entry.startsWith(".") || entry.startsWith("_")) continue;
+  const regionDir = join(dist, entry);
+  if (!isDir(regionDir)) continue;
+
+  const meta: RegionMeta = existsSync(join(regionDir, "region.json"))
+    ? JSON.parse(readFileSync(join(regionDir, "region.json"), "utf8"))
+    : {};
+
+  const versions: Record<string, VersionEntry> = {};
+  for (const version of versionDirs(regionDir).slice(0, retain)) {
+    const verDir = join(regionDir, version);
+    const artifacts: Record<string, ArtifactEntry> = {};
+    for (const [key, nameFor] of Object.entries(ARTIFACTS)) {
+      const file = nameFor(entry);
+      const path = join(verDir, file);
+      if (!existsSync(path)) continue;
+      artifacts[key] = { file, bytes: statSync(path).size, sha256: sha256(path) };
+    }
+    if (Object.keys(artifacts).length === 0) continue;
+    versions[version] = {
+      path: `${entry}/${version}`,
+      total_bytes: Object.values(artifacts).reduce((s, a) => s + a.bytes, 0),
+      artifacts,
+    };
+  }
+  const kept = Object.keys(versions).sort().reverse();
+  if (kept.length === 0) continue;
+
+  manifest.regions[entry] = {
+    ...(meta.name ? { name: meta.name } : {}),
+    ...(meta.group ? { group: meta.group } : {}),
+    latest: kept[0],
+    versions,
+  };
+
+  if (meta.group) {
+    const g = manifest.groups[meta.group];
+    if (g) {
+      if (meta.groupName) g.name = meta.groupName;
+      if (!g.regions.includes(entry)) g.regions.push(entry);
+    } else {
+      manifest.groups[meta.group] = { name: meta.groupName ?? titleCase(meta.group), regions: [entry] };
+    }
+  }
 }
 
 const manifestPath = join(dist, "manifest.json");
-const manifest: Manifest = existsSync(manifestPath)
-  ? (JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest)
-  : { schema: 2, groups: {}, regions: {} };
-manifest.schema = 2;
-manifest.groups ??= {};
-
-const total = Object.values(artifacts).reduce((sum, a) => sum + a.bytes, 0);
-if (!manifest.regions[region]) {
-  manifest.regions[region] = { latest: version, versions: {} };
-}
-const regionEntry = manifest.regions[region];
-regionEntry.latest = version;
-if (name) regionEntry.name = name;
-if (group) regionEntry.group = group;
-regionEntry.versions[version] = {
-  path: `${region}/${version}`,
-  total_bytes: total,
-  artifacts,
-};
-
-// Thread the region into its country group (presentation-only; members are
-// normal regions). Idempotent: re-running won't duplicate the membership.
-if (group) {
-  const existing = manifest.groups[group];
-  if (existing) {
-    if (groupName) existing.name = groupName;
-  } else {
-    manifest.groups[group] = { name: groupName ?? titleCase(group), regions: [] };
-  }
-  if (!manifest.groups[group].regions.includes(region)) {
-    manifest.groups[group].regions.push(region);
-  }
-}
-
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-const groupNote = group ? ` [${group}]` : "";
-console.error(`manifest updated: ${region}@${version}${groupNote} (${(total / 1e6).toFixed(1)} MB)`);
+console.error(
+  `manifest rebuilt: ${Object.keys(manifest.regions).length} region(s), retain=${retain} -> ${manifestPath}`,
+);

@@ -27,6 +27,9 @@ VERSION  ?= $(shell date +%F)
 NAME       ?=
 GROUP      ?=
 GROUP_NAME ?=
+# Versions kept per region (newest first). The rest are pruned from disk and R2 on
+# upload. 2 = live version + previous, so a client mid-download survives a rollout.
+RETAIN     ?= 2
 
 WORK     := work/$(REGION)
 DIST     := dist/$(REGION)/$(VERSION)
@@ -53,7 +56,7 @@ R2_REMOTE ?= r2:$(BUCKET)
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
 
-.PHONY: all extract pmtiles valhalla geocode manifest upload clean distclean world bundle-world
+.PHONY: all extract pmtiles valhalla geocode manifest upload prune clean distclean world bundle-world
 
 all: pmtiles valhalla geocode manifest
 	@echo "==> $(REGION)@$(VERSION) built into $(DIST)"
@@ -148,7 +151,7 @@ dist/_world/world.pmtiles:
 # ------------------------------------------------------------ manifest/up ----
 
 manifest:
-	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --version $(VERSION) \
+	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --retain $(RETAIN) \
 	  $(if $(NAME),--name "$(NAME)") \
 	  $(if $(GROUP),--group "$(GROUP)") \
 	  $(if $(GROUP_NAME),--group-name "$(GROUP_NAME)")
@@ -156,8 +159,28 @@ manifest:
 # Uploads region packs, manifest.json AND the shared world basemap
 # (dist/_world/world.pmtiles -> $(R2_REMOTE)/_world/world.pmtiles) so clients can
 # fetch the backdrop alongside regions once the download manager lands.
+# Upload artifacts first, prune superseded versions, then flip manifest.json last so
+# a client never sees a manifest pointing at a version that isn't fully uploaded.
 upload:
-	rclone copy dist/ $(R2_REMOTE)/ --progress --exclude "**/.DS_Store" --exclude ".DS_Store"
+	rclone copy dist/ $(R2_REMOTE)/ --progress \
+	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json"
+	$(MAKE) prune
+	rclone copyto dist/manifest.json $(R2_REMOTE)/manifest.json
+
+# Keep only the newest RETAIN versions per region; delete older ones locally and on
+# R2. The manifest (rebuilt by `make manifest`) already excludes them, so no client
+# references a pruned version. Safe: only the specific stale prefixes are deleted.
+prune:
+	@set -e; \
+	stale=$$(pnpm exec tsx scripts/list-stale-versions.ts --dist dist --retain $(RETAIN)); \
+	if [ -z "$$stale" ]; then echo "==> nothing to prune (retain=$(RETAIN))"; else \
+	  for x in $$stale; do \
+	    echo "==> pruning $$x (local + R2)"; \
+	    rm -rf "dist/$$x"; \
+	    rclone delete "$(R2_REMOTE)/$$x" 2>/dev/null || true; \
+	    rclone rmdir "$(R2_REMOTE)/$$x" 2>/dev/null || true; \
+	  done; \
+	fi
 
 # ---------------------------------------------------------------- cleanup ----
 

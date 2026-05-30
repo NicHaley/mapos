@@ -44,8 +44,23 @@ app: `make world && make bundle-world`.
 
 ```sh
 cd .. && set -a && source .env && set +a && cd pipeline
-make upload                                 # rclone copy dist/ -> r2:$BUCKET
+make upload                                 # artifacts -> prune -> manifest (atomic)
 ```
+
+It uploads artifacts, prunes superseded versions, then flips `manifest.json` last so a
+client never sees a manifest pointing at a half-uploaded version.
+
+## Versions & retention
+
+Each build writes `dist/<region>/<VERSION>/` (`VERSION` defaults to today's date), and
+the manifest tracks them per region with a `latest` pointer — so client updates are
+atomic. Only the newest `RETAIN` versions (default **2**: live + previous) are kept;
+older ones are pruned from disk **and** R2 on every `make upload`. Bump retention per
+build with `RETAIN=3`, or prune manually with `make prune`.
+
+R2 storage is ~$0.015/GB-month with **no egress fees**, so cost scales with retained
+bytes only — keeping 2 versions, not full history, is what keeps world-scale builds
+cheap.
 
 ## Cleanup
 

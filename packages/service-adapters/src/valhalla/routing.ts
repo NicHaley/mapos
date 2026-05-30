@@ -70,7 +70,7 @@ const ValhallaLegSchema = z.object({
   maneuvers: z.array(ValhallaManeuverSchema).optional()
 });
 
-const ValhallaRouteResponseSchema = z.object({
+export const ValhallaRouteResponseSchema = z.object({
   trip: z
     .object({
       summary: z
@@ -84,23 +84,23 @@ const ValhallaRouteResponseSchema = z.object({
     })
     .optional()
 });
+export type ValhallaRouteResponse = z.infer<typeof ValhallaRouteResponseSchema>;
 
-export async function directions(
-  req: RouteDirectionsRequest,
-  ep: Endpoint,
-  ctx: AdapterContext = {}
-): Promise<Route> {
-  const body = {
+/**
+ * Build the Valhalla `/route` request body. Shared by the HTTP adapter and the
+ * in-process (local pack) adapter so both speak identical wire JSON — the only
+ * difference between them is transport (`fetch` vs the native actor).
+ */
+export function buildRouteRequestBody(req: RouteDirectionsRequest) {
+  return {
     locations: req.locations.map((l) => ({ lat: l.lat, lon: l.lng })),
     costing: req.costing,
     directions_options: { units: "kilometers" as const }
   };
-  const data = await fetchJson(
-    `${ep.url}/route`,
-    ValhallaRouteResponseSchema,
-    { method: "POST", body: JSON.stringify(body) },
-    { signal: ctx.signal }
-  );
+}
+
+/** Map a validated Valhalla `/route` response into the contract `Route`. */
+export function parseRouteResponse(data: ValhallaRouteResponse): Route {
   const trip = data.trip;
   if (!trip || !Array.isArray(trip.legs) || trip.legs.length === 0) {
     throw new Error("Valhalla returned no trip");
@@ -139,6 +139,21 @@ export async function directions(
   };
 }
 
+/** HTTP transport: POST `/route` to a Valhalla server, then parse. */
+export async function directions(
+  req: RouteDirectionsRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
+): Promise<Route> {
+  const data = await fetchJson(
+    `${ep.url}/route`,
+    ValhallaRouteResponseSchema,
+    { method: "POST", body: JSON.stringify(buildRouteRequestBody(req)) },
+    { signal: ctx.signal }
+  );
+  return parseRouteResponse(data);
+}
+
 const ValhallaMatrixCellSchema = z.object({
   // km
   distance: z.number().nullable().optional(),
@@ -146,27 +161,23 @@ const ValhallaMatrixCellSchema = z.object({
   time: z.number().nullable().optional()
 });
 
-const ValhallaMatrixResponseSchema = z.object({
+export const ValhallaMatrixResponseSchema = z.object({
   sources_to_targets: z.array(z.array(ValhallaMatrixCellSchema)).optional()
 });
+export type ValhallaMatrixResponse = z.infer<typeof ValhallaMatrixResponseSchema>;
 
-export async function matrix(
-  req: RouteMatrixRequest,
-  ep: Endpoint,
-  ctx: AdapterContext = {}
-): Promise<Matrix> {
-  const body = {
+/** Build the Valhalla `/sources_to_targets` request body. */
+export function buildMatrixRequestBody(req: RouteMatrixRequest) {
+  return {
     sources: req.sources.map((l) => ({ lat: l.lat, lon: l.lng })),
     targets: req.targets.map((l) => ({ lat: l.lat, lon: l.lng })),
     costing: req.costing,
-    units: "kilometers"
+    units: "kilometers" as const
   };
-  const data = await fetchJson(
-    `${ep.url}/sources_to_targets`,
-    ValhallaMatrixResponseSchema,
-    { method: "POST", body: JSON.stringify(body) },
-    { signal: ctx.signal }
-  );
+}
+
+/** Map a validated `/sources_to_targets` response into the contract `Matrix`. */
+export function parseMatrixResponse(data: ValhallaMatrixResponse, req: RouteMatrixRequest): Matrix {
   const rows = data.sources_to_targets ?? [];
   const cells: MatrixCell[][] = rows.map((row) =>
     row.map((cell) => ({
@@ -179,4 +190,19 @@ export async function matrix(
     targets: req.targets,
     cells
   };
+}
+
+/** HTTP transport: POST `/sources_to_targets` to a Valhalla server, then parse. */
+export async function matrix(
+  req: RouteMatrixRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
+): Promise<Matrix> {
+  const data = await fetchJson(
+    `${ep.url}/sources_to_targets`,
+    ValhallaMatrixResponseSchema,
+    { method: "POST", body: JSON.stringify(buildMatrixRequestBody(req)) },
+    { signal: ctx.signal }
+  );
+  return parseMatrixResponse(data, req);
 }

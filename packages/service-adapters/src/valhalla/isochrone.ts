@@ -26,9 +26,10 @@ const ValhallaIsochroneFeatureSchema = z.object({
   geometry: z.union([PolygonSchema, MultiPolygonSchema]).optional()
 });
 
-const ValhallaIsochroneResponseSchema = z.object({
+export const ValhallaIsochroneResponseSchema = z.object({
   features: z.array(ValhallaIsochroneFeatureSchema).optional()
 });
+export type ValhallaIsochroneResponse = z.infer<typeof ValhallaIsochroneResponseSchema>;
 
 /** Take the outer ring of a Polygon or of the first polygon in a MultiPolygon. */
 function toPolygon(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): GeoJSON.Polygon | null {
@@ -48,23 +49,21 @@ function toPolygon(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): GeoJSON.Polygo
   return null;
 }
 
-export async function contours(
-  req: IsochroneRequest,
-  ep: Endpoint,
-  ctx: AdapterContext = {}
-): Promise<Isochrone> {
-  const body = {
+/**
+ * Build the Valhalla `/isochrone` request body. Shared by the HTTP adapter and
+ * the in-process (local pack) adapter.
+ */
+export function buildIsochroneRequestBody(req: IsochroneRequest) {
+  return {
     locations: [{ lat: req.location.lat, lon: req.location.lng }],
     costing: req.costing,
     contours: req.minutesContours.map((time) => ({ time })),
     polygons: true
   };
-  const data = await fetchJson(
-    `${ep.url}/isochrone`,
-    ValhallaIsochroneResponseSchema,
-    { method: "POST", body: JSON.stringify(body) },
-    { signal: ctx.signal }
-  );
+}
+
+/** Map a validated Valhalla `/isochrone` response into the contract `Isochrone`. */
+export function parseIsochroneResponse(data: ValhallaIsochroneResponse): Isochrone {
   const features = data.features ?? [];
   const out: Isochrone["contours"] = [];
   for (const f of features) {
@@ -76,4 +75,19 @@ export async function contours(
   }
   out.sort((a, b) => a.minutes - b.minutes);
   return { contours: out };
+}
+
+/** HTTP transport: POST `/isochrone` to a Valhalla server, then parse. */
+export async function contours(
+  req: IsochroneRequest,
+  ep: Endpoint,
+  ctx: AdapterContext = {}
+): Promise<Isochrone> {
+  const data = await fetchJson(
+    `${ep.url}/isochrone`,
+    ValhallaIsochroneResponseSchema,
+    { method: "POST", body: JSON.stringify(buildIsochroneRequestBody(req)) },
+    { signal: ctx.signal }
+  );
+  return parseIsochroneResponse(data);
 }

@@ -12,13 +12,18 @@ export type Resolution = { adapter: Adapter; endpoint: Endpoint };
 /**
  * The community provider chosen for each service. This map is the *implementation*
  * of community mode — users never see provider names, they just pick "Community".
- * Web search is omitted: no community provider exists (every plausible backend
+ *
+ * Routing and isochrones are deliberately omitted: they are served only from a
+ * downloaded region's local Valhalla tiles (the offline overlay), never from the
+ * public community Valhalla instance. Without offline tiles they are unavailable
+ * in community mode rather than hammering a shared free service. (Self-hosted mode
+ * still routes them through the user's own MapOS server.)
+ *
+ * Web search is omitted too: no community provider exists (every plausible backend
  * requires a key the desktop can't ship).
  */
 const communityProviderForService = {
   geocoding: "photon",
-  routing: "valhalla",
-  isochrones: "valhalla",
   tiles: "protomaps"
 } as const satisfies Partial<Record<ServiceId, keyof typeof defaultEndpoints>>;
 
@@ -62,10 +67,10 @@ export function resolve(
 
 /**
  * Returns a local resolution when `offlineRegion` is set and the pack actually
- * provides this capability, else null (fall through to the base mode). Today only
- * geocoding is available offline; tiles/routing will be added as those packs land.
- * A missing/undownloaded pack returns null rather than throwing, so the base mode
- * transparently serves the request.
+ * provides this capability, else null (fall through to the base mode). Geocoding,
+ * tiles, routing, and isochrones are served from the pack when present. A
+ * missing/undownloaded artifact returns null rather than throwing, so the base
+ * mode (e.g. community Valhalla) transparently serves the request.
  */
 function resolveOfflineOverlay(
   serviceId: ServiceId,
@@ -89,6 +94,14 @@ function resolveOfflineOverlay(
     // mapos-region:// style URL from it.
     return { adapter: offlineAdapter, endpoint: { url: region } };
   }
+  if (serviceId === "routing" || serviceId === "isochrones") {
+    const tar = join(regionDir, "valhalla_tiles.tar");
+    if (!existsSync(tar)) return null;
+    // endpoint.url carries the absolute tar path; the offline routing adapter
+    // builds an in-process Valhalla Actor from it (symmetric with geocoding's
+    // sqlite path).
+    return { adapter: offlineAdapter, endpoint: { url: tar } };
+  }
   return null;
 }
 
@@ -96,10 +109,13 @@ function resolveCommunity(serviceId: ServiceId, credentials: ClientCredentials):
   const providerId =
     communityProviderForService[serviceId as keyof typeof communityProviderForService];
   if (!providerId) {
-    throw new ServiceUnavailableError(
-      serviceId,
-      "no community provider — sign in to MapOS Cloud or use a self-hosted server"
-    );
+    // Routing/isochrones are offline-only: the offline overlay would have served
+    // them if a region pack with Valhalla tiles were downloaded.
+    const reason =
+      serviceId === "routing" || serviceId === "isochrones"
+        ? "routing is offline-only — download a region pack to enable it"
+        : "no community provider — sign in to MapOS Cloud or use a self-hosted server";
+    throw new ServiceUnavailableError(serviceId, reason);
   }
   return {
     adapter: adapters[providerId],

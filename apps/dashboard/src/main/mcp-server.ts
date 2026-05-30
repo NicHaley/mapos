@@ -567,7 +567,7 @@ export function buildMaposCustomTools(
     name: "get_matrix",
     label: "Get distance/time matrix",
     description:
-      "Pairwise travel distance/time between sources and targets via Valhalla. Returns cells[sourceIdx][targetIdx] with distanceMeters/durationSeconds (null where unreachable). Keep N small against the community Valhalla instance — prefer ≤ 10 sources × 10 targets.",
+      "Pairwise travel distance/time between sources and targets via Valhalla. Returns cells[sourceIdx][targetIdx] with distanceMeters/durationSeconds (null where unreachable). Keep N modest — prefer ≤ 10 sources × 10 targets.",
     parameters: Type.Object({
       sources: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
         minItems: 1,

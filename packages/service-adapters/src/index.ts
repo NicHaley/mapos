@@ -26,6 +26,22 @@ export type {
   WebSearchCapability
 } from "./types";
 export { valhallaAdapter } from "./valhalla";
+export {
+  buildRouteRequestBody,
+  parseRouteResponse,
+  ValhallaRouteResponseSchema,
+  buildMatrixRequestBody,
+  parseMatrixResponse,
+  ValhallaMatrixResponseSchema,
+  buildIsochroneRequestBody,
+  parseIsochroneResponse,
+  ValhallaIsochroneResponseSchema
+} from "./valhalla";
+export type {
+  ValhallaRouteResponse,
+  ValhallaMatrixResponse,
+  ValhallaIsochroneResponse
+} from "./valhalla";
 
 /**
  * Registry of all built-in adapters. `tavily` provides web search server-side

@@ -13,6 +13,9 @@ files:
   - '!resources/basemap-assets/**'
 asarUnpack:
   - resources/**
+  # The Valhalla native addon (valhalla_node.node) dlopens sibling .dylibs by
+  # path, so the whole package must live on disk, not inside the asar.
+  - node_modules/@valhallajs/valhallajs/**
 # Global basemap glyphs/sprites copied to <app>/Resources/basemap-assets (process.resourcesPath).
 extraResources:
   - from: resources/basemap-assets

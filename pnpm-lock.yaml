@@ -47,6 +47,9 @@ importers:
       '@turf/bbox':
         specifier: ^7.3.4
         version: 7.3.4
+      '@valhallajs/valhallajs':
+        specifier: ^3.7.0
+        version: 3.7.0
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
@@ -3997,6 +4000,10 @@ packages:
 
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
+
+  '@valhallajs/valhallajs@3.7.0':
+    resolution: {integrity: sha512-TrYRAT2pamhfcVKit+PNNIdwnSxaAq6gn5R5zqfi4ctdI7dcVjkI76f/2Pl9qG7LSuaG8tXMgzg4om8TAkMZGg==}
+    hasBin: true
 
   '@vercel/oidc@3.1.0':
     resolution: {integrity: sha512-Fw28YZpRnA3cAHHDlkt7xQHiJ0fcL+NRcIqsocZQUSmbzeIKRpwttJjik5ZGanXP+vlA4SbTg+AbA3bP363l+w==}
@@ -12321,6 +12328,8 @@ snapshots:
     optionalDependencies:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
+
+  '@valhallajs/valhallajs@3.7.0': {}
 
   '@vercel/oidc@3.1.0': {}
 

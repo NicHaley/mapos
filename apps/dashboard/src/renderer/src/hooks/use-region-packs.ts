@@ -23,7 +23,6 @@ export type RegionRow = {
   /** Bytes of the latest version (what a fresh download costs). */
   latestBytes: number;
   installed?: InstalledRegionPack;
-  active: boolean;
   status: RegionStatus;
   progress?: { received: number; total: number };
   error?: string;
@@ -40,19 +39,16 @@ export type UseRegionPacks = {
   groups: RegionGroupRow[];
   /** Flat list — convenient for the globe's markers. */
   regions: RegionRow[];
-  activeRegion: string | null;
   totalInstalledBytes: number;
   refresh: () => void;
   download: (slug: string) => void;
   cancel: (slug: string) => void;
   remove: (slug: string) => Promise<void>;
-  setActive: (slug: string | null) => Promise<void>;
 };
 
 export function useRegionPacks(enabled: boolean): UseRegionPacks {
   const [manifest, setManifest] = useState<RegionManifest | null>(null);
   const [local, setLocal] = useState<InstalledRegionPack[]>([]);
-  const [activeRegion, setActiveRegion] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, RegionDownloadProgress>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,15 +60,10 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([
-      window.api.regions.getManifest(),
-      window.api.regions.listLocal(),
-      window.api.regions.getActive()
-    ])
-      .then(([m, l, a]) => {
+    Promise.all([window.api.regions.getManifest(), window.api.regions.listLocal()])
+      .then(([m, l]) => {
         setManifest(m);
         setLocal(l);
-        setActiveRegion(a);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -98,11 +89,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
       });
       if (p.phase === "done") void refreshLocal();
     });
-    const offActive = window.api.regions.onActiveChanged(({ region }) => setActiveRegion(region));
-    return () => {
-      offProgress();
-      offActive();
-    };
+    return offProgress;
   }, [refreshLocal]);
 
   const download = useCallback(
@@ -135,18 +122,10 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   const remove = useCallback(
     async (slug: string) => {
       await window.api.regions.delete(slug);
-      await Promise.all([
-        refreshLocal(),
-        window.api.regions.getActive().then(setActiveRegion)
-      ]);
+      await refreshLocal();
     },
     [refreshLocal]
   );
-
-  const setActive = useCallback(async (slug: string | null) => {
-    await window.api.regions.setActive(slug);
-    setActiveRegion(slug);
-  }, []);
 
   const localByRegion = useMemo(() => {
     const m = new Map<string, InstalledRegionPack>();
@@ -160,7 +139,6 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
       const installed = localByRegion.get(slug);
       const prog = progress[slug];
       const latestBytes = entry.versions[entry.latest]?.total_bytes ?? 0;
-      const active = activeRegion === slug;
 
       let status: RegionStatus;
       if (prog) {
@@ -179,13 +157,12 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
         latest: entry.latest,
         latestBytes,
         installed,
-        active,
         status,
         progress: prog ? { received: prog.receivedBytes, total: prog.totalBytes } : undefined,
         error: prog?.phase === "error" ? prog.error : undefined
       };
     });
-  }, [manifest, localByRegion, progress, activeRegion]);
+  }, [manifest, localByRegion, progress]);
 
   const groups = useMemo<RegionGroupRow[]>(() => {
     if (!manifest) return [];
@@ -213,12 +190,10 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
     error,
     groups,
     regions,
-    activeRegion,
     totalInstalledBytes,
     refresh,
     download,
     cancel,
-    remove,
-    setActive
+    remove
   };
 }

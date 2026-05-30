@@ -1,10 +1,9 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { Endpoint, ServiceId } from "@mapos/contracts";
 import { type Adapter, adapters, defaultEndpoints, maposV1Adapter } from "@mapos/service-adapters";
 import type { ServicesConfig } from "../mapos-config";
 import { ServiceUnavailableError } from "./errors";
 import { offlineAdapter } from "./offline";
+import { listInstalledRegions } from "./offline/installed-regions";
 import type { ClientCredentials } from "./types";
 
 export type Resolution = { adapter: Adapter; endpoint: Endpoint };
@@ -66,43 +65,43 @@ export function resolve(
 }
 
 /**
- * Returns a local resolution when `offlineRegion` is set and the pack actually
- * provides this capability, else null (fall through to the base mode). Geocoding,
- * tiles, routing, and isochrones are served from the pack when present. A
- * missing/undownloaded artifact returns null rather than throwing, so the base
- * mode (e.g. community Valhalla) transparently serves the request.
+ * Returns a local resolution when *any* downloaded pack provides this capability,
+ * else null (fall through to the base mode). There is no single "active region":
+ * every installed pack is live. The endpoint carries `regionsDir` and the offline
+ * adapter picks the right pack per request by bbox (and, for tiles, builds a style
+ * spanning all packs). If no point in a request falls inside a downloaded pack the
+ * adapter surfaces an error — for capabilities the base mode can't serve offline
+ * (community routing) that's the only possible outcome anyway.
  */
 function resolveOfflineOverlay(
   serviceId: ServiceId,
-  config: ServicesConfig,
+  _config: ServicesConfig,
   credentials: ClientCredentials
 ): Resolution | null {
-  const region = config.offlineRegion;
-  if (!region || !credentials.regionsDir) return null;
-  const regionDir = join(credentials.regionsDir, region);
+  const regionsDir = credentials.regionsDir;
+  if (!regionsDir) return null;
+  const installed = listInstalledRegions(regionsDir);
+  if (installed.length === 0) return null;
 
-  if (serviceId === "geocoding") {
-    const dbPath = join(regionDir, "geocode.sqlite");
-    if (!existsSync(dbPath)) return null;
-    // endpoint.url carries the sqlite path for the offline geocoding adapter.
-    return { adapter: offlineAdapter, endpoint: { url: dbPath } };
-  }
-  if (serviceId === "tiles") {
-    const pmtiles = join(regionDir, `${region}.pmtiles`);
-    if (!existsSync(pmtiles)) return null;
-    // endpoint.url carries the region slug; the tiles adapter builds the
-    // mapos-region:// style URL from it.
-    return { adapter: offlineAdapter, endpoint: { url: region } };
-  }
-  if (serviceId === "routing" || serviceId === "isochrones") {
-    const tar = join(regionDir, "valhalla_tiles.tar");
-    if (!existsSync(tar)) return null;
-    // endpoint.url carries the absolute tar path; the offline routing adapter
-    // builds an in-process Valhalla Actor from it (symmetric with geocoding's
-    // sqlite path).
-    return { adapter: offlineAdapter, endpoint: { url: tar } };
-  }
-  return null;
+  const has = {
+    geocoding: installed.some((r) => r.geocode),
+    tiles: installed.some((r) => r.pmtiles),
+    routing: installed.some((r) => r.valhalla),
+    isochrones: installed.some((r) => r.valhalla)
+  };
+  const provided =
+    serviceId === "geocoding"
+      ? has.geocoding
+      : serviceId === "tiles"
+        ? has.tiles
+        : serviceId === "routing" || serviceId === "isochrones"
+          ? has.routing
+          : false;
+  if (!provided) return null;
+
+  // endpoint.url carries the regions directory; each offline adapter enumerates
+  // installed packs from it and selects per request.
+  return { adapter: offlineAdapter, endpoint: { url: regionsDir } };
 }
 
 function resolveCommunity(serviceId: ServiceId, credentials: ClientCredentials): Resolution {

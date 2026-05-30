@@ -1,4 +1,3 @@
-import { Badge } from "@mapos/ui/components/badge";
 import { Button } from "@mapos/ui/components/button";
 import { Progress } from "@mapos/ui/components/progress";
 import { Spinner } from "@mapos/ui/components/spinner";
@@ -18,29 +17,28 @@ function formatBytes(n: number): string {
 // Marker tint (RGB 0–1) by status, so the globe mirrors the list at a glance.
 function markerColor(r: RegionRow): [number, number, number] {
   if (r.status === "error") return [0.95, 0.3, 0.3];
-  if (r.active) return [0.13, 0.77, 0.37];
   if (r.status === "downloading" || r.status === "verifying") return [0.98, 0.75, 0.14];
-  if (r.status === "installed" || r.status === "update-available") return [0.35, 0.6, 1];
+  if (r.status === "installed") return [0.13, 0.77, 0.37];
+  if (r.status === "update-available") return [0.98, 0.75, 0.14];
   return [0.55, 0.55, 0.62];
 }
 
 function markerSize(r: RegionRow): number {
-  if (r.active) return 0.11;
+  if (r.status === "installed" || r.status === "update-available") return 0.1;
   if (r.status !== "available") return 0.085;
   return 0.055;
 }
 
 function StatusDot({ row }: { row: RegionRow }) {
-  const cls = row.active
-    ? "bg-emerald-500"
-    : row.status === "error"
+  const cls =
+    row.status === "error"
       ? "bg-destructive"
       : row.status === "downloading" || row.status === "verifying"
         ? "bg-amber-500 animate-pulse"
         : row.status === "update-available"
           ? "bg-amber-500"
           : row.status === "installed"
-            ? "bg-sky-500"
+            ? "bg-emerald-500"
             : "bg-muted-foreground/40";
   return <span className={cn("size-2 shrink-0 rounded-full", cls)} />;
 }
@@ -69,11 +67,11 @@ function RegionRowItem({
         <StatusDot row={row} />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.name}</span>
 
-        {row.active && (
-          <Badge variant="secondary" className="gap-1 text-emerald-600 dark:text-emerald-400">
-            <CheckIcon className="size-3" />
-            Active
-          </Badge>
+        {row.status === "installed" && (
+          <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+            <CheckIcon className="size-3.5" />
+            Downloaded
+          </span>
         )}
 
         {row.status === "available" && (
@@ -92,12 +90,6 @@ function RegionRowItem({
           <Button size="sm" variant="outline" onClick={() => packs.download(row.slug)}>
             <RefreshCwIcon className="size-3.5" />
             Update
-          </Button>
-        )}
-
-        {(row.status === "installed" || row.status === "update-available") && !row.active && (
-          <Button size="sm" variant="ghost" onClick={() => void packs.setActive(row.slug)}>
-            Use
           </Button>
         )}
 

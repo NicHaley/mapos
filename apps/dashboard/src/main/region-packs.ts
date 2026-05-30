@@ -17,7 +17,6 @@ import type {
   RegionDownloadProgress,
   RegionManifest
 } from "../shared/types";
-import { loadOrInitMaposConfig, setOfflineRegionInConfig } from "./mapos-config";
 import { invalidateServiceClient } from "./services/client";
 
 // Build-time injected by electron-vite (declared in env.d.ts). Trailing slash
@@ -190,23 +189,22 @@ export async function downloadRegion(
       renames.push({ part, final });
     }
 
-    // Everything verified — swap into place, then mark complete.
+    // Everything verified — swap into place, then mark complete. The bbox is
+    // copied from the manifest so offline region selection works without network.
     send({ region, receivedBytes: totalBytes, totalBytes, phase: "verifying" });
     for (const { part, final } of renames) renameSync(part, final);
     const meta: InstalledRegionPack = {
       region,
       version: ver,
       totalBytes,
-      installedAt: new Date().toISOString()
+      installedAt: new Date().toISOString(),
+      ...(entry.bbox ? { bbox: entry.bbox } : {})
     };
     writeFileSync(join(dir, PACK_META_FILENAME), `${JSON.stringify(meta, null, 2)}\n`, "utf-8");
 
-    // Auto-activate the first downloaded pack so offline mode works with no extra step.
-    const cfg = loadOrInitMaposConfig(appStateDir);
-    if (!cfg.services.offlineRegion) {
-      setOfflineRegionInConfig(appStateDir, region);
-      invalidateServiceClient();
-    }
+    // A freshly downloaded pack is immediately live — drop cached service handles
+    // so the next request resolves against the new pack.
+    invalidateServiceClient();
     send({ region, receivedBytes: totalBytes, totalBytes, phase: "done" });
   } catch (e) {
     cleanupParts(dir);
@@ -233,32 +231,13 @@ export function cancelDownload(region: string): void {
 
 /**
  * Delete a downloaded pack from disk. Cancels any in-flight download first, and
- * clears the active overlay if this was the active region.
+ * drops cached service handles (SQLite/Valhalla) *before* removing files so an
+ * open handle can't block deletion (notably on Windows).
  */
 export function deleteRegion(appStateDir: string, region: string): void {
   cancelDownload(region);
-  rmSync(join(regionsDirFor(appStateDir), region), { recursive: true, force: true });
-  const cfg = loadOrInitMaposConfig(appStateDir);
-  if (cfg.services.offlineRegion === region) {
-    setOfflineRegionInConfig(appStateDir, null);
-    invalidateServiceClient();
-  }
-}
-
-export function setActiveRegion(
-  mainWindow: BrowserWindow,
-  appStateDir: string,
-  region: string | null
-): void {
-  setOfflineRegionInConfig(appStateDir, region);
   invalidateServiceClient();
-  if (!mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("regions:active-changed", { region });
-  }
-}
-
-export function getActiveRegion(appStateDir: string): string | null {
-  return loadOrInitMaposConfig(appStateDir).services.offlineRegion ?? null;
+  rmSync(join(regionsDirFor(appStateDir), region), { recursive: true, force: true });
 }
 
 /**
@@ -279,8 +258,4 @@ export function registerRegionPacksIpc(mainWindow: BrowserWindow, appStateDir: s
   ipcMain.handle("regions:delete", (_e, region: string) => {
     deleteRegion(appStateDir, region);
   });
-  ipcMain.handle("regions:set-active", (_e, region: string | null) => {
-    setActiveRegion(mainWindow, appStateDir, region);
-  });
-  ipcMain.handle("regions:get-active", () => getActiveRegion(appStateDir));
 }

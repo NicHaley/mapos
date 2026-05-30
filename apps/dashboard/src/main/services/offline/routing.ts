@@ -24,6 +24,7 @@ import {
   ValhallaRouteResponseSchema
 } from "@mapos/service-adapters";
 import { Actor } from "@valhallajs/valhallajs";
+import { listInstalledRegions, regionsContaining } from "./installed-regions";
 import configTemplate from "./valhalla-config.template.json";
 
 /**
@@ -76,11 +77,29 @@ function getActor(tarPath: string): Promise<Actor> {
   return actor;
 }
 
-/** Close cached Actors — call when the active region changes. */
+/** Close cached Actors — call when the set of downloaded regions changes. */
 export function closeOfflineRoutingActors(): void {
   // The binding exposes no explicit dispose; dropping references lets the native
   // tile extract be unmapped by GC.
   actors.clear();
+}
+
+/**
+ * Pick the Valhalla tar of the downloaded pack covering `(lng, lat)`. Valhalla
+ * tiles are per-region and can't be merged, so we route within the pack that
+ * contains the origin; a point outside every downloaded pack can't be routed
+ * offline. `ep.url` is the regions directory.
+ */
+function pickValhallaTar(regionsDir: string, lng: number, lat: number): string {
+  const withValhalla = listInstalledRegions(regionsDir).filter((r) => r.valhalla);
+  const hit = regionsContaining(withValhalla, lng, lat)[0];
+  if (!hit?.valhalla) {
+    throw new MapServiceError("No downloaded region covers this location", {
+      status: 404,
+      url: regionsDir
+    });
+  }
+  return hit.valhalla;
 }
 
 function toServiceError(url: string, err: unknown): MapServiceError {
@@ -97,7 +116,8 @@ async function directions(
   ep: Endpoint,
   _ctx: AdapterContext = {}
 ): Promise<Route> {
-  const tarPath = ep.url;
+  const origin = req.locations[0];
+  const tarPath = pickValhallaTar(ep.url, origin.lng, origin.lat);
   let raw: unknown;
   try {
     const actor = await getActor(tarPath);
@@ -120,7 +140,8 @@ async function matrix(
   ep: Endpoint,
   _ctx: AdapterContext = {}
 ): Promise<Matrix> {
-  const tarPath = ep.url;
+  const origin = req.sources[0];
+  const tarPath = pickValhallaTar(ep.url, origin.lng, origin.lat);
   let raw: unknown;
   try {
     const actor = await getActor(tarPath);
@@ -143,7 +164,7 @@ async function contours(
   ep: Endpoint,
   _ctx: AdapterContext = {}
 ): Promise<Isochrone> {
-  const tarPath = ep.url;
+  const tarPath = pickValhallaTar(ep.url, req.location.lng, req.location.lat);
   let raw: unknown;
   try {
     const actor = await getActor(tarPath);

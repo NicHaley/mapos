@@ -268,10 +268,7 @@ declare global {
         download: (region: string, version?: string) => Promise<void>;
         cancelDownload: (region: string) => Promise<void>;
         delete: (region: string) => Promise<void>;
-        setActive: (region: string | null) => Promise<void>;
-        getActive: () => Promise<string | null>;
         onProgress: (cb: (data: RegionDownloadProgress) => void) => () => void;
-        onActiveChanged: (cb: (data: { region: string | null }) => void) => () => void;
       };
     };
   }

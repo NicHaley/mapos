@@ -151,6 +151,9 @@ export type InstalledRegionPack = {
   version: string;
   totalBytes: number;
   installedAt: string;
+  /** [minLng, minLat, maxLng, maxLat] — copied from the manifest so offline
+   *  region selection (which pack covers a point) works without the network. */
+  bbox?: [number, number, number, number];
 };
 
 export type RegionDownloadProgress = {

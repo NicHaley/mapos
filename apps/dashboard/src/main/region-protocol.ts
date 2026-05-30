@@ -4,6 +4,7 @@ import { gunzipSync } from "node:zlib";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { protocol } from "electron";
 import { PMTiles } from "pmtiles";
+import { listInstalledRegions } from "./services/offline/installed-regions";
 
 /**
  * Local schemes for the offline map:
@@ -50,7 +51,8 @@ export function registerRegionProtocol(regionsDir: string, worldPmtilesPath: str
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     if (rel === "style.json") {
       const theme = url.searchParams.get("theme") === "dark" ? "dark" : "light";
-      return styleResponse(region, theme);
+      // Host is a sentinel (`_all`) — the style spans every downloaded pack.
+      return styleResponse(regionsDir, theme);
     }
     const tile = TILE_RE.exec(rel);
     if (tile) {
@@ -100,51 +102,59 @@ type StyleLayer = {
   [key: string]: unknown;
 };
 
-function styleResponse(region: string, theme: "light" | "dark"): Response {
+function styleResponse(regionsDir: string, theme: "light" | "dark"): Response {
   // The app's online dark variant is "black".
   const flavorName = theme === "dark" ? "black" : "light";
   const flavor = namedFlavor(flavorName);
-  // Generate per source name so Protomaps stamps the correct `source` on each
-  // layer (and leaves the background source-less).
-  const worldBase = layers("world", flavor, { lang: "en" }) as unknown as StyleLayer[];
-  const regionBase = layers("region", flavor, { lang: "en" }) as unknown as StyleLayer[];
 
-  // World symbols stop at z7 so region labels take over without colliding.
+  // World backdrop (z0–6, overzoomed by MapLibre to cover all higher zooms). Its
+  // symbols stop at z7 so region labels take over without colliding. Host is the
+  // `_all` sentinel; world tiles ignore it (always the bundled world.pmtiles).
+  const worldBase = layers("world", flavor, { lang: "en" }) as unknown as StyleLayer[];
   const worldLayers = worldBase.map((l) => {
     const c: StyleLayer = { ...l, id: `world_${l.id}` };
     if (c.type === "symbol") c.maxzoom = Math.min(c.maxzoom ?? REGION_MINZOOM, REGION_MINZOOM);
     return c;
   });
-  // Drop region's duplicate background; one shared world background is enough.
-  const regionLayers = regionBase
-    .filter((l) => l.type !== "background")
-    .map((l) => {
-      const c: StyleLayer = { ...l };
+
+  const sources: Record<string, unknown> = {
+    world: {
+      type: "vector",
+      tiles: [`${REGION_SCHEME}://_all/world/{z}/{x}/{y}.pbf`],
+      minzoom: 0,
+      maxzoom: WORLD_MAXZOOM,
+      attribution: ATTRIBUTION
+    }
+  };
+
+  // One detail source + layer set per downloaded pack. `layers(srcId, …)` stamps
+  // `source: srcId` on each layer; ids are prefixed with the region slug so packs
+  // don't collide (regions are geographically disjoint, so labels don't fight).
+  const regionLayers: StyleLayer[] = [];
+  for (const r of listInstalledRegions(regionsDir)) {
+    if (!r.pmtiles) continue;
+    const srcId = `region_${r.region}`;
+    sources[srcId] = {
+      type: "vector",
+      tiles: [`${REGION_SCHEME}://${r.region}/region/{z}/{x}/{y}.pbf`],
+      minzoom: REGION_MINZOOM,
+      maxzoom: REGION_MAXZOOM,
+      attribution: ATTRIBUTION
+    };
+    const base = layers(srcId, flavor, { lang: "en" }) as unknown as StyleLayer[];
+    for (const l of base) {
+      if (l.type === "background") continue; // one shared world background is enough
+      const c: StyleLayer = { ...l, id: `${r.region}_${l.id}` };
       c.minzoom = Math.max(c.minzoom ?? 0, REGION_MINZOOM);
-      return c;
-    });
+      regionLayers.push(c);
+    }
+  }
 
   const style = {
     version: 8,
     glyphs: `${ASSET_SCHEME}://fonts/{fontstack}/{range}.pbf`,
     sprite: `${ASSET_SCHEME}://sprites/${flavorName}`,
-    sources: {
-      // maxzoom 6 lets MapLibre overzoom this source to cover all higher zooms.
-      world: {
-        type: "vector",
-        tiles: [`${REGION_SCHEME}://${region}/world/{z}/{x}/{y}.pbf`],
-        minzoom: 0,
-        maxzoom: WORLD_MAXZOOM,
-        attribution: ATTRIBUTION
-      },
-      region: {
-        type: "vector",
-        tiles: [`${REGION_SCHEME}://${region}/region/{z}/{x}/{y}.pbf`],
-        minzoom: REGION_MINZOOM,
-        maxzoom: REGION_MAXZOOM,
-        attribution: ATTRIBUTION
-      }
-    },
+    sources,
     layers: [...worldLayers, ...regionLayers]
   };
   return new Response(JSON.stringify(style), {

@@ -33,6 +33,7 @@
     "@turf/bbox": "^7.3.4",
     "@valhallajs/valhallajs": "^3.7.0",
     "better-sqlite3": "^12.8.0",
+    "cobe": "^2.0.1",
     "drizzle-orm": "^0.44.2",
     "electron-updater": "^6.6.2",
     "gray-matter": "^4.0.3",

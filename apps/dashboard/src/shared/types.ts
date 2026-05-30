@@ -115,6 +115,53 @@ export type UndoEntry = {
   operations: VaultOperation[];
 };
 
+// ── Region packs (offline map data) ───────────────────────────────────────────
+// Mirrors the R2 manifest schema (pipeline/scripts/make-manifest.ts, schema 3).
+
+export type RegionArtifact = { file: string; bytes: number; sha256: string };
+
+export type RegionVersion = {
+  path: string;
+  total_bytes: number;
+  artifacts: Record<string, RegionArtifact>;
+};
+
+export type RegionManifestEntry = {
+  name?: string;
+  group?: string;
+  /** [minLng, minLat, maxLng, maxLat] — from the latest pmtiles header. */
+  bbox?: [number, number, number, number];
+  /** [lng, lat] — used to place the region's marker on the globe. */
+  center?: [number, number];
+  latest: string;
+  versions: Record<string, RegionVersion>;
+};
+
+export type RegionGroup = { name: string; regions: string[] };
+
+export type RegionManifest = {
+  schema: number;
+  groups: Record<string, RegionGroup>;
+  regions: Record<string, RegionManifestEntry>;
+};
+
+/** A region pack present on disk (flat layout: `<regionsDir>/<region>/`). */
+export type InstalledRegionPack = {
+  region: string;
+  version: string;
+  totalBytes: number;
+  installedAt: string;
+};
+
+export type RegionDownloadProgress = {
+  region: string;
+  receivedBytes: number;
+  totalBytes: number;
+  /** Coarse lifecycle stage for UI copy. `error` carries `error` (incl. "cancelled"). */
+  phase: "downloading" | "verifying" | "done" | "error";
+  error?: string;
+};
+
 export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
 /** Frontmatter keys managed by the map; not shown as generic properties. */
 export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;

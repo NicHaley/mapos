@@ -32,9 +32,18 @@ import {
   TooltipTrigger
 } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import { BoxIcon, MonitorIcon, MoonIcon, PaletteIcon, SettingsIcon, SunIcon } from "lucide-react";
+import {
+  BoxIcon,
+  GlobeIcon,
+  MonitorIcon,
+  MoonIcon,
+  PaletteIcon,
+  SettingsIcon,
+  SunIcon
+} from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { AiTab } from "./settings/ai-tab";
+import { OfflineTab } from "./settings/offline-tab";
 
 // ── Settings sheet slot ───────────────────────────────────────────────────────
 
@@ -52,7 +61,7 @@ export function useSettingsSheetSlot(): HTMLDivElement | null {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SettingsPage = "general" | "appearance" | "ai";
+type SettingsPage = "general" | "appearance" | "ai" | "offline";
 type Theme = "light" | "dark" | "system";
 
 const THEME_KEY = "mapos_theme";
@@ -276,7 +285,8 @@ function AppearancePage() {
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "ai", label: "Models", icon: BoxIcon }
+  { id: "ai", label: "Models", icon: BoxIcon },
+  { id: "offline", label: "Offline", icon: GlobeIcon }
 ];
 
 // ── Main dialog ───────────────────────────────────────────────────────────────
@@ -356,6 +366,7 @@ export function SettingsDialog({
                   )}
                   {page === "appearance" && <AppearancePage />}
                   {page === "ai" && <AiTab />}
+                  {page === "offline" && <OfflineTab />}
                 </div>
                 {/* Sheets and other floating panels portal into this slot so they
                     stay bounded to the Settings dialog body. */}

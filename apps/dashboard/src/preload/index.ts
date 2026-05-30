@@ -12,8 +12,11 @@ import type {
   ChatErrorPayload,
   ChatToolCallPayload,
   ChatToolResultPayload,
+  InstalledRegionPack,
   MapOverlayPayload,
-  PropertyType
+  PropertyType,
+  RegionDownloadProgress,
+  RegionManifest
 } from "../shared/types";
 
 // Custom APIs for renderer
@@ -402,6 +405,33 @@ const api = {
       ipcRenderer.invoke("services:geocoding-reverse", req) as Promise<GeocodeResult[]>,
     tilesStyleUrl: (req: TileStyleRequest) =>
       ipcRenderer.invoke("services:tiles-style-url", req) as Promise<string>
+  },
+  regions: {
+    getManifest: (force?: boolean) =>
+      ipcRenderer.invoke("regions:get-manifest", force) as Promise<RegionManifest>,
+    listLocal: () => ipcRenderer.invoke("regions:list-local") as Promise<InstalledRegionPack[]>,
+    download: (region: string, version?: string) =>
+      ipcRenderer.invoke("regions:download", { region, version }) as Promise<void>,
+    cancelDownload: (region: string) =>
+      ipcRenderer.invoke("regions:cancel-download", region) as Promise<void>,
+    delete: (region: string) => ipcRenderer.invoke("regions:delete", region) as Promise<void>,
+    setActive: (region: string | null) =>
+      ipcRenderer.invoke("regions:set-active", region) as Promise<void>,
+    getActive: () => ipcRenderer.invoke("regions:get-active") as Promise<string | null>,
+    onProgress: (cb: (data: RegionDownloadProgress) => void): (() => void) => {
+      const listener = (_e: unknown, data: RegionDownloadProgress): void => cb(data);
+      ipcRenderer.on("regions:download-progress", listener);
+      return () => {
+        ipcRenderer.off("regions:download-progress", listener);
+      };
+    },
+    onActiveChanged: (cb: (data: { region: string | null }) => void): (() => void) => {
+      const listener = (_e: unknown, data: { region: string | null }): void => cb(data);
+      ipcRenderer.on("regions:active-changed", listener);
+      return () => {
+        ipcRenderer.off("regions:active-changed", listener);
+      };
+    }
   }
 };
 

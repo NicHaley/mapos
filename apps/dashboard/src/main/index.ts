@@ -21,6 +21,7 @@ import {
 } from "./mapos-config";
 import { registerMaposIpc } from "./mapos-ipc";
 import { setupOllamaPersistence } from "./ollama";
+import { registerRegionPacksIpc } from "./region-packs";
 import {
   registerAssetProtocol,
   registerLocalSchemes,
@@ -171,6 +172,7 @@ app.whenReady().then(() => {
   setupOllamaPersistence(appStateDir);
   registerAiConfigIpc(mainWindow);
   registerServicesIpc();
+  registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);
   setupAppMenu();
 

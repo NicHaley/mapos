@@ -162,10 +162,10 @@ manifest:
 # Upload artifacts first, prune superseded versions, then flip manifest.json last so
 # a client never sees a manifest pointing at a version that isn't fully uploaded.
 upload:
-	rclone copy dist/ $(R2_REMOTE)/ --progress \
+	rclone copy dist/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
 	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json"
 	$(MAKE) prune
-	rclone copyto dist/manifest.json $(R2_REMOTE)/manifest.json
+	rclone copyto dist/manifest.json $(R2_REMOTE)/manifest.json --s3-no-check-bucket
 
 # Keep only the newest RETAIN versions per region; delete older ones locally and on
 # R2. The manifest (rebuilt by `make manifest`) already excludes them, so no client

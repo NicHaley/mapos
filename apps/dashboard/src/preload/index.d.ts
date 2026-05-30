@@ -14,13 +14,16 @@ import type {
   ConversationLoadResult,
   ConversationMeta,
   FileNode,
+  InstalledRegionPack,
   MapOverlayPayload,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
   PlaceRecord,
   PlaceUpdate,
-  PropertyType
+  PropertyType,
+  RegionDownloadProgress,
+  RegionManifest
 } from "../shared/types";
 
 type ViewportState = {
@@ -258,6 +261,17 @@ declare global {
         geocodingForward: (req: GeocodeForwardRequest) => Promise<GeocodeResult[]>;
         geocodingReverse: (req: GeocodeReverseRequest) => Promise<GeocodeResult[]>;
         tilesStyleUrl: (req: TileStyleRequest) => Promise<string>;
+      };
+      regions: {
+        getManifest: (force?: boolean) => Promise<RegionManifest>;
+        listLocal: () => Promise<InstalledRegionPack[]>;
+        download: (region: string, version?: string) => Promise<void>;
+        cancelDownload: (region: string) => Promise<void>;
+        delete: (region: string) => Promise<void>;
+        setActive: (region: string | null) => Promise<void>;
+        getActive: () => Promise<string | null>;
+        onProgress: (cb: (data: RegionDownloadProgress) => void) => () => void;
+        onActiveChanged: (cb: (data: { region: string | null }) => void) => () => void;
       };
     };
   }

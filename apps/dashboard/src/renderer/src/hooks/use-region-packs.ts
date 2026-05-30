@@ -1,0 +1,224 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  InstalledRegionPack,
+  RegionDownloadProgress,
+  RegionManifest
+} from "../../../shared/types";
+
+export type RegionStatus =
+  | "available"
+  | "downloading"
+  | "verifying"
+  | "installed"
+  | "update-available"
+  | "error";
+
+export type RegionRow = {
+  slug: string;
+  name: string;
+  group?: string;
+  /** [lng, lat] — globe marker position, when the pack carries geometry. */
+  center?: [number, number];
+  latest: string;
+  /** Bytes of the latest version (what a fresh download costs). */
+  latestBytes: number;
+  installed?: InstalledRegionPack;
+  active: boolean;
+  status: RegionStatus;
+  progress?: { received: number; total: number };
+  error?: string;
+};
+
+export type RegionGroupRow = { key: string; name: string; rows: RegionRow[] };
+
+const OTHER_GROUP_KEY = "__other__";
+
+export type UseRegionPacks = {
+  loading: boolean;
+  /** Set when the manifest can't be fetched (offline, or URL unconfigured). */
+  error: string | null;
+  groups: RegionGroupRow[];
+  /** Flat list — convenient for the globe's markers. */
+  regions: RegionRow[];
+  activeRegion: string | null;
+  totalInstalledBytes: number;
+  refresh: () => void;
+  download: (slug: string) => void;
+  cancel: (slug: string) => void;
+  remove: (slug: string) => Promise<void>;
+  setActive: (slug: string | null) => Promise<void>;
+};
+
+export function useRegionPacks(enabled: boolean): UseRegionPacks {
+  const [manifest, setManifest] = useState<RegionManifest | null>(null);
+  const [local, setLocal] = useState<InstalledRegionPack[]>([]);
+  const [activeRegion, setActiveRegion] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Record<string, RegionDownloadProgress>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refreshLocal = useCallback(async () => {
+    setLocal(await window.api.regions.listLocal());
+  }, []);
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      window.api.regions.getManifest(),
+      window.api.regions.listLocal(),
+      window.api.regions.getActive()
+    ])
+      .then(([m, l, a]) => {
+        setManifest(m);
+        setLocal(l);
+        setActiveRegion(a);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Load once the tab is shown (avoids hitting the network until the user opens it).
+  useEffect(() => {
+    if (enabled) refresh();
+  }, [enabled, refresh]);
+
+  // Stream download progress. "done" clears the row and re-reads local packs;
+  // a cancellation just clears it; real errors stay so the row can show + offer retry.
+  useEffect(() => {
+    const offProgress = window.api.regions.onProgress((p) => {
+      setProgress((prev) => {
+        const next = { ...prev };
+        if (p.phase === "done" || (p.phase === "error" && p.error === "cancelled")) {
+          delete next[p.region];
+        } else {
+          next[p.region] = p;
+        }
+        return next;
+      });
+      if (p.phase === "done") void refreshLocal();
+    });
+    const offActive = window.api.regions.onActiveChanged(({ region }) => setActiveRegion(region));
+    return () => {
+      offProgress();
+      offActive();
+    };
+  }, [refreshLocal]);
+
+  const download = useCallback(
+    (slug: string) => {
+      const total = manifest?.regions[slug]?.versions[manifest.regions[slug].latest]?.total_bytes ?? 0;
+      setProgress((prev) => ({
+        ...prev,
+        [slug]: { region: slug, receivedBytes: 0, totalBytes: total, phase: "downloading" }
+      }));
+      window.api.regions.download(slug).catch((e: unknown) => {
+        setProgress((prev) => ({
+          ...prev,
+          [slug]: {
+            region: slug,
+            receivedBytes: 0,
+            totalBytes: total,
+            phase: "error",
+            error: e instanceof Error ? e.message : String(e)
+          }
+        }));
+      });
+    },
+    [manifest]
+  );
+
+  const cancel = useCallback((slug: string) => {
+    void window.api.regions.cancelDownload(slug);
+  }, []);
+
+  const remove = useCallback(
+    async (slug: string) => {
+      await window.api.regions.delete(slug);
+      await Promise.all([
+        refreshLocal(),
+        window.api.regions.getActive().then(setActiveRegion)
+      ]);
+    },
+    [refreshLocal]
+  );
+
+  const setActive = useCallback(async (slug: string | null) => {
+    await window.api.regions.setActive(slug);
+    setActiveRegion(slug);
+  }, []);
+
+  const localByRegion = useMemo(() => {
+    const m = new Map<string, InstalledRegionPack>();
+    for (const p of local) m.set(p.region, p);
+    return m;
+  }, [local]);
+
+  const regions = useMemo<RegionRow[]>(() => {
+    if (!manifest) return [];
+    return Object.entries(manifest.regions).map(([slug, entry]) => {
+      const installed = localByRegion.get(slug);
+      const prog = progress[slug];
+      const latestBytes = entry.versions[entry.latest]?.total_bytes ?? 0;
+      const active = activeRegion === slug;
+
+      let status: RegionStatus;
+      if (prog) {
+        status = prog.phase === "verifying" ? "verifying" : prog.phase === "error" ? "error" : "downloading";
+      } else if (installed) {
+        status = installed.version === entry.latest ? "installed" : "update-available";
+      } else {
+        status = "available";
+      }
+
+      return {
+        slug,
+        name: entry.name ?? slug,
+        group: entry.group,
+        center: entry.center,
+        latest: entry.latest,
+        latestBytes,
+        installed,
+        active,
+        status,
+        progress: prog ? { received: prog.receivedBytes, total: prog.totalBytes } : undefined,
+        error: prog?.phase === "error" ? prog.error : undefined
+      };
+    });
+  }, [manifest, localByRegion, progress, activeRegion]);
+
+  const groups = useMemo<RegionGroupRow[]>(() => {
+    if (!manifest) return [];
+    const bySlug = new Map(regions.map((r) => [r.slug, r]));
+    const out: RegionGroupRow[] = [];
+    const grouped = new Set<string>();
+
+    for (const [key, g] of Object.entries(manifest.groups)) {
+      const rows = g.regions.map((s) => bySlug.get(s)).filter((r): r is RegionRow => !!r);
+      for (const r of rows) grouped.add(r.slug);
+      if (rows.length) out.push({ key, name: g.name, rows });
+    }
+    const orphans = regions.filter((r) => !grouped.has(r.slug));
+    if (orphans.length) out.push({ key: OTHER_GROUP_KEY, name: "Other", rows: orphans });
+    return out;
+  }, [manifest, regions]);
+
+  const totalInstalledBytes = useMemo(
+    () => local.reduce((sum, p) => sum + p.totalBytes, 0),
+    [local]
+  );
+
+  return {
+    loading,
+    error,
+    groups,
+    regions,
+    activeRegion,
+    totalInstalledBytes,
+    refresh,
+    download,
+    cancel,
+    remove,
+    setActive
+  };
+}

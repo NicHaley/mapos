@@ -21,7 +21,16 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const ARTIFACTS = {
@@ -32,7 +41,16 @@ const ARTIFACTS = {
 
 type ArtifactEntry = { file: string; bytes: number; sha256: string };
 type VersionEntry = { path: string; total_bytes: number; artifacts: Record<string, ArtifactEntry> };
-type RegionEntry = { name?: string; group?: string; latest: string; versions: Record<string, VersionEntry> };
+type RegionEntry = {
+  name?: string;
+  group?: string;
+  /** [minLng, minLat, maxLng, maxLat] — read from the latest pmtiles header. */
+  bbox?: [number, number, number, number];
+  /** [lng, lat] — pmtiles header center; used to place the region's globe marker. */
+  center?: [number, number];
+  latest: string;
+  versions: Record<string, VersionEntry>;
+};
 type GroupEntry = { name: string; regions: string[] };
 type Manifest = { schema: number; groups: Record<string, GroupEntry>; regions: Record<string, RegionEntry> };
 type RegionMeta = { name?: string; group?: string; groupName?: string };
@@ -51,6 +69,37 @@ function titleCase(slug: string): string {
 
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/**
+ * Read the bbox + center from a PMTiles v3 header without pulling in the pmtiles
+ * library. The header is a fixed 127-byte struct; lon/lat are stored as int32
+ * little-endian in degrees * 1e7. Spec:
+ * https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md#header
+ * Returns undefined if the file isn't a readable v3 PMTiles archive.
+ */
+function readPmtilesGeo(
+  path: string,
+): { bbox: [number, number, number, number]; center: [number, number] } | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    const buf = Buffer.allocUnsafe(127);
+    if (readSync(fd, buf, 0, 127, 0) < 127) return undefined;
+    if (buf.toString("ascii", 0, 7) !== "PMTiles" || buf[7] !== 3) return undefined;
+    const e7 = (offset: number): number => buf.readInt32LE(offset) / 1e7;
+    const minLng = e7(102);
+    const minLat = e7(106);
+    const maxLng = e7(110);
+    const maxLat = e7(114);
+    const centerLng = e7(119);
+    const centerLat = e7(123);
+    return { bbox: [minLng, minLat, maxLng, maxLat], center: [centerLng, centerLat] };
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function isDir(p: string): boolean {
@@ -92,7 +141,7 @@ if (region) {
 }
 
 // 2. Rebuild the manifest from a scan of dist/.
-const manifest: Manifest = { schema: 2, groups: {}, regions: {} };
+const manifest: Manifest = { schema: 3, groups: {}, regions: {} };
 
 for (const entry of readdirSync(dist).sort()) {
   // Skip hidden files and reserved prefixes (_world is a bundled asset, not a region).
@@ -124,9 +173,13 @@ for (const entry of readdirSync(dist).sort()) {
   const kept = Object.keys(versions).sort().reverse();
   if (kept.length === 0) continue;
 
+  // Geometry is stable across versions, so read it from the latest pmtiles only.
+  const geo = readPmtilesGeo(join(regionDir, kept[0], `${entry}.pmtiles`));
+
   manifest.regions[entry] = {
     ...(meta.name ? { name: meta.name } : {}),
     ...(meta.group ? { group: meta.group } : {}),
+    ...(geo ? { bbox: geo.bbox, center: geo.center } : {}),
     latest: kept[0],
     versions,
   };

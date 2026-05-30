@@ -464,6 +464,32 @@ export function updateAiConfigInFile(
 }
 
 /**
+ * Set (or clear, with `null`) the active offline region overlay. The base services
+ * mode and its fields are preserved — `offlineRegion` is valid on every mode, so a
+ * region pack layers on top of community/cloud/self-hosted without changing it.
+ * Callers should follow this with `invalidateServiceClient()` so the next request
+ * resolves against the new region.
+ */
+export function setOfflineRegionInConfig(appStateDir: string, region: string | null): MaposJson {
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const services = { ...cfg.services };
+  if (region) services.offlineRegion = region;
+  else delete services.offlineRegion;
+  const next: MaposJson = {
+    vaults: cfg.vaults,
+    ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
+    ai: cfg.ai,
+    services
+  };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return next;
+}
+
+/**
  * Returns the path to a vault's per-vault state directory.
  */
 export function vaultDotDir(vaultRoot: string): string {

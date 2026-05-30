@@ -21,6 +21,12 @@ SRC_URL  ?= https://download.geofabrik.de/europe/monaco-latest.osm.pbf
 BBOX     ?=
 # Version = OSM data date. The build machine's clock is fine here.
 VERSION  ?= $(shell date +%F)
+# Manifest presentation metadata (all optional). NAME is the region's display
+# name; GROUP/GROUP_NAME thread it under a country group the download UI can
+# expand. e.g. GROUP=germany GROUP_NAME=Germany NAME=Berlin.
+NAME       ?=
+GROUP      ?=
+GROUP_NAME ?=
 
 WORK     := work/$(REGION)
 DIST     := dist/$(REGION)/$(VERSION)
@@ -39,8 +45,10 @@ TILES_MINZOOM ?= 7
 WORLD_MAXZOOM ?= 6
 # Where the bundled world basemap lands in the dashboard's extraResources.
 DASHBOARD_ASSETS ?= ../apps/dashboard/resources/basemap-assets
-# rclone remote name pointing at your R2 bucket (rclone config -> type s3, provider Cloudflare).
-R2_REMOTE ?= r2:mapos-regions
+# R2 bucket + rclone remote. BUCKET comes from the root .env (source it before
+# `make upload`); the `r2` remote itself is defined there via RCLONE_CONFIG_R2_* env vars.
+BUCKET    ?= mapos-regions
+R2_REMOTE ?= r2:$(BUCKET)
 
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
@@ -140,13 +148,16 @@ dist/_world/world.pmtiles:
 # ------------------------------------------------------------ manifest/up ----
 
 manifest:
-	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --version $(VERSION)
+	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --version $(VERSION) \
+	  $(if $(NAME),--name "$(NAME)") \
+	  $(if $(GROUP),--group "$(GROUP)") \
+	  $(if $(GROUP_NAME),--group-name "$(GROUP_NAME)")
 
 # Uploads region packs, manifest.json AND the shared world basemap
 # (dist/_world/world.pmtiles -> $(R2_REMOTE)/_world/world.pmtiles) so clients can
 # fetch the backdrop alongside regions once the download manager lands.
 upload:
-	rclone copy dist/ $(R2_REMOTE)/ --progress
+	rclone copy dist/ $(R2_REMOTE)/ --progress --exclude "**/.DS_Store" --exclude ".DS_Store"
 
 # ---------------------------------------------------------------- cleanup ----
 

@@ -29,6 +29,10 @@ VALHALLA_IMAGE ?= ghcr.io/gis-ops/docker-valhalla/valhalla:latest
 # via HTTP range requests — the schema matches the app's Protomaps style exactly.
 PROTOMAPS_BUILD_BASE ?= https://build.protomaps.com
 TILES_MAXZOOM ?= 15
+# Region packs start at z7: z0-6 comes from the shared world basemap, composited
+# with the region in-app. Must equal the app's WORLD_MAXZOOM + 1 (region-protocol.ts).
+# Building z0-6 per region would be wasted bytes (and duplicate the world).
+TILES_MINZOOM ?= 7
 # Whole-world low-zoom basemap maxzoom. This is the always-on "low-fi" backdrop
 # the app renders outside downloaded regions, so keep it small — z6 is country /
 # major-road level. Built once (region-independent) and bundled with the app.
@@ -78,7 +82,7 @@ pmtiles: $(REGION_PBF)
 	if [ -z "$$build" ]; then echo "no Protomaps build found in last 14 days" >&2; exit 1; fi; \
 	echo "==> extracting bbox $$bbox from Protomaps build $$build"; \
 	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" $(DIST)/$(REGION).pmtiles \
-	  --bbox=$$bbox --maxzoom=$(TILES_MAXZOOM)
+	  --bbox=$$bbox --minzoom=$(TILES_MINZOOM) --maxzoom=$(TILES_MAXZOOM)
 
 # ------------------------------------------------------------ 2. Valhalla ----
 # The gis-ops turnkey image builds tiles from any .pbf dropped in /custom_files
@@ -138,6 +142,9 @@ dist/_world/world.pmtiles:
 manifest:
 	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --version $(VERSION)
 
+# Uploads region packs, manifest.json AND the shared world basemap
+# (dist/_world/world.pmtiles -> $(R2_REMOTE)/_world/world.pmtiles) so clients can
+# fetch the backdrop alongside regions once the download manager lands.
 upload:
 	rclone copy dist/ $(R2_REMOTE)/ --progress
 

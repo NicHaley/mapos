@@ -83,6 +83,19 @@ async function main() {
   }
   const fontBytes = await mapLimit(jobs, 12, (j) => download(j.url, j.dest));
   console.log(`  fonts: ${(fontBytes / 1e6).toFixed(1)} MB across ${STACKS.length} stacks`);
+
+  // The global low-zoom world basemap is produced by the pipeline (not fetched
+  // from the public CDN), so just verify it's present and warn loudly if not —
+  // otherwise the map ships with no low-zoom backdrop outside downloaded regions.
+  const worldPath = join(OUT, "basemap", "world.pmtiles");
+  if (await exists(worldPath)) {
+    const { size } = await stat(worldPath);
+    console.log(`  world basemap: ${(size / 1e6).toFixed(0)} MB`);
+  } else {
+    console.warn("  ⚠ world basemap MISSING: resources/basemap-assets/basemap/world.pmtiles");
+    console.warn("    The map will have NO low-zoom backdrop. Build + bundle it with:");
+    console.warn("      cd ../../pipeline && make world bundle-world");
+  }
   console.log("Done.");
 }
 

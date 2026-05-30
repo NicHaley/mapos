@@ -25,7 +25,9 @@ import { PMTiles } from "pmtiles";
  * privileged standard schemes so MapLibre can fetch them like HTTP.
  */
 // Above this zoom the composite source serves region-pack tiles; at/below it
-// serves the global world basemap. Must match the world basemap's maxzoom.
+// serves the global world basemap. Must match the world basemap's maxzoom AND
+// the pipeline's TILES_MINZOOM (= WORLD_MAXZOOM + 1), which is where region
+// packs start.
 const WORLD_MAXZOOM = 6;
 export const REGION_SCHEME = "mapos-region";
 export const ASSET_SCHEME = "mapos-asset";
@@ -148,7 +150,11 @@ async function compositeTile(
   try {
     const src = archive(z <= WORLD_MAXZOOM ? worldPmtiles : regionPmtiles);
     const t = await src.getZxy(z, x, y);
-    if (!t?.data) return new Response(null, { status: 204, headers: CORS });
+    // 404 (not 204) for a missing high-zoom tile: MapLibre then retains the
+    // overzoomed z6 world parent as a low-fi backdrop, instead of replacing it
+    // with a blank "loaded-empty" tile. So zooming into an undownloaded area
+    // shows coarse world geometry rather than nothing.
+    if (!t?.data) return new Response("no tile", { status: 404, headers: CORS });
     let bytes = Buffer.from(t.data);
     // getZxy returns the stored bytes (gzip per the archive header); MapLibre's
     // worker wants raw MVT, so decompress here.

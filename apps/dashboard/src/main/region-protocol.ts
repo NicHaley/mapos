@@ -1,9 +1,13 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { VectorTile } from "@mapbox/vector-tile";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { protocol } from "electron";
+import geojsonvt from "geojson-vt";
+import Pbf from "pbf";
 import { PMTiles } from "pmtiles";
+import { fromGeojsonVt } from "vt-pbf";
 
 /**
  * Two local schemes feed the offline map:
@@ -148,24 +152,121 @@ async function compositeTile(
   y: number
 ): Promise<Response> {
   try {
-    const src = archive(z <= WORLD_MAXZOOM ? worldPmtiles : regionPmtiles);
-    const t = await src.getZxy(z, x, y);
-    // 404 (not 204) for a missing high-zoom tile: MapLibre then retains the
-    // overzoomed z6 world parent as a low-fi backdrop, instead of replacing it
-    // with a blank "loaded-empty" tile. So zooming into an undownloaded area
-    // shows coarse world geometry rather than nothing.
-    if (!t?.data) return new Response("no tile", { status: 404, headers: CORS });
-    let bytes = Buffer.from(t.data);
-    // getZxy returns the stored bytes (gzip per the archive header); MapLibre's
-    // worker wants raw MVT, so decompress here.
-    if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
-    return new Response(bytes, {
-      status: 200,
-      headers: { ...CORS, "content-type": "application/x-protobuf" }
-    });
+    if (z <= WORLD_MAXZOOM) {
+      // Low zooms always come from the bundled global world basemap.
+      return tileResponse(await archive(worldPmtiles).getZxy(z, x, y));
+    }
+    // High zooms: region pack detail where the user has downloaded it.
+    const region = await archive(regionPmtiles).getZxy(z, x, y);
+    if (region?.data) return tileResponse(region);
+    // Outside the downloaded region (the z7+ "donut"), neither archive has this
+    // tile: the world stops at z6 and the region pack only covers its bbox.
+    // Synthesise a coarse tile by overzooming the z6 world ancestor so the donut
+    // shows continuous world geometry instead of a blank tile / 404 (the parent
+    // tile is only retained by MapLibre if it was already loaded — panning or
+    // zooming out into fresh area would otherwise leave gaps).
+    const over = await overzoomWorldTile(worldPmtiles, z, x, y);
+    if (over) {
+      return new Response(over, {
+        status: 200,
+        headers: { ...CORS, "content-type": "application/x-protobuf" }
+      });
+    }
+    return new Response("no tile", { status: 404, headers: CORS });
   } catch {
     return new Response("tile error", { status: 500, headers: CORS });
   }
+}
+
+/** 200 with the (decompressed) MVT bytes, or 404 when the archive has no tile. */
+function tileResponse(t: { data: ArrayBuffer } | undefined): Response {
+  if (!t?.data) return new Response("no tile", { status: 404, headers: CORS });
+  let bytes = Buffer.from(t.data);
+  // getZxy returns the stored bytes (gzip per the archive header); MapLibre's
+  // worker wants raw MVT, so decompress here.
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...CORS, "content-type": "application/x-protobuf" }
+  });
+}
+
+// --- world overzoom (donut fill) --------------------------------------------
+// For a z>6 tile with no region coverage, re-tile the z6 world ancestor down to
+// the requested cell: decode its MVT, re-project each layer's features to a
+// geojson-vt index (in WGS84), then emit the requested z/x/y sub-tile. The
+// output keeps the world basemap's layer names + attributes, so the Protomaps
+// style renders it exactly like a native tile, just coarser.
+
+// One geojson-vt index per layer, keyed by the z6 ancestor tile. Many donut
+// children share a parent, so indexing it once and slicing many children is
+// cheap. The set of touched ancestors is tiny (z6 has 4096 tiles worldwide), so
+// the cache is left unbounded (mirrors the app-life pmtiles archive cache). The
+// promise is cached so concurrent children of one ancestor share a single decode.
+type LayerIndexes = Map<string, ReturnType<typeof geojsonvt>>;
+const worldIndexes = new Map<string, Promise<LayerIndexes | null>>();
+
+const GEOJSONVT_OPTS = {
+  maxZoom: 16, // must cover the source's maxzoom (15) so getTile can drill down
+  indexMaxZoom: WORLD_MAXZOOM,
+  tolerance: 3,
+  extent: 4096,
+  buffer: 64
+} as const;
+
+function worldLayerIndexes(worldPmtiles: string, ax: number, ay: number): Promise<LayerIndexes | null> {
+  const key = `${worldPmtiles}|${ax}|${ay}`;
+  let built = worldIndexes.get(key);
+  if (!built) {
+    built = buildWorldLayerIndexes(worldPmtiles, ax, ay).catch((err) => {
+      worldIndexes.delete(key); // let a transient read failure retry next time
+      throw err;
+    });
+    worldIndexes.set(key, built);
+  }
+  return built;
+}
+
+async function buildWorldLayerIndexes(
+  worldPmtiles: string,
+  ax: number,
+  ay: number
+): Promise<LayerIndexes | null> {
+  const t = await archive(worldPmtiles).getZxy(WORLD_MAXZOOM, ax, ay);
+  if (!t?.data) return null;
+  let bytes = Buffer.from(t.data);
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
+  const vt = new VectorTile(new Pbf(bytes));
+  const indexes: LayerIndexes = new Map();
+  for (const name of Object.keys(vt.layers)) {
+    const layer = vt.layers[name];
+    const features = [];
+    for (let i = 0; i < layer.length; i++) {
+      // toGeoJSON re-projects tile-local coords back to WGS84 for re-tiling.
+      features.push(layer.feature(i).toGeoJSON(ax, ay, WORLD_MAXZOOM));
+    }
+    indexes.set(name, geojsonvt({ type: "FeatureCollection", features }, GEOJSONVT_OPTS));
+  }
+  return indexes;
+}
+
+/** Re-tile the z6 world ancestor into the requested z/x/y, or null if empty. */
+async function overzoomWorldTile(
+  worldPmtiles: string,
+  z: number,
+  x: number,
+  y: number
+): Promise<Buffer | null> {
+  const dz = z - WORLD_MAXZOOM;
+  const indexes = await worldLayerIndexes(worldPmtiles, x >> dz, y >> dz);
+  if (!indexes) return null;
+  const out: Record<string, ReturnType<ReturnType<typeof geojsonvt>["getTile"]>> = {};
+  for (const [name, index] of indexes) {
+    const tile = index.getTile(z, x, y);
+    if (tile && tile.features.length > 0) out[name] = tile;
+  }
+  if (Object.keys(out).length === 0) return null;
+  return Buffer.from(fromGeojsonVt(out, { version: 2 }));
 }
 
 function contentType(file: string): string {

@@ -25,6 +25,8 @@ coverage
 .next/
 out/
 dist
+.open-next/
+.wrangler/
 
 
 # Debug

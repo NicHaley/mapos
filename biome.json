@@ -20,6 +20,14 @@
     }
   },
   "files": {
-    "ignore": ["dist/**", "out/**", ".next/**", "node_modules/**", "pnpm-lock.yaml"]
+    "ignore": [
+      "dist/**",
+      "out/**",
+      ".next/**",
+      ".open-next/**",
+      ".wrangler/**",
+      "node_modules/**",
+      "pnpm-lock.yaml"
+    ]
   }
 }

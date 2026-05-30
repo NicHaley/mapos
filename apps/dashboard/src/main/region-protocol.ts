@@ -68,12 +68,28 @@ export function registerAssetProtocol(assetsDir: string): void {
     const url = new URL(request.url);
     // host is the top folder (fonts | sprites); pathname is the rest.
     const rel = decodeURIComponent(`${url.hostname}${url.pathname}`);
-    return serveFile(assetsDir, rel, request.headers.get("range"));
+    const res = serveFile(assetsDir, rel, request.headers.get("range"));
+    // Only Western glyph blocks are bundled (see fetch-basemap-assets.mjs); other
+    // scripts render locally, so silence the 404 for their missing ranges.
+    if (res.status === 404 && GLYPH_RANGE_RE.test(rel)) return emptyPbf();
+    return res;
   });
 }
 
 const CORS = { "access-control-allow-origin": "*" } as const;
 const ATTRIBUTION = '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>';
+
+// Zero bytes is a valid empty protobuf (no layers / no glyphs). Serving it for a
+// missing tile or glyph range keeps MapLibre quiet (no 404 log) while it falls
+// back to the overzoomed world / local glyph rendering.
+const EMPTY_PBF = new Uint8Array(0);
+const GLYPH_RANGE_RE = /^fonts\/.+\/\d+-\d+\.pbf$/;
+function emptyPbf(): Response {
+  return new Response(EMPTY_PBF, {
+    status: 200,
+    headers: { ...CORS, "content-type": "application/x-protobuf" }
+  });
+}
 
 type StyleLayer = {
   id: string;
@@ -162,21 +178,12 @@ function archive(path: string): PMTiles {
   return a;
 }
 
-// Zero bytes is a valid empty MVT (a protobuf with no layers).
-const EMPTY_TILE = new Uint8Array(0);
-
 async function pmtilesTile(path: string, z: number, x: number, y: number): Promise<Response> {
   try {
     const t = await archive(path).getZxy(z, x, y);
-    // Empty 200 (not 404) for a missing tile: outside a region pack's bbox this
-    // avoids a console error per donut tile, and the overzoomed world source
-    // still renders underneath.
-    if (!t?.data) {
-      return new Response(EMPTY_TILE, {
-        status: 200,
-        headers: { ...CORS, "content-type": "application/x-protobuf" }
-      });
-    }
+    // Missing region tile (outside the pack's bbox) → empty 200; the overzoomed
+    // world source renders underneath.
+    if (!t?.data) return emptyPbf();
     let bytes = Buffer.from(t.data);
     // Stored bytes are gzipped per the archive header; MapLibre wants raw MVT.
     if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);

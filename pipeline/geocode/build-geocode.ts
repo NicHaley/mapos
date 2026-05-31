@@ -13,12 +13,14 @@
  * made them clobber each other. The output is a plain SQLite file (FTS5 + R-tree), so
  * the desktop/mobile client still reads it with better-sqlite3 unchanged.
  *
- * Phase 1 scope: named places, POIs, and streets. House-number addresses are the
- * Phase-3 cliff and are out of scope here (the online pro geocoder covers those).
+ * Scope: named places, POIs, and streets, each enriched with (a) an admin hierarchy
+ * resolved by point-in-polygon against boundary=administrative areas ("Kreuzberg,
+ * Berlin") and (b) a street line from the feature's own addr:* tags. Arbitrary
+ * house-number geocoding (address interpolation) is the Phase-3 cliff and out of scope.
  *
  * Usage:
  *   osmium export filtered.osm.pbf -f geojsonseq -c export-config.json \
- *     | tsx build-geocode.ts OUTPUT.sqlite --region "Monaco"
+ *     | tsx build-geocode.ts OUTPUT.sqlite --region "Monaco" --admins admins.geojsonseq
  */
 
 import { readFileSync, rmSync } from "node:fs";
@@ -118,6 +120,109 @@ function representativePoint(geom: Geometry): [number, number] | null {
   return count ? [lngSum / count, latSum / count] : null;
 }
 
+// --- self-tagged street address ------------------------------------------------
+
+/** A street line from the feature's OWN addr:* tags (no geocoding). null when absent. */
+function addressLine(tags: Tags): string | null {
+  const street = tags["addr:street"]?.trim();
+  if (!street) return null;
+  const num = tags["addr:housenumber"]?.trim();
+  return num ? `${street} ${num}` : street;
+}
+
+// --- admin hierarchy (point-in-polygon) ----------------------------------------
+
+type BBox = [number, number, number, number]; // [minLng, minLat, maxLng, maxLat]
+type AdminArea = {
+  name: string;
+  level: number; // OSM admin_level — higher = more specific (10 ≈ neighbourhood, 2 = country)
+  bbox: BBox;
+  polys: Position[][][]; // [polygon][ring][vertex]; ring[0] is outer, the rest are holes
+};
+
+/** Ray-casting test: is point strictly within a single ring? */
+function pointInRing(lng: number, lat: number, ring: Position[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Inside the outer ring and outside every hole. */
+function pointInRings(lng: number, lat: number, rings: Position[][]): boolean {
+  if (!rings.length || !pointInRing(lng, lat, rings[0])) return false;
+  for (let r = 1; r < rings.length; r++) {
+    if (pointInRing(lng, lat, rings[r])) return false; // in a hole
+  }
+  return true;
+}
+
+/** Load boundary=administrative polygons from a GeoJSONSeq file into a flat list. */
+function loadAdmins(path: string): AdminArea[] {
+  const areas: AdminArea[] = [];
+  const text = readFileSync(path, "utf8");
+  for (const raw of text.split("\n")) {
+    const line = (raw.charCodeAt(0) === 0x1e ? raw.slice(1) : raw).trim();
+    if (!line) continue;
+    let feature: Feature;
+    try {
+      feature = JSON.parse(line) as Feature;
+    } catch {
+      continue;
+    }
+    const tags = (feature.properties ?? {}) as Tags;
+    const name = tags.name?.trim();
+    const level = Number.parseInt(tags.admin_level ?? "", 10);
+    const geom = feature.geometry;
+    if (!name || !Number.isFinite(level) || !geom) continue;
+
+    let polys: Position[][][];
+    if (geom.type === "Polygon") polys = [geom.coordinates];
+    else if (geom.type === "MultiPolygon") polys = geom.coordinates;
+    else continue;
+
+    let minLng = Number.POSITIVE_INFINITY;
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLng = Number.NEGATIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    for (const poly of polys)
+      for (const ring of poly)
+        for (const [x, y] of ring) {
+          if (x < minLng) minLng = x;
+          if (x > maxLng) maxLng = x;
+          if (y < minLat) minLat = y;
+          if (y > maxLat) maxLat = y;
+        }
+    areas.push({ name, level, bbox: [minLng, minLat, maxLng, maxLat], polys });
+  }
+  // Most-specific first so the composed string reads neighbourhood → country.
+  areas.sort((a, b) => b.level - a.level);
+  return areas;
+}
+
+const MAX_ADMIN_PARTS = 3;
+
+/** Compose "Neighbourhood, City, Country" for a point, most specific first. */
+function adminContextFor(lng: number, lat: number, admins: AdminArea[]): string | null {
+  const parts: string[] = [];
+  for (const a of admins) {
+    if (lng < a.bbox[0] || lng > a.bbox[2] || lat < a.bbox[1] || lat > a.bbox[3]) continue;
+    if (parts.includes(a.name)) continue;
+    if (a.polys.some((rings) => pointInRings(lng, lat, rings))) {
+      parts.push(a.name);
+      if (parts.length >= MAX_ADMIN_PARTS) break;
+    }
+  }
+  return parts.length ? parts.join(", ") : null;
+}
+
 // --- SQLite setup --------------------------------------------------------------
 
 const [output, ...rest] = process.argv.slice(2);
@@ -127,6 +232,13 @@ if (!output) {
 }
 const regionIdx = rest.indexOf("--region");
 const region = regionIdx >= 0 ? (rest[regionIdx + 1] ?? "") : "";
+const adminsIdx = rest.indexOf("--admins");
+const adminsPath = adminsIdx >= 0 ? rest[adminsIdx + 1] : undefined;
+
+// Admin boundary polygons for point-in-polygon hierarchy enrichment. Optional: without
+// them, admin_context stays null and the client falls back to the region name.
+const admins = adminsPath ? loadAdmins(adminsPath) : [];
+if (adminsPath) console.error(`Loaded ${admins.length.toLocaleString()} admin areas`);
 
 // Always rebuild from scratch — opening an existing file would append (duplicate
 // `features` rows, then collide on `features_rtree.id`) since the schema uses
@@ -141,8 +253,8 @@ db.exec(readFileSync(join(__dirname, "schema.sql"), "utf8"));
 
 const insert = db.prepare(
   `INSERT INTO features
-     (osm_type, osm_id, name, alt_names, kind, class, importance, population, admin_context, lat, lng)
-   VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @importance, @population, @admin_context, @lat, @lng)`,
+     (osm_type, osm_id, name, alt_names, kind, class, importance, population, admin_context, address, lat, lng)
+   VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @importance, @population, @admin_context, @address, @lat, @lng)`,
 );
 
 let count = 0;
@@ -180,11 +292,13 @@ for await (const raw of rl) {
     cls: c.cls,
     importance: importance(c.base, pop),
     population: pop,
-    // Don't index the bare region name: it's identical on every row, so FTS5 drives
-    // its IDF to ~0 (bm25 → 0) and pollutes every region-name query. The client shows
-    // the pack's region as the secondary label instead. Enrich with a real per-feature
-    // admin hierarchy via admins.sqlite (Phase 2) — that DOES belong in the index.
-    admin_context: null,
+    // Real per-feature admin hierarchy via point-in-polygon ("Kreuzberg, Berlin"); null
+    // when no admins file was supplied or the point falls outside every boundary. We
+    // deliberately do NOT store the bare region name here — being identical on every row
+    // it drives the FTS IDF to ~0 and pollutes every region-name query; the client falls
+    // back to the pack region for display.
+    admin_context: adminContextFor(point[0], point[1], admins),
+    address: addressLine(tags),
     lng: point[0],
     lat: point[1],
   });

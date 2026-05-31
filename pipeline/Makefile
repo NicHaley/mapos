@@ -116,9 +116,14 @@ geocode: $(REGION_PBF)
 	osmium tags-filter $(REGION_PBF) \
 	  n/place w/highway nwr/amenity nwr/shop nwr/tourism nwr/leisure \
 	  -o $(WORK)/geocode-src.osm.pbf --overwrite
+	osmium tags-filter $(REGION_PBF) r/boundary=administrative \
+	  -o $(WORK)/admins.osm.pbf --overwrite
+	osmium export $(WORK)/admins.osm.pbf -f geojsonseq \
+	  -c geocode/export-config.json -o $(WORK)/admins.geojsonseq --overwrite
 	osmium export $(WORK)/geocode-src.osm.pbf -f geojsonseq \
 	  -c geocode/export-config.json --overwrite \
-	  | pnpm exec tsx geocode/build-geocode.ts $(DIST)/geocode.sqlite --region "$(REGION)"
+	  | pnpm exec tsx geocode/build-geocode.ts $(DIST)/geocode.sqlite --region "$(REGION)" \
+	      --admins $(WORK)/admins.geojsonseq
 
 # --------------------------------------------------------------- 4. world ----
 # Whole-world low-zoom basemap, built ONCE (not per region). The app renders this

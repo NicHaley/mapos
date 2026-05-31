@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS features (
   class         TEXT,                        -- city | town | restaurant | ...
   importance    REAL    NOT NULL DEFAULT 0,  -- ranking signal, 0..~1+
   population    INTEGER,
-  admin_context TEXT,                        -- "Shibuya, Tokyo, Japan"
+  admin_context TEXT,                        -- "Shibuya, Tokyo, Japan" (admin hierarchy)
+  address       TEXT,                        -- "Skalitzer Str. 12" (self-tagged addr:*)
   lat           REAL    NOT NULL,
   lng           REAL    NOT NULL
 );

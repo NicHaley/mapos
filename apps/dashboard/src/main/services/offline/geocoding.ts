@@ -39,6 +39,7 @@ type FeatureRow = {
   class: string | null;
   kind: string;
   admin_context: string | null;
+  address: string | null;
   lat: number;
   lng: number;
 };
@@ -79,7 +80,9 @@ function rowToResult(row: FeatureRow, region: string): GeocodeResult {
     lat: row.lat,
     lng: row.lng,
     primaryLabel: row.name,
-    secondaryLabel: row.admin_context || region
+    // Street line (own addr:* tags) + admin hierarchy, e.g. "Skalitzer Str. 12,
+    // Kreuzberg, Berlin". Falls back to the pack region when the pack carries neither.
+    secondaryLabel: [row.address, row.admin_context].filter(Boolean).join(", ") || region
   };
   if (row.class) result.categories = [row.class];
   return result;
@@ -123,7 +126,7 @@ async function forward(
   // `score` is selected (not just ordered by) so we can merge-rank across packs —
   // lower is better. Each DB returns its own top `limit`, which is enough to
   // contain the global top `limit`.
-  const sql = `SELECT f.id, f.name, f.class, f.kind, f.admin_context, f.lat, f.lng,
+  const sql = `SELECT f.id, f.name, f.class, f.kind, f.admin_context, f.address, f.lat, f.lng,
        (bm25(features_fts) - f.importance * 4.0
          - (CASE WHEN lower(f.name) = @exact THEN 8.0 ELSE 0 END)
          ${distanceTerm}) AS score
@@ -161,7 +164,7 @@ async function reverse(
   );
   if (candidates.length === 0) return [];
 
-  const sql = `SELECT f.id, f.name, f.class, f.kind, f.admin_context, f.lat, f.lng,
+  const sql = `SELECT f.id, f.name, f.class, f.kind, f.admin_context, f.address, f.lat, f.lng,
        ((f.lat - @lat)*(f.lat - @lat) + (f.lng - @lng)*(f.lng - @lng)) AS dist
      FROM features_rtree r
      JOIN features f ON f.id = r.id

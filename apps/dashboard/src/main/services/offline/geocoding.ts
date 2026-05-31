@@ -74,15 +74,18 @@ function buildMatch(query: string): string | null {
 }
 
 function rowToResult(row: FeatureRow, region: string): GeocodeResult {
+  // Street line (own addr:* tags) + admin hierarchy, e.g. "Skalitzer Str. 12, Kreuzberg,
+  // Berlin, Germany". Falls back to the pack region when the pack carries neither.
+  const secondary = [row.address, row.admin_context].filter(Boolean).join(", ") || region;
   const result: GeocodeResult = {
     // Region-qualified so rowids from different packs don't collide.
     id: `offline:${region}:${row.id}`,
     lat: row.lat,
     lng: row.lng,
     primaryLabel: row.name,
-    // Street line (own addr:* tags) + admin hierarchy, e.g. "Skalitzer Str. 12,
-    // Kreuzberg, Berlin". Falls back to the pack region when the pack carries neither.
-    secondaryLabel: [row.address, row.admin_context].filter(Boolean).join(", ") || region
+    // Drop a secondary that just repeats the name (e.g. the city-state "Monaco", whose
+    // only context is the country "Monaco") — same as Photon's same-as-primary skip.
+    secondaryLabel: secondary.toLowerCase() === row.name.toLowerCase() ? "" : secondary
   };
   if (row.class) result.categories = [row.class];
   return result;

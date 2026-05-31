@@ -20,7 +20,8 @@
  *
  * Usage:
  *   osmium export filtered.osm.pbf -f geojsonseq -c export-config.json \
- *     | tsx build-geocode.ts OUTPUT.sqlite --region "Monaco" --admins admins.geojsonseq
+ *     | tsx build-geocode.ts OUTPUT.sqlite --region "Monaco" --admins admins.geojsonseq \
+ *         --country "Monaco" [--max-city-level 8]
  */
 
 import { readFileSync, rmSync } from "node:fs";
@@ -207,19 +208,68 @@ function loadAdmins(path: string): AdminArea[] {
   return areas;
 }
 
-const MAX_ADMIN_PARTS = 3;
+// Approximate OSM admin_level of a place's OWN boundary, by place class. Used as the
+// rank floor: when resolving a place's admin context we only walk UP to coarser areas
+// (admin_level < this), never into its own sub-areas — so the city "Berlin" is described
+// by its country, not by the "Mitte" district its label point happens to sit in. POIs
+// and streets have no own level (Infinity), so they pick up the full local hierarchy.
+const PLACE_ADMIN_LEVEL: Record<string, number> = {
+  city: 8,
+  town: 8,
+  village: 8,
+  borough: 9,
+  suburb: 10,
+  neighbourhood: 10,
+  quarter: 10,
+  hamlet: 10,
+  locality: 10,
+  isolated_dwelling: 10,
+};
 
-/** Compose "Neighbourhood, City, Country" for a point, most specific first. */
-function adminContextFor(lng: number, lat: number, admins: AdminArea[]): string | null {
-  const parts: string[] = [];
+type AdminOpts = { ownLevel: number; ownName: string; country: string | null; maxCityLevel: number };
+
+// admin_level boundary between the "municipality and larger" tier (city/county/state)
+// and the "sub-municipal" tier (district/borough/suburb). This split is the OSM
+// admin_level convention — the wiki defines levels >=9 as subdivisions WITHIN a
+// municipality and <=8 as the municipality and above — and is the most stable part of
+// the scheme across countries. A handful deviate (e.g. JP wards at 7); those packs pass
+// --max-city-level to shift the boundary. Default 8 covers DE/MC and most of EU/NA.
+const DEFAULT_MAX_CITY_LEVEL = 8;
+
+/**
+ * Compose a feature's admin context the way Nominatim/Photon do: walk only UP the
+ * containing hierarchy (areas coarser than the feature itself), then pick ONE area from
+ * the sub-municipal band (a district/suburb) and ONE from the municipality band (the city
+ * — never skipped in favour of the state, which is what mislabels Bremerhaven as Bremen),
+ * and ALWAYS append the country. The country comes from the region's group, not the
+ * polygons — a city extract has no level-2 boundary, just as Nominatim uses a country table.
+ */
+function adminContextFor(lng: number, lat: number, admins: AdminArea[], opts: AdminOpts): string | null {
+  // admins are pre-sorted most-specific (level desc) first, so the first match in each
+  // band is the most specific in that band: the smallest district, and the city itself.
+  let locality: string | null = null; // sub-municipal: district / borough / suburb
+  let city: string | null = null; // municipality / county / state (first <= maxCityLevel)
+  let coarsest: string | null = null; // fallback when nothing reaches the municipality band
   for (const a of admins) {
     if (lng < a.bbox[0] || lng > a.bbox[2] || lat < a.bbox[1] || lat > a.bbox[3]) continue;
-    if (parts.includes(a.name)) continue;
-    if (a.polys.some((rings) => pointInRings(lng, lat, rings))) {
-      parts.push(a.name);
-      if (parts.length >= MAX_ADMIN_PARTS) break;
+    if (a.level >= opts.ownLevel) continue; // never describe a place by its own / finer areas
+    if (a.name === opts.ownName) continue; // nor by an area sharing its name (places only)
+    if (!a.polys.some((rings) => pointInRings(lng, lat, rings))) continue;
+    coarsest = a.name; // sorted desc, so the last match seen is the coarsest
+    if (a.level > opts.maxCityLevel) {
+      if (!locality) locality = a.name;
+    } else if (!city) {
+      city = a.name;
     }
   }
+  // If no area reached the municipality band (a country whose smallest admin unit is
+  // sub-municipal, or a sparse extract), fall back to the coarsest area so the city tier
+  // is never silently dropped.
+  if (!city && coarsest && coarsest !== locality) city = coarsest;
+  const parts: string[] = [];
+  if (locality) parts.push(locality);
+  if (city && city !== locality) parts.push(city);
+  if (opts.country && !parts.includes(opts.country)) parts.push(opts.country);
   return parts.length ? parts.join(", ") : null;
 }
 
@@ -234,6 +284,15 @@ const regionIdx = rest.indexOf("--region");
 const region = regionIdx >= 0 ? (rest[regionIdx + 1] ?? "") : "";
 const adminsIdx = rest.indexOf("--admins");
 const adminsPath = adminsIdx >= 0 ? rest[adminsIdx + 1] : undefined;
+const countryIdx = rest.indexOf("--country");
+// Always appended as the outermost admin context (Nominatim/Photon both show it), since
+// a region extract rarely contains its own level-2 country polygon.
+const country = countryIdx >= 0 ? (rest[countryIdx + 1]?.trim() || null) : null;
+// Per-pack override for the municipality/sub-municipal admin_level boundary (see
+// DEFAULT_MAX_CITY_LEVEL). Only deviating countries need to set it.
+const maxCityLevelIdx = rest.indexOf("--max-city-level");
+const maxCityLevelArg = maxCityLevelIdx >= 0 ? Number.parseInt(rest[maxCityLevelIdx + 1] ?? "", 10) : Number.NaN;
+const maxCityLevel = Number.isFinite(maxCityLevelArg) ? maxCityLevelArg : DEFAULT_MAX_CITY_LEVEL;
 
 // Admin boundary polygons for point-in-polygon hierarchy enrichment. Optional: without
 // them, admin_context stays null and the client falls back to the region name.
@@ -292,12 +351,19 @@ for await (const raw of rl) {
     cls: c.cls,
     importance: importance(c.base, pop),
     population: pop,
-    // Real per-feature admin hierarchy via point-in-polygon ("Kreuzberg, Berlin"); null
-    // when no admins file was supplied or the point falls outside every boundary. We
-    // deliberately do NOT store the bare region name here — being identical on every row
-    // it drives the FTS IDF to ~0 and pollutes every region-name query; the client falls
-    // back to the pack region for display.
-    admin_context: adminContextFor(point[0], point[1], admins),
+    // Real per-feature admin hierarchy via point-in-polygon ("Neukölln, Berlin, Germany"),
+    // walking only up from the feature's own rank so a place isn't labelled by its sub-areas.
+    // null when no admins/country are available; the client then falls back to the pack
+    // region. We deliberately never store the bare region name (identical on every row, it
+    // drives the FTS IDF to ~0 and pollutes region-name queries).
+    admin_context: adminContextFor(point[0], point[1], admins, {
+      ownLevel: c.kind === "place" ? (PLACE_ADMIN_LEVEL[c.cls] ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY,
+      // Only a place suppresses a same-named container (so the city "Berlin" → "Germany",
+      // not "Berlin, Germany"). A POI named "Berlin" should still keep "Berlin" as context.
+      ownName: c.kind === "place" ? tags.name : "",
+      country,
+      maxCityLevel,
+    }),
     address: addressLine(tags),
     lng: point[0],
     lat: point[1],

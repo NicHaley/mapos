@@ -27,6 +27,13 @@ VERSION  ?= $(shell date +%F)
 NAME       ?=
 GROUP      ?=
 GROUP_NAME ?=
+# Country name baked into every geocode result's admin context (e.g. "Germany"), the way
+# Nominatim/Photon always show it. Defaults to GROUP_NAME since a region pack is one country.
+COUNTRY    ?= $(GROUP_NAME)
+# Override for the municipality/sub-municipal admin_level split in geocode results. Leave
+# empty for the OSM-standard default (8); set per pack only for countries that deviate
+# (e.g. CITY_LEVEL_MAX=7 for Japan, where wards sit at admin_level 7).
+CITY_LEVEL_MAX ?=
 # Versions kept per region (newest first). The rest are pruned from disk and R2 on
 # upload. 2 = live version + previous, so a client mid-download survives a rollout.
 RETAIN     ?= 2
@@ -123,7 +130,8 @@ geocode: $(REGION_PBF)
 	osmium export $(WORK)/geocode-src.osm.pbf -f geojsonseq \
 	  -c geocode/export-config.json --overwrite \
 	  | pnpm exec tsx geocode/build-geocode.ts $(DIST)/geocode.sqlite --region "$(REGION)" \
-	      --admins $(WORK)/admins.geojsonseq
+	      --admins $(WORK)/admins.geojsonseq $(if $(COUNTRY),--country "$(COUNTRY)") \
+	      $(if $(CITY_LEVEL_MAX),--max-city-level $(CITY_LEVEL_MAX))
 
 # --------------------------------------------------------------- 4. world ----
 # Whole-world low-zoom basemap, built ONCE (not per region). The app renders this

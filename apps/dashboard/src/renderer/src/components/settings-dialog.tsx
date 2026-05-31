@@ -25,12 +25,6 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import {
   BoxIcon,
@@ -113,7 +107,11 @@ function vaultBasename(path: string): string {
   return n >= 0 ? path.slice(n + 1) : path;
 }
 
-function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => void }) {
+function GeneralPage({
+  onRequestDelete
+}: {
+  onRequestDelete: (name: string, isLastVault: boolean) => void;
+}) {
   const [vaultCount, setVaultCount] = useState<number>(0);
   const [activeVaultPath, setActiveVaultPath] = useState<string>("");
   const [draftName, setDraftName] = useState<string>("");
@@ -134,7 +132,7 @@ function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => v
 
   const currentName = vaultBasename(activeVaultPath);
   const isDirty = draftName !== currentName;
-  const canDelete = vaultCount > 1;
+  const isLastVault = vaultCount <= 1;
 
   async function handleSave() {
     const trimmed = draftName.trim();
@@ -206,33 +204,20 @@ function GeneralPage({ onRequestDelete }: { onRequestDelete: (name: string) => v
 
       <Section
         title="Danger zone"
-        description="Delete this vault from MapOS. Files on disk are kept — you can add the folder back later from the vault switcher."
+        description={
+          isLastVault
+            ? "Delete this vault from MapOS. Files on disk are kept — since it's your only vault, you'll be returned to the welcome screen."
+            : "Delete this vault from MapOS. Files on disk are kept — you can add the folder back later from the vault switcher."
+        }
       >
-        {canDelete ? (
-          <Button
-            variant="destructive"
-            className="self-start"
-            onClick={() => onRequestDelete(currentName)}
-            disabled={busy}
-          >
-            Delete vault
-          </Button>
-        ) : (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="inline-flex self-start">
-                    <Button variant="destructive" disabled>
-                      Delete vault
-                    </Button>
-                  </span>
-                }
-              />
-              <TooltipContent side="right">You need at least one vault.</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+        <Button
+          variant="destructive"
+          className="self-start"
+          onClick={() => onRequestDelete(currentName, isLastVault)}
+          disabled={busy}
+        >
+          Delete vault
+        </Button>
       </Section>
     </div>
   );
@@ -301,7 +286,10 @@ export function SettingsDialog({
   initialPage?: SettingsPage;
 }) {
   const [page, setPage] = useState<SettingsPage>(initialPage);
-  const [pendingDelete, setPendingDelete] = useState<{ name: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    name: string;
+    isLastVault: boolean;
+  } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLDivElement | null>(null);
@@ -358,9 +346,9 @@ export function SettingsDialog({
                 >
                   {page === "general" && (
                     <GeneralPage
-                      onRequestDelete={(name) => {
+                      onRequestDelete={(name, isLastVault) => {
                         setDeleteError(null);
-                        setPendingDelete({ name });
+                        setPendingDelete({ name, isLastVault });
                       }}
                     />
                   )}
@@ -391,7 +379,10 @@ export function SettingsDialog({
             <AlertDialogTitle>Delete this vault?</AlertDialogTitle>
             <AlertDialogDescription>
               &quot;{pendingDelete?.name}&quot; will be removed from MapOS. The folder on disk will
-              not be deleted — you can add it back later from the vault switcher.
+              not be deleted —{" "}
+              {pendingDelete?.isLastVault
+                ? "since it's your only vault, you'll be returned to the welcome screen."
+                : "you can add it back later from the vault switcher."}
             </AlertDialogDescription>
             {deleteError ? (
               <AlertDialogDescription className="text-destructive">

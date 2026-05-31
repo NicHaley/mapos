@@ -421,9 +421,8 @@ export function removeVaultFromConfig(
   if (!normalized.includes(resolved)) {
     return { ok: false, error: "Vault not found in config." };
   }
-  if (normalized.length <= 1) {
-    return { ok: false, error: "Cannot remove the only vault." };
-  }
+  // Removing the last vault is allowed — it leaves vaults empty, which the app reads
+  // as "onboarding pending" and routes the user back to the welcome screen.
   const nextVaults = normalized.filter((p) => p !== resolved);
   const activeResolved = cfg.activeVault ? resolve(cfg.activeVault.trim()) : undefined;
   const nextActive = activeResolved && activeResolved !== resolved ? activeResolved : undefined;

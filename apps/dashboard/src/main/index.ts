@@ -281,29 +281,23 @@ app.whenReady().then(() => {
     const oldActive = resolve(vaultRoot);
     const cfg = loadOrInitMaposConfig(appStateDir);
     const normalized = cfg.vaults.map((p) => resolve(p.trim()));
-    if (normalized.length <= 1) {
-      return { ok: false as const, error: "Cannot delete the only vault." };
-    }
-    const fallback = normalized.find((p) => p !== oldActive);
-    if (!fallback) {
-      return { ok: false as const, error: "No other vault available to switch to." };
-    }
+    // Deleting the last vault is allowed — there's just no vault to fall back to, so
+    // the reloaded renderer drops into onboarding (isOnboardingPending → vaults empty).
+    const fallback = normalized.find((p) => p !== oldActive) ?? null;
 
-    stopChat();
-    await stopWatcher();
-    closeDb();
+    await teardownVault();
 
     const removed = removeVaultFromConfig(appStateDir, oldActive);
     if (!removed.ok) {
-      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot);
+      bootVault();
       return { ok: false as const, error: removed.error };
     }
-    const activated = setActiveVaultInConfig(appStateDir, fallback);
-    if (!activated.ok) {
-      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot);
-      return { ok: false as const, error: activated.error };
+    if (fallback) {
+      const activated = setActiveVaultInConfig(appStateDir, fallback);
+      if (!activated.ok) {
+        bootVault();
+        return { ok: false as const, error: activated.error };
+      }
     }
 
     for (const suffix of ["index.db", "index.db-wal", "index.db-shm"]) {
@@ -314,10 +308,11 @@ app.whenReady().then(() => {
       }
     }
 
-    maposConfig = loadOrInitMaposConfig(appStateDir);
-    vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot);
+    // Re-boot only when a vault remains; otherwise stay torn down so the reload lands
+    // on onboarding rather than booting against a non-existent vault.
+    if (fallback) {
+      bootVault();
+    }
 
     mainWindow.webContents.reload();
 

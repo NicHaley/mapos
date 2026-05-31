@@ -180,7 +180,11 @@ for await (const raw of rl) {
     cls: c.cls,
     importance: importance(c.base, pop),
     population: pop,
-    admin_context: region, // coarse for now; enrich via admins.sqlite (Phase 2)
+    // Don't index the bare region name: it's identical on every row, so FTS5 drives
+    // its IDF to ~0 (bm25 → 0) and pollutes every region-name query. The client shows
+    // the pack's region as the secondary label instead. Enrich with a real per-feature
+    // admin hierarchy via admins.sqlite (Phase 2) — that DOES belong in the index.
+    admin_context: null,
     lng: point[0],
     lat: point[1],
   });

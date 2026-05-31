@@ -79,7 +79,7 @@ function rowToResult(row: FeatureRow, region: string): GeocodeResult {
     lat: row.lat,
     lng: row.lng,
     primaryLabel: row.name,
-    secondaryLabel: row.admin_context ?? ""
+    secondaryLabel: row.admin_context || region
   };
   if (row.class) result.categories = [row.class];
   return result;
@@ -96,10 +96,16 @@ async function forward(
   const regions = listInstalledRegions(ep.url).filter((r) => r.geocode);
   if (regions.length === 0) return [];
 
+  // Exact-name boost: the normalised whole query (same tokenisation as buildMatch,
+  // joined by spaces). When it equals a feature's name, that feature gets a large score
+  // bonus so the canonical place ("Berlin") beats partial-token matches ("Berliner
+  // Straße") — including across packs, where raw bm25 scores aren't comparable.
+  const exact = (req.query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
+
   // Viewport bias: when a bbox is supplied, nudge ranking toward its centre with a
   // zoom-normalised, saturating squared-degree distance term (cheap, monotonic, only
   // min() — see the tuning constants above).
-  const params: Record<string, unknown> = { match, limit };
+  const params: Record<string, unknown> = { match, limit, exact };
   let distanceTerm = "";
   if (req.bbox) {
     const { west, south, east, north } = req.bbox;
@@ -118,7 +124,9 @@ async function forward(
   // lower is better. Each DB returns its own top `limit`, which is enough to
   // contain the global top `limit`.
   const sql = `SELECT f.id, f.name, f.class, f.kind, f.admin_context, f.lat, f.lng,
-       (bm25(features_fts) - f.importance * 4.0 ${distanceTerm}) AS score
+       (bm25(features_fts) - f.importance * 4.0
+         - (CASE WHEN lower(f.name) = @exact THEN 8.0 ELSE 0 END)
+         ${distanceTerm}) AS score
      FROM features_fts
      JOIN features f ON f.id = features_fts.rowid
      WHERE features_fts MATCH @match

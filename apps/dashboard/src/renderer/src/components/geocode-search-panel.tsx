@@ -1,6 +1,7 @@
 import { FileTextIcon, Loader2Icon, MapPinIcon, MessageSquareIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
 import type { ConversationMeta, PlaceRecord } from "@shared/types";
@@ -101,6 +102,7 @@ export function GeocodeSearchPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { getViewportBBox } = useMapViewport();
 
   const debouncedTrim = trimQuery(debouncedQuery);
   const queryTrim = trimQuery(query);
@@ -133,7 +135,9 @@ export function GeocodeSearchPanel({
     setLoading(true);
     setError(null);
     const ac = new AbortController();
-    void searchGeocode(debouncedTrim, { signal: ac.signal, lang: pickLang() })
+    // Read the viewport at fire time so the bias tracks the latest pan/zoom.
+    const bbox = getViewportBBox() ?? undefined;
+    void searchGeocode(debouncedTrim, { signal: ac.signal, lang: pickLang(), bbox })
       .then((r) => {
         setResults(r);
       })
@@ -149,7 +153,7 @@ export function GeocodeSearchPanel({
     return () => {
       ac.abort();
     };
-  }, [debouncedTrim, active]);
+  }, [debouncedTrim, active, getViewportBBox]);
 
   // Local matches filter instantly against the current (un-debounced) query.
   const needle = queryTrim.toLowerCase();

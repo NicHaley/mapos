@@ -23,6 +23,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "@renderer/lib/pmtiles-protocol";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { useMapViewport } from "@renderer/contexts/map-viewport";
 import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
@@ -386,6 +387,7 @@ const MapView = forwardRef<
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
+  const { setViewportBBox } = useMapViewport();
   const mapStyle = useDarkMapStyle();
   const isDark = useDarkMode();
   const foregroundColor = isDark ? "#fafafa" : "#252525";
@@ -635,11 +637,18 @@ const MapView = forwardRef<
     if (!b) return;
     const center = map.getCenter();
     const zoom = map.getZoom();
+    const north = b.getNorth();
+    const south = b.getSouth();
+    const east = b.getEast();
+    const west = b.getWest();
+    // Publish to the renderer-side context so geocoding search can bias toward
+    // what's on screen (read on demand at search time — no re-render on pan).
+    setViewportBBox({ north, south, east, west });
     window.api.map.sendViewport({
-      north: b.getNorth(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      west: b.getWest(),
+      north,
+      south,
+      east,
+      west,
       centerLat: center.lat,
       centerLng: center.lng,
       zoom

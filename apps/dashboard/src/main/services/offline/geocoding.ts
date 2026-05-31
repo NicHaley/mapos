@@ -23,6 +23,16 @@ import { listInstalledRegions, regionsContaining } from "./installed-regions";
 const DEFAULT_LIMIT = 8;
 const REVERSE_WINDOW_DEG = 0.05; // ~5km bbox prefilter for nearest-neighbour
 
+// Viewport-bias tuning (added to the rank score, where lower is better). The
+// distance penalty is normalised by the viewport's squared half-span, so a feature
+// at the viewport edge is penalised by ~WEIGHT regardless of zoom — a fixed
+// multiplier on raw degrees would swamp bm25 when zoomed out and vanish when zoomed
+// in. WEIGHT is sized against the importance term (`importance * 4`). The penalty
+// saturates at CAP beyond the viewport so a far, strong text match can still win
+// (e.g. searching a place name on the far side of the world).
+const VIEWPORT_BIAS_WEIGHT = 4.0;
+const VIEWPORT_BIAS_CAP = 8.0;
+
 type FeatureRow = {
   id: number;
   name: string;
@@ -86,16 +96,22 @@ async function forward(
   const regions = listInstalledRegions(ep.url).filter((r) => r.geocode);
   if (regions.length === 0) return [];
 
-  // Viewport bias: when a bbox is supplied, nudge ranking toward its centre with
-  // a squared-degree distance term (cheap, monotonic locally, no math funcs).
+  // Viewport bias: when a bbox is supplied, nudge ranking toward its centre with a
+  // zoom-normalised, saturating squared-degree distance term (cheap, monotonic, only
+  // min() — see the tuning constants above).
   const params: Record<string, unknown> = { match, limit };
   let distanceTerm = "";
   if (req.bbox) {
     const { west, south, east, north } = req.bbox;
+    const halfLat = (north - south) / 2;
+    const halfLng = (east - west) / 2;
+    const span2 = halfLat * halfLat + halfLng * halfLng;
     params.clng = (west + east) / 2;
     params.clat = (south + north) / 2;
+    params.bias = span2 > 0 ? VIEWPORT_BIAS_WEIGHT / span2 : 0;
+    params.biasCap = VIEWPORT_BIAS_CAP;
     distanceTerm =
-      "+ ((f.lat - @clat)*(f.lat - @clat) + (f.lng - @clng)*(f.lng - @clng)) * 30.0";
+      "+ min(((f.lat - @clat)*(f.lat - @clat) + (f.lng - @clng)*(f.lng - @clng)) * @bias, @biasCap)";
   }
 
   // `score` is selected (not just ordered by) so we can merge-rank across packs —

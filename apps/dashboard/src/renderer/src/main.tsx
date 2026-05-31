@@ -21,6 +21,7 @@ import { TooltipProvider } from "@mapos/ui/components/tooltip";
 import { useEffect, useState } from "react";
 import App from "./app";
 import { OnboardingScreen } from "./components/onboarding/onboarding-screen";
+import { MapViewportProvider } from "./contexts/map-viewport";
 
 function Root(): React.JSX.Element | null {
   const [pending, setPending] = useState<boolean | null>(null);
@@ -31,7 +32,11 @@ function Root(): React.JSX.Element | null {
 
   if (pending === null) return null;
   if (pending) return <OnboardingScreen />;
-  return <App />;
+  return (
+    <MapViewportProvider>
+      <App />
+    </MapViewportProvider>
+  );
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(

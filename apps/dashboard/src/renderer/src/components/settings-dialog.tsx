@@ -324,9 +324,9 @@ export function SettingsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden bg-sidebar/80 backdrop-blur-md">
+        <DialogContent className="sm:max-w-[720px] p-0 gap-0 overflow-hidden bg-sidebar/80 backdrop-blur-md">
           <SidebarProvider
-            className="h-[460px] min-h-0 overflow-hidden"
+            className="h-[620px] min-h-0 overflow-hidden"
             style={{ "--sidebar-width": "180px" } as React.CSSProperties}
           >
             <Sidebar collapsible="none" className="border-r bg-transparent">
@@ -353,7 +353,7 @@ export function SettingsDialog({
                     regions (dialog overlay + inner sidebar + app chrome) and Chromium
                     occasionally drops a composite frame, briefly blanking the whole DOM. */}
                 <div
-                  className="h-full overflow-y-auto bg-transparent p-6 pr-10"
+                  className="h-full overflow-y-auto bg-transparent p-6"
                   style={{ transform: "translateZ(0)" }}
                 >
                   {page === "general" && (

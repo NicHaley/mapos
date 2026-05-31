@@ -421,6 +421,13 @@ const api = {
       return () => {
         ipcRenderer.off("regions:download-progress", listener);
       };
+    },
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on("regions:changed", listener);
+      return () => {
+        ipcRenderer.off("regions:changed", listener);
+      };
     }
   }
 };

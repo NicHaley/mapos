@@ -43,13 +43,21 @@ export type { PlaceRecord };
 function useDarkMapStyle(): string | null {
   const isDark = useDarkMode();
   const [styleUrl, setStyleUrl] = useState<string | null>(null);
+  // Bumped when packs are added/removed. Re-resolves the style URL and — since the
+  // offline style URL (mapos-region://_all/style.json) is stable while its contents
+  // change — cache-busts it so react-map-gl/MapLibre actually reload the style.
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => window.api.regions.onChanged(() => setRevision((r) => r + 1)), []);
 
   useEffect(() => {
     let cancelled = false;
     window.api.services
       .tilesStyleUrl({ isDark })
       .then((url) => {
-        if (!cancelled) setStyleUrl(url);
+        if (cancelled) return;
+        const busted = revision > 0 ? `${url}${url.includes("?") ? "&" : "?"}rev=${revision}` : url;
+        setStyleUrl(busted);
       })
       .catch((err) => {
         console.error("[map-view] failed to resolve tile style URL", err);
@@ -58,7 +66,7 @@ function useDarkMapStyle(): string | null {
     return () => {
       cancelled = true;
     };
-  }, [isDark]);
+  }, [isDark, revision]);
 
   return styleUrl;
 }

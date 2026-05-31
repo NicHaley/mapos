@@ -39,6 +39,15 @@ function regionsDirFor(appStateDir: string): string {
 }
 
 /**
+ * Tell the renderer the set of installed packs changed, so the map can reload its
+ * offline style (the style URL is stable but its contents — sources/layers — grew
+ * or shrank) and any region UI can refresh.
+ */
+function broadcastChanged(mainWindow: BrowserWindow): void {
+  if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:changed");
+}
+
+/**
  * Fetch the region catalog from R2. Cached briefly so opening the Offline tab and
  * re-rendering doesn't re-hit the network on every keystroke. `force` bypasses it.
  */
@@ -203,8 +212,10 @@ export async function downloadRegion(
     writeFileSync(join(dir, PACK_META_FILENAME), `${JSON.stringify(meta, null, 2)}\n`, "utf-8");
 
     // A freshly downloaded pack is immediately live — drop cached service handles
-    // so the next request resolves against the new pack.
+    // so the next request resolves against the new pack, and tell the renderer to
+    // reload the map style so the new tiles appear without an app restart.
     invalidateServiceClient();
+    broadcastChanged(mainWindow);
     send({ region, receivedBytes: totalBytes, totalBytes, phase: "done" });
   } catch (e) {
     cleanupParts(dir);
@@ -257,5 +268,6 @@ export function registerRegionPacksIpc(mainWindow: BrowserWindow, appStateDir: s
   });
   ipcMain.handle("regions:delete", (_e, region: string) => {
     deleteRegion(appStateDir, region);
+    broadcastChanged(mainWindow);
   });
 }

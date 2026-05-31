@@ -269,6 +269,7 @@ declare global {
         cancelDownload: (region: string) => Promise<void>;
         delete: (region: string) => Promise<void>;
         onProgress: (cb: (data: RegionDownloadProgress) => void) => () => void;
+        onChanged: (cb: () => void) => () => void;
       };
     };
   }

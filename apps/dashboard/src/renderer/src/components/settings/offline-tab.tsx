@@ -1,10 +1,19 @@
 import { Button } from "@mapos/ui/components/button";
-import { Progress } from "@mapos/ui/components/progress";
+import { CircularProgress } from "@mapos/ui/components/circular-progress";
+import { Input } from "@mapos/ui/components/input";
 import { Spinner } from "@mapos/ui/components/spinner";
 import { cn } from "@mapos/ui/lib/utils";
-import { CheckIcon, DownloadIcon, RefreshCwIcon, Trash2Icon, XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
-import { type RegionRow, useRegionPacks } from "../../hooks/use-region-packs";
+import {
+  DownloadIcon,
+  GlobeIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Trash2Icon,
+  XIcon
+} from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
+import { GroupHeader } from "./ai/group-header";
 import { type GlobeMarker, RegionGlobe } from "./region-globe";
 
 function formatBytes(n: number): string {
@@ -29,18 +38,29 @@ function markerSize(r: RegionRow): number {
   return 0.055;
 }
 
-function StatusDot({ row }: { row: RegionRow }) {
-  const cls =
-    row.status === "error"
-      ? "bg-destructive"
-      : row.status === "downloading" || row.status === "verifying"
-        ? "bg-amber-500 animate-pulse"
-        : row.status === "update-available"
-          ? "bg-amber-500"
-          : row.status === "installed"
-            ? "bg-emerald-500"
-            : "bg-muted-foreground/40";
-  return <span className={cn("size-2 shrink-0 rounded-full", cls)} />;
+const isDownloaded = (r: RegionRow): boolean =>
+  r.status === "installed" || r.status === "update-available";
+
+// Status-tinted badge — mirrors the Models page's ProviderBadge so the two
+// settings pages read as siblings. Color carries the status (emerald =
+// downloaded, amber = in progress, red = error, muted = available).
+function RegionBadge({ status }: { status: RegionStatus }) {
+  const styles =
+    status === "installed" || status === "update-available"
+      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      : status === "error"
+        ? "bg-destructive/15 text-destructive"
+        : status === "downloading" || status === "verifying"
+          ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+          : "bg-muted text-muted-foreground";
+  return (
+    <span
+      aria-hidden
+      className={cn("flex size-7 shrink-0 items-center justify-center rounded-md", styles)}
+    >
+      <GlobeIcon className="size-4" />
+    </span>
+  );
 }
 
 function RegionRowItem({
@@ -52,38 +72,49 @@ function RegionRowItem({
   packs: ReturnType<typeof useRegionPacks>;
   onHover: (center: [number, number] | null) => void;
 }) {
+  const downloading = row.status === "downloading" || row.status === "verifying";
   const percent =
     row.progress && row.progress.total > 0
       ? Math.min(100, Math.round((row.progress.received / row.progress.total) * 100))
       : 0;
 
+  const meta = (() => {
+    if (downloading) {
+      return row.status === "verifying"
+        ? "Verifying…"
+        : `${formatBytes(row.progress?.received ?? 0)} / ${formatBytes(row.progress?.total ?? row.latestBytes)}`;
+    }
+    if (row.status === "error") return row.error ?? "Download failed";
+    if (row.status === "installed") return `${formatBytes(row.installed?.totalBytes ?? 0)} on disk`;
+    if (row.status === "update-available") return "Update available";
+    return formatBytes(row.latestBytes);
+  })();
+
   return (
     <div
-      className="flex flex-col gap-1.5 rounded-lg px-2 py-2 transition-colors hover:bg-accent/50"
+      className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
       onMouseEnter={() => row.center && onHover(row.center)}
       onMouseLeave={() => onHover(null)}
     >
-      <div className="flex items-center gap-2.5">
-        <StatusDot row={row} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.name}</span>
+      <RegionBadge status={row.status} />
+      <div className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{row.name}</span>
+        <span
+          className={cn(
+            "mt-0.5 block truncate text-xs tabular-nums",
+            row.status === "error" ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          {meta}
+        </span>
+      </div>
 
-        {row.status === "installed" && (
-          <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-            <CheckIcon className="size-3.5" />
-            Downloaded
-          </span>
-        )}
-
+      <div className="flex shrink-0 items-center gap-2">
         {row.status === "available" && (
-          <>
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {formatBytes(row.latestBytes)}
-            </span>
-            <Button size="sm" variant="outline" onClick={() => packs.download(row.slug)}>
-              <DownloadIcon className="size-3.5" />
-              Get
-            </Button>
-          </>
+          <Button size="sm" variant="outline" onClick={() => packs.download(row.slug)}>
+            <DownloadIcon className="size-3.5" />
+            Get
+          </Button>
         )}
 
         {row.status === "update-available" && (
@@ -99,18 +130,21 @@ function RegionRowItem({
           </Button>
         )}
 
-        {(row.status === "downloading" || row.status === "verifying") && (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Cancel download"
-            onClick={() => packs.cancel(row.slug)}
-          >
-            <XIcon className="size-4" />
-          </Button>
+        {downloading && (
+          <>
+            <CircularProgress percent={percent} className="text-amber-500" />
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Cancel download"
+              onClick={() => packs.cancel(row.slug)}
+            >
+              <XIcon className="size-4" />
+            </Button>
+          </>
         )}
 
-        {(row.status === "installed" || row.status === "update-available") && (
+        {isDownloaded(row) && (
           <Button
             size="icon-sm"
             variant="ghost"
@@ -121,21 +155,24 @@ function RegionRowItem({
           </Button>
         )}
       </div>
+    </div>
+  );
+}
 
-      {(row.status === "downloading" || row.status === "verifying") && (
-        <div className="flex items-center gap-2 pl-[18px]">
-          <Progress value={percent} className="flex-1" />
-          <span className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-            {row.status === "verifying"
-              ? "Verifying…"
-              : `${formatBytes(row.progress?.received ?? 0)} / ${formatBytes(row.progress?.total ?? row.latestBytes)}`}
-          </span>
-        </div>
-      )}
-
-      {row.status === "error" && row.error && (
-        <p className="pl-[18px] text-xs text-destructive">{row.error}</p>
-      )}
+function RegionList({
+  rows,
+  packs,
+  onHover
+}: {
+  rows: RegionRow[];
+  packs: ReturnType<typeof useRegionPacks>;
+  onHover: (center: [number, number] | null) => void;
+}) {
+  return (
+    <div className="divide-y divide-border overflow-hidden rounded-lg border">
+      {rows.map((row) => (
+        <RegionRowItem key={row.slug} row={row} packs={packs} onHover={onHover} />
+      ))}
     </div>
   );
 }
@@ -146,26 +183,59 @@ export function OfflineTab() {
 
   const markers = useMemo<GlobeMarker[]>(
     () =>
-      packs.regions
-        .filter((r) => r.center)
-        .map((r) => ({
-          id: r.slug,
-          // cobe wants [lat, lng]; our center is [lng, lat].
-          location: [r.center![1], r.center![0]] as [number, number],
-          size: markerSize(r),
-          color: markerColor(r)
-        })),
+      packs.regions.flatMap((r) =>
+        r.center
+          ? [
+              {
+                id: r.slug,
+                // cobe wants [lat, lng]; our center is [lng, lat].
+                location: [r.center[1], r.center[0]] as [number, number],
+                size: markerSize(r),
+                color: markerColor(r)
+              }
+            ]
+          : []
+      ),
     [packs.regions]
   );
 
-  const installedCount = packs.regions.filter(
-    (r) => r.status === "installed" || r.status === "update-available"
-  ).length;
+  // Filter by region name OR its country (group), then split: downloaded regions
+  // float to a dedicated section at the top so they stay easy to find no matter how
+  // long the list grows; the rest keep their manifest grouping, empty groups dropped.
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  const groupNameByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of packs.groups) m.set(g.key, g.name);
+    return m;
+  }, [packs.groups]);
+
+  const matches = useCallback(
+    (r: RegionRow): boolean =>
+      !q ||
+      r.name.toLowerCase().includes(q) ||
+      (r.group ? (groupNameByKey.get(r.group)?.toLowerCase().includes(q) ?? false) : false),
+    [q, groupNameByKey]
+  );
+
+  const downloaded = useMemo(
+    () => packs.regions.filter((r) => isDownloaded(r) && matches(r)),
+    [packs.regions, matches]
+  );
+  const availableGroups = useMemo(
+    () =>
+      packs.groups
+        .map((g) => ({ ...g, rows: g.rows.filter((r) => !isDownloaded(r) && matches(r)) }))
+        .filter((g) => g.rows.length > 0),
+    [packs.groups, matches]
+  );
+  const nothing = downloaded.length === 0 && availableGroups.length === 0;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex h-full flex-col gap-4">
       <div>
-        <h3 className="text-base font-medium">Offline regions</h3>
+        <h2 className="text-base font-medium">Offline regions</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Download a region to use the map, search, and routing without a connection.
         </p>
@@ -183,40 +253,61 @@ export function OfflineTab() {
             </Button>
           </div>
         </div>
+      ) : packs.loading && packs.groups.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+          <Spinner className="size-4" />
+          Loading regions…
+        </div>
       ) : (
-        <div className="flex gap-5">
-          <div className="sticky top-0 shrink-0 self-start pt-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {/* Globe + search stay pinned; only the list below them scrolls, so
+              rows slide up and clip at the search bar's lower edge. The globe
+              centers itself (block + margin-inline:auto) within this full-width row. */}
+          <div className="w-full shrink-0">
             <RegionGlobe markers={markers} focus={focus} size={200} />
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-col gap-5">
-            {packs.loading && packs.groups.length === 0 ? (
-              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                <Spinner className="size-4" />
-                Loading regions…
-              </div>
+          <div className="relative shrink-0">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by region or country…"
+              className="pl-8"
+            />
+          </div>
+
+          {/* Only this region scrolls. -mr-2/pr-2 parks the scrollbar in the gutter. */}
+          <div className="-mr-2 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+            {nothing ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {q ? `No regions match “${query}”.` : "No regions available."}
+              </p>
             ) : (
-              packs.groups.map((group) => (
-                <div key={group.key} className="flex flex-col gap-0.5">
-                  <h4 className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {group.name}
-                  </h4>
-                  {group.rows.map((row) => (
-                    <RegionRowItem key={row.slug} row={row} packs={packs} onHover={setFocus} />
-                  ))}
-                </div>
-              ))
+              <>
+                {downloaded.length > 0 && (
+                  <section className="flex flex-col gap-2">
+                    <GroupHeader
+                      label="Downloaded"
+                      action={
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {formatBytes(packs.totalInstalledBytes)} on disk
+                        </span>
+                      }
+                    />
+                    <RegionList rows={downloaded} packs={packs} onHover={setFocus} />
+                  </section>
+                )}
+
+                {availableGroups.map((group) => (
+                  <section key={group.key} className="flex flex-col gap-2">
+                    <GroupHeader label={group.name} />
+                    <RegionList rows={group.rows} packs={packs} onHover={setFocus} />
+                  </section>
+                ))}
+              </>
             )}
           </div>
-        </div>
-      )}
-
-      {installedCount > 0 && (
-        <div className="mt-1 flex items-center justify-between border-t px-2 pt-3 text-xs text-muted-foreground">
-          <span>
-            {installedCount} region{installedCount === 1 ? "" : "s"} downloaded
-          </span>
-          <span className="tabular-nums">{formatBytes(packs.totalInstalledBytes)} on disk</span>
         </div>
       )}
     </div>

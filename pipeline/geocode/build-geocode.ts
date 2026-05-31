@@ -5,9 +5,13 @@
  *
  * libosmium (via the `osmium` CLI) does the heavy lifting — node-location caching
  * and geometry assembly — and streams GeoJSONSeq on stdin. This script only
- * classifies, reduces geometry to a representative point, and loads SQLite using
- * the SAME better-sqlite3 the desktop/mobile client reads with (so FTS5 + R-tree
- * behaviour is identical at build and query time).
+ * classifies, reduces geometry to a representative point, and loads SQLite.
+ *
+ * The writer is Node's built-in `node:sqlite` (DatabaseSync) rather than
+ * better-sqlite3: the pipeline runs under plain Node, while the desktop app rebuilds
+ * better-sqlite3 for Electron's ABI — sharing one native build in the pnpm workspace
+ * made them clobber each other. The output is a plain SQLite file (FTS5 + R-tree), so
+ * the desktop/mobile client still reads it with better-sqlite3 unchanged.
  *
  * Phase 1 scope: named places, POIs, and streets. House-number addresses are the
  * Phase-3 cliff and are out of scope here (the online pro geocoder covers those).
@@ -17,11 +21,11 @@
  *     | tsx build-geocode.ts OUTPUT.sqlite --region "Monaco"
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
 import type { Feature, Geometry, Position } from "geojson";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -124,10 +128,15 @@ if (!output) {
 const regionIdx = rest.indexOf("--region");
 const region = regionIdx >= 0 ? (rest[regionIdx + 1] ?? "") : "";
 
-const db = new Database(output);
+// Always rebuild from scratch — opening an existing file would append (duplicate
+// `features` rows, then collide on `features_rtree.id`) since the schema uses
+// CREATE TABLE IF NOT EXISTS. Drop any prior build (and stray WAL/SHM) first.
+for (const suffix of ["", "-wal", "-shm", "-journal"]) rmSync(`${output}${suffix}`, { force: true });
+
+const db = new DatabaseSync(output);
 // Bulk-load pragmas: this file is rebuilt from scratch, durability doesn't matter.
-db.pragma("journal_mode = OFF");
-db.pragma("synchronous = OFF");
+db.exec("PRAGMA journal_mode = OFF");
+db.exec("PRAGMA synchronous = OFF");
 db.exec(readFileSync(join(__dirname, "schema.sql"), "utf8"));
 
 const insert = db.prepare(

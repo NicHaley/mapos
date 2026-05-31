@@ -1,14 +1,13 @@
 /**
- * Renderer-side search helper. Routes through the main-process dispatcher via
- * IPC so the active services mode (community / cloud / self-hosted) governs
- * which provider actually serves the request. The function name remains
- * `searchPhoton` for backward compatibility with existing consumers — the
- * underlying provider is no longer guaranteed to be Photon.
+ * Renderer-side geocoding search helper. Routes through the main-process dispatcher
+ * via IPC so the active services mode (local / cloud) governs which backend actually
+ * serves the request — offline region packs in local mode, the MapOS server in cloud
+ * mode. The renderer is backend-agnostic.
  */
 
 import type { GeocodeResult } from "@mapos/contracts";
 
-export type PhotonSearchResult = GeocodeResult;
+export type GeocodeSearchResult = GeocodeResult;
 
 type SearchOptions = {
   /** Abort detection is client-side: in-flight main-process requests run to completion, but the resulting promise rejects with AbortError so stale results are dropped. */
@@ -16,7 +15,7 @@ type SearchOptions = {
   lang?: string;
 };
 
-export async function searchPhoton(
+export async function searchGeocode(
   query: string,
   options: SearchOptions = {}
 ): Promise<GeocodeResult[]> {

@@ -1,10 +1,8 @@
 import { maposV1Adapter } from "./mapos_v1";
 import { photonAdapter } from "./photon";
-import { protomapsAdapter } from "./protomaps";
 import { tavilyAdapter } from "./tavily";
 import { valhallaAdapter } from "./valhalla";
 
-export { defaultEndpoints } from "./defaults";
 export {
   fetchJson,
   MapServiceError,
@@ -14,7 +12,6 @@ export type { FetchJsonOptions } from "./http";
 export { maposV1Adapter } from "./mapos_v1";
 export { MaposApiError } from "./mapos_v1/client";
 export { photonAdapter } from "./photon";
-export { protomapsAdapter } from "./protomaps";
 export { tavilyAdapter } from "./tavily";
 export type {
   Adapter,
@@ -44,15 +41,15 @@ export type {
 } from "./valhalla";
 
 /**
- * Registry of all built-in adapters. `tavily` provides web search server-side
- * only — it needs a key the desktop can't ship, so it's invoked behind the MapOS
- * server's `/v1/web-search` route rather than in community mode. `searxng` is
- * still declared as an `AdapterId` in `@mapos/contracts` but has no implementation.
+ * Registry of all built-in adapters. These back the MapOS server (`apps/server`):
+ * `photon` geocodes, `valhalla` routes, and `tavily` serves web search behind the
+ * server's `/v1/web-search` route. The desktop client talks to the server through
+ * `mapos_v1`; it never invokes the upstream adapters directly. `searxng` is still
+ * declared as an `AdapterId` in `@mapos/contracts` but has no implementation.
  */
 export const adapters = {
   photon: photonAdapter,
   valhalla: valhallaAdapter,
-  protomaps: protomapsAdapter,
   mapos_v1: maposV1Adapter,
   tavily: tavilyAdapter
 } as const;

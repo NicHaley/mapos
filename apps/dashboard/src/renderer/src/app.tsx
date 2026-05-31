@@ -3,7 +3,7 @@ import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import type { MapOverlayPayload } from "@shared/types";
+import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
@@ -16,7 +16,7 @@ import MapView, {
   type SelectionPulseAnchor
 } from "./components/map-view";
 import { NavTabs } from "./components/nav-tabs";
-import { PhotonSearchPopover } from "./components/photon-search-popover";
+import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
@@ -32,7 +32,7 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
-import type { PhotonSearchResult } from "./lib/photon";
+import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
 
@@ -102,13 +102,13 @@ function representativeLngLatFromGeometryJson(geometryJson: string): [number, nu
   return null;
 }
 
-function placeFromPhotonSearchResult(r: PhotonSearchResult): PlaceRecord {
+function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
   const geometry = JSON.stringify({
     type: "Point",
     coordinates: [r.lng, r.lat]
   });
   return {
-    filePath: `photon-search:${r.id}`,
+    filePath: `geocode-search:${r.id}`,
     title: r.primaryLabel,
     type: "Search",
     geometry,
@@ -128,7 +128,7 @@ function parentFolderOfVaultFile(filePath: string): string {
 /** Path looks like a real vault file (rules out preview/overlay/synthetic identifiers). */
 function isVaultFilePath(fp: string | undefined | null): fp is string {
   if (!fp) return false;
-  if (fp.startsWith("photon-search:")) return false;
+  if (fp.startsWith("geocode-search:")) return false;
   if (fp.startsWith("map-overlay:")) return false;
   if (fp.startsWith("geojson-feature:")) return false;
   return true;
@@ -250,7 +250,7 @@ function App(): React.JSX.Element {
       setLastVaultFilePath(null);
       return;
     }
-    if (!p.startsWith("photon-search:") && !p.startsWith("map-overlay:")) {
+    if (!p.startsWith("geocode-search:") && !p.startsWith("map-overlay:")) {
       setLastVaultFilePath(p);
     }
   }, [selectedPlace]);
@@ -746,17 +746,38 @@ function App(): React.JSX.Element {
     [selectedFolder, getMapPadding]
   );
 
-  const handlePhotonSearchResult = useCallback(
-    (r: PhotonSearchResult) => {
+  const handleGeocodeSearchResult = useCallback(
+    (r: GeocodeSearchResult) => {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
-      const place = placeFromPhotonSearchResult(r);
+      const place = placeFromGeocodeSearchResult(r);
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
       mapRef.current?.fitToPlace(place, getMapPadding(false));
     },
     [getMapPadding]
+  );
+
+  // Flattened view of the indexed vault for the search popover's "Files" group.
+  const indexedFiles = useMemo(() => Array.from(placesByPath.values()), [placesByPath]);
+
+  const handleSearchSelectFile = useCallback(
+    (file: PlaceRecord) => {
+      if (file.type === "GeoJsonLayer") {
+        void handleSelectGeoJson(file.filePath);
+        return;
+      }
+      handleSelectPlaceFromSidebar(file);
+    },
+    [handleSelectGeoJson, handleSelectPlaceFromSidebar]
+  );
+
+  const handleSearchSelectConversation = useCallback(
+    (conversation: ConversationMeta) => {
+      handleSwitchChatConv(conversation.id, conversation.title || conversation.preview || "Chat");
+    },
+    [handleSwitchChatConv]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -915,7 +936,7 @@ function App(): React.JSX.Element {
     if (entry?.kind !== "place") return undefined;
     const fp = entry.place.filePath;
     // Sidebar matches real vault paths only; preview ids are not files on disk.
-    if (fp.startsWith("photon-search:") || fp.startsWith("map-overlay:")) return undefined;
+    if (fp.startsWith("geocode-search:") || fp.startsWith("map-overlay:")) return undefined;
     return fp;
   }, [nav]);
 
@@ -976,7 +997,13 @@ function App(): React.JSX.Element {
           </TooltipContent>
         </Tooltip>
         <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <PhotonSearchPopover onSelectResult={handlePhotonSearchResult} />
+          <GeocodeSearchPopover
+            onSelectResult={handleGeocodeSearchResult}
+            files={indexedFiles}
+            onSelectFile={handleSearchSelectFile}
+            conversations={conversations}
+            onSelectConversation={handleSearchSelectConversation}
+          />
         </div>
         <div className="flex-1 min-w-0 flex items-center h-full min-h-0">
           <NavTabs

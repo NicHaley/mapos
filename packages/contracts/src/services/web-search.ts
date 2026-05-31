@@ -1,7 +1,8 @@
 /**
- * Web search contract. There is no community adapter — every plausible provider
- * requires a key that can't ship in the desktop — so web search runs server-side
- * only. The `tavily` adapter in `@mapos/service-adapters` satisfies this contract,
+ * Web search contract. There is no offline/local provider — every plausible
+ * backend requires a key that can't ship in the desktop — so web search runs
+ * server-side only (cloud mode). The `tavily` adapter in `@mapos/service-adapters`
+ * satisfies this contract,
  * and the MapOS server exposes it at `POST /v1/web-search` (the server holds the
  * key as a secret). These schemas keep the server, adapter, and any future client
  * agreed on the wire shape.

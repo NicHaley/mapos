@@ -2,15 +2,15 @@ import type { ServicesConfig } from "./mapos-config";
 
 /**
  * Renderer-side Content-Security-Policy. The `connect-src` and `img-src` lists
- * depend on the active services mode — community talks to upstream OSS
- * providers directly; self-hosted and (future) mapos_cloud route through a
- * MapOS server, and the configured origin needs to be in the policy.
+ * depend on the active services mode — local mode is fully offline and needs no
+ * remote origins; cloud mode routes through a MapOS server (a custom `baseUrl` or
+ * the canonical api.mapos.md), whose origin needs to be in the policy.
  *
  * The CSP is rebuilt per-request, so a mode change via a config write + client
  * invalidation takes effect on the next page load with no app restart.
  */
 
-let activeServices: ServicesConfig = { mode: "community" };
+let activeServices: ServicesConfig = { mode: "local" };
 
 export function setActiveServicesForCsp(services: ServicesConfig): void {
   activeServices = services;
@@ -24,14 +24,6 @@ export function setActiveServicesForCsp(services: ServicesConfig): void {
  * through the server would add cost and complexity without hiding anything.
  */
 const ALWAYS_ALLOWED_CDN_ORIGINS = ["https://protomaps.github.io"];
-
-const COMMUNITY_CONNECT_ORIGINS = [
-  "https://api.protomaps.com",
-  "https://photon.komoot.io",
-  "https://valhalla1.openstreetmap.de"
-];
-
-const COMMUNITY_IMG_ORIGINS = ["https://api.protomaps.com"];
 
 const CLOUD_ORIGIN = "https://api.mapos.md";
 
@@ -62,18 +54,12 @@ export function buildCsp(): string {
     ...ALWAYS_ALLOWED_CDN_ORIGINS
   ]);
 
-  if (activeServices.mode === "community") {
-    for (const o of COMMUNITY_CONNECT_ORIGINS) connectSrc.add(o);
-    for (const o of COMMUNITY_IMG_ORIGINS) imgSrc.add(o);
-  } else if (activeServices.mode === "self_hosted") {
-    const origin = originOf(activeServices.baseUrl);
-    if (origin) {
-      connectSrc.add(origin);
-      imgSrc.add(origin);
-    }
-  } else if (activeServices.mode === "mapos_cloud") {
-    connectSrc.add(CLOUD_ORIGIN);
-    imgSrc.add(CLOUD_ORIGIN);
+  // Local mode is fully offline — only the always-allowed schemes/CDN above apply.
+  // Cloud mode reaches a server: a custom baseUrl if set, else canonical MapOS Cloud.
+  if (activeServices.mode === "cloud") {
+    const origin = (activeServices.baseUrl && originOf(activeServices.baseUrl)) || CLOUD_ORIGIN;
+    connectSrc.add(origin);
+    imgSrc.add(origin);
   }
 
   return [

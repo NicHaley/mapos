@@ -28,7 +28,7 @@ import { cn } from "@mapos/ui/lib/utils";
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
-import type { PhotonSearchResult } from "@renderer/lib/photon";
+import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -48,7 +48,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
-import { PhotonSearchPanel } from "./photon-search-panel";
+import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { PropertiesPanel } from "./properties-panel";
 
 function formatPointLocationShort(geometryJson: string | undefined): string {
@@ -475,7 +475,7 @@ export function PlaceCard({
   }, []);
 
   const handleAddLocationSearchSelect = useCallback(
-    async (r: PhotonSearchResult) => {
+    async (r: GeocodeSearchResult) => {
       if (!onCommitPointLocation) return;
       const ok = await onCommitPointLocation(currentFilePath, r.lat, r.lng);
       if (ok) setAddLocationOpen(false);
@@ -663,7 +663,7 @@ export function PlaceCard({
                   <PopoverTitle className="sr-only">
                     {place.geometry ? "Change location" : "Add a location"}
                   </PopoverTitle>
-                  <PhotonSearchPanel
+                  <GeocodeSearchPanel
                     active={addLocationOpen}
                     placeholder="Search for a location"
                     onSelectResult={handleAddLocationSearchSelect}

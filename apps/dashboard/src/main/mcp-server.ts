@@ -65,8 +65,8 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
 
 export function buildMaposSystemPrompt(vaultRoot: string): string {
   // Only document web search when the active services mode can actually serve it
-  // (self-hosted). In community mode there's no provider, and the tool is omitted
-  // from the tool set entirely (see buildMaposCustomTools), so don't advertise it.
+  // (cloud). In local mode there's no provider, and the tool is omitted from the
+  // tool set entirely (see buildMaposCustomTools), so don't advertise it.
   const webSearchSection = getServiceClient().isAvailable("webSearch")
     ? `## Web search
 
@@ -108,7 +108,7 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
 - \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry. Do not try to retrieve, decode, or downsample route geometry yourself.
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
-- \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) against the community Valhalla instance.
+- \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
 After calling any of these, display the results with \`render_overlay_on_map\`:
@@ -766,8 +766,8 @@ export function buildMaposCustomTools(
     }
   });
 
-  // Web search has no community provider — only expose the tool when the active
-  // services mode can actually serve it (self-hosted MapOS server). Omitting it
+  // Web search is server-only — only expose the tool when the active services mode
+  // can actually serve it (the cloud MapOS server). Omitting it
   // (rather than letting it error) keeps the agent from offering web search it
   // can't deliver. The services mode is stable per process, so build-time gating
   // is sufficient.

@@ -55,7 +55,7 @@ export function usePathSync({
       setSelectedPlace((prev) => {
         if (
           !prev ||
-          prev.filePath.startsWith("photon-search:") ||
+          prev.filePath.startsWith("geocode-search:") ||
           prev.filePath.startsWith("map-overlay:")
         )
           return prev;

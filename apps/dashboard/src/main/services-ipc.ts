@@ -54,7 +54,7 @@ function formatZodError(label: string, err: z.ZodError): Error {
  * so the renderer never sees provider details.
  *
  * AbortSignal does not cross IPC. Renderer-side debouncing + stale-result
- * detection in `searchPhoton` mitigates the loss of in-flight cancellation.
+ * detection in `searchGeocode` mitigates the loss of in-flight cancellation.
  */
 export function registerServicesIpc(): void {
   handler(

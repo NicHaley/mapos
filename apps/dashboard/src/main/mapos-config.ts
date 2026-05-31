@@ -85,36 +85,33 @@ function defaultAiConfig(): AiConfig {
 }
 
 /**
- * Three-mode connection config. `community` is the free path against public OSS
- * providers; `mapos_cloud` and `self_hosted` route through a MapOS server. Any
- * invalid persisted shape falls back to `community` via `.catch()` so a broken
- * config never bricks startup.
+ * Two-mode connection config. `local` is the free, fully-offline path: capabilities
+ * come only from downloaded region packs (the offline overlay), never from public
+ * providers. `cloud` routes through a MapOS server via the mapos_v1 adapter — an
+ * optional `baseUrl` points at a custom/self-hosted server; its absence means the
+ * canonical MapOS Cloud (not yet available). Any invalid persisted shape falls back
+ * to `local` via `.catch()` so a broken config never bricks startup.
  */
 /**
  * Slug of a downloaded region pack (e.g. "monaco") layered *on top of* the base
  * mode. It's an overlay, not a mode: capabilities the pack provides locally
  * (today only geocoding, from `<userData>/regions/<offlineRegion>/geocode.sqlite`)
  * are served offline, while everything else still uses the base mode. This is why
- * you can run self_hosted tiles and offline geocoding at the same time.
+ * you can run cloud tiles and offline geocoding at the same time.
  */
 const offlineRegion = z.string().optional();
 
 const ServicesConfigSchema = z
   .discriminatedUnion("mode", [
-    z.object({ mode: z.literal("community"), offlineRegion }),
+    z.object({ mode: z.literal("local"), offlineRegion }),
     z.object({
-      mode: z.literal("mapos_cloud"),
-      authToken: z.string().optional(),
-      offlineRegion
-    }),
-    z.object({
-      mode: z.literal("self_hosted"),
-      baseUrl: z.string().min(1),
+      mode: z.literal("cloud"),
+      baseUrl: z.string().optional(),
       authToken: z.string().optional(),
       offlineRegion
     })
   ])
-  .catch(() => ({ mode: "community" as const }));
+  .catch(() => ({ mode: "local" as const }));
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 export type ServicesMode = ServicesConfig["mode"];
@@ -130,7 +127,7 @@ export type MaposJson = {
   activeVault?: string;
   /** AI provider configuration (global, not per-vault). */
   ai: AiConfig;
-  /** Network services configuration (community / cloud / self-hosted). */
+  /** Network services configuration (local / cloud). */
   services: ServicesConfig;
 };
 
@@ -169,6 +166,39 @@ function normalizeLegacyAdvanced(raw: unknown): unknown {
     };
   }
   return { endpoints: [], activeId: null };
+}
+
+/**
+ * Migrate legacy service modes to the two-mode shape: `community` → `local`;
+ * `self_hosted`/`mapos_cloud` → `cloud` (preserving any `baseUrl`/`authToken`).
+ * Already-current or unrecognizable shapes pass through untouched (zod's `.catch()`
+ * repairs the latter).
+ */
+function normalizeLegacyServices(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+  const offline = typeof r.offlineRegion === "string" ? { offlineRegion: r.offlineRegion } : {};
+  if (r.mode === "community") {
+    return { mode: "local", ...offline };
+  }
+  if (r.mode === "self_hosted" || r.mode === "mapos_cloud") {
+    return {
+      mode: "cloud",
+      ...(typeof r.baseUrl === "string" ? { baseUrl: r.baseUrl } : {}),
+      ...(typeof r.authToken === "string" ? { authToken: r.authToken } : {}),
+      ...offline
+    };
+  }
+  return raw;
+}
+
+/** True if the persisted services mode predates the two-mode schema and needs migrating. */
+function rawHasLegacyServices(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const services = (raw as Record<string, unknown>).services;
+  if (!services || typeof services !== "object") return false;
+  const mode = (services as Record<string, unknown>).mode;
+  return mode === "community" || mode === "self_hosted" || mode === "mapos_cloud";
 }
 
 function parseAiConfig(raw: unknown): AiConfig {
@@ -210,7 +240,9 @@ function parseConfig(raw: string): MaposJson | null {
     if (!Array.isArray(vaults) || vaults.some((v) => typeof v !== "string")) return null;
     const activeVault = (parsed as { activeVault?: unknown }).activeVault;
     const ai = parseAiConfig((parsed as { ai?: unknown }).ai);
-    const services = ServicesConfigSchema.parse((parsed as { services?: unknown }).services);
+    const services = ServicesConfigSchema.parse(
+      normalizeLegacyServices((parsed as { services?: unknown }).services)
+    );
     return {
       vaults: [...vaults],
       ...(typeof activeVault === "string" ? { activeVault } : {}),
@@ -251,15 +283,16 @@ export function loadOrInitMaposConfig(appStateDir: string): MaposJson {
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf-8");
     return cfg;
   }
-  // If we just migrated the legacy advanced shape, persist immediately so the generated
-  // endpoint id is stable across loads (randomUUID is non-deterministic).
+  // If we just migrated a legacy shape, persist immediately: the advanced endpoint id
+  // must be stable across loads (randomUUID is non-deterministic), and the legacy
+  // services mode should be rewritten so the on-disk config matches the running one.
   let rawJson: unknown = null;
   try {
     rawJson = JSON.parse(rawText);
   } catch {
     /* unreachable — parseConfig already succeeded */
   }
-  if (rawHasLegacyAdvanced(rawJson)) {
+  if (rawHasLegacyAdvanced(rawJson) || rawHasLegacyServices(rawJson)) {
     writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
   }
   return parsed;

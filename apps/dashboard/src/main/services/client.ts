@@ -8,14 +8,10 @@ import type { ClientCredentials } from "./types";
 let cached: MaposServiceClient | null = null;
 
 function readCredentials(): ClientCredentials {
-  const creds: ClientCredentials = {
+  return {
     // Region packs live in userData, alongside index.db — large, derived, sync-excluded.
     regionsDir: join(app.getPath("userData"), "regions")
   };
-  // Build-time injected by electron-vite. Declared in env.d.ts.
-  const key = import.meta.env.MAIN_VITE_PROTOMAPS_KEY as string | undefined;
-  if (key && key.length > 0) creds.protomapsApiKey = key;
-  return creds;
 }
 
 /**

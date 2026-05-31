@@ -137,6 +137,19 @@ export type RegionManifestEntry = {
   versions: Record<string, RegionVersion>;
 };
 
+/**
+ * Stable content fingerprint of a version, derived from its artifacts' sha256s. Lets the
+ * client detect republished content at an UNCHANGED version string (the manifest is keyed
+ * by data date, so a re-upload that fixes a pack keeps the same date) — version-string
+ * comparison alone would miss it. Crypto-free so it runs in the renderer too.
+ */
+export function regionVersionDigest(version: RegionVersion): string {
+  return Object.entries(version.artifacts)
+    .map(([key, a]) => `${key}:${a.sha256}`)
+    .sort()
+    .join("|");
+}
+
 export type RegionGroup = { name: string; regions: string[] };
 
 export type RegionManifest = {
@@ -151,6 +164,10 @@ export type InstalledRegionPack = {
   version: string;
   totalBytes: number;
   installedAt: string;
+  /** {@link regionVersionDigest} of the version that was downloaded. Compared against the
+   *  manifest's current digest to surface same-version content updates. Absent on packs
+   *  installed before this was recorded — callers fall back to version-string comparison. */
+  contentHash?: string;
   /** [minLng, minLat, maxLng, maxLat] — copied from the manifest so offline
    *  region selection (which pack covers a point) works without the network. */
   bbox?: [number, number, number, number];

@@ -12,10 +12,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { type BrowserWindow, ipcMain } from "electron";
-import type {
-  InstalledRegionPack,
-  RegionDownloadProgress,
-  RegionManifest
+import {
+  type InstalledRegionPack,
+  type RegionDownloadProgress,
+  type RegionManifest,
+  regionVersionDigest
 } from "../shared/types";
 import { invalidateServiceClient } from "./services/client";
 
@@ -82,7 +83,8 @@ export function listLocal(regionsDir: string): InstalledRegionPack[] {
         region,
         version: meta.version,
         totalBytes: typeof meta.totalBytes === "number" ? meta.totalBytes : 0,
-        installedAt: typeof meta.installedAt === "string" ? meta.installedAt : ""
+        installedAt: typeof meta.installedAt === "string" ? meta.installedAt : "",
+        ...(typeof meta.contentHash === "string" ? { contentHash: meta.contentHash } : {})
       });
     } catch {
       /* unreadable sidecar — treat as not installed */
@@ -207,6 +209,7 @@ export async function downloadRegion(
       version: ver,
       totalBytes,
       installedAt: new Date().toISOString(),
+      contentHash: regionVersionDigest(versionEntry),
       ...(entry.bbox ? { bbox: entry.bbox } : {})
     };
     writeFileSync(join(dir, PACK_META_FILENAME), `${JSON.stringify(meta, null, 2)}\n`, "utf-8");

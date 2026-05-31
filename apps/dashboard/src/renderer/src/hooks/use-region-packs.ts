@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  InstalledRegionPack,
-  RegionDownloadProgress,
-  RegionManifest
+import {
+  type InstalledRegionPack,
+  type RegionDownloadProgress,
+  type RegionManifest,
+  regionVersionDigest
 } from "../../../shared/types";
 
 export type RegionStatus =
@@ -144,7 +145,16 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
       if (prog) {
         status = prog.phase === "verifying" ? "verifying" : prog.phase === "error" ? "error" : "downloading";
       } else if (installed) {
-        status = installed.version === entry.latest ? "installed" : "update-available";
+        // Up to date only if the version matches AND — when the pack recorded a content
+        // hash — its content still matches the manifest. The hash check catches packs
+        // republished at the same version date (manifest is keyed by data date); packs
+        // installed before hashes were recorded fall back to version-string comparison.
+        const latestEntry = entry.versions[entry.latest];
+        const sameVersion = installed.version === entry.latest;
+        const sameContent =
+          installed.contentHash === undefined ||
+          (latestEntry !== undefined && installed.contentHash === regionVersionDigest(latestEntry));
+        status = sameVersion && sameContent ? "installed" : "update-available";
       } else {
         status = "available";
       }

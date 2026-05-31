@@ -1,4 +1,4 @@
-import { FileTextIcon, Loader2Icon, MapPinIcon, MessageSquareIcon, SearchIcon } from "lucide-react";
+import { FileTextIcon, Loader2Icon, MapPinIcon, MessageCircleIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMapViewport } from "@renderer/contexts/map-viewport";
@@ -253,7 +253,7 @@ export function GeocodeSearchPanel({
                   onSelect={() => onSelectConversation?.(c)}
                   className="items-start rounded-md"
                 >
-                  <MessageSquareIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <MessageCircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
                     <span className="truncate font-medium leading-tight">{title}</span>
                     {secondary ? (

@@ -43,12 +43,22 @@ export function registerLocalSchemes(): void {
 
 const TILE_RE = /^(world|region)\/(\d+)\/(\d+)\/(\d+)\.pbf$/;
 
+// The region slug becomes a path segment under `regionsDir`, so it must be a bare
+// slug — never `..`, a separator, or anything that could escape the dir. `_all` is
+// the style/world sentinel and is allowed. `new URL()` happily parses `..` as a
+// hostname and `path.join` collapses it *before* serveFile's prefix guard runs, so
+// the slug has to be validated here, before it ever reaches the filesystem.
+const REGION_SLUG_RE = /^[a-z0-9_-]+$/i;
+
 /** Run after app `ready`. */
 export function registerRegionProtocol(regionsDir: string, worldPmtilesPath: string): void {
   protocol.handle(REGION_SCHEME, (request) => {
     const url = new URL(request.url);
     const region = url.hostname;
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    if (!REGION_SLUG_RE.test(region)) {
+      return new Response("forbidden", { status: 403, headers: CORS });
+    }
     if (rel === "style.json") {
       const theme = url.searchParams.get("theme") === "dark" ? "dark" : "light";
       // Host is a sentinel (`_all`) — the style spans every downloaded pack.

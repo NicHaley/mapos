@@ -5,6 +5,14 @@ import {
   InputGroupButton,
   InputGroupInput
 } from "@mapos/ui/components/input-group";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle
+} from "@mapos/ui/components/item";
 import { cn } from "@mapos/ui/lib/utils";
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
@@ -16,10 +24,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { SiAnthropic, SiOllama } from "react-icons/si";
+import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { MAGIC_OLLAMA_BASE_URL } from "../settings/ai/constants";
 import { ModelRow } from "../settings/ai/model-row";
 import { OllamaBanner } from "../settings/ai/ollama-banner";
 import { useOllamaDetection } from "../settings/ai/use-ollama-detection";
+import { CmdEnterHint } from "./cmd-enter-hint";
 
 const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODELS[0]?.id ?? "claude-sonnet-4-6";
 
@@ -34,6 +44,10 @@ export function AiStep({
 }): React.JSX.Element {
   const [choice, setChoice] = useState<Choice>(null);
 
+  // When no provider is chosen yet, ⌘↵ means "Skip for now". Once a provider is selected, its
+  // own panel owns the shortcut (e.g. CloudPanel saves the key), so the step-level one stands down.
+  useCmdEnter(onNext, choice === null);
+
   return (
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Pick your AI</h1>
@@ -42,24 +56,38 @@ export function AiStep({
         you can switch any time in Settings.
       </p>
 
-      <div className="mt-6 flex flex-col gap-2">
-        <ProviderChoice
-          icon={<SiAnthropic className="size-4" />}
-          tone="cloud"
-          label="Cloud (Anthropic)"
-          desc="Best quality. Bring your own API key."
+      <ItemGroup className="mt-6 gap-2">
+        <Item
+          render={<button type="button" />}
+          variant="outline"
           selected={choice === "cloud"}
           onClick={() => setChoice("cloud")}
-        />
-        <ProviderChoice
-          icon={<SiOllama className="size-4" />}
-          tone="local"
-          label="Local (Ollama)"
-          desc="Runs entirely on this Mac. Private, no key."
+          className="cursor-pointer not-data-[selected]:hover:bg-accent/50"
+        >
+          <ItemMedia className="bg-amber-500/15 text-amber-700 dark:text-amber-400">
+            <SiAnthropic className="size-4" />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Cloud (Anthropic)</ItemTitle>
+            <ItemDescription>Best quality. Bring your own API key.</ItemDescription>
+          </ItemContent>
+        </Item>
+        <Item
+          render={<button type="button" />}
+          variant="outline"
           selected={choice === "local"}
           onClick={() => setChoice("local")}
-        />
-      </div>
+          className="cursor-pointer not-data-[selected]:hover:bg-accent/50"
+        >
+          <ItemMedia className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+            <SiOllama className="size-4" />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Local (Ollama)</ItemTitle>
+            <ItemDescription>Runs entirely on this Mac. Private, no key.</ItemDescription>
+          </ItemContent>
+        </Item>
+      </ItemGroup>
 
       <div className="mt-6">
         {choice === "cloud" && <CloudPanel onSaved={onNext} />}
@@ -76,51 +104,6 @@ export function AiStep({
         </Button>
       </div>
     </div>
-  );
-}
-
-function ProviderChoice({
-  icon,
-  tone,
-  label,
-  desc,
-  selected,
-  onClick
-}: {
-  icon: React.ReactNode;
-  tone: "cloud" | "local";
-  label: string;
-  desc: string;
-  selected: boolean;
-  onClick: () => void;
-}): React.JSX.Element {
-  const badgeStyles =
-    tone === "cloud"
-      ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-      : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-        selected ? "border-foreground/40 bg-accent" : "border-border hover:bg-accent/50"
-      )}
-    >
-      <span
-        className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-md",
-          badgeStyles
-        )}
-        aria-hidden
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="block text-xs text-muted-foreground">{desc}</span>
-      </span>
-    </button>
   );
 }
 
@@ -168,6 +151,8 @@ function CloudPanel({ onSaved }: { onSaved: () => void }): React.JSX.Element {
   }
 
   const canSubmit = apiKey.length > 0 && !busy && !testing;
+
+  useCmdEnter(() => void handleSave(), canSubmit);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3">
@@ -222,6 +207,7 @@ function CloudPanel({ onSaved }: { onSaved: () => void }): React.JSX.Element {
         <Button size="sm" onClick={() => void handleSave()} disabled={!canSubmit}>
           {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
           Save & continue
+          <CmdEnterHint tone="primary" />
         </Button>
       </div>
 

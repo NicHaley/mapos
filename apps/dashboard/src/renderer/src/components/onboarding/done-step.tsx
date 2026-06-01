@@ -2,6 +2,8 @@ import { Alert, AlertDescription, AlertTitle } from "@mapos/ui/components/alert"
 import { Button } from "@mapos/ui/components/button";
 import { ArrowLeftIcon, CheckIcon, FolderIcon, Loader2Icon } from "lucide-react";
 import { useState } from "react";
+import { useCmdEnter } from "../../lib/use-cmd-enter";
+import { CmdEnterHint } from "./cmd-enter-hint";
 import type { VaultDraft } from "./vault-step";
 
 export function DoneStep({
@@ -31,6 +33,8 @@ export function DoneStep({
       setBusy(false);
     }
   }
+
+  useCmdEnter(() => void handleOpen(), !busy && !!vaultDraft);
 
   const vaultLabel =
     vaultDraft?.kind === "create"
@@ -67,6 +71,7 @@ export function DoneStep({
       >
         {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
         Open MapOS
+        <CmdEnterHint tone="primary" />
       </Button>
       <Button variant="ghost" className="mt-2" onClick={onBack} disabled={busy}>
         <ArrowLeftIcon className="size-4" />

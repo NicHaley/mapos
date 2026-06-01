@@ -36,6 +36,7 @@ import {
   SunIcon
 } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
 import { AiTab } from "./settings/ai-tab";
 import { OfflineTab } from "./settings/offline-tab";
 
@@ -56,27 +57,6 @@ export function useSettingsSheetSlot(): HTMLDivElement | null {
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type SettingsPage = "general" | "appearance" | "ai" | "offline";
-type Theme = "light" | "dark" | "system";
-
-const THEME_KEY = "mapos_theme";
-
-// ── Theme helpers ─────────────────────────────────────────────────────────────
-
-function readStoredTheme(): Theme {
-  const stored = localStorage.getItem(THEME_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  return "system";
-}
-
-function applyTheme(theme: Theme): void {
-  if (theme === "system") {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.classList.toggle("dark", prefersDark);
-  } else {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }
-  localStorage.setItem(THEME_KEY, theme);
-}
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 

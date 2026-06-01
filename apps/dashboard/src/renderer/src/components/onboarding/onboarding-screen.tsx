@@ -1,18 +1,32 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { useState } from "react";
 import { AiStep } from "./ai-step";
+import { AppearanceStep } from "./appearance-step";
 import { DoneStep } from "./done-step";
+import { OfflineStep } from "./offline-step";
 import { type VaultDraft, VaultStep } from "./vault-step";
 import { WelcomeStep } from "./welcome-step";
 
-type Step = "welcome" | "vault" | "ai" | "done";
+type Step = "welcome" | "vault" | "ai" | "appearance" | "offline" | "done";
 
-const PROGRESS_STEPS: Step[] = ["vault", "ai", "done"];
+const PROGRESS_STEPS: Step[] = ["vault", "ai", "appearance", "offline", "done"];
 const PROGRESS_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   vault: "Vault",
   ai: "AI",
+  appearance: "Theme",
+  offline: "Offline",
   done: "Finish"
 };
+
+// Hero steps stay centered and narrow; the wizard's form steps go wide. Offline is widest of
+// all so its globe + list can sit side by side.
+function maxWidthClass(step: Step): string {
+  if (step === "welcome" || step === "done") return "max-w-md";
+  if (step === "offline") return "max-w-4xl";
+  return "max-w-2xl";
+}
+
+const HERO_STEPS: Step[] = ["welcome", "done"];
 
 export function OnboardingScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>("welcome");
@@ -24,6 +38,8 @@ export function OnboardingScreen(): React.JSX.Element {
     if (stepIndex(next) > stepIndex(furthest)) setFurthest(next);
   }
 
+  const hero = HERO_STEPS.includes(step);
+
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
       {/* Drag area for the hidden-inset traffic lights — keeps the window movable. */}
@@ -31,8 +47,13 @@ export function OnboardingScreen(): React.JSX.Element {
         className="h-[34px] shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       />
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-md flex-col px-6 pb-12">
+      <div className="flex flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "mx-auto flex min-h-full w-full flex-col px-6 pb-12",
+            maxWidthClass(step)
+          )}
+        >
           {step !== "welcome" && (
             <nav
               className="mb-8 flex items-center justify-center gap-1.5"
@@ -63,7 +84,7 @@ export function OnboardingScreen(): React.JSX.Element {
               })}
             </nav>
           )}
-          <div className="flex flex-1 flex-col justify-center">
+          <div className={cn("flex flex-1 flex-col", hero ? "justify-center" : "justify-start")}>
             {step === "welcome" && <WelcomeStep onNext={() => goTo("vault")} />}
             {step === "vault" && (
               <VaultStep
@@ -74,12 +95,18 @@ export function OnboardingScreen(): React.JSX.Element {
               />
             )}
             {step === "ai" && (
-              <AiStep onBack={() => setStep("vault")} onNext={() => goTo("done")} />
+              <AiStep onBack={() => setStep("vault")} onNext={() => goTo("appearance")} />
+            )}
+            {step === "appearance" && (
+              <AppearanceStep onBack={() => setStep("ai")} onNext={() => goTo("offline")} />
+            )}
+            {step === "offline" && (
+              <OfflineStep onBack={() => setStep("appearance")} onNext={() => goTo("done")} />
             )}
             {step === "done" && (
               <DoneStep
                 vaultDraft={vaultDraft}
-                onBack={() => setStep("ai")}
+                onBack={() => setStep("offline")}
                 onComplete={async () => {
                   if (!vaultDraft) {
                     return { ok: false, error: "No vault picked." };
@@ -111,7 +138,11 @@ function stepIndex(s: Step): number {
       return 1;
     case "ai":
       return 2;
-    case "done":
+    case "appearance":
       return 3;
+    case "offline":
+      return 4;
+    case "done":
+      return 5;
   }
 }

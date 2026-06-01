@@ -1,7 +1,14 @@
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@mapos/ui/components/alert";
 import { Button } from "@mapos/ui/components/button";
 import { InputGroup, InputGroupInput } from "@mapos/ui/components/input-group";
-import { cn } from "@mapos/ui/lib/utils";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle
+} from "@mapos/ui/components/item";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -11,7 +18,9 @@ import {
   Loader2Icon
 } from "lucide-react";
 import { useState } from "react";
+import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { DEFAULT_VAULT_NAME, validateVaultName } from "../../lib/vault-name";
+import { CmdEnterHint } from "./cmd-enter-hint";
 
 export type VaultDraft =
   | { kind: "create"; name: string; targetPath: string; parentPath: string }
@@ -92,6 +101,18 @@ export function VaultStep({
     setError(null);
   }
 
+  // ⌘↵ drives whatever the primary button currently does: advance when a vault is picked,
+  // otherwise open the relevant folder picker.
+  const primaryEnabled = matchingDraft
+    ? true
+    : !busy && !(mode === "create" && !name.trim());
+  function primaryAction(): void {
+    if (matchingDraft) onNext();
+    else if (mode === "create") void pickCreateLocation();
+    else void pickExistingVault();
+  }
+  useCmdEnter(primaryAction, primaryEnabled);
+
   return (
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Set up your vault</h1>
@@ -100,24 +121,40 @@ export function VaultStep({
         it later.
       </p>
 
-      <div className="mt-6 grid grid-cols-2 gap-2">
-        <ModeCard
-          icon={FolderPlusIcon}
-          label="Create new"
-          desc="MapOS makes the folder for you."
+      <ItemGroup className="mt-6 grid grid-cols-2 gap-2">
+        <Item
+          render={<button type="button" />}
+          variant="outline"
           selected={mode === "create"}
+          disabled={busy}
           onClick={() => changeMode("create")}
-          disabled={busy}
-        />
-        <ModeCard
-          icon={FolderInputIcon}
-          label="Use existing"
-          desc="Point at a folder you already have."
+          className="cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+        >
+          <ItemMedia variant="icon">
+            <FolderPlusIcon />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Create new</ItemTitle>
+            <ItemDescription>MapOS makes the folder for you.</ItemDescription>
+          </ItemContent>
+        </Item>
+        <Item
+          render={<button type="button" />}
+          variant="outline"
           selected={mode === "existing"}
-          onClick={() => changeMode("existing")}
           disabled={busy}
-        />
-      </div>
+          onClick={() => changeMode("existing")}
+          className="cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+        >
+          <ItemMedia variant="icon">
+            <FolderInputIcon />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Use existing</ItemTitle>
+            <ItemDescription>Point at a folder you already have.</ItemDescription>
+          </ItemContent>
+        </Item>
+      </ItemGroup>
 
       {mode === "create" && (
         <div className="mt-6 flex flex-col gap-2">
@@ -203,6 +240,7 @@ export function VaultStep({
           <Button onClick={onNext}>
             Continue
             <ArrowRightIcon className="size-4" />
+            <CmdEnterHint tone="primary" />
           </Button>
         ) : (
           <Button
@@ -211,44 +249,10 @@ export function VaultStep({
           >
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
             {mode === "create" ? "Choose location" : "Pick folder"}
+            <CmdEnterHint tone="primary" />
           </Button>
         )}
       </div>
     </div>
-  );
-}
-
-function ModeCard({
-  icon: Icon,
-  label,
-  desc,
-  selected,
-  onClick,
-  disabled
-}: {
-  icon: React.ElementType;
-  label: string;
-  desc: string;
-  selected: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
-        selected
-          ? "border-foreground/40 bg-accent"
-          : "border-border hover:bg-accent/50",
-        disabled && "opacity-50"
-      )}
-    >
-      <Icon className="size-4 opacity-80" />
-      <span className="text-sm font-medium">{label}</span>
-      <span className="text-xs text-muted-foreground">{desc}</span>
-    </button>
   );
 }

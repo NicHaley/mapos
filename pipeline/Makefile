@@ -172,9 +172,12 @@ manifest:
 # Uploads region packs, manifest.json AND the shared world basemap
 # (dist/_world/world.pmtiles -> $(R2_REMOTE)/_world/world.pmtiles) so clients can
 # fetch the backdrop alongside regions once the download manager lands.
+# Depends on `manifest` so the manifest is regenerated (excluding the versions that
+# `prune` then deletes) *before* it's flipped — otherwise a standalone `make upload`
+# could publish a stale manifest pointing at a just-pruned version.
 # Upload artifacts first, prune superseded versions, then flip manifest.json last so
 # a client never sees a manifest pointing at a version that isn't fully uploaded.
-upload:
+upload: manifest
 	rclone copy dist/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
 	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json"
 	$(MAKE) prune

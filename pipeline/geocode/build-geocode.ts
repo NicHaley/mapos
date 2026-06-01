@@ -25,8 +25,8 @@
  */
 
 import { readFileSync, rmSync } from "node:fs";
-import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { Feature, Geometry, Position } from "geojson";
@@ -45,12 +45,20 @@ const PLACE_WEIGHTS: Record<string, number> = {
   quarter: 0.4,
   hamlet: 0.3,
   locality: 0.2,
-  isolated_dwelling: 0.15,
+  isolated_dwelling: 0.15
 };
 
 const ROAD_TYPES = new Set([
-  "motorway", "trunk", "primary", "secondary", "tertiary",
-  "unclassified", "residential", "living_street", "pedestrian", "road",
+  "motorway",
+  "trunk",
+  "primary",
+  "secondary",
+  "tertiary",
+  "unclassified",
+  "residential",
+  "living_street",
+  "pedestrian",
+  "road"
 ]);
 
 const POI_KEYS = ["amenity", "shop", "tourism", "leisure", "office", "historic"];
@@ -108,7 +116,10 @@ function representativePoint(geom: Geometry): [number, number] | null {
   let latSum = 0;
   let count = 0;
   const visit = (coords: unknown): void => {
-    if (typeof (coords as Position)[0] === "number" && typeof (coords as Position)[1] === "number") {
+    if (
+      typeof (coords as Position)[0] === "number" &&
+      typeof (coords as Position)[1] === "number"
+    ) {
       lngSum += (coords as Position)[0];
       latSum += (coords as Position)[1];
       count += 1;
@@ -223,10 +234,15 @@ const PLACE_ADMIN_LEVEL: Record<string, number> = {
   quarter: 10,
   hamlet: 10,
   locality: 10,
-  isolated_dwelling: 10,
+  isolated_dwelling: 10
 };
 
-type AdminOpts = { ownLevel: number; ownName: string; country: string | null; maxCityLevel: number };
+type AdminOpts = {
+  ownLevel: number;
+  ownName: string;
+  country: string | null;
+  maxCityLevel: number;
+};
 
 // admin_level boundary between the "municipality and larger" tier (city/county/state)
 // and the "sub-municipal" tier (district/borough/suburb). This split is the OSM
@@ -244,7 +260,12 @@ const DEFAULT_MAX_CITY_LEVEL = 8;
  * and ALWAYS append the country. The country comes from the region's group, not the
  * polygons — a city extract has no level-2 boundary, just as Nominatim uses a country table.
  */
-function adminContextFor(lng: number, lat: number, admins: AdminArea[], opts: AdminOpts): string | null {
+function adminContextFor(
+  lng: number,
+  lat: number,
+  admins: AdminArea[],
+  opts: AdminOpts
+): string | null {
   // admins are pre-sorted most-specific (level desc) first, so the first match in each
   // band is the most specific in that band: the smallest district, and the city itself.
   let locality: string | null = null; // sub-municipal: district / borough / suburb
@@ -287,11 +308,12 @@ const adminsPath = adminsIdx >= 0 ? rest[adminsIdx + 1] : undefined;
 const countryIdx = rest.indexOf("--country");
 // Always appended as the outermost admin context (Nominatim/Photon both show it), since
 // a region extract rarely contains its own level-2 country polygon.
-const country = countryIdx >= 0 ? (rest[countryIdx + 1]?.trim() || null) : null;
+const country = countryIdx >= 0 ? rest[countryIdx + 1]?.trim() || null : null;
 // Per-pack override for the municipality/sub-municipal admin_level boundary (see
 // DEFAULT_MAX_CITY_LEVEL). Only deviating countries need to set it.
 const maxCityLevelIdx = rest.indexOf("--max-city-level");
-const maxCityLevelArg = maxCityLevelIdx >= 0 ? Number.parseInt(rest[maxCityLevelIdx + 1] ?? "", 10) : Number.NaN;
+const maxCityLevelArg =
+  maxCityLevelIdx >= 0 ? Number.parseInt(rest[maxCityLevelIdx + 1] ?? "", 10) : Number.NaN;
 const maxCityLevel = Number.isFinite(maxCityLevelArg) ? maxCityLevelArg : DEFAULT_MAX_CITY_LEVEL;
 
 // Admin boundary polygons for point-in-polygon hierarchy enrichment. Optional: without
@@ -302,87 +324,95 @@ if (adminsPath) console.error(`Loaded ${admins.length.toLocaleString()} admin ar
 // Always rebuild from scratch — opening an existing file would append (duplicate
 // `features` rows, then collide on `features_rtree.id`) since the schema uses
 // CREATE TABLE IF NOT EXISTS. Drop any prior build (and stray WAL/SHM) first.
-for (const suffix of ["", "-wal", "-shm", "-journal"]) rmSync(`${output}${suffix}`, { force: true });
+for (const suffix of ["", "-wal", "-shm", "-journal"])
+  rmSync(`${output}${suffix}`, { force: true });
 
 const db = new DatabaseSync(output);
-// Bulk-load pragmas: this file is rebuilt from scratch, durability doesn't matter.
-db.exec("PRAGMA journal_mode = OFF");
-db.exec("PRAGMA synchronous = OFF");
-db.exec(readFileSync(join(__dirname, "schema.sql"), "utf8"));
-
-const insert = db.prepare(
-  `INSERT INTO features
-     (osm_type, osm_id, name, alt_names, kind, class, importance, population, admin_context, address, lat, lng)
-   VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @importance, @population, @admin_context, @address, @lat, @lng)`,
-);
-
 let count = 0;
-db.exec("BEGIN");
 
-const rl = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+try {
+  // Bulk-load pragmas: this file is rebuilt from scratch, durability doesn't matter.
+  db.exec("PRAGMA journal_mode = OFF");
+  db.exec("PRAGMA synchronous = OFF");
+  db.exec(readFileSync(join(__dirname, "schema.sql"), "utf8"));
 
-for await (const raw of rl) {
-  // GeoJSONSeq (RFC 8142) prefixes each record with a record-separator (0x1e).
-  const line = (raw.charCodeAt(0) === 0x1e ? raw.slice(1) : raw).trim();
-  if (!line) continue;
+  const insert = db.prepare(
+    `INSERT INTO features
+       (osm_type, osm_id, name, alt_names, kind, class, importance, population, admin_context, address, lat, lng)
+     VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @importance, @population, @admin_context, @address, @lat, @lng)`
+  );
 
-  let feature: Feature;
-  try {
-    feature = JSON.parse(line) as Feature;
-  } catch {
-    continue;
+  db.exec("BEGIN");
+
+  const rl = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+
+  for await (const raw of rl) {
+    // GeoJSONSeq (RFC 8142) prefixes each record with a record-separator (0x1e).
+    const line = (raw.charCodeAt(0) === 0x1e ? raw.slice(1) : raw).trim();
+    if (!line) continue;
+
+    let feature: Feature;
+    try {
+      feature = JSON.parse(line) as Feature;
+    } catch {
+      continue;
+    }
+    if (!feature.geometry) continue;
+
+    const tags = (feature.properties ?? {}) as Tags & { "@type"?: string; "@id"?: string };
+    const c = classify(tags);
+    if (!c) continue;
+
+    const point = representativePoint(feature.geometry);
+    if (!point) continue;
+
+    const pop = population(tags);
+    insert.run({
+      osm_type: tags["@type"] ?? "",
+      osm_id: tags["@id"] ? Number.parseInt(tags["@id"], 10) : 0,
+      name: tags.name,
+      alt_names: altNames(tags),
+      kind: c.kind,
+      cls: c.cls,
+      importance: importance(c.base, pop),
+      population: pop,
+      // Real per-feature admin hierarchy via point-in-polygon ("Neukölln, Berlin, Germany"),
+      // walking only up from the feature's own rank so a place isn't labelled by its sub-areas.
+      // null when no admins/country are available; the client then falls back to the pack
+      // region. We deliberately never store the bare region name (identical on every row, it
+      // drives the FTS IDF to ~0 and pollutes region-name queries).
+      admin_context: adminContextFor(point[0], point[1], admins, {
+        ownLevel:
+          c.kind === "place"
+            ? (PLACE_ADMIN_LEVEL[c.cls] ?? Number.POSITIVE_INFINITY)
+            : Number.POSITIVE_INFINITY,
+        // Only a place suppresses a same-named container (so the city "Berlin" → "Germany",
+        // not "Berlin, Germany"). A POI named "Berlin" should still keep "Berlin" as context.
+        ownName: c.kind === "place" ? tags.name : "",
+        country,
+        maxCityLevel
+      }),
+      address: addressLine(tags),
+      lng: point[0],
+      lat: point[1]
+    });
+
+    count += 1;
+    if (count % 50_000 === 0) console.error(`  ...${count.toLocaleString()} features`);
   }
-  if (!feature.geometry) continue;
 
-  const tags = (feature.properties ?? {}) as Tags & { "@type"?: string; "@id"?: string };
-  const c = classify(tags);
-  if (!c) continue;
-
-  const point = representativePoint(feature.geometry);
-  if (!point) continue;
-
-  const pop = population(tags);
-  insert.run({
-    osm_type: tags["@type"] ?? "",
-    osm_id: tags["@id"] ? Number.parseInt(tags["@id"], 10) : 0,
-    name: tags.name,
-    alt_names: altNames(tags),
-    kind: c.kind,
-    cls: c.cls,
-    importance: importance(c.base, pop),
-    population: pop,
-    // Real per-feature admin hierarchy via point-in-polygon ("Neukölln, Berlin, Germany"),
-    // walking only up from the feature's own rank so a place isn't labelled by its sub-areas.
-    // null when no admins/country are available; the client then falls back to the pack
-    // region. We deliberately never store the bare region name (identical on every row, it
-    // drives the FTS IDF to ~0 and pollutes region-name queries).
-    admin_context: adminContextFor(point[0], point[1], admins, {
-      ownLevel: c.kind === "place" ? (PLACE_ADMIN_LEVEL[c.cls] ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY,
-      // Only a place suppresses a same-named container (so the city "Berlin" → "Germany",
-      // not "Berlin, Germany"). A POI named "Berlin" should still keep "Berlin" as context.
-      ownName: c.kind === "place" ? tags.name : "",
-      country,
-      maxCityLevel,
-    }),
-    address: addressLine(tags),
-    lng: point[0],
-    lat: point[1],
-  });
-
-  count += 1;
-  if (count % 50_000 === 0) console.error(`  ...${count.toLocaleString()} features`);
+  console.error("Populating FTS5 + R-tree...");
+  db.exec(
+    `INSERT INTO features_fts(rowid, name, alt_names, admin_context)
+       SELECT id, name, alt_names, admin_context FROM features;
+     INSERT INTO features_rtree(id, min_lng, max_lng, min_lat, max_lat)
+       SELECT id, lng, lng, lat, lat FROM features;`
+  );
+  db.exec("COMMIT");
+  db.exec("ANALYZE");
+  db.exec("VACUUM");
+} finally {
+  db.close();
 }
-
-console.error("Populating FTS5 + R-tree...");
-db.exec(
-  `INSERT INTO features_fts(rowid, name, alt_names, admin_context)
-     SELECT id, name, alt_names, admin_context FROM features;
-   INSERT INTO features_rtree(id, min_lng, max_lng, min_lat, max_lat)
-     SELECT id, lng, lng, lat, lat FROM features;`,
-);
-db.exec("COMMIT");
-db.exec("ANALYZE");
-db.exec("VACUUM");
-db.close();
 
 console.error(`Done: ${count.toLocaleString()} features -> ${output}`);

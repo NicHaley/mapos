@@ -69,13 +69,19 @@ function contains(b: [number, number, number, number], lng: number, lat: number)
  * Packs whose bbox contains the point. Packs without bbox metadata are treated as
  * candidates (fail-open) only when no bbox'd pack matches — so an older pack missing
  * geometry still serves requests rather than silently dropping out.
+ *
+ * Pass `failOpen: false` when a geographically-wrong pack is worse than none: routing
+ * routes strictly within one pack's tiles, so a bbox-less pack that doesn't actually
+ * cover the point can't produce a valid route — better to report "no coverage" than
+ * to route against an arbitrary pack.
  */
 export function regionsContaining(
   regions: InstalledRegion[],
   lng: number,
-  lat: number
+  lat: number,
+  { failOpen = true }: { failOpen?: boolean } = {}
 ): InstalledRegion[] {
   const hits = regions.filter((r) => r.bbox && contains(r.bbox, lng, lat));
-  if (hits.length) return hits;
+  if (hits.length || !failOpen) return hits;
   return regions.filter((r) => !r.bbox);
 }

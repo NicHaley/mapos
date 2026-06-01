@@ -92,7 +92,7 @@ export function closeOfflineRoutingActors(): void {
  */
 function pickValhallaTar(regionsDir: string, lng: number, lat: number): string {
   const withValhalla = listInstalledRegions(regionsDir).filter((r) => r.valhalla);
-  const hit = regionsContaining(withValhalla, lng, lat)[0];
+  const hit = regionsContaining(withValhalla, lng, lat, { failOpen: false })[0];
   if (!hit?.valhalla) {
     throw new MapServiceError("No downloaded region covers this location", {
       status: 404,

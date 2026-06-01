@@ -7,6 +7,7 @@ import {
 } from "@mapos/ui/components/input-group";
 import {
   Item,
+  ItemActions,
   ItemContent,
   ItemDescription,
   ItemGroup,
@@ -17,6 +18,7 @@ import { cn } from "@mapos/ui/lib/utils";
 import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
   ArrowLeftIcon,
+  CheckIcon,
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
@@ -33,17 +35,35 @@ import { CmdEnterHint } from "./cmd-enter-hint";
 
 const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODELS[0]?.id ?? "claude-sonnet-4-6";
 
-type Choice = "cloud" | "local" | null;
+export type AiChoice = "cloud" | "local" | null;
+
+// A filled dot with a check when selected — the design's right-aligned radio on each row.
+function RadioDot({ on }: { on: boolean }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-5 items-center justify-center rounded-full border transition-colors",
+        on ? "border-foreground bg-foreground text-background" : "border-border"
+      )}
+    >
+      {on && <CheckIcon className="size-3" strokeWidth={3} />}
+    </span>
+  );
+}
 
 export function AiStep({
+  choice,
+  onChoiceChange,
   onBack,
   onNext
 }: {
+  // Lifted to the wizard so the selection survives navigating away and back to this step.
+  choice: AiChoice;
+  onChoiceChange: (next: AiChoice) => void;
   onBack: () => void;
   onNext: () => void;
 }): React.JSX.Element {
-  const [choice, setChoice] = useState<Choice>(null);
-
   // When no provider is chosen yet, ⌘↵ means "Skip for now". Once a provider is selected, its
   // own panel owns the shortcut (e.g. CloudPanel saves the key), so the step-level one stands down.
   useCmdEnter(onNext, choice === null);
@@ -61,7 +81,7 @@ export function AiStep({
           render={<button type="button" />}
           variant="outline"
           selected={choice === "cloud"}
-          onClick={() => setChoice("cloud")}
+          onClick={() => onChoiceChange("cloud")}
           className="cursor-pointer not-data-[selected]:hover:bg-accent/50"
         >
           <ItemMedia className="bg-amber-500/15 text-amber-700 dark:text-amber-400">
@@ -71,12 +91,15 @@ export function AiStep({
             <ItemTitle>Cloud (Anthropic)</ItemTitle>
             <ItemDescription>Best quality. Bring your own API key.</ItemDescription>
           </ItemContent>
+          <ItemActions>
+            <RadioDot on={choice === "cloud"} />
+          </ItemActions>
         </Item>
         <Item
           render={<button type="button" />}
           variant="outline"
           selected={choice === "local"}
-          onClick={() => setChoice("local")}
+          onClick={() => onChoiceChange("local")}
           className="cursor-pointer not-data-[selected]:hover:bg-accent/50"
         >
           <ItemMedia className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
@@ -86,6 +109,9 @@ export function AiStep({
             <ItemTitle>Local (Ollama)</ItemTitle>
             <ItemDescription>Runs entirely on this Mac. Private, no key.</ItemDescription>
           </ItemContent>
+          <ItemActions>
+            <RadioDot on={choice === "local"} />
+          </ItemActions>
         </Item>
       </ItemGroup>
 
@@ -95,11 +121,11 @@ export function AiStep({
       </div>
 
       <div className="mt-8 flex items-center justify-between">
-        <Button variant="ghost" onClick={onBack}>
+        <Button size="lg" variant="ghost" onClick={onBack}>
           <ArrowLeftIcon className="size-4" />
           Back
         </Button>
-        <Button variant="ghost" onClick={onNext}>
+        <Button size="lg" variant="ghost" onClick={onNext}>
           Skip for now
         </Button>
       </div>

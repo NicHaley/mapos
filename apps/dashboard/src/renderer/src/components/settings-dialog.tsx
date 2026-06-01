@@ -25,20 +25,12 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
-import { cn } from "@mapos/ui/lib/utils";
-import {
-  BoxIcon,
-  GlobeIcon,
-  MonitorIcon,
-  MoonIcon,
-  PaletteIcon,
-  SettingsIcon,
-  SunIcon
-} from "lucide-react";
+import { BoxIcon, GlobeIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
 import { AiTab } from "./settings/ai-tab";
 import { OfflineTab } from "./settings/offline-tab";
+import { ThemePicker } from "./theme-picker";
 
 // ── Settings sheet slot ───────────────────────────────────────────────────────
 
@@ -213,33 +205,10 @@ function AppearancePage() {
     applyTheme(t);
   }
 
-  const themeOptions: { value: Theme; label: string; icon: React.ReactNode }[] = [
-    { value: "light", label: "Light", icon: <SunIcon className="size-4" /> },
-    { value: "system", label: "System", icon: <MonitorIcon className="size-4" /> },
-    { value: "dark", label: "Dark", icon: <MoonIcon className="size-4" /> }
-  ];
-
   return (
     <div className="flex flex-col gap-6">
       <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
-        <div className="flex gap-2">
-          {themeOptions.map(({ value, label, icon }) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => handleTheme(value)}
-              className={cn(
-                "flex flex-1 cursor-pointer flex-col items-center gap-2 rounded-lg border px-3 py-3 text-xs transition-colors",
-                theme === value
-                  ? "border-foreground/40 bg-accent font-medium text-foreground"
-                  : "border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              )}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
-        </div>
+        <ThemePicker value={theme} onChange={handleTheme} />
       </Section>
     </div>
   );

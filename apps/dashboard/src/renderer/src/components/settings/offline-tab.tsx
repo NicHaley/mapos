@@ -9,7 +9,7 @@ export function OfflineTab() {
           Download a region to use the map, search, and routing without a connection.
         </p>
       </div>
-      <RegionPicker layout="stacked" />
+      <RegionPicker />
     </div>
   );
 }

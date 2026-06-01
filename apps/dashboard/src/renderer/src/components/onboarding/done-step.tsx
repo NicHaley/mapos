@@ -1,10 +1,32 @@
 import { Alert, AlertDescription, AlertTitle } from "@mapos/ui/components/alert";
+import { Badge } from "@mapos/ui/components/badge";
 import { Button } from "@mapos/ui/components/button";
-import { ArrowLeftIcon, CheckIcon, FolderIcon, Loader2Icon } from "lucide-react";
-import { useState } from "react";
+import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
+import {
+  ArrowLeftIcon,
+  CheckIcon,
+  FolderIcon,
+  GlobeIcon,
+  Loader2Icon,
+  MonitorIcon,
+  MoonIcon,
+  SparklesIcon,
+  SunIcon
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { SiAnthropic, SiOllama } from "react-icons/si";
+import { useRegionPacks } from "../../hooks/use-region-packs";
+import { readStoredTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { CmdEnterHint } from "./cmd-enter-hint";
 import type { VaultDraft } from "./vault-step";
+
+// Map a configured model id to its display name (e.g. "Claude Sonnet 4.6"), falling back to the
+// raw id for models not in our curated lists.
+function modelLabel(provider: "anthropic" | "local", model: string): string {
+  const list = provider === "anthropic" ? ANTHROPIC_MODELS : OLLAMA_MODELS;
+  return list.find((m) => m.id === model)?.label ?? model;
+}
 
 export function DoneStep({
   vaultDraft,
@@ -17,6 +39,37 @@ export function DoneStep({
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { installedPacks } = useRegionPacks(true);
+
+  // Reflect what AI is actually configured — show the real model name, not just the provider.
+  const [aiStatus, setAiStatus] = useState<{
+    configured: boolean;
+    activeProvider: "anthropic" | "local";
+    model: string;
+  } | null>(null);
+  useEffect(() => {
+    void window.api.aiConfig.getStatus().then(setAiStatus).catch(() => {});
+  }, []);
+
+  const regionCount = installedPacks.length;
+  const theme = readStoredTheme();
+  const aiLabel = aiStatus?.configured
+    ? modelLabel(aiStatus.activeProvider, aiStatus.model)
+    : "AI off";
+  const aiIcon = !aiStatus?.configured ? (
+    <SparklesIcon />
+  ) : aiStatus.activeProvider === "anthropic" ? (
+    <SiAnthropic />
+  ) : (
+    <SiOllama />
+  );
+  const themeLabel = `${theme[0].toUpperCase()}${theme.slice(1)} theme`;
+  const themeIcon =
+    theme === "light" ? <SunIcon /> : theme === "dark" ? <MoonIcon /> : <MonitorIcon />;
+  const regionLabel =
+    regionCount > 0
+      ? `${regionCount} offline ${regionCount === 1 ? "region" : "regions"}`
+      : "Online only";
 
   async function handleOpen(): Promise<void> {
     setBusy(true);
@@ -62,21 +115,32 @@ export function DoneStep({
           </AlertDescription>
         </Alert>
       )}
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <Badge variant="outline" className="text-muted-foreground">
+          <GlobeIcon />
+          {regionLabel}
+        </Badge>
+        <Badge variant="outline" className="text-muted-foreground">
+          {aiIcon}
+          {aiLabel}
+        </Badge>
+        <Badge variant="outline" className="text-muted-foreground">
+          {themeIcon}
+          {themeLabel}
+        </Badge>
+      </div>
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
-      <Button
-        size="lg"
-        className="mt-8 w-full"
-        onClick={() => void handleOpen()}
-        disabled={busy || !vaultDraft}
-      >
-        {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-        Open MapOS
-        <CmdEnterHint tone="primary" />
-      </Button>
-      <Button variant="ghost" className="mt-2" onClick={onBack} disabled={busy}>
-        <ArrowLeftIcon className="size-4" />
-        Back
-      </Button>
+      <div className="mt-8 flex w-full items-center justify-between gap-3">
+        <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
+          <ArrowLeftIcon className="size-4" />
+          Back
+        </Button>
+        <Button size="lg" onClick={() => void handleOpen()} disabled={busy || !vaultDraft}>
+          {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          Open MapOS
+          <CmdEnterHint tone="primary" />
+        </Button>
+      </div>
     </div>
   );
 }

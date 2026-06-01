@@ -6,12 +6,10 @@ import {
   ItemContent,
   ItemDescription,
   ItemGroup,
-  ItemMedia,
   ItemTitle
 } from "@mapos/ui/components/item";
 import {
   ArrowLeftIcon,
-  ArrowRightIcon,
   FolderIcon,
   FolderInputIcon,
   FolderPlusIcon,
@@ -121,19 +119,17 @@ export function VaultStep({
         it later.
       </p>
 
-      <ItemGroup className="mt-6 grid grid-cols-2 gap-2">
+      <ItemGroup className="mt-6 grid grid-cols-2 gap-3">
         <Item
           render={<button type="button" />}
           variant="outline"
           selected={mode === "create"}
           disabled={busy}
           onClick={() => changeMode("create")}
-          className="cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
         >
-          <ItemMedia variant="icon">
-            <FolderPlusIcon />
-          </ItemMedia>
-          <ItemContent>
+          <FolderPlusIcon className="size-5 text-muted-foreground" />
+          <ItemContent className="flex-none">
             <ItemTitle>Create new</ItemTitle>
             <ItemDescription>MapOS makes the folder for you.</ItemDescription>
           </ItemContent>
@@ -144,12 +140,10 @@ export function VaultStep({
           selected={mode === "existing"}
           disabled={busy}
           onClick={() => changeMode("existing")}
-          className="cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
         >
-          <ItemMedia variant="icon">
-            <FolderInputIcon />
-          </ItemMedia>
-          <ItemContent>
+          <FolderInputIcon className="size-5 text-muted-foreground" />
+          <ItemContent className="flex-none">
             <ItemTitle>Use existing</ItemTitle>
             <ItemDescription>Point at a folder you already have.</ItemDescription>
           </ItemContent>
@@ -232,18 +226,18 @@ export function VaultStep({
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
 
       <div className="mt-8 flex items-center justify-between">
-        <Button variant="ghost" onClick={onBack} disabled={busy}>
+        <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
           <ArrowLeftIcon className="size-4" />
           Back
         </Button>
         {matchingDraft ? (
-          <Button onClick={onNext}>
+          <Button size="lg" onClick={onNext}>
             Continue
-            <ArrowRightIcon className="size-4" />
             <CmdEnterHint tone="primary" />
           </Button>
         ) : (
           <Button
+            size="lg"
             onClick={() => void (mode === "create" ? pickCreateLocation() : pickExistingVault())}
             disabled={busy || (mode === "create" && !name.trim())}
           >

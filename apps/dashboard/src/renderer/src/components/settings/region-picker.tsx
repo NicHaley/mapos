@@ -14,7 +14,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { GroupHeader } from "./ai/group-header";
-import { type GlobeMarker, RegionGlobe } from "./region-globe";
+import { type RegionMarker, RegionMap } from "./region-map";
 
 function formatBytes(n: number): string {
   if (n <= 0) return "—";
@@ -23,19 +23,13 @@ function formatBytes(n: number): string {
   return `${(mb / 1000).toFixed(1)} GB`;
 }
 
-// Marker tint (RGB 0–1) by status, so the globe mirrors the list at a glance.
-function markerColor(r: RegionRow): [number, number, number] {
-  if (r.status === "error") return [0.95, 0.3, 0.3];
-  if (r.status === "downloading" || r.status === "verifying") return [0.98, 0.75, 0.14];
-  if (r.status === "installed") return [0.13, 0.77, 0.37];
-  if (r.status === "update-available") return [0.98, 0.75, 0.14];
-  return [0.55, 0.55, 0.62];
-}
-
-function markerSize(r: RegionRow): number {
-  if (r.status === "installed" || r.status === "update-available") return 0.1;
-  if (r.status !== "available") return 0.085;
-  return 0.055;
+// Pin tint by status, so the map mirrors the list at a glance.
+function markerColor(r: RegionRow): string {
+  if (r.status === "error") return "#ef4444";
+  if (r.status === "downloading" || r.status === "verifying") return "#f59e0b";
+  if (r.status === "installed") return "#10b981";
+  if (r.status === "update-available") return "#f59e0b";
+  return "#8b8b94";
 }
 
 const isDownloaded = (r: RegionRow): boolean =>
@@ -70,7 +64,7 @@ function RegionRowItem({
 }: {
   row: RegionRow;
   packs: ReturnType<typeof useRegionPacks>;
-  onHover: (center: [number, number] | null) => void;
+  onHover: (id: string | null) => void;
 }) {
   const downloading = row.status === "downloading" || row.status === "verifying";
   const percent =
@@ -93,7 +87,7 @@ function RegionRowItem({
   return (
     <div
       className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
-      onMouseEnter={() => row.center && onHover(row.center)}
+      onMouseEnter={() => onHover(row.slug)}
       onMouseLeave={() => onHover(null)}
     >
       <RegionBadge status={row.status} />
@@ -166,7 +160,7 @@ function RegionList({
 }: {
   rows: RegionRow[];
   packs: ReturnType<typeof useRegionPacks>;
-  onHover: (center: [number, number] | null) => void;
+  onHover: (id: string | null) => void;
 }) {
   return (
     <div className="divide-y divide-border overflow-hidden rounded-lg border">
@@ -178,35 +172,18 @@ function RegionList({
 }
 
 /**
- * Globe + searchable, grouped region list. The single source of truth for both the Settings
- * "Offline" tab (`layout="stacked"` — globe on top, list below) and the onboarding Offline step
- * (`layout="split"` — globe in one column, list in the other). Downloads run live through the
- * shared `useRegionPacks` hook regardless of where it's mounted.
+ * Dotted map + searchable, grouped region list — map on top, list below. The single source of
+ * truth for both the Settings "Offline" tab and the onboarding Offline step. Downloads run live
+ * through the shared `useRegionPacks` hook regardless of where it's mounted.
  */
-export function RegionPicker({
-  layout = "stacked",
-  globeSize
-}: {
-  layout?: "stacked" | "split";
-  globeSize?: number;
-}) {
+export function RegionPicker() {
   const packs = useRegionPacks(true);
-  const [focus, setFocus] = useState<[number, number] | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
 
-  const markers = useMemo<GlobeMarker[]>(
+  const markers = useMemo<RegionMarker[]>(
     () =>
       packs.regions.flatMap((r) =>
-        r.center
-          ? [
-              {
-                id: r.slug,
-                // cobe wants [lat, lng]; our center is [lng, lat].
-                location: [r.center[1], r.center[0]] as [number, number],
-                size: markerSize(r),
-                color: markerColor(r)
-              }
-            ]
-          : []
+        r.center ? [{ id: r.slug, center: r.center, color: markerColor(r) }] : []
       ),
     [packs.regions]
   );
@@ -269,9 +246,7 @@ export function RegionPicker({
     );
   }
 
-  const globe = (
-    <RegionGlobe markers={markers} focus={focus} size={globeSize ?? (layout === "split" ? 240 : 200)} />
-  );
+  const map = <RegionMap markers={markers} focus={focus} />;
 
   const search = (
     <div className="relative shrink-0">
@@ -319,24 +294,10 @@ export function RegionPicker({
     </div>
   );
 
-  if (layout === "split") {
-    return (
-      <div className="flex min-h-0 flex-1 gap-5">
-        {/* Globe column — vertically centered, fixed width. */}
-        <div className="flex w-[260px] shrink-0 items-center justify-center">{globe}</div>
-        {/* List column — search pinned, sections scroll. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          {search}
-          {list}
-        </div>
-      </div>
-    );
-  }
-
-  // Stacked: globe + search stay pinned; only the list below them scrolls.
+  // Map + search stay pinned; only the list below them scrolls.
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="w-full shrink-0">{globe}</div>
+      <div className="w-full shrink-0">{map}</div>
       {search}
       {list}
     </div>

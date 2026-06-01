@@ -1,44 +1,41 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { useState } from "react";
-import { AiStep } from "./ai-step";
+import { type AiChoice, AiStep } from "./ai-step";
 import { AppearanceStep } from "./appearance-step";
 import { DoneStep } from "./done-step";
 import { OfflineStep } from "./offline-step";
 import { type VaultDraft, VaultStep } from "./vault-step";
 import { WelcomeStep } from "./welcome-step";
 
-type Step = "welcome" | "vault" | "ai" | "appearance" | "offline" | "done";
+type Step = "welcome" | "vault" | "ai" | "offline" | "appearance" | "done";
 
-const PROGRESS_STEPS: Step[] = ["vault", "ai", "appearance", "offline", "done"];
+// The stepper shows one pill per "working" step — welcome and done are bookends and get none.
+const PROGRESS_STEPS: Step[] = ["vault", "ai", "offline", "appearance"];
 const PROGRESS_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   vault: "Vault",
   ai: "AI",
-  appearance: "Theme",
   offline: "Offline",
-  done: "Finish"
+  appearance: "Theme"
 };
 
-// Hero steps stay centered and narrow; the wizard's form steps go wide. Offline is widest of
-// all so its globe + list can sit side by side.
+// Panels stay compact and centered. Offline is a touch wider so its map + list breathe.
 function maxWidthClass(step: Step): string {
-  if (step === "welcome" || step === "done") return "max-w-md";
-  if (step === "offline") return "max-w-4xl";
-  return "max-w-2xl";
+  if (step === "offline") return "max-w-lg";
+  return "max-w-md";
 }
-
-const HERO_STEPS: Step[] = ["welcome", "done"];
 
 export function OnboardingScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>("welcome");
   const [furthest, setFurthest] = useState<Step>("welcome");
   const [vaultDraft, setVaultDraft] = useState<VaultDraft | null>(null);
+  const [aiChoice, setAiChoice] = useState<AiChoice>(null);
 
   function goTo(next: Step): void {
     setStep(next);
     if (stepIndex(next) > stepIndex(furthest)) setFurthest(next);
   }
 
-  const hero = HERO_STEPS.includes(step);
+  const showStepper = PROGRESS_STEPS.includes(step);
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
@@ -54,9 +51,9 @@ export function OnboardingScreen(): React.JSX.Element {
             maxWidthClass(step)
           )}
         >
-          {step !== "welcome" && (
+          {showStepper && (
             <nav
-              className="mb-8 flex items-center justify-center gap-1.5"
+              className="mb-8 flex items-center justify-center gap-2"
               aria-label="Onboarding progress"
             >
               {PROGRESS_STEPS.map((s) => {
@@ -74,17 +71,18 @@ export function OnboardingScreen(): React.JSX.Element {
                       if (clickable) setStep(s);
                     }}
                     className={cn(
-                      "h-1.5 w-6 rounded-full transition-colors",
-                      reached ? "bg-foreground/70" : "bg-foreground/15",
-                      clickable && "cursor-pointer hover:bg-foreground",
-                      !clickable && "cursor-default"
+                      "h-1.5 rounded-full transition-all",
+                      active ? "w-7 bg-foreground" : "w-5",
+                      !active && reached && "bg-foreground/40",
+                      !active && !reached && "bg-foreground/15",
+                      clickable ? "cursor-pointer hover:bg-foreground/70" : "cursor-default"
                     )}
                   />
                 );
               })}
             </nav>
           )}
-          <div className={cn("flex flex-1 flex-col", hero ? "justify-center" : "justify-start")}>
+          <div className="flex flex-1 flex-col justify-center">
             {step === "welcome" && <WelcomeStep onNext={() => goTo("vault")} />}
             {step === "vault" && (
               <VaultStep
@@ -95,18 +93,23 @@ export function OnboardingScreen(): React.JSX.Element {
               />
             )}
             {step === "ai" && (
-              <AiStep onBack={() => setStep("vault")} onNext={() => goTo("appearance")} />
-            )}
-            {step === "appearance" && (
-              <AppearanceStep onBack={() => setStep("ai")} onNext={() => goTo("offline")} />
+              <AiStep
+                choice={aiChoice}
+                onChoiceChange={setAiChoice}
+                onBack={() => setStep("vault")}
+                onNext={() => goTo("offline")}
+              />
             )}
             {step === "offline" && (
-              <OfflineStep onBack={() => setStep("appearance")} onNext={() => goTo("done")} />
+              <OfflineStep onBack={() => setStep("ai")} onNext={() => goTo("appearance")} />
+            )}
+            {step === "appearance" && (
+              <AppearanceStep onBack={() => setStep("offline")} onNext={() => goTo("done")} />
             )}
             {step === "done" && (
               <DoneStep
                 vaultDraft={vaultDraft}
-                onBack={() => setStep("offline")}
+                onBack={() => setStep("appearance")}
                 onComplete={async () => {
                   if (!vaultDraft) {
                     return { ok: false, error: "No vault picked." };
@@ -138,9 +141,9 @@ function stepIndex(s: Step): number {
       return 1;
     case "ai":
       return 2;
-    case "appearance":
-      return 3;
     case "offline":
+      return 3;
+    case "appearance":
       return 4;
     case "done":
       return 5;

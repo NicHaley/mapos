@@ -3,6 +3,7 @@ import { CircularProgress } from "@mapos/ui/components/circular-progress";
 import { Input } from "@mapos/ui/components/input";
 import { Spinner } from "@mapos/ui/components/spinner";
 import { cn } from "@mapos/ui/lib/utils";
+import { formatBytes } from "@renderer/lib/format";
 import {
   DownloadIcon,
   GlobeIcon,
@@ -15,13 +16,6 @@ import { useCallback, useMemo, useState } from "react";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { GroupHeader } from "./ai/group-header";
 import { type GlobeMarker, RegionGlobe } from "./region-globe";
-
-function formatBytes(n: number): string {
-  if (n <= 0) return "—";
-  const mb = n / 1_000_000;
-  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-  return `${(mb / 1000).toFixed(1)} GB`;
-}
 
 // Marker tint (RGB 0–1) by status, so the globe mirrors the list at a glance.
 function markerColor(r: RegionRow): [number, number, number] {

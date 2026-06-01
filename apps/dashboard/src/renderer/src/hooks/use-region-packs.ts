@@ -20,6 +20,8 @@ export type RegionRow = {
   group?: string;
   /** [lng, lat] — globe marker position, when the pack carries geometry. */
   center?: [number, number];
+  /** [minLng, minLat, maxLng, maxLat] — coverage box, used to find the region under a point. */
+  bbox?: [number, number, number, number];
   latest: string;
   /** Bytes of the latest version (what a fresh download costs). */
   latestBytes: number;
@@ -40,6 +42,8 @@ export type UseRegionPacks = {
   groups: RegionGroupRow[];
   /** Flat list — convenient for the globe's markers. */
   regions: RegionRow[];
+  /** Raw installed packs (with bbox). Loaded even when the manifest can't be fetched. */
+  installedPacks: InstalledRegionPack[];
   totalInstalledBytes: number;
   refresh: () => void;
   download: (slug: string) => void;
@@ -61,11 +65,13 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([window.api.regions.getManifest(), window.api.regions.listLocal()])
-      .then(([m, l]) => {
-        setManifest(m);
-        setLocal(l);
-      })
+    // Load installed packs independently of the manifest: a manifest failure (offline,
+    // or unconfigured URL) must not hide packs already on disk — that's exactly when the
+    // "this area is available offline" signal matters most.
+    window.api.regions.listLocal().then(setLocal).catch(() => {});
+    window.api.regions
+      .getManifest()
+      .then(setManifest)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
@@ -74,6 +80,11 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   useEffect(() => {
     if (enabled) refresh();
   }, [enabled, refresh]);
+
+  // Packs added/removed elsewhere (e.g. deleted from the Offline tab) broadcast
+  // `regions:changed`. Re-read local so every hook instance — including the map's
+  // coverage indicator — stays in sync without waiting for a manual refresh.
+  useEffect(() => window.api.regions.onChanged(() => void refreshLocal()), [refreshLocal]);
 
   // Stream download progress. "done" clears the row and re-reads local packs;
   // a cancellation just clears it; real errors stay so the row can show + offer retry.
@@ -164,6 +175,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
         name: entry.name ?? slug,
         group: entry.group,
         center: entry.center,
+        bbox: entry.bbox,
         latest: entry.latest,
         latestBytes,
         installed,
@@ -200,6 +212,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
     error,
     groups,
     regions,
+    installedPacks: local,
     totalInstalledBytes,
     refresh,
     download,

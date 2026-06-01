@@ -84,7 +84,8 @@ export function listLocal(regionsDir: string): InstalledRegionPack[] {
         version: meta.version,
         totalBytes: typeof meta.totalBytes === "number" ? meta.totalBytes : 0,
         installedAt: typeof meta.installedAt === "string" ? meta.installedAt : "",
-        ...(typeof meta.contentHash === "string" ? { contentHash: meta.contentHash } : {})
+        ...(typeof meta.contentHash === "string" ? { contentHash: meta.contentHash } : {}),
+        ...(Array.isArray(meta.bbox) && meta.bbox.length === 4 ? { bbox: meta.bbox } : {})
       });
     } catch {
       /* unreadable sidecar — treat as not installed */

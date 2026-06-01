@@ -24,6 +24,7 @@ import "@renderer/lib/pmtiles-protocol";
 
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
+import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
 import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
@@ -1248,6 +1249,7 @@ const MapView = forwardRef<
           </Source>
         )}
         {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
+        <RegionCoverageIndicator />
       </MapGL>
       <DropdownMenu
         modal

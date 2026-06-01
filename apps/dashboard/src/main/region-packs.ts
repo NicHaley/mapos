@@ -171,6 +171,11 @@ export async function downloadRegion(
   const dir = join(regionsDirFor(appStateDir), region);
   mkdirSync(dir, { recursive: true });
 
+  // Refuse a second concurrent download of the same region: both would stream to
+  // the same `.part` paths and interleave bytes, corrupting the pack.
+  if (activeDownloads.has(region)) {
+    throw new Error(`Region "${region}" is already downloading.`);
+  }
   const controller = new AbortController();
   activeDownloads.set(region, controller);
 
@@ -235,7 +240,9 @@ export async function downloadRegion(
     // renderer's invoke() catch can surface them.
     if (!cancelled) throw e;
   } finally {
-    activeDownloads.delete(region);
+    // Only clear our own controller — a later download for this region may have
+    // replaced it (e.g. after this one was cancelled and restarted).
+    if (activeDownloads.get(region) === controller) activeDownloads.delete(region);
   }
 }
 

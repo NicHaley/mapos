@@ -183,19 +183,44 @@ class NodeFileSource {
   }
   async getBytes(offset: number, length: number): Promise<{ data: ArrayBuffer }> {
     const buf = Buffer.allocUnsafe(length);
-    readSync(this.fd, buf, 0, length, offset);
-    return { data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+    // readSync may return fewer bytes than requested; loop until satisfied or EOF
+    // so a short read can't feed garbage (uninitialised tail) into the decoder.
+    let read = 0;
+    while (read < length) {
+      const n = readSync(this.fd, buf, read, length - read, offset + read);
+      if (n === 0) break;
+      read += n;
+    }
+    return { data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + read) };
+  }
+  close(): void {
+    closeSync(this.fd);
   }
 }
 
-const archives = new Map<string, PMTiles>();
+const archives = new Map<string, { pmtiles: PMTiles; source: NodeFileSource }>();
 function archive(path: string): PMTiles {
   let a = archives.get(path);
   if (!a) {
-    a = new PMTiles(new NodeFileSource(path) as unknown as ConstructorParameters<typeof PMTiles>[0]);
+    const source = new NodeFileSource(path);
+    const pmtiles = new PMTiles(
+      source as unknown as ConstructorParameters<typeof PMTiles>[0]
+    );
+    a = { pmtiles, source };
     archives.set(path, a);
   }
-  return a;
+  return a.pmtiles;
+}
+
+/**
+ * Close every cached pmtiles file descriptor and drop the archive cache. Call
+ * after a pack is deleted or re-downloaded — otherwise the cached archive keeps
+ * serving the old inode through a stale fd (so new tiles never appear), and the
+ * open handle leaks (and blocks deletion on Windows).
+ */
+export function closeRegionArchives(): void {
+  for (const { source } of archives.values()) source.close();
+  archives.clear();
 }
 
 async function pmtilesTile(path: string, z: number, x: number, y: number): Promise<Response> {
@@ -243,10 +268,18 @@ function serveFile(root: string, rel: string, range: string | null): Response {
   };
   const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null;
   if (m) {
-    const start = m[1] ? Number.parseInt(m[1], 10) : 0;
-    const end = m[2] ? Number.parseInt(m[2], 10) : size - 1;
+    // Clamp to the file: an out-of-range `end` must never make readRange allocate
+    // and return bytes past EOF (uninitialised heap → info-leak + wrong length).
+    const start = Math.max(0, m[1] ? Number.parseInt(m[1], 10) : 0);
+    const end = Math.min(size - 1, m[2] ? Number.parseInt(m[2], 10) : size - 1);
+    if (start > end) {
+      return new Response("range not satisfiable", {
+        status: 416,
+        headers: { ...headers, "content-range": `bytes */${size}` }
+      });
+    }
     const body = readRange(full, start, end);
-    headers["content-range"] = `bytes ${start}-${end}/${size}`;
+    headers["content-range"] = `bytes ${start}-${start + body.length - 1}/${size}`;
     headers["content-length"] = String(body.length);
     return new Response(body, { status: 206, headers });
   }
@@ -255,14 +288,22 @@ function serveFile(root: string, rel: string, range: string | null): Response {
   return new Response(body, { status: 200, headers });
 }
 
+// Reads bytes [start, end] from `path`. Returns only the bytes actually read —
+// the buffer is sliced to the read count so a short read never exposes the
+// uninitialised tail of the allocUnsafe buffer.
 function readRange(path: string, start: number, end: number): Buffer {
   const len = Math.max(0, end - start + 1);
   const buf = Buffer.allocUnsafe(len);
   const fd = openSync(path, "r");
   try {
-    readSync(fd, buf, 0, len, start);
+    let read = 0;
+    while (read < len) {
+      const n = readSync(fd, buf, read, len - read, start + read);
+      if (n === 0) break;
+      read += n;
+    }
+    return read === len ? buf : buf.subarray(0, read);
   } finally {
     closeSync(fd);
   }
-  return buf;
 }

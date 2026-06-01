@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { app } from "electron";
 import { loadOrInitMaposConfig } from "../mapos-config";
+import { closeRegionArchives } from "../region-protocol";
 import { type MaposServiceClient, createClient } from "./index";
 import { closeOfflineGeocodeConnections, closeOfflineRoutingActors } from "./offline";
 import type { ClientCredentials } from "./types";
@@ -29,8 +30,10 @@ export function getServiceClient(): MaposServiceClient {
 
 export function invalidateServiceClient(): void {
   cached = null;
-  // Drop cached SQLite handles + Valhalla Actors so a region switch doesn't read
-  // a stale file or keep the old region's tiles memory-mapped.
+  // Drop cached SQLite handles + Valhalla Actors + pmtiles fds so a region switch
+  // doesn't read a stale file, keep the old region's tiles memory-mapped, or serve
+  // a deleted inode through a cached archive.
   closeOfflineGeocodeConnections();
   closeOfflineRoutingActors();
+  closeRegionArchives();
 }

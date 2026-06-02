@@ -36,6 +36,7 @@ import {
 } from "./conversations";
 import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
+import { getRuntimeAuthStorage } from "./aiv2-auth";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
@@ -65,6 +66,22 @@ function resolveModel(
   authStorage: AuthStorage,
   modelRegistry: ModelRegistry
 ): Model<Api> {
+  // POC v2: a known Pi catalog provider. Auth (API key or auto-refreshed OAuth) already lives in
+  // the shared persistent AuthStorage under `piProvider`, so we just resolve the catalog model and
+  // let Pi apply the right credentials and headers (incl. Anthropic's OAuth beta header).
+  if (aiConfig.piProvider) {
+    const model = getModel(aiConfig.piProvider as never, aiConfig.model as never) as
+      | Model<Api>
+      | undefined;
+    if (!model) {
+      throw new AiConfigError(
+        "AI_NOT_CONFIGURED",
+        `Model "${aiConfig.model}" isn't in Pi's catalog for "${aiConfig.piProvider}". Pick a different model in Settings.`
+      );
+    }
+    return model;
+  }
+
   if (aiConfig.provider === "anthropic") {
     authStorage.setRuntimeApiKey("anthropic", aiConfig.apiKey);
     // `getModel` is typed to require a known model id but actually returns `undefined`
@@ -99,7 +116,10 @@ function resolveModel(
   const apiKey = aiConfig.authToken || "ollama";
   authStorage.setRuntimeApiKey(LOCAL_PROVIDER_KEY, apiKey);
 
-  const { contextWindow } = resolveCapabilities("local", aiConfig.model);
+  // Prefer the capabilities resolved with this request (the v2 path captures the model's real
+  // context window at selection time); fall back to the legacy per-model lookup.
+  const contextWindow =
+    aiConfig.capabilities?.contextWindow ?? resolveCapabilities("local", aiConfig.model).contextWindow;
 
   modelRegistry.registerProvider(LOCAL_PROVIDER_KEY, {
     name: baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") ? "Local" : "Custom",
@@ -237,16 +257,18 @@ export function setupChat(
       sessions.delete(convId);
     }
 
-    const authStorage = AuthStorage.inMemory();
-    // Pi's ModelRegistry.create() reads ~/.pi/agent/models.json by default; use inMemory()
-    // so MapOS doesn't leak custom-provider state into the user's home directory.
+    // Known Pi providers (v2) authenticate through the shared persistent AuthStorage so OAuth
+    // tokens resolve and auto-refresh across requests. Everything else uses a throwaway inMemory
+    // store seeded with the request's key — Pi's ModelRegistry.create() would otherwise read
+    // ~/.pi/agent/models.json and leak custom-provider state into the user's home directory.
+    const authStorage = aiConfig.piProvider ? getRuntimeAuthStorage() : AuthStorage.inMemory();
     const modelRegistry = ModelRegistry.inMemory(authStorage);
     const model = resolveModel(aiConfig, authStorage, modelRegistry);
 
     // Pi's `thinkingLevel` option doesn't include "off" — the only way to disable
     // thinking at construction time is to omit the field and rely on the model's
     // own clamping (local models registered with `reasoning: false` clamp to off).
-    const thinking = resolveCapabilities(aiConfig.provider, aiConfig.model).thinking;
+    const thinking = aiConfig.capabilities.thinking;
     const thinkingLevel = thinking === "off" ? undefined : thinking;
 
     // Pi's `tools:` is a global allowlist that filters BOTH built-ins AND customTools

@@ -7,6 +7,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { registerAiConfigIpc } from "./ai-config-ipc";
+import { registerAiV2Ipc } from "./aiv2-ipc";
 import { setupAppMenu } from "./app-menu";
 import { setupChat } from "./chat";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
@@ -171,6 +172,7 @@ app.whenReady().then(() => {
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
   setupOllamaPersistence(appStateDir);
   registerAiConfigIpc(mainWindow);
+  registerAiV2Ipc(mainWindow);
   registerServicesIpc();
   registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);

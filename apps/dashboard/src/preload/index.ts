@@ -6,6 +6,13 @@ import type {
 } from "@mapos/contracts";
 import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
+import type { ModelCapabilities } from "../shared/ai-models";
+import type {
+  AiV2State,
+  FetchedModel,
+  KnownProviderOption,
+  ProviderInput
+} from "../shared/ai-providers";
 import type {
   ChatChunkPayload,
   ChatDonePayload,
@@ -325,6 +332,67 @@ const api = {
       ipcRenderer.on("ai-config:changed", listener);
       return () => {
         ipcRenderer.off("ai-config:changed", listener);
+      };
+    }
+  },
+  // POC: unified provider model (see shared/ai-providers.ts). Parallel to `aiConfig` above.
+  aiv2: {
+    getState: () => ipcRenderer.invoke("aiv2:get-state") as Promise<AiV2State>,
+    addProvider: (input: ProviderInput) =>
+      ipcRenderer.invoke("aiv2:add-provider", input) as Promise<
+        { ok: true; id: string } | { ok: false; error: string }
+      >,
+    updateProvider: (id: string, patch: ProviderInput) =>
+      ipcRenderer.invoke("aiv2:update-provider", { id, patch }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    removeProvider: (id: string) =>
+      ipcRenderer.invoke("aiv2:remove-provider", { id }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    setActive: (providerId: string, model: string, capabilities: ModelCapabilities) =>
+      ipcRenderer.invoke("aiv2:set-active", { providerId, model, capabilities }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    clearActive: () => ipcRenderer.invoke("aiv2:clear-active") as Promise<{ ok: true }>,
+    listModels: (providerId: string) =>
+      ipcRenderer.invoke("aiv2:list-models", { providerId }) as Promise<
+        { ok: true; models: FetchedModel[] } | { ok: false; error: string }
+      >,
+    listKnownProviders: () =>
+      ipcRenderer.invoke("aiv2:list-known-providers") as Promise<KnownProviderOption[]>,
+    addKnownProvider: (provider: string) =>
+      ipcRenderer.invoke("aiv2:add-known-provider", { provider }) as Promise<
+        { ok: true; id: string } | { ok: false; error: string }
+      >,
+    setApiKey: (provider: string, key: string) =>
+      ipcRenderer.invoke("aiv2:set-api-key", { provider, key }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    oauthLogin: (provider: string) =>
+      ipcRenderer.invoke("aiv2:oauth-login", { provider }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    oauthCancel: () => ipcRenderer.invoke("aiv2:oauth-cancel") as Promise<{ ok: true }>,
+    disconnect: (provider: string) =>
+      ipcRenderer.invoke("aiv2:disconnect", { provider }) as Promise<{ ok: true }>,
+    onOAuthProgress: (
+      cb: (data: { provider: string; status: string; url?: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        data: { provider: string; status: string; url?: string }
+      ): void => cb(data);
+      ipcRenderer.on("aiv2:oauth-progress", listener);
+      return () => {
+        ipcRenderer.off("aiv2:oauth-progress", listener);
+      };
+    },
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on("aiv2:changed", listener);
+      return () => {
+        ipcRenderer.off("aiv2:changed", listener);
       };
     }
   },

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
 import { type ModelCapabilities, resolveCapabilities } from "../shared/ai-models";
+import { isAiV2Configured, resolveActiveV2 } from "./aiv2";
 import {
   type AiConfig,
   type AiLocalMode,
@@ -127,6 +128,9 @@ export function getAiSettingsState(): AiSettingsState {
 }
 
 export function isAiConfigured(): { configured: boolean; activeProvider: AiProvider; model: string } {
+  // POC: a usable v2 provider selection takes precedence over the legacy config.
+  const v2 = isAiV2Configured();
+  if (v2) return v2;
   const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
   if (cfg.provider === "anthropic") {
     return {
@@ -293,6 +297,12 @@ export type ResolvedAiRequestConfig = {
   apiKey: string;
   model: string;
   capabilities: ModelCapabilities;
+  /**
+   * POC v2: when set, this is a Pi catalog provider name (e.g. "anthropic"). The chat path resolves
+   * the model via `getModel(piProvider, model)` and its auth (API key or auto-refreshed OAuth token)
+   * through the shared persistent AuthStorage — no inline key/token is carried here.
+   */
+  piProvider?: string;
 };
 
 function resolveLocalConfig(cfg: AiConfig): ResolvedAiRequestConfig {
@@ -355,6 +365,10 @@ export function loadSavedAnthropicConfig(): { apiKey: string; model: string } | 
  * Throws AiConfigError when no provider is configured or when the encrypted secret can't be decrypted.
  */
 export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
+  // POC: prefer the unified-provider selection when one is set and usable; otherwise fall through
+  // to the legacy provider/anthropic/local config below.
+  const v2 = resolveActiveV2();
+  if (v2) return v2;
   const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
   if (cfg.provider === "anthropic") {
     if (!cfg.anthropic.encryptedApiKey) {

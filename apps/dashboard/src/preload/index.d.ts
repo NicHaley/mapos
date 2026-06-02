@@ -5,6 +5,13 @@ import type {
   TileStyleRequest
 } from "@mapos/contracts";
 import type { ElectronAPI } from "@electron-toolkit/preload";
+import type { ModelCapabilities } from "../shared/ai-models";
+import type {
+  AiV2State,
+  FetchedModel,
+  KnownProviderOption,
+  ProviderInput
+} from "../shared/ai-providers";
 import type {
   ChatChunkPayload,
   ChatDonePayload,
@@ -223,6 +230,45 @@ declare global {
         /** Returns a cleanup function. */
         onPullProgress: (
           cb: (data: { modelId: string; percent?: number; status?: string }) => void
+        ) => () => void;
+        /** Returns a cleanup function. */
+        onChanged: (cb: () => void) => () => void;
+      };
+      aiv2: {
+        getState: () => Promise<AiV2State>;
+        addProvider: (
+          input: ProviderInput
+        ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+        updateProvider: (
+          id: string,
+          patch: ProviderInput
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        removeProvider: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+        setActive: (
+          providerId: string,
+          model: string,
+          capabilities: ModelCapabilities
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        clearActive: () => Promise<{ ok: true }>;
+        listModels: (
+          providerId: string
+        ) => Promise<{ ok: true; models: FetchedModel[] } | { ok: false; error: string }>;
+        listKnownProviders: () => Promise<KnownProviderOption[]>;
+        addKnownProvider: (
+          provider: string
+        ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+        setApiKey: (
+          provider: string,
+          key: string
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        oauthLogin: (
+          provider: string
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        oauthCancel: () => Promise<{ ok: true }>;
+        disconnect: (provider: string) => Promise<{ ok: true }>;
+        /** Returns a cleanup function. */
+        onOAuthProgress: (
+          cb: (data: { provider: string; status: string; url?: string }) => void
         ) => () => void;
         /** Returns a cleanup function. */
         onChanged: (cb: () => void) => () => void;

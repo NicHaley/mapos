@@ -13,6 +13,12 @@ import type {
   ProviderInput
 } from "../shared/ai-providers";
 import type {
+  DownloadProgress,
+  InstalledModel,
+  LocalLlmHardware,
+  RecommendedModel
+} from "../shared/local-llm";
+import type {
   ChatChunkPayload,
   ChatDonePayload,
   ChatErrorPayload,
@@ -272,6 +278,20 @@ declare global {
         ) => () => void;
         /** Returns a cleanup function. */
         onChanged: (cb: () => void) => () => void;
+      };
+      localLlm: {
+        getHardware: () => Promise<LocalLlmHardware>;
+        listRecommended: () => Promise<RecommendedModel[]>;
+        listInstalled: () => Promise<InstalledModel[]>;
+        download: (
+          id: string
+        ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+        cancelDownload: (id: string) => Promise<{ ok: true }>;
+        delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+        getSelected: () => Promise<string | null>;
+        select: (id: string | null) => Promise<{ ok: true } | { ok: false; error: string }>;
+        /** Returns a cleanup function. */
+        onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void;
       };
       updater: {
         install: () => Promise<void>;

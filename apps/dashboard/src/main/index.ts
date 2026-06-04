@@ -20,6 +20,7 @@ import {
   renameVaultInConfig,
   setActiveVaultInConfig
 } from "./mapos-config";
+import { registerLocalLlmIpc } from "./local-llm/ipc";
 import { registerMaposIpc } from "./mapos-ipc";
 import { setupOllamaPersistence } from "./ollama";
 import { registerRegionPacksIpc } from "./region-packs";
@@ -177,6 +178,7 @@ app.whenReady().then(() => {
   registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);
   setupAppMenu();
+  registerLocalLlmIpc(mainWindow);
 
   // Vault management + onboarding IPCs are also vault-independent. They power both the
   // first-launch onboarding flow and the in-app vault switcher.

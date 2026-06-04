@@ -1,3 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# pnpm 10 no longer reads the "pnpm" field in package.json; the build-script allowlist lives here now.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - electron
+  - esbuild
+  - node-llama-cpp

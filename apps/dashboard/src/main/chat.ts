@@ -37,6 +37,7 @@ import {
 import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
 import { getRuntimeAuthStorage } from "./aiv2-auth";
+import { registerEmbeddedModel } from "./local-llm/pi-provider";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
@@ -61,11 +62,28 @@ const LOCAL_PROVIDER_KEY = "mapos-local";
  *   `baseUrl` and a single model row. Pi's built-in `streamOpenAICompletions` handles
  *   the wire format; the registry handles auth resolution.
  */
-function resolveModel(
+async function resolveModel(
   aiConfig: ReturnType<typeof loadAiConfigForRequest>,
   authStorage: AuthStorage,
   modelRegistry: ModelRegistry
-): Model<Api> {
+): Promise<Model<Api>> {
+  // Embedded llama.cpp: run the selected GGUF in-process. Pi's agent loop is unchanged.
+  if (aiConfig.embeddedModelPath) {
+    const model = await registerEmbeddedModel(modelRegistry, {
+      id: aiConfig.model,
+      path: aiConfig.embeddedModelPath,
+      label: aiConfig.model,
+      capabilities: aiConfig.capabilities
+    });
+    if (!model) {
+      throw new AiConfigError(
+        "AI_NOT_CONFIGURED",
+        `Couldn't register the embedded model "${aiConfig.model}".`
+      );
+    }
+    return model;
+  }
+
   // POC v2: a known Pi catalog provider. Auth (API key or auto-refreshed OAuth) already lives in
   // the shared persistent AuthStorage under `piProvider`, so we just resolve the catalog model and
   // let Pi apply the right credentials and headers (incl. Anthropic's OAuth beta header).
@@ -238,7 +256,7 @@ export function setupChat(
   }
 
   function configKeyFor(aiConfig: ReturnType<typeof loadAiConfigForRequest>): string {
-    return `${aiConfig.provider}|${aiConfig.model}|${aiConfig.apiKey || aiConfig.authToken || aiConfig.baseUrl}`;
+    return `${aiConfig.provider}|${aiConfig.model}|${aiConfig.embeddedModelPath || aiConfig.apiKey || aiConfig.authToken || aiConfig.baseUrl}`;
   }
 
   async function ensureSessionForConv(
@@ -263,7 +281,7 @@ export function setupChat(
     // ~/.pi/agent/models.json and leak custom-provider state into the user's home directory.
     const authStorage = aiConfig.piProvider ? getRuntimeAuthStorage() : AuthStorage.inMemory();
     const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = resolveModel(aiConfig, authStorage, modelRegistry);
+    const model = await resolveModel(aiConfig, authStorage, modelRegistry);
 
     // Pi's `thinkingLevel` option doesn't include "off" — the only way to disable
     // thinking at construction time is to omit the field and rely on the model's

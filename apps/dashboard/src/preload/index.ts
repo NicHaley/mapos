@@ -14,6 +14,12 @@ import type {
   ProviderInput
 } from "../shared/ai-providers";
 import type {
+  DownloadProgress,
+  InstalledModel,
+  LocalLlmHardware,
+  RecommendedModel
+} from "../shared/local-llm";
+import type {
   ChatChunkPayload,
   ChatDonePayload,
   ChatErrorPayload,
@@ -393,6 +399,35 @@ const api = {
       ipcRenderer.on("aiv2:changed", listener);
       return () => {
         ipcRenderer.off("aiv2:changed", listener);
+      };
+    }
+  },
+  // Embedded llama.cpp runtime: curated model download + management (see shared/local-llm.ts).
+  localLlm: {
+    getHardware: () => ipcRenderer.invoke("local-llm:get-hardware") as Promise<LocalLlmHardware>,
+    listRecommended: () =>
+      ipcRenderer.invoke("local-llm:list-recommended") as Promise<RecommendedModel[]>,
+    listInstalled: () => ipcRenderer.invoke("local-llm:list-installed") as Promise<InstalledModel[]>,
+    download: (id: string) =>
+      ipcRenderer.invoke("local-llm:download", { id }) as Promise<
+        { ok: true; path: string } | { ok: false; error: string }
+      >,
+    cancelDownload: (id: string) =>
+      ipcRenderer.invoke("local-llm:cancel-download", { id }) as Promise<{ ok: true }>,
+    delete: (id: string) =>
+      ipcRenderer.invoke("local-llm:delete", { id }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    getSelected: () => ipcRenderer.invoke("local-llm:get-selected") as Promise<string | null>,
+    select: (id: string | null) =>
+      ipcRenderer.invoke("local-llm:select", { id }) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >,
+    onDownloadProgress: (cb: (data: DownloadProgress) => void): (() => void) => {
+      const listener = (_e: unknown, data: DownloadProgress): void => cb(data);
+      ipcRenderer.on("local-llm:download-progress", listener);
+      return () => {
+        ipcRenderer.off("local-llm:download-progress", listener);
       };
     }
   },

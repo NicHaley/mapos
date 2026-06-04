@@ -56,6 +56,9 @@ const ProviderSchema = z.object({
   encryptedSecret: z.string().nullable().catch(null),
   /** Pi catalog provider name when this is a known provider; null for custom/local endpoints. */
   knownProvider: z.string().nullable().catch(null),
+  /** Origin local-runtime preset (see LOCAL_PRESETS) for the "local" badge + Add-sheet dedup. */
+  preset: z.string().nullable().catch(null),
+  // "ollama" is accepted only to parse pre-migration configs; load() migrates it to a preset.
   builtin: z.enum(["anthropic", "ollama"]).nullable().catch(null)
 });
 
@@ -78,7 +81,12 @@ const AiV2Schema = z
 type AiV2Stored = z.infer<typeof AiV2Schema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
 
-/** The two seeded presets. Stable ids so an active selection survives reloads. */
+/**
+ * The single permanent built-in: Anthropic (the recommended default). Local runtimes are no longer
+ * seeded as permanent cards — they're offered as removable presets in the Add-provider sheet
+ * (see LOCAL_PRESETS), so users only carry the ones they actually use. Stable id so an active
+ * selection survives reloads.
+ */
 function seedProviders(): ProviderStored[] {
   return [
     {
@@ -89,17 +97,8 @@ function seedProviders(): ProviderStored[] {
       authKind: "api-key",
       encryptedSecret: null,
       knownProvider: "anthropic",
+      preset: null,
       builtin: "anthropic"
-    },
-    {
-      id: "builtin-ollama",
-      label: "Ollama",
-      protocol: "openai",
-      baseUrl: "http://localhost:11434",
-      authKind: "none",
-      encryptedSecret: null,
-      knownProvider: null,
-      builtin: "ollama"
     }
   ];
 }
@@ -127,13 +126,26 @@ function load(): AiV2Stored {
   } catch {
     parsed = { providers: [], active: null };
   }
-  // Re-seed any missing built-ins so the presets are always present (e.g. after a manual edit).
+  // Migrate the old permanent Ollama built-in into a removable, preset-tagged local provider, so it
+  // behaves like any other local runtime (editable, removable, dedup'd against the Ollama preset).
+  let dirty = false;
+  const migrated = parsed.providers.map((p) => {
+    if (p.builtin === "ollama") {
+      dirty = true;
+      return { ...p, builtin: null, preset: p.preset ?? "ollama" };
+    }
+    return p;
+  });
+  if (dirty) parsed = { ...parsed, providers: migrated };
+
+  // Re-seed any missing built-ins so the preset is always present (e.g. after a manual edit).
   const have = new Set(parsed.providers.map((x) => x.builtin).filter(Boolean));
   const missing = seedProviders().filter((s) => !have.has(s.builtin));
   if (missing.length > 0) {
     parsed = { ...parsed, providers: [...missing, ...parsed.providers] };
-    write(parsed);
+    dirty = true;
   }
+  if (dirty) write(parsed);
   return parsed;
 }
 
@@ -166,7 +178,10 @@ function toView(p: ProviderStored): ProviderView {
     authKind: p.authKind,
     hasSecret: !!p.encryptedSecret,
     knownProvider: p.knownProvider,
-    builtin: p.builtin,
+    // The stored enum still accepts "ollama" for back-compat parsing; load() migrates it away, so a
+    // lingering value here just maps to null (a plain local provider).
+    builtin: p.builtin === "anthropic" ? "anthropic" : null,
+    preset: p.preset,
     auth: authView(p)
   };
 }
@@ -194,6 +209,7 @@ export function addKnownProvider(name: string): { ok: true; id: string } | { ok:
     authKind: "api-key",
     encryptedSecret: null,
     knownProvider: name,
+    preset: null,
     builtin: null
   };
   write({ ...st, providers: [...st.providers, next] });
@@ -236,6 +252,8 @@ export function addProvider(input: ProviderInput): { ok: true; id: string } | { 
       authKind !== "none" && typeof input.secret === "string" && input.secret.trim().length > 0
         ? encrypt(input.secret.trim())
         : null,
+    knownProvider: null,
+    preset: input.preset ?? null,
     builtin: null
   };
   const st = load();

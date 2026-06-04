@@ -33,7 +33,7 @@ type ModelsFetch = { loading: boolean; error: string | null; models: FetchedMode
 
 function providerKind(p: ProviderView): "cloud" | "local" | "custom" {
   if (p.builtin === "anthropic") return "cloud";
-  if (p.builtin === "ollama") return "local";
+  if (p.preset) return "local";
   return p.knownProvider ? "cloud" : "custom";
 }
 
@@ -128,6 +128,9 @@ export function ProvidersTab(): React.JSX.Element {
   const active = state.active;
   const addedKnown = new Set(
     state.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
+  );
+  const addedLocalPresets = new Set(
+    state.providers.map((p) => p.preset).filter((n): n is string => !!n)
   );
 
   return (
@@ -339,8 +342,24 @@ export function ProvidersTab(): React.JSX.Element {
         open={addOpen}
         onOpenChange={setAddOpen}
         addedKnownProviders={addedKnown}
+        addedLocalPresets={addedLocalPresets}
         onAddKnown={async (name) => {
           const result = await window.api.aiv2.addKnownProvider(name);
+          await reload();
+          if (result.ok) {
+            setAddOpen(false);
+            setExpandedId(result.id);
+            await fetchModels(result.id);
+          }
+        }}
+        onAddLocal={async (preset) => {
+          const result = await window.api.aiv2.addProvider({
+            label: preset.label,
+            protocol: preset.protocol,
+            baseUrl: preset.baseUrl,
+            authKind: "none",
+            preset: preset.id
+          });
           await reload();
           if (result.ok) {
             setAddOpen(false);

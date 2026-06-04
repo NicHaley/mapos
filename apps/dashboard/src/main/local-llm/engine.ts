@@ -14,3 +14,15 @@ export function getLlamaRuntime(): Promise<Llama> {
   if (!llamaPromise) llamaPromise = getLlama();
   return llamaPromise;
 }
+
+/** Tear down the runtime on app quit. Dispose all models first, then call this. */
+export async function disposeLlamaRuntime(): Promise<void> {
+  const pending = llamaPromise;
+  llamaPromise = null;
+  if (!pending) return;
+  try {
+    await (await pending).dispose();
+  } catch {
+    /* already gone */
+  }
+}

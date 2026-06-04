@@ -19,6 +19,7 @@ import type {
   RecommendedModel
 } from "../../shared/local-llm";
 import { getLlamaRuntime } from "./engine";
+import { unloadModel } from "./inference";
 
 type CatalogEntry = {
   id: string;
@@ -221,6 +222,7 @@ export function deleteModel(idOrFileName: string): { ok: true } | { ok: false; e
   const fileName = byId.get(idOrFileName)?.fileName ?? idOrFileName;
   const path = modelPath(fileName);
   if (!existsSync(path)) return { ok: false, error: "Model not found." };
+  void unloadModel(path); // free it from memory; unlinking a still-mapped file is safe on POSIX
   try {
     rmSync(path);
     if (selectedModelId() === byId.get(idOrFileName)?.id) setSelectedModel(null);
@@ -280,10 +282,16 @@ export function setSelectedModel(id: string | null): { ok: true } | { ok: false;
     if (!entry) return { ok: false, error: `Unknown model "${id}".` };
     if (!existsSync(modelPath(entry.fileName))) return { ok: false, error: "Model isn't downloaded yet." };
   }
+  const prevId = selectedModelId();
   try {
     writeFileSync(selectionPath(), `${JSON.stringify({ selectedModelId: id }, null, 2)}\n`, "utf-8");
-    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+  // Switching away from a model: the selection is global, so the old one is now unreferenced — free it.
+  if (prevId && prevId !== id) {
+    const prev = byId.get(prevId);
+    if (prev) void unloadModel(modelPath(prev.fileName));
+  }
+  return { ok: true };
 }

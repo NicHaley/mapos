@@ -20,6 +20,8 @@ import {
   renameVaultInConfig,
   setActiveVaultInConfig
 } from "./mapos-config";
+import { disposeLlamaRuntime } from "./local-llm/engine";
+import { unloadAllModels } from "./local-llm/inference";
 import { registerLocalLlmIpc } from "./local-llm/ipc";
 import { registerMaposIpc } from "./mapos-ipc";
 import { setupOllamaPersistence } from "./ollama";
@@ -326,6 +328,21 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Dispose the embedded llama.cpp runtime before exit; otherwise ggml-metal asserts during native
+// teardown at process exit. Hold off the real quit until disposal settles, with a timeout so a hung
+// dispose can't trap the user in the app.
+let localLlmTornDown = false;
+app.on("before-quit", (event) => {
+  if (localLlmTornDown) return;
+  localLlmTornDown = true;
+  event.preventDefault();
+  const cleanup = unloadAllModels()
+    .then(() => disposeLlamaRuntime())
+    .catch(() => {});
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
+  void Promise.race([cleanup, timeout]).then(() => app.quit());
 });
 
 app.on("window-all-closed", () => {

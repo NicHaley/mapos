@@ -107,10 +107,11 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
 /** Free a cached model and its context (e.g. after the user deletes or switches it). */
 export async function unloadModel(modelPath: string): Promise<void> {
   const existing = loaded.get(modelPath);
-  loaded.delete(modelPath);
+  loaded.delete(modelPath); // synchronous: no further generate() can attach to this instance
   if (!existing) return;
   try {
     const lm = await existing;
+    await lm.lock.catch(() => {}); // let any in-flight generation finish before disposing
     await lm.context.dispose();
     await lm.model.dispose();
   } catch {

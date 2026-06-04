@@ -97,11 +97,29 @@ function contextToHistory(context: Context): ChatHistoryItem[] {
   return items;
 }
 
+/**
+ * Make a JSON Schema safe for node-llama-cpp's GBNF layer, which understands `oneOf` but not `anyOf`.
+ * typebox emits unions (e.g. `Type.Union` of string literals) as `anyOf`, which reaches GBNF as a
+ * node with no `type` and throws "Unknown immutable type undefined" when validating a tool call.
+ * Rewriting `anyOf` → `oneOf` is equivalent for the disjoint members tool schemas use. Returns a deep
+ * copy so the original schema (used unchanged on the cloud path) isn't mutated.
+ */
+function toGbnfSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(toGbnfSchema);
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "anyOf" && Array.isArray(value)) out.oneOf = value.map(toGbnfSchema);
+    else out[key] = toGbnfSchema(value);
+  }
+  return out;
+}
+
 function toolsToFunctions(tools?: Tool[]): ChatModelFunctions | undefined {
   if (!tools || tools.length === 0) return undefined;
   const fns: Record<string, { description?: string; params?: GbnfJsonSchema }> = {};
   for (const t of tools) {
-    fns[t.name] = { description: t.description, params: t.parameters as unknown as GbnfJsonSchema };
+    fns[t.name] = { description: t.description, params: toGbnfSchema(t.parameters) as GbnfJsonSchema };
   }
   return fns as ChatModelFunctions;
 }

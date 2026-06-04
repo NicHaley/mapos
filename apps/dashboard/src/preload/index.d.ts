@@ -288,8 +288,6 @@ declare global {
         ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
         cancelDownload: (id: string) => Promise<{ ok: true }>;
         delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-        getSelected: () => Promise<string | null>;
-        select: (id: string | null) => Promise<{ ok: true } | { ok: false; error: string }>;
         /** Returns a cleanup function. */
         onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void;
       };

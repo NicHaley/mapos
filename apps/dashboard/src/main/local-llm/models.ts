@@ -6,7 +6,7 @@
  * machine's memory at runtime. Sizes and filenames were verified against Hugging Face.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 import { createModelDownloader } from "node-llama-cpp";
@@ -145,7 +145,7 @@ export async function listRecommended(): Promise<RecommendedModel[]> {
     sizeBytes: e.sizeBytes,
     minMemoryGB: e.minMemoryGB,
     description: e.description,
-    capabilities: e.capabilities,
+    capabilities: toModelCapabilities(e.capabilities),
     fits: e.minMemoryGB <= totalMemoryGB,
     recommended: e.id === bestId,
     installed: installed.has(e.fileName)
@@ -225,29 +225,12 @@ export function deleteModel(idOrFileName: string): { ok: true } | { ok: false; e
   void unloadModel(path); // free it from memory; unlinking a still-mapped file is safe on POSIX
   try {
     rmSync(path);
-    if (selectedModelId() === byId.get(idOrFileName)?.id) setSelectedModel(null);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
-
-// ── Active selection ──────────────────────────────────────────────────────────
-// Which downloaded model the chat path uses, persisted in userData/local-llm.json (separate from
-// the aiv2 provider selection).
-
-function selectionPath(): string {
-  return join(app.getPath("userData"), "local-llm.json");
-}
-
-function selectedModelId(): string | null {
-  try {
-    const parsed = JSON.parse(readFileSync(selectionPath(), "utf-8")) as { selectedModelId?: unknown };
-    return typeof parsed.selectedModelId === "string" ? parsed.selectedModelId : null;
-  } catch {
-    return null;
-  }
-}
+// If the deleted model was the active aiv2 selection, the delete IPC clears it (see local-llm/ipc.ts).
 
 /** Map the catalog's capability flags onto Pi's ModelCapabilities (thinking is a string enum). */
 function toModelCapabilities(c: LocalModelCapabilities): ModelCapabilities {
@@ -259,39 +242,17 @@ function toModelCapabilities(c: LocalModelCapabilities): ModelCapabilities {
   };
 }
 
-/** The selected embedded model resolved for the chat path, or null when none is usable. */
-export function getSelectedModel(): {
-  id: string;
-  path: string;
-  label: string;
-  capabilities: ModelCapabilities;
-} | null {
-  const id = selectedModelId();
-  if (!id) return null;
+/**
+ * Resolve a catalog model id to its on-disk path and capabilities, or null when the id is unknown or
+ * the GGUF isn't downloaded. The aiv2 `active` selection (not a local pointer) decides *which* model
+ * is in use; this just turns that id into what the chat path needs.
+ */
+export function resolveEmbeddedModel(
+  id: string
+): { id: string; path: string; label: string; capabilities: ModelCapabilities } | null {
   const entry = byId.get(id);
   if (!entry) return null;
   const path = modelPath(entry.fileName);
-  if (!existsSync(path)) return null; // selected but not downloaded — treat as unset
+  if (!existsSync(path)) return null;
   return { id: entry.id, path, label: entry.label, capabilities: toModelCapabilities(entry.capabilities) };
-}
-
-/** Set (or clear with null) the active embedded model. Rejects unknown or not-yet-downloaded ids. */
-export function setSelectedModel(id: string | null): { ok: true } | { ok: false; error: string } {
-  if (id !== null) {
-    const entry = byId.get(id);
-    if (!entry) return { ok: false, error: `Unknown model "${id}".` };
-    if (!existsSync(modelPath(entry.fileName))) return { ok: false, error: "Model isn't downloaded yet." };
-  }
-  const prevId = selectedModelId();
-  try {
-    writeFileSync(selectionPath(), `${JSON.stringify({ selectedModelId: id }, null, 2)}\n`, "utf-8");
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-  // Switching away from a model: the selection is global, so the old one is now unreferenced — free it.
-  if (prevId && prevId !== id) {
-    const prev = byId.get(prevId);
-    if (prev) void unloadModel(modelPath(prev.fileName));
-  }
-  return { ok: true };
 }

@@ -1,18 +1,19 @@
 /**
  * IPC for the embedded model manager: request/response handlers plus a streamed
- * `local-llm:download-progress` event for the renderer's progress bar.
+ * `local-llm:download-progress` event for the renderer's progress bar. Model *selection* is not here
+ * — it rides the aiv2 active selection (`aiv2:set-active`); this surface only manages the catalog.
  */
 
 import { type BrowserWindow, ipcMain } from "electron";
+import { broadcastAiConfigChanged } from "../ai-config-ipc";
+import { clearActiveIfEmbeddedModel } from "../aiv2";
 import {
   cancelDownload,
   deleteModel,
   downloadModel,
   getHardware,
-  getSelectedModel,
   listInstalled,
-  listRecommended,
-  setSelectedModel
+  listRecommended
 } from "./models";
 
 const HANDLE_CHANNELS = [
@@ -21,9 +22,7 @@ const HANDLE_CHANNELS = [
   "local-llm:list-installed",
   "local-llm:download",
   "local-llm:cancel-download",
-  "local-llm:delete",
-  "local-llm:get-selected",
-  "local-llm:select"
+  "local-llm:delete"
 ] as const;
 
 export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
@@ -44,17 +43,13 @@ export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
     return { ok: true as const };
   });
 
-  ipcMain.handle("local-llm:delete", (_e, args: { id: string }) => deleteModel(args.id));
-
-  // The selected model is the active embedded model id, or null. We return just the id (the renderer
-  // already has the catalog from list-recommended) — the path/capabilities stay in main.
-  ipcMain.handle("local-llm:get-selected", () => getSelectedModel()?.id ?? null);
-
-  ipcMain.handle("local-llm:select", (_e, args: { id: string | null }) => {
-    const result = setSelectedModel(args.id);
-    if (result.ok && !mainWindow.isDestroyed()) {
-      // Reuse the existing ai-config signal so the chat composer re-checks configured state.
-      mainWindow.webContents.send("ai-config:changed");
+  ipcMain.handle("local-llm:delete", (_e, args: { id: string }) => {
+    const result = deleteModel(args.id);
+    if (result.ok) {
+      // If the deleted model was the active selection, drop it and refresh the tab + composer.
+      clearActiveIfEmbeddedModel(args.id);
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("aiv2:changed");
+      broadcastAiConfigChanged(mainWindow);
     }
     return result;
   });

@@ -16,6 +16,7 @@ import { ANTHROPIC_MODELS, type ModelCapabilities } from "../shared/ai-models";
 import {
   ANTHROPIC_CAPS,
   type AiV2State,
+  EMBEDDED_PROVIDER_ID,
   type FetchedModel,
   type KnownProviderOption,
   OPENAI_ASSUMED_CAPS,
@@ -26,6 +27,7 @@ import {
   type ProviderView
 } from "../shared/ai-providers";
 import type { ResolvedAiRequestConfig } from "./ai-config";
+import { resolveEmbeddedModel } from "./local-llm/models";
 import {
   catalogBaseUrl,
   catalogModels,
@@ -56,7 +58,7 @@ const ProviderSchema = z.object({
   encryptedSecret: z.string().nullable().catch(null),
   /** Pi catalog provider name when this is a known provider; null for custom/local endpoints. */
   knownProvider: z.string().nullable().catch(null),
-  /** Origin local-runtime preset (see LOCAL_PRESETS) for the "local" badge + Add-sheet dedup. */
+  /** Legacy origin local-runtime preset; only migrated Ollama entries still carry it (for the badge). */
   preset: z.string().nullable().catch(null),
   // "ollama" is accepted only to parse pre-migration configs; load() migrates it to a preset.
   builtin: z.enum(["anthropic", "ollama"]).nullable().catch(null)
@@ -82,10 +84,9 @@ type AiV2Stored = z.infer<typeof AiV2Schema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
 
 /**
- * The single permanent built-in: Anthropic (the recommended default). Local runtimes are no longer
- * seeded as permanent cards — they're offered as removable presets in the Add-provider sheet
- * (see LOCAL_PRESETS), so users only carry the ones they actually use. Stable id so an active
- * selection survives reloads.
+ * The single permanent built-in: Anthropic. Local AI is the embedded runtime, surfaced as its own
+ * section (not a provider here); other network runtimes are added via "Custom endpoint". Stable id so
+ * an active selection survives reloads.
  */
 function seedProviders(): ProviderStored[] {
   return [
@@ -218,18 +219,26 @@ export function addKnownProvider(name: string): { ok: true; id: string } | { ok:
 
 export function getAiV2State(): AiV2State {
   const st = load();
-  const active = st.active
-    ? (() => {
-        const provider = st.providers.find((x) => x.id === st.active?.providerId);
-        if (!provider || !st.active) return null;
-        return {
-          providerId: st.active.providerId,
-          providerLabel: provider.label,
-          model: st.active.model,
-          capabilities: st.active.capabilities
-        };
-      })()
-    : null;
+  const active = (() => {
+    if (!st.active) return null;
+    // The embedded runtime isn't in the providers array — label it directly.
+    if (st.active.providerId === EMBEDDED_PROVIDER_ID) {
+      return {
+        providerId: st.active.providerId,
+        providerLabel: "Local AI",
+        model: st.active.model,
+        capabilities: st.active.capabilities
+      };
+    }
+    const provider = st.providers.find((x) => x.id === st.active?.providerId);
+    if (!provider) return null;
+    return {
+      providerId: st.active.providerId,
+      providerLabel: provider.label,
+      model: st.active.model,
+      capabilities: st.active.capabilities
+    };
+  })();
   return { providers: st.providers.map(toView), active };
 }
 
@@ -314,7 +323,9 @@ export function setActive(
   capabilities: ModelCapabilities
 ): { ok: true } | { ok: false; error: string } {
   const st = load();
-  if (!st.providers.some((x) => x.id === providerId)) {
+  if (providerId === EMBEDDED_PROVIDER_ID) {
+    if (!resolveEmbeddedModel(model)) return { ok: false, error: "That local model isn't downloaded." };
+  } else if (!st.providers.some((x) => x.id === providerId)) {
     return { ok: false, error: "Provider not found." };
   }
   write({ ...st, active: { providerId, model, capabilities } });
@@ -325,6 +336,16 @@ export function clearActive(): { ok: true } {
   const st = load();
   write({ ...st, active: null });
   return { ok: true };
+}
+
+/** Clear the active selection if it points at the given embedded model. Returns whether it cleared. */
+export function clearActiveIfEmbeddedModel(modelId: string): boolean {
+  const st = load();
+  if (st.active?.providerId === EMBEDDED_PROVIDER_ID && st.active.model === modelId) {
+    write({ ...st, active: null });
+    return true;
+  }
+  return false;
 }
 
 // ── Model fetching ──────────────────────────────────────────────────────────
@@ -530,6 +551,23 @@ export async function fetchModels(
 export function resolveActiveV2(): ResolvedAiRequestConfig | null {
   const st = load();
   if (!st.active) return null;
+
+  // Embedded runtime: resolve the GGUF path + capabilities from the local catalog by model id.
+  // Returns null (→ fall through to legacy config) if the model was since deleted.
+  if (st.active.providerId === EMBEDDED_PROVIDER_ID) {
+    const m = resolveEmbeddedModel(st.active.model);
+    if (!m) return null;
+    return {
+      provider: "local",
+      baseUrl: "",
+      authToken: "",
+      apiKey: "",
+      model: m.id,
+      capabilities: m.capabilities,
+      embeddedModelPath: m.path
+    };
+  }
+
   const provider = st.providers.find((x) => x.id === st.active?.providerId);
   if (!provider) return null;
   const capabilities = st.active.capabilities;

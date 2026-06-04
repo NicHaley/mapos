@@ -418,11 +418,6 @@ const api = {
       ipcRenderer.invoke("local-llm:delete", { id }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
-    getSelected: () => ipcRenderer.invoke("local-llm:get-selected") as Promise<string | null>,
-    select: (id: string | null) =>
-      ipcRenderer.invoke("local-llm:select", { id }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
     onDownloadProgress: (cb: (data: DownloadProgress) => void): (() => void) => {
       const listener = (_e: unknown, data: DownloadProgress): void => cb(data);
       ipcRenderer.on("local-llm:download-progress", listener);

@@ -27,6 +27,7 @@ import { ProviderBadge } from "../ai/provider-badge";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { CapabilityBadges } from "./capability-badges";
 import { KnownProviderAuth } from "./known-provider-auth";
+import { LocalAiSection } from "./local-ai-section";
 import { ProviderEditorSheet } from "./provider-editor-sheet";
 
 type ModelsFetch = { loading: boolean; error: string | null; models: FetchedModel[] | null };
@@ -129,17 +130,14 @@ export function ProvidersTab(): React.JSX.Element {
   const addedKnown = new Set(
     state.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
   );
-  const addedLocalPresets = new Set(
-    state.providers.map((p) => p.preset).filter((n): n is string => !!n)
-  );
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-base font-medium">Providers</h2>
+        <h2 className="text-base font-medium">AI model</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Connect a provider, then pick a model. Catalog providers bring their own models and
-          sign-in; custom endpoints fetch models live.
+          Choose where MapOS's AI runs. Local models run privately on this Mac; cloud and custom
+          providers connect over the network.
         </p>
         {active ? (
           <Alert className="mt-3 flex items-start gap-2">
@@ -168,7 +166,15 @@ export function ProvidersTab(): React.JSX.Element {
         )}
       </div>
 
+      <LocalAiSection active={active} onActiveChanged={reload} />
+
       <div className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-medium">Providers</h3>
+          <p className="text-xs text-muted-foreground">
+            Connect a cloud or custom provider, then pick a model.
+          </p>
+        </div>
         {state.providers.map((p) => {
           const expanded = expandedId === p.id;
           const fetch = models[p.id];
@@ -342,24 +348,8 @@ export function ProvidersTab(): React.JSX.Element {
         open={addOpen}
         onOpenChange={setAddOpen}
         addedKnownProviders={addedKnown}
-        addedLocalPresets={addedLocalPresets}
         onAddKnown={async (name) => {
           const result = await window.api.aiv2.addKnownProvider(name);
-          await reload();
-          if (result.ok) {
-            setAddOpen(false);
-            setExpandedId(result.id);
-            await fetchModels(result.id);
-          }
-        }}
-        onAddLocal={async (preset) => {
-          const result = await window.api.aiv2.addProvider({
-            label: preset.label,
-            protocol: preset.protocol,
-            baseUrl: preset.baseUrl,
-            authKind: "none",
-            preset: preset.id
-          });
           await reload();
           if (result.ok) {
             setAddOpen(false);

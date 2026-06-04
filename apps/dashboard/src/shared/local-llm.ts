@@ -3,6 +3,8 @@
  * in-process; the renderer only sees these resolved views, never Hugging Face URIs or file paths.
  */
 
+import type { ModelCapabilities } from "./ai-models";
+
 export type LocalLlmHardware = {
   /** Selected GPU backend, e.g. "metal", or false on CPU. */
   gpu: string | false;
@@ -31,7 +33,8 @@ export type RecommendedModel = {
   /** Recommended minimum unified memory (GB) to run this comfortably. */
   minMemoryGB: number;
   description: string;
-  capabilities: LocalModelCapabilities;
+  /** Already mapped to Pi's enum shape by {@link listRecommended} — feeds the picker and `setActive`. */
+  capabilities: ModelCapabilities;
   /** True when this machine meets {@link minMemoryGB}. */
   fits: boolean;
   /** True for the single best default for this machine. */

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
 import { type ModelCapabilities, resolveCapabilities } from "../shared/ai-models";
 import { isAiV2Configured, resolveActiveV2 } from "./aiv2";
-import { getSelectedModel } from "./local-llm/models";
 import {
   type AiConfig,
   type AiLocalMode,
@@ -129,10 +128,7 @@ export function getAiSettingsState(): AiSettingsState {
 }
 
 export function isAiConfigured(): { configured: boolean; activeProvider: AiProvider; model: string } {
-  // Embedded local runtime wins when a downloaded model is selected.
-  const embedded = getSelectedModel();
-  if (embedded) return { configured: true, activeProvider: "local", model: embedded.id };
-  // POC: a usable v2 provider selection takes precedence over the legacy config.
+  // A usable v2 selection (cloud provider or the embedded local runtime) takes precedence over legacy.
   const v2 = isAiV2Configured();
   if (v2) return v2;
   const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;
@@ -371,21 +367,8 @@ export function loadSavedAnthropicConfig(): { apiKey: string; model: string } | 
  * Throws AiConfigError when no provider is configured or when the encrypted secret can't be decrypted.
  */
 export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
-  // Embedded local runtime takes precedence: a selected, downloaded GGUF runs in-process.
-  const embedded = getSelectedModel();
-  if (embedded) {
-    return {
-      provider: "local",
-      baseUrl: "",
-      authToken: "",
-      apiKey: "",
-      model: embedded.id,
-      capabilities: embedded.capabilities,
-      embeddedModelPath: embedded.path
-    };
-  }
-  // POC: prefer the unified-provider selection when one is set and usable; otherwise fall through
-  // to the legacy provider/anthropic/local config below.
+  // Prefer the unified-provider selection (cloud or embedded local runtime, the latter resolving to
+  // an embeddedModelPath) when one is set and usable; otherwise fall through to the legacy config.
   const v2 = resolveActiveV2();
   if (v2) return v2;
   const cfg = loadOrInitMaposConfig(app.getPath("userData")).ai;

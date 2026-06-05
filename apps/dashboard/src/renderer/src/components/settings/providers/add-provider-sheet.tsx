@@ -30,7 +30,7 @@ export function AddProviderSheet({
   useEffect(() => {
     if (!open) return;
     setKnown(null);
-    void window.api.aiv2.listKnownProviders().then(setKnown);
+    void window.api.ai.listKnownProviders().then(setKnown);
   }, [open]);
 
   const available = known?.filter((k) => !addedKnownProviders.has(k.name)) ?? null;

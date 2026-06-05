@@ -34,7 +34,7 @@ export function KnownProviderAuth({
 
   // Stream OAuth progress for this provider so the user sees "open your browser" rather than a spinner.
   useEffect(() => {
-    return window.api.aiv2.onOAuthProgress((data) => {
+    return window.api.ai.onOAuthProgress((data) => {
       if (data.provider !== name) return;
       if (data.status === "awaiting-browser") {
         setOauthMsg("Complete sign-in in your browser…");
@@ -53,7 +53,7 @@ export function KnownProviderAuth({
   async function signIn(): Promise<void> {
     setBusy(true);
     setError(null);
-    const result = await window.api.aiv2.oauthLogin(name);
+    const result = await window.api.ai.oauthLogin(name);
     setBusy(false);
     setOauthMsg(null);
     setOauthUrl(null);
@@ -68,7 +68,7 @@ export function KnownProviderAuth({
     if (keyDraft.trim().length === 0) return;
     setBusy(true);
     setError(null);
-    const result = await window.api.aiv2.setApiKey(name, keyDraft.trim());
+    const result = await window.api.ai.setApiKey(name, keyDraft.trim());
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -82,7 +82,7 @@ export function KnownProviderAuth({
   async function disconnect(): Promise<void> {
     setBusy(true);
     setError(null);
-    await window.api.aiv2.disconnect(name);
+    await window.api.ai.disconnect(name);
     setBusy(false);
     onChanged();
   }
@@ -140,7 +140,7 @@ export function KnownProviderAuth({
           )}
           <button
             type="button"
-            onClick={() => void window.api.aiv2.oauthCancel()}
+            onClick={() => void window.api.ai.oauthCancel()}
             className="ml-auto text-foreground hover:underline"
           >
             Cancel

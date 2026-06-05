@@ -7,7 +7,7 @@ import type {
 import type { ElectronAPI } from "@electron-toolkit/preload";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type {
-  AiV2State,
+  AiState,
   FetchedModel,
   KnownProviderOption,
   ProviderInput
@@ -164,84 +164,13 @@ declare global {
         /** Returns a cleanup function; call it to unregister. */
         onFullscreenChange: (cb: (isFullscreen: boolean) => void) => () => void;
       };
-      aiConfig: {
+      ai: {
+        getState: () => Promise<AiState>;
         getStatus: () => Promise<{
           configured: boolean;
           activeProvider: "anthropic" | "local";
           model: string;
         }>;
-        getSettingsState: () => Promise<{
-          provider: "anthropic" | "local";
-          anthropic: { model: string; hasApiKey: boolean };
-          local: {
-            mode: "magic" | "advanced";
-            magic: { model: string };
-            advanced: {
-              endpoints: Array<{
-                id: string;
-                label: string;
-                baseUrl: string;
-                model: string;
-                hasAuthToken: boolean;
-              }>;
-              activeId: string | null;
-            };
-          };
-        }>;
-        update: (update: {
-          provider?: "anthropic" | "local";
-          anthropic?: { model?: string; apiKey?: string | null };
-          local?: {
-            mode?: "magic" | "advanced";
-            magic?: { model?: string };
-            advanced?: { activeId?: string | null };
-          };
-        }) => Promise<{ ok: true } | { ok: false; error: string }>;
-        testConnection: (draft: {
-          provider: "anthropic" | "local";
-          apiKey?: string;
-          baseUrl?: string;
-          authToken?: string;
-          model?: string;
-        }) => Promise<{ ok: true } | { ok: false; error: string }>;
-        addCustomEndpoint: (input: {
-          label?: string;
-          baseUrl?: string;
-          model?: string;
-          authToken?: string | null;
-        }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-        updateCustomEndpoint: (
-          id: string,
-          patch: {
-            label?: string;
-            baseUrl?: string;
-            model?: string;
-            authToken?: string | null;
-          }
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        removeCustomEndpoint: (
-          id: string
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        ollamaDetect: (baseUrl: string) => Promise<{ running: boolean; baseUrl: string }>;
-        ollamaListInstalled: (baseUrl: string) => Promise<string[]>;
-        ollamaPull: (
-          baseUrl: string,
-          modelId: string
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        ollamaCancelPull: (baseUrl: string, modelId: string) => Promise<{ ok: true }>;
-        ollamaDelete: (
-          baseUrl: string,
-          modelId: string
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        /** Returns a cleanup function. */
-        onPullProgress: (
-          cb: (data: { modelId: string; percent?: number; status?: string }) => void
-        ) => () => void;
-        /** Returns a cleanup function. */
-        onChanged: (cb: () => void) => () => void;
-      };
-      aiv2: {
-        getState: () => Promise<AiV2State>;
         addProvider: (
           input: ProviderInput
         ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
-import { GroupHeader } from "./ai/group-header";
+import { GroupHeader } from "./group-header";
 import { type RegionMarker, RegionMap } from "./region-map";
 
 function formatBytes(n: number): string {

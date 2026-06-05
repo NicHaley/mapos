@@ -1,5 +1,5 @@
 /**
- * POC: persistent, encrypted credential store for the unified provider model.
+ * Persistent, encrypted credential store for AI providers.
  *
  * Pi's `AuthStorage` already handles the hard parts — API-key + OAuth credentials, OAuth token
  * refresh, and lock-guarded persistence — but it writes plaintext JSON to disk. We back it with a
@@ -9,7 +9,7 @@
  * This single persistent AuthStorage is shared across chat sessions (see chat.ts) so OAuth tokens
  * resolve and auto-refresh at request time, and across the Providers settings UI (sign in / paste
  * key / disconnect). Known providers (Pi catalog) authenticate through here; custom OpenAI-compatible
- * endpoints keep their inline bearer token in aiv2.json.
+ * endpoints keep their inline bearer token in ai.json.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -33,7 +33,7 @@ import {
 import { app, safeStorage } from "electron";
 import type { KnownProviderOption } from "../shared/ai-providers";
 
-const AUTH_FILENAME = "aiv2-auth.enc";
+const AUTH_FILENAME = "ai-auth.enc";
 
 /**
  * AuthStorage backend that persists Pi's auth.json blob as a safeStorage-encrypted file.
@@ -236,7 +236,7 @@ export async function oauthLogin(
     onProgress: (m) => hooks.onProgress?.(m),
     onDeviceCode: () => {},
     onPrompt: async () => {
-      throw new Error("Manual code entry isn't wired up in this POC.");
+      throw new Error("Manual code entry isn't supported.");
     },
     onManualCodeInput: () => manualChannel,
     onSelect: async () => undefined

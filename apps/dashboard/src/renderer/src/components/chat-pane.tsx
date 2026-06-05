@@ -560,14 +560,14 @@ export function ChatPane({
   const [aiConfigured, setAiConfigured] = useState<boolean | undefined>(undefined);
 
   const refreshAiStatus = useCallback(async () => {
-    const status = await window.api.aiConfig.getStatus();
+    const status = await window.api.ai.getStatus();
     setAiConfigured(status.configured);
   }, []);
 
   useEffect(() => {
     void refreshAiStatus();
-    // Refresh whenever the user saves the AI tab in Settings.
-    return window.api.aiConfig.onChanged(() => {
+    // Refresh whenever the AI selection changes in Settings.
+    return window.api.ai.onChanged(() => {
       void refreshAiStatus();
     });
   }, [refreshAiStatus]);

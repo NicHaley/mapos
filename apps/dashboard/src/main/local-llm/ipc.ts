@@ -1,12 +1,12 @@
 /**
  * IPC for the embedded model manager: request/response handlers plus a streamed
  * `local-llm:download-progress` event for the renderer's progress bar. Model *selection* is not here
- * — it rides the aiv2 active selection (`aiv2:set-active`); this surface only manages the catalog.
+ * — it rides the AI active selection (`ai:set-active`); this surface only manages the catalog.
  */
 
 import { type BrowserWindow, ipcMain } from "electron";
-import { broadcastAiConfigChanged } from "../ai-config-ipc";
-import { clearActiveIfEmbeddedModel } from "../aiv2";
+import { clearActiveIfEmbeddedModel } from "../ai";
+import { broadcastAiChanged } from "../ai-ipc";
 import {
   cancelDownload,
   deleteModel,
@@ -48,8 +48,7 @@ export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
     if (result.ok) {
       // If the deleted model was the active selection, drop it and refresh the tab + composer.
       clearActiveIfEmbeddedModel(args.id);
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("aiv2:changed");
-      broadcastAiConfigChanged(mainWindow);
+      broadcastAiChanged(mainWindow);
     }
     return result;
   });

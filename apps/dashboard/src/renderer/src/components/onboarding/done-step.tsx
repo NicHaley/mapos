@@ -1,7 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@mapos/ui/components/alert";
 import { Badge } from "@mapos/ui/components/badge";
 import { Button } from "@mapos/ui/components/button";
-import { ANTHROPIC_MODELS, OLLAMA_MODELS } from "@shared/ai-models";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -10,23 +9,14 @@ import {
   Loader2Icon,
   MonitorIcon,
   MoonIcon,
-  SparklesIcon,
   SunIcon
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { SiAnthropic, SiOllama } from "react-icons/si";
+import { useState } from "react";
 import { useRegionPacks } from "../../hooks/use-region-packs";
 import { readStoredTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { CmdEnterHint } from "./cmd-enter-hint";
 import type { VaultDraft } from "./vault-step";
-
-// Map a configured model id to its display name (e.g. "Claude Sonnet 4.6"), falling back to the
-// raw id for models not in our curated lists.
-function modelLabel(provider: "anthropic" | "local", model: string): string {
-  const list = provider === "anthropic" ? ANTHROPIC_MODELS : OLLAMA_MODELS;
-  return list.find((m) => m.id === model)?.label ?? model;
-}
 
 export function DoneStep({
   vaultDraft,
@@ -41,28 +31,8 @@ export function DoneStep({
   const [error, setError] = useState<string | null>(null);
   const { installedPacks } = useRegionPacks(true);
 
-  // Reflect what AI is actually configured — show the real model name, not just the provider.
-  const [aiStatus, setAiStatus] = useState<{
-    configured: boolean;
-    activeProvider: "anthropic" | "local";
-    model: string;
-  } | null>(null);
-  useEffect(() => {
-    void window.api.aiConfig.getStatus().then(setAiStatus).catch(() => {});
-  }, []);
-
   const regionCount = installedPacks.length;
   const theme = readStoredTheme();
-  const aiLabel = aiStatus?.configured
-    ? modelLabel(aiStatus.activeProvider, aiStatus.model)
-    : "AI off";
-  const aiIcon = !aiStatus?.configured ? (
-    <SparklesIcon />
-  ) : aiStatus.activeProvider === "anthropic" ? (
-    <SiAnthropic />
-  ) : (
-    <SiOllama />
-  );
   const themeLabel = `${theme[0].toUpperCase()}${theme.slice(1)} theme`;
   const themeIcon =
     theme === "light" ? <SunIcon /> : theme === "dark" ? <MoonIcon /> : <MonitorIcon />;
@@ -119,10 +89,6 @@ export function DoneStep({
         <Badge variant="outline" className="text-muted-foreground">
           <GlobeIcon />
           {regionLabel}
-        </Badge>
-        <Badge variant="outline" className="text-muted-foreground">
-          {aiIcon}
-          {aiLabel}
         </Badge>
         <Badge variant="outline" className="text-muted-foreground">
           {themeIcon}

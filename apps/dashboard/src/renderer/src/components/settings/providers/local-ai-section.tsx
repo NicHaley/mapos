@@ -28,8 +28,8 @@ function hardwareLine(hw: LocalLlmHardware): string {
 
 /**
  * "On this Mac" — the embedded llama.cpp runtime. Browses the curated catalog, downloads models, and
- * selects one via the shared aiv2 `active` selection (so it competes with the network providers for
- * the single in-use slot). Hardware-aware: marks the best fit and flags models that may not fit.
+ * selects one via the shared `active` selection (so it competes with the network providers for the
+ * single in-use slot). Hardware-aware: marks the best fit and flags models that may not fit.
  */
 export function LocalAiSection({
   active,
@@ -74,7 +74,7 @@ export function LocalAiSection({
   async function use(m: RecommendedModel): Promise<void> {
     setBusy((b) => ({ ...b, [m.id]: "use" }));
     setError(null);
-    const result = await window.api.aiv2.setActive(EMBEDDED_PROVIDER_ID, m.id, m.capabilities);
+    const result = await window.api.ai.setActive(EMBEDDED_PROVIDER_ID, m.id, m.capabilities);
     setBusy((b) => {
       const next = { ...b };
       delete next[m.id];

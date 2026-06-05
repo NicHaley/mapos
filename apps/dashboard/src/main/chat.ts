@@ -35,8 +35,8 @@ import {
   setConversationsDir
 } from "./conversations";
 import { resolveCapabilities } from "../shared/ai-models";
-import { AiConfigError, loadAiConfigForRequest } from "./ai-config";
-import { getRuntimeAuthStorage } from "./aiv2-auth";
+import { AiConfigError, loadAiConfigForRequest } from "./ai";
+import { getRuntimeAuthStorage } from "./ai-auth";
 import { registerEmbeddedModel } from "./local-llm/pi-provider";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";

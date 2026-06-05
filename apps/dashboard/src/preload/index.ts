@@ -8,7 +8,7 @@ import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type {
-  AiV2State,
+  AiState,
   FetchedModel,
   KnownProviderOption,
   ProviderInput
@@ -223,165 +223,52 @@ const api = {
       };
     }
   },
-  aiConfig: {
+  ai: {
+    getState: () => ipcRenderer.invoke("ai:get-state") as Promise<AiState>,
     getStatus: () =>
-      ipcRenderer.invoke("ai-config:get-status") as Promise<{
+      ipcRenderer.invoke("ai:get-status") as Promise<{
         configured: boolean;
         activeProvider: "anthropic" | "local";
         model: string;
       }>,
-    getSettingsState: () =>
-      ipcRenderer.invoke("ai-config:get-settings-state") as Promise<{
-        provider: "anthropic" | "local";
-        anthropic: { model: string; hasApiKey: boolean };
-        local: {
-          mode: "magic" | "advanced";
-          magic: { model: string };
-          advanced: {
-            endpoints: Array<{
-              id: string;
-              label: string;
-              baseUrl: string;
-              model: string;
-              hasAuthToken: boolean;
-            }>;
-            activeId: string | null;
-          };
-        };
-      }>,
-    update: (
-      update: {
-        provider?: "anthropic" | "local";
-        anthropic?: { model?: string; apiKey?: string | null };
-        local?: {
-          mode?: "magic" | "advanced";
-          magic?: { model?: string };
-          advanced?: { activeId?: string | null };
-        };
-      }
-    ) =>
-      ipcRenderer.invoke("ai-config:update", update) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    testConnection: (draft: {
-      provider: "anthropic" | "local";
-      apiKey?: string;
-      baseUrl?: string;
-      authToken?: string;
-      model?: string;
-    }) =>
-      ipcRenderer.invoke("ai-config:test-connection", draft) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    addCustomEndpoint: (input: {
-      label?: string;
-      baseUrl?: string;
-      model?: string;
-      authToken?: string | null;
-    }) =>
-      ipcRenderer.invoke("ai-config:add-endpoint", input) as Promise<
-        { ok: true; id: string } | { ok: false; error: string }
-      >,
-    updateCustomEndpoint: (
-      id: string,
-      patch: {
-        label?: string;
-        baseUrl?: string;
-        model?: string;
-        authToken?: string | null;
-      }
-    ) =>
-      ipcRenderer.invoke("ai-config:update-endpoint", { id, patch }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    removeCustomEndpoint: (id: string) =>
-      ipcRenderer.invoke("ai-config:remove-endpoint", { id }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    ollamaDetect: (baseUrl: string) =>
-      ipcRenderer.invoke("ai-config:ollama-detect", baseUrl) as Promise<{
-        running: boolean;
-        baseUrl: string;
-      }>,
-    ollamaListInstalled: (baseUrl: string) =>
-      ipcRenderer.invoke("ai-config:ollama-list-installed", baseUrl) as Promise<string[]>,
-    ollamaPull: (baseUrl: string, modelId: string) =>
-      ipcRenderer.invoke("ai-config:ollama-pull", { baseUrl, modelId }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    ollamaCancelPull: (baseUrl: string, modelId: string) =>
-      ipcRenderer.invoke("ai-config:ollama-cancel-pull", { baseUrl, modelId }) as Promise<{
-        ok: true;
-      }>,
-    ollamaGetPendingPulls: () =>
-      ipcRenderer.invoke("ai-config:ollama-get-pending-pulls") as Promise<
-        Array<{ baseUrl: string; modelId: string; active: boolean }>
-      >,
-    ollamaDelete: (baseUrl: string, modelId: string) =>
-      ipcRenderer.invoke("ai-config:ollama-delete", { baseUrl, modelId }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    onPullProgress: (
-      cb: (data: { modelId: string; percent?: number; status?: string }) => void
-    ): (() => void) => {
-      const listener = (
-        _e: unknown,
-        data: { modelId: string; percent?: number; status?: string }
-      ): void => cb(data);
-      ipcRenderer.on("ollama:pull-progress", listener);
-      return () => {
-        ipcRenderer.off("ollama:pull-progress", listener);
-      };
-    },
-    onChanged: (cb: () => void): (() => void) => {
-      const listener = (): void => cb();
-      ipcRenderer.on("ai-config:changed", listener);
-      return () => {
-        ipcRenderer.off("ai-config:changed", listener);
-      };
-    }
-  },
-  // POC: unified provider model (see shared/ai-providers.ts). Parallel to `aiConfig` above.
-  aiv2: {
-    getState: () => ipcRenderer.invoke("aiv2:get-state") as Promise<AiV2State>,
     addProvider: (input: ProviderInput) =>
-      ipcRenderer.invoke("aiv2:add-provider", input) as Promise<
+      ipcRenderer.invoke("ai:add-provider", input) as Promise<
         { ok: true; id: string } | { ok: false; error: string }
       >,
     updateProvider: (id: string, patch: ProviderInput) =>
-      ipcRenderer.invoke("aiv2:update-provider", { id, patch }) as Promise<
+      ipcRenderer.invoke("ai:update-provider", { id, patch }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
     removeProvider: (id: string) =>
-      ipcRenderer.invoke("aiv2:remove-provider", { id }) as Promise<
+      ipcRenderer.invoke("ai:remove-provider", { id }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
     setActive: (providerId: string, model: string, capabilities: ModelCapabilities) =>
-      ipcRenderer.invoke("aiv2:set-active", { providerId, model, capabilities }) as Promise<
+      ipcRenderer.invoke("ai:set-active", { providerId, model, capabilities }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
-    clearActive: () => ipcRenderer.invoke("aiv2:clear-active") as Promise<{ ok: true }>,
+    clearActive: () => ipcRenderer.invoke("ai:clear-active") as Promise<{ ok: true }>,
     listModels: (providerId: string) =>
-      ipcRenderer.invoke("aiv2:list-models", { providerId }) as Promise<
+      ipcRenderer.invoke("ai:list-models", { providerId }) as Promise<
         { ok: true; models: FetchedModel[] } | { ok: false; error: string }
       >,
     listKnownProviders: () =>
-      ipcRenderer.invoke("aiv2:list-known-providers") as Promise<KnownProviderOption[]>,
+      ipcRenderer.invoke("ai:list-known-providers") as Promise<KnownProviderOption[]>,
     addKnownProvider: (provider: string) =>
-      ipcRenderer.invoke("aiv2:add-known-provider", { provider }) as Promise<
+      ipcRenderer.invoke("ai:add-known-provider", { provider }) as Promise<
         { ok: true; id: string } | { ok: false; error: string }
       >,
     setApiKey: (provider: string, key: string) =>
-      ipcRenderer.invoke("aiv2:set-api-key", { provider, key }) as Promise<
+      ipcRenderer.invoke("ai:set-api-key", { provider, key }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
     oauthLogin: (provider: string) =>
-      ipcRenderer.invoke("aiv2:oauth-login", { provider }) as Promise<
+      ipcRenderer.invoke("ai:oauth-login", { provider }) as Promise<
         { ok: true } | { ok: false; error: string }
       >,
-    oauthCancel: () => ipcRenderer.invoke("aiv2:oauth-cancel") as Promise<{ ok: true }>,
+    oauthCancel: () => ipcRenderer.invoke("ai:oauth-cancel") as Promise<{ ok: true }>,
     disconnect: (provider: string) =>
-      ipcRenderer.invoke("aiv2:disconnect", { provider }) as Promise<{ ok: true }>,
+      ipcRenderer.invoke("ai:disconnect", { provider }) as Promise<{ ok: true }>,
     onOAuthProgress: (
       cb: (data: { provider: string; status: string; url?: string }) => void
     ): (() => void) => {
@@ -389,16 +276,16 @@ const api = {
         _e: unknown,
         data: { provider: string; status: string; url?: string }
       ): void => cb(data);
-      ipcRenderer.on("aiv2:oauth-progress", listener);
+      ipcRenderer.on("ai:oauth-progress", listener);
       return () => {
-        ipcRenderer.off("aiv2:oauth-progress", listener);
+        ipcRenderer.off("ai:oauth-progress", listener);
       };
     },
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb();
-      ipcRenderer.on("aiv2:changed", listener);
+      ipcRenderer.on("ai:changed", listener);
       return () => {
-        ipcRenderer.off("aiv2:changed", listener);
+        ipcRenderer.off("ai:changed", listener);
       };
     }
   },

@@ -6,8 +6,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 // Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
-import { registerAiConfigIpc } from "./ai-config-ipc";
-import { registerAiV2Ipc } from "./aiv2-ipc";
+import { registerAiIpc } from "./ai-ipc";
 import { setupAppMenu } from "./app-menu";
 import { setupChat } from "./chat";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
@@ -24,7 +23,6 @@ import { disposeLlamaRuntime } from "./local-llm/engine";
 import { unloadAllModels } from "./local-llm/inference";
 import { registerLocalLlmIpc } from "./local-llm/ipc";
 import { registerMaposIpc } from "./mapos-ipc";
-import { setupOllamaPersistence } from "./ollama";
 import { registerRegionPacksIpc } from "./region-packs";
 import {
   registerAssetProtocol,
@@ -173,9 +171,7 @@ app.whenReady().then(() => {
   }
 
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
-  setupOllamaPersistence(appStateDir);
-  registerAiConfigIpc(mainWindow);
-  registerAiV2Ipc(mainWindow);
+  registerAiIpc(mainWindow);
   registerServicesIpc();
   registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);

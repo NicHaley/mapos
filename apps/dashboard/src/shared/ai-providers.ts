@@ -1,14 +1,10 @@
 /**
- * POC: unified "provider" model for AI configuration.
+ * The unified "provider" model for AI configuration.
  *
- * Instead of three top-level modes (Anthropic / Ollama-magic / custom-URL), everything is a
- * *provider*: a protocol + a baseUrl + an auth strategy. The dimensions that used to be
- * separate branches (cloud vs local, key vs token) are now fields. Models are fetched live
- * from each provider rather than hard-coded, and a model's capabilities are resolved from the
- * provider where possible (Ollama's `/api/show`) and fall back to a per-protocol default.
- *
- * This lives alongside the existing `ai-models.ts` / `mapos-config.ts` AI config — it does not
- * replace it yet. Runtime prefers a v2 selection when one exists.
+ * Everything is a *provider*: a protocol + a baseUrl + an auth strategy. Cloud vs local and key vs
+ * token are fields, not separate branches. Models are fetched live from each provider rather than
+ * hard-coded, and a model's capabilities are resolved from the provider where possible (Ollama's
+ * `/api/show`) and fall back to a per-protocol default.
  */
 
 import type { ModelCapabilities } from "./ai-models";
@@ -48,10 +44,7 @@ export type ProviderView = {
   hasSecret: boolean;
   /** Pi catalog provider name (e.g. "anthropic") when this is a known provider; null for custom/local. */
   knownProvider: string | null;
-  /** Set for the one permanent built-in (Anthropic) so the UI locks structural fields. */
-  builtin: "anthropic" | null;
-  /** Legacy: the local-runtime preset a provider was created from (only migrated Ollama entries now).
-   *  Drives the "local" badge. */
+  /** Optional origin tag for a local-runtime provider; drives the "local" badge. */
   preset: string | null;
   auth: ProviderAuthView;
 };
@@ -94,7 +87,7 @@ export type ActiveSelectionView = {
   capabilities: ModelCapabilities;
 } | null;
 
-export type AiV2State = {
+export type AiState = {
   providers: ProviderView[];
   active: ActiveSelectionView;
 };

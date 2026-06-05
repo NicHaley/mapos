@@ -1,10 +1,7 @@
 /**
- * POC: storage + model fetching for the unified provider model (see shared/ai-providers.ts).
- *
- * Persisted to its own `aiv2.json` in userData rather than `mapos.json` so this POC stays fully
- * isolated from the carefully-migrated existing AI config — nothing here can break the current
- * setup, and it's trivial to delete. Runtime prefers a v2 selection when one exists
- * ({@link resolveActiveV2}), otherwise the old config path takes over.
+ * Storage + model fetching for the AI provider model (see shared/ai-providers.ts): the providers
+ * list, the single `active` selection, and live model fetching. Persisted to `ai.json` in userData.
+ * {@link resolveActive} turns the active selection into the shape the chat path consumes.
  */
 
 import { randomUUID } from "node:crypto";
@@ -12,10 +9,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, safeStorage } from "electron";
 import { z } from "zod";
-import { ANTHROPIC_MODELS, type ModelCapabilities } from "../shared/ai-models";
+import { ANTHROPIC_MODELS, type AiProvider, type ModelCapabilities } from "../shared/ai-models";
 import {
   ANTHROPIC_CAPS,
-  type AiV2State,
+  type AiState,
   EMBEDDED_PROVIDER_ID,
   type FetchedModel,
   type KnownProviderOption,
@@ -26,8 +23,6 @@ import {
   type ProviderProtocol,
   type ProviderView
 } from "../shared/ai-providers";
-import type { ResolvedAiRequestConfig } from "./ai-config";
-import { resolveEmbeddedModel } from "./local-llm/models";
 import {
   catalogBaseUrl,
   catalogModels,
@@ -35,10 +30,39 @@ import {
   knownProviderConfigured,
   knownProviderLabel,
   listKnownProviders as listKnownProvidersImpl
-} from "./aiv2-auth";
+} from "./ai-auth";
+import { resolveEmbeddedModel } from "./local-llm/models";
 
-const AIV2_FILENAME = "aiv2.json";
+const AI_FILENAME = "ai.json";
 const FETCH_TIMEOUT_MS = 6000;
+
+/** Thrown by {@link loadAiConfigForRequest} when no usable AI selection exists. */
+export class AiConfigError extends Error {
+  constructor(
+    public code: "AI_NOT_CONFIGURED" | "AI_DECRYPT_FAILED",
+    message: string
+  ) {
+    super(message);
+    this.name = "AiConfigError";
+  }
+}
+
+/** The active selection resolved into env-var-ready values for one chat request. */
+export type ResolvedAiRequestConfig = {
+  provider: AiProvider;
+  baseUrl: string;
+  authToken: string;
+  apiKey: string;
+  model: string;
+  capabilities: ModelCapabilities;
+  /**
+   * A Pi catalog provider name (e.g. "anthropic"). When set, the chat path resolves the model via
+   * `getModel(piProvider, model)` and its auth through the shared persistent AuthStorage.
+   */
+  piProvider?: string;
+  /** Embedded runtime: path to the selected GGUF. When set, inference runs in-process (no network). */
+  embeddedModelPath?: string;
+};
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 
@@ -58,10 +82,8 @@ const ProviderSchema = z.object({
   encryptedSecret: z.string().nullable().catch(null),
   /** Pi catalog provider name when this is a known provider; null for custom/local endpoints. */
   knownProvider: z.string().nullable().catch(null),
-  /** Legacy origin local-runtime preset; only migrated Ollama entries still carry it (for the badge). */
-  preset: z.string().nullable().catch(null),
-  // "ollama" is accepted only to parse pre-migration configs; load() migrates it to a preset.
-  builtin: z.enum(["anthropic", "ollama"]).nullable().catch(null)
+  /** Optional origin tag for a local-runtime provider; surfaced as a badge in the UI. */
+  preset: z.string().nullable().catch(null)
 });
 
 const ActiveSchema = z
@@ -73,81 +95,59 @@ const ActiveSchema = z
   .nullable()
   .catch(null);
 
-const AiV2Schema = z
+const AiSchema = z
   .object({
     providers: z.array(ProviderSchema).catch([]),
     active: ActiveSchema
   })
   .catch(() => ({ providers: [], active: null }));
 
-type AiV2Stored = z.infer<typeof AiV2Schema>;
+type AiStored = z.infer<typeof AiSchema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
 
 /**
- * The single permanent built-in: Anthropic. Local AI is the embedded runtime, surfaced as its own
- * section (not a provider here); other network runtimes are added via "Custom endpoint". Stable id so
- * an active selection survives reloads.
+ * First-run convenience: start with Anthropic listed as an ordinary, removable provider. If the user
+ * removes it (or edits the saved config), it is not re-added. Local AI is the embedded runtime,
+ * surfaced as its own section; other network runtimes are added from the catalog or "Custom endpoint".
+ * Stable id so an active selection survives reloads.
  */
 function seedProviders(): ProviderStored[] {
   return [
     {
-      id: "builtin-anthropic",
+      id: "default-anthropic",
       label: "Anthropic",
       protocol: "anthropic",
       baseUrl: "https://api.anthropic.com",
       authKind: "api-key",
       encryptedSecret: null,
       knownProvider: "anthropic",
-      preset: null,
-      builtin: "anthropic"
+      preset: null
     }
   ];
 }
 
 function configPath(): string {
-  return join(app.getPath("userData"), AIV2_FILENAME);
+  return join(app.getPath("userData"), AI_FILENAME);
 }
 
-function write(state: AiV2Stored): void {
+function write(state: AiStored): void {
   mkdirSync(app.getPath("userData"), { recursive: true });
   writeFileSync(configPath(), `${JSON.stringify(state, null, 2)}\n`, "utf-8");
 }
 
-/** Load (and seed on first run). Always returns at least the two built-in providers. */
-function load(): AiV2Stored {
+/** Load, seeding a first-run (or corrupt) config with the default Anthropic provider. */
+function load(): AiStored {
   const p = configPath();
-  if (!existsSync(p)) {
-    const seeded: AiV2Stored = { providers: seedProviders(), active: null };
-    write(seeded);
-    return seeded;
-  }
-  let parsed: AiV2Stored;
-  try {
-    parsed = AiV2Schema.parse(JSON.parse(readFileSync(p, "utf-8")));
-  } catch {
-    parsed = { providers: [], active: null };
-  }
-  // Migrate the old permanent Ollama built-in into a removable, preset-tagged local provider, so it
-  // behaves like any other local runtime (editable, removable, dedup'd against the Ollama preset).
-  let dirty = false;
-  const migrated = parsed.providers.map((p) => {
-    if (p.builtin === "ollama") {
-      dirty = true;
-      return { ...p, builtin: null, preset: p.preset ?? "ollama" };
+  if (existsSync(p)) {
+    try {
+      return AiSchema.parse(JSON.parse(readFileSync(p, "utf-8")));
+    } catch {
+      /* corrupt — fall through to reseed a fresh default */
     }
-    return p;
-  });
-  if (dirty) parsed = { ...parsed, providers: migrated };
-
-  // Re-seed any missing built-ins so the preset is always present (e.g. after a manual edit).
-  const have = new Set(parsed.providers.map((x) => x.builtin).filter(Boolean));
-  const missing = seedProviders().filter((s) => !have.has(s.builtin));
-  if (missing.length > 0) {
-    parsed = { ...parsed, providers: [...missing, ...parsed.providers] };
-    dirty = true;
   }
-  if (dirty) write(parsed);
-  return parsed;
+  const seeded: AiStored = { providers: seedProviders(), active: null };
+  write(seeded);
+  return seeded;
 }
 
 function encrypt(plaintext: string): string {
@@ -179,9 +179,6 @@ function toView(p: ProviderStored): ProviderView {
     authKind: p.authKind,
     hasSecret: !!p.encryptedSecret,
     knownProvider: p.knownProvider,
-    // The stored enum still accepts "ollama" for back-compat parsing; load() migrates it away, so a
-    // lingering value here just maps to null (a plain local provider).
-    builtin: p.builtin === "anthropic" ? "anthropic" : null,
     preset: p.preset,
     auth: authView(p)
   };
@@ -210,14 +207,13 @@ export function addKnownProvider(name: string): { ok: true; id: string } | { ok:
     authKind: "api-key",
     encryptedSecret: null,
     knownProvider: name,
-    preset: null,
-    builtin: null
+    preset: null
   };
   write({ ...st, providers: [...st.providers, next] });
   return { ok: true, id };
 }
 
-export function getAiV2State(): AiV2State {
+export function getAiState(): AiState {
   const st = load();
   const active = (() => {
     if (!st.active) return null;
@@ -262,8 +258,7 @@ export function addProvider(input: ProviderInput): { ok: true; id: string } | { 
         ? encrypt(input.secret.trim())
         : null,
     knownProvider: null,
-    preset: input.preset ?? null,
-    builtin: null
+    preset: input.preset ?? null
   };
   const st = load();
   write({ ...st, providers: [...st.providers, next] });
@@ -293,8 +288,7 @@ export function updateProvider(
 
   const updated: ProviderStored = {
     ...current,
-    // Built-in providers keep their protocol (it's structural); everything else is editable.
-    protocol: current.builtin ? current.protocol : (patch.protocol ?? current.protocol),
+    protocol: patch.protocol ?? current.protocol,
     label: patch.label?.trim() || current.label,
     baseUrl: patch.baseUrl?.trim() || current.baseUrl,
     authKind,
@@ -310,7 +304,6 @@ export function removeProvider(id: string): { ok: true } | { ok: false; error: s
   const st = load();
   const target = st.providers.find((x) => x.id === id);
   if (!target) return { ok: false, error: "Provider not found." };
-  if (target.builtin) return { ok: false, error: "Built-in providers can't be removed." };
   const providers = st.providers.filter((x) => x.id !== id);
   const active = st.active?.providerId === id ? null : st.active;
   write({ ...st, providers, active });
@@ -544,16 +537,15 @@ export async function fetchModels(
 }
 
 /**
- * Resolve the active v2 selection into the shape the chat path already consumes, or null when no
- * v2 selection is usable (none set, provider gone, or a required secret is missing). Returning
- * null lets {@link loadAiConfigForRequest} fall through to the legacy config cleanly.
+ * Resolve the active selection into the shape the chat path consumes, or null when nothing usable is
+ * selected (none set, provider gone, model deleted, or a required secret missing/undecryptable).
  */
-export function resolveActiveV2(): ResolvedAiRequestConfig | null {
+export function resolveActive(): ResolvedAiRequestConfig | null {
   const st = load();
   if (!st.active) return null;
 
   // Embedded runtime: resolve the GGUF path + capabilities from the local catalog by model id.
-  // Returns null (→ fall through to legacy config) if the model was since deleted.
+  // Returns null if the model was since deleted.
   if (st.active.providerId === EMBEDDED_PROVIDER_ID) {
     const m = resolveEmbeddedModel(st.active.model);
     if (!m) return null;
@@ -598,7 +590,7 @@ export function resolveActiveV2(): ResolvedAiRequestConfig | null {
   }
 
   if (provider.protocol === "anthropic") {
-    if (!secret) return null; // unusable without a key — fall back to legacy config
+    if (!secret) return null; // unusable without a key
     return { provider: "anthropic", baseUrl: "", authToken: "", apiKey: secret, model, capabilities };
   }
   return {
@@ -611,9 +603,21 @@ export function resolveActiveV2(): ResolvedAiRequestConfig | null {
   };
 }
 
-/** Status for the chat composer — mirrors {@link isAiConfigured} but for a v2 selection. */
-export function isAiV2Configured(): { configured: boolean; activeProvider: "anthropic" | "local"; model: string } | null {
-  const resolved = resolveActiveV2();
-  if (!resolved) return null;
+/** Status for the chat composer: whether a usable model is selected, and which. */
+export function getAiStatus(): { configured: boolean; activeProvider: AiProvider; model: string } {
+  const resolved = resolveActive();
+  if (!resolved) return { configured: false, activeProvider: "anthropic", model: "" };
   return { configured: true, activeProvider: resolved.provider, model: resolved.model };
+}
+
+/**
+ * Resolve the active selection for one chat request, throwing {@link AiConfigError} when nothing
+ * usable is configured. This is the entry point chat.ts calls.
+ */
+export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
+  const resolved = resolveActive();
+  if (!resolved) {
+    throw new AiConfigError("AI_NOT_CONFIGURED", "No AI model is configured. Pick one in Settings → AI.");
+  }
+  return resolved;
 }

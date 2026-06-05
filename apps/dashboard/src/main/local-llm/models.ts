@@ -230,7 +230,7 @@ export function deleteModel(idOrFileName: string): { ok: true } | { ok: false; e
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
-// If the deleted model was the active aiv2 selection, the delete IPC clears it (see local-llm/ipc.ts).
+// If the deleted model was the active selection, the delete IPC clears it (see local-llm/ipc.ts).
 
 /** Map the catalog's capability flags onto Pi's ModelCapabilities (thinking is a string enum). */
 function toModelCapabilities(c: LocalModelCapabilities): ModelCapabilities {
@@ -244,8 +244,8 @@ function toModelCapabilities(c: LocalModelCapabilities): ModelCapabilities {
 
 /**
  * Resolve a catalog model id to its on-disk path and capabilities, or null when the id is unknown or
- * the GGUF isn't downloaded. The aiv2 `active` selection (not a local pointer) decides *which* model
- * is in use; this just turns that id into what the chat path needs.
+ * the GGUF isn't downloaded. The `active` selection (not a local pointer) decides *which* model is
+ * in use; this just turns that id into what the chat path needs.
  */
 export function resolveEmbeddedModel(
   id: string

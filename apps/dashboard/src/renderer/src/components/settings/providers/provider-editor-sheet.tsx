@@ -86,8 +86,8 @@ export function ProviderEditorSheet({
       ...(secret.trim().length > 0 ? { secret: secret.trim() } : {})
     };
     const result = provider
-      ? await window.api.aiv2.updateProvider(provider.id, input)
-      : await window.api.aiv2.addProvider(input);
+      ? await window.api.ai.updateProvider(provider.id, input)
+      : await window.api.ai.addProvider(input);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -125,15 +125,8 @@ export function ProviderEditorSheet({
           />
         </Field>
 
-        <Field
-          label="Protocol"
-          hint={provider?.builtin ? "Locked for built-in providers." : undefined}
-        >
-          <Select
-            value={protocol}
-            onValueChange={(v) => setProtocol(v as ProviderProtocol)}
-            disabled={!!provider?.builtin}
-          >
+        <Field label="Protocol">
+          <Select value={protocol} onValueChange={(v) => setProtocol(v as ProviderProtocol)}>
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>

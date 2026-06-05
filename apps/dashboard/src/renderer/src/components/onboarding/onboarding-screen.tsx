@@ -1,19 +1,17 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { useState } from "react";
-import { type AiChoice, AiStep } from "./ai-step";
 import { AppearanceStep } from "./appearance-step";
 import { DoneStep } from "./done-step";
 import { OfflineStep } from "./offline-step";
 import { type VaultDraft, VaultStep } from "./vault-step";
 import { WelcomeStep } from "./welcome-step";
 
-type Step = "welcome" | "vault" | "ai" | "offline" | "appearance" | "done";
+type Step = "welcome" | "vault" | "offline" | "appearance" | "done";
 
 // The stepper shows one pill per "working" step — welcome and done are bookends and get none.
-const PROGRESS_STEPS: Step[] = ["vault", "ai", "offline", "appearance"];
+const PROGRESS_STEPS: Step[] = ["vault", "offline", "appearance"];
 const PROGRESS_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   vault: "Vault",
-  ai: "AI",
   offline: "Offline",
   appearance: "Theme"
 };
@@ -28,7 +26,6 @@ export function OnboardingScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>("welcome");
   const [furthest, setFurthest] = useState<Step>("welcome");
   const [vaultDraft, setVaultDraft] = useState<VaultDraft | null>(null);
-  const [aiChoice, setAiChoice] = useState<AiChoice>(null);
 
   function goTo(next: Step): void {
     setStep(next);
@@ -89,19 +86,11 @@ export function OnboardingScreen(): React.JSX.Element {
                 draft={vaultDraft}
                 onDraftChange={setVaultDraft}
                 onBack={() => setStep("welcome")}
-                onNext={() => goTo("ai")}
-              />
-            )}
-            {step === "ai" && (
-              <AiStep
-                choice={aiChoice}
-                onChoiceChange={setAiChoice}
-                onBack={() => setStep("vault")}
                 onNext={() => goTo("offline")}
               />
             )}
             {step === "offline" && (
-              <OfflineStep onBack={() => setStep("ai")} onNext={() => goTo("appearance")} />
+              <OfflineStep onBack={() => setStep("vault")} onNext={() => goTo("appearance")} />
             )}
             {step === "appearance" && (
               <AppearanceStep onBack={() => setStep("offline")} onNext={() => goTo("done")} />
@@ -139,13 +128,11 @@ function stepIndex(s: Step): number {
       return 0;
     case "vault":
       return 1;
-    case "ai":
-      return 2;
     case "offline":
-      return 3;
+      return 2;
     case "appearance":
-      return 4;
+      return 3;
     case "done":
-      return 5;
+      return 4;
   }
 }

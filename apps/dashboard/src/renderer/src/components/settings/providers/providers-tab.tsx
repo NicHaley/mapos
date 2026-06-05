@@ -12,7 +12,7 @@ import {
 import { Button } from "@mapos/ui/components/button";
 import { cn } from "@mapos/ui/lib/utils";
 import type { ModelCapabilities } from "@shared/ai-models";
-import type { AiV2State, FetchedModel, ProviderView } from "@shared/ai-providers";
+import type { AiState, FetchedModel, ProviderView } from "@shared/ai-providers";
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -23,7 +23,7 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { ProviderBadge } from "../ai/provider-badge";
+import { ProviderBadge } from "./provider-badge";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { CapabilityBadges } from "./capability-badges";
 import { KnownProviderAuth } from "./known-provider-auth";
@@ -33,7 +33,6 @@ import { ProviderEditorSheet } from "./provider-editor-sheet";
 type ModelsFetch = { loading: boolean; error: string | null; models: FetchedModel[] | null };
 
 function providerKind(p: ProviderView): "cloud" | "local" | "custom" {
-  if (p.builtin === "anthropic") return "cloud";
   if (p.preset) return "local";
   return p.knownProvider ? "cloud" : "custom";
 }
@@ -48,7 +47,7 @@ function authLabel(p: ProviderView): string {
 }
 
 export function ProvidersTab(): React.JSX.Element {
-  const [state, setState] = useState<AiV2State | null>(null);
+  const [state, setState] = useState<AiState | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [models, setModels] = useState<Record<string, ModelsFetch>>({});
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
@@ -62,7 +61,7 @@ export function ProvidersTab(): React.JSX.Element {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    setState(await window.api.aiv2.getState());
+    setState(await window.api.ai.getState());
   }, []);
 
   const fetchModels = useCallback(async (providerId: string) => {
@@ -70,7 +69,7 @@ export function ProvidersTab(): React.JSX.Element {
       ...m,
       [providerId]: { loading: true, error: null, models: m[providerId]?.models ?? null }
     }));
-    const result = await window.api.aiv2.listModels(providerId);
+    const result = await window.api.ai.listModels(providerId);
     setModels((m) => ({
       ...m,
       [providerId]: result.ok
@@ -81,7 +80,7 @@ export function ProvidersTab(): React.JSX.Element {
 
   useEffect(() => {
     void reload();
-    return window.api.aiv2.onChanged(() => void reload());
+    return window.api.ai.onChanged(() => void reload());
   }, [reload]);
 
   function toggleExpand(providerId: string): void {
@@ -99,7 +98,7 @@ export function ProvidersTab(): React.JSX.Element {
   ): Promise<void> {
     const key = `${providerId}:${model}`;
     setPendingSelect(key);
-    const result = await window.api.aiv2.setActive(providerId, model, capabilities);
+    const result = await window.api.ai.setActive(providerId, model, capabilities);
     setPendingSelect(null);
     if (result.ok) await reload();
   }
@@ -108,7 +107,7 @@ export function ProvidersTab(): React.JSX.Element {
     if (!pendingDelete) return;
     setDeleting(true);
     setDeleteError(null);
-    const result = await window.api.aiv2.removeProvider(pendingDelete.id);
+    const result = await window.api.ai.removeProvider(pendingDelete.id);
     setDeleting(false);
     if (!result.ok) {
       setDeleteError(result.error);
@@ -153,7 +152,7 @@ export function ProvidersTab(): React.JSX.Element {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void window.api.aiv2.clearActive().then(() => reload())}
+                onClick={() => void window.api.ai.clearActive().then(() => reload())}
               >
                 Clear
               </Button>
@@ -222,20 +221,18 @@ export function ProvidersTab(): React.JSX.Element {
                       <PencilIcon className="size-4" />
                     </Button>
                   )}
-                  {!p.builtin && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Delete provider"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteError(null);
-                        setPendingDelete(p);
-                      }}
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Delete provider"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteError(null);
+                      setPendingDelete(p);
+                    }}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
                   <ChevronDownIcon
                     className={cn(
                       "size-4 text-muted-foreground/60 transition-transform",
@@ -349,7 +346,7 @@ export function ProvidersTab(): React.JSX.Element {
         onOpenChange={setAddOpen}
         addedKnownProviders={addedKnown}
         onAddKnown={async (name) => {
-          const result = await window.api.aiv2.addKnownProvider(name);
+          const result = await window.api.ai.addKnownProvider(name);
           await reload();
           if (result.ok) {
             setAddOpen(false);

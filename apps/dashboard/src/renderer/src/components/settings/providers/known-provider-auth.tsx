@@ -6,7 +6,14 @@ import {
   InputGroupInput
 } from "@mapos/ui/components/input-group";
 import type { ProviderView } from "@shared/ai-providers";
-import { CheckCircle2Icon, ExternalLinkIcon, EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  ExternalLinkIcon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyRoundIcon,
+  Loader2Icon
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 /**
@@ -150,6 +157,9 @@ export function KnownProviderAuth({
 
       {showKey && (
         <InputGroup className="bg-background">
+          <InputGroupAddon>
+            <KeyRoundIcon />
+          </InputGroupAddon>
           <InputGroupInput
             type={reveal ? "text" : "password"}
             placeholder="Paste API key"
@@ -175,10 +185,10 @@ export function KnownProviderAuth({
             </InputGroupButton>
             <InputGroupButton
               variant="default"
-              size="sm"
               onClick={() => void saveKey()}
               disabled={busy || keyDraft.trim().length === 0}
             >
+              {busy ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
               Save
             </InputGroupButton>
           </InputGroupAddon>

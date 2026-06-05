@@ -14,7 +14,7 @@ import {
   SelectValue
 } from "@mapos/ui/components/select";
 import type { ProviderAuthKind, ProviderProtocol, ProviderView } from "@shared/ai-providers";
-import { EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 
@@ -170,6 +170,9 @@ export function ProviderEditorSheet({
             }
           >
             <InputGroup className="bg-background">
+              <InputGroupAddon>
+                <KeyRoundIcon />
+              </InputGroupAddon>
               <InputGroupInput
                 type={reveal ? "text" : "password"}
                 placeholder={isEdit && provider?.hasSecret ? "•••••••• saved" : "sk-..."}

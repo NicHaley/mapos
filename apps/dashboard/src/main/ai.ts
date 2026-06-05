@@ -106,24 +106,26 @@ type AiStored = z.infer<typeof AiSchema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
 
 /**
- * First-run convenience: start with Anthropic listed as an ordinary, removable provider. If the user
- * removes it (or edits the saved config), it is not re-added. Local AI is the embedded runtime,
- * surfaced as its own section; other network runtimes are added from the catalog or "Custom endpoint".
- * Stable id so an active selection survives reloads.
+ * First-run convenience: pre-list the marquee OAuth-capable catalog providers as ordinary, removable
+ * providers, each unconnected until the user signs in. If the user removes one (or edits the saved
+ * config), it is not re-added. Local AI is the embedded runtime, surfaced as its own section; other
+ * network runtimes are added from the catalog or "Custom endpoint". Stable ids so an active selection
+ * survives reloads; built from the catalog so labels/baseUrl/protocol stay in sync with Pi.
  */
+const SEEDED_PROVIDERS = ["anthropic", "openai", "github-copilot"] as const;
+
 function seedProviders(): ProviderStored[] {
-  return [
-    {
-      id: "default-anthropic",
-      label: "Anthropic",
-      protocol: "anthropic",
-      baseUrl: "https://api.anthropic.com",
-      authKind: "api-key",
-      encryptedSecret: null,
-      knownProvider: "anthropic",
-      preset: null
-    }
-  ];
+  return SEEDED_PROVIDERS.map((name) => ({
+    id: `default-${name}`,
+    label: knownProviderLabel(name),
+    // anthropic-messages models map to our "anthropic" protocol; everything else routes as openai-ish.
+    protocol: catalogModels(name)[0]?.api === "anthropic-messages" ? "anthropic" : "openai",
+    baseUrl: catalogBaseUrl(name),
+    authKind: "api-key",
+    encryptedSecret: null,
+    knownProvider: name,
+    preset: null
+  }));
 }
 
 function configPath(): string {

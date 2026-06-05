@@ -1,38 +1,73 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { WrenchIcon } from "lucide-react";
-import { SiAnthropic, SiOllama } from "react-icons/si";
+import { MonitorIcon, WrenchIcon } from "lucide-react";
+import type { IconType } from "react-icons";
+import { SiAnthropic, SiGithub, SiGoogle, SiOpenai } from "react-icons/si";
 
+/** Per-brand icon + accent for the known catalog providers we recognise. */
+const BRANDS: Record<string, { Icon: IconType; styles: string }> = {
+  anthropic: { Icon: SiAnthropic, styles: "bg-[#d97757] text-white" },
+  openai: { Icon: SiOpenai, styles: "bg-foreground/90 text-background" },
+  "openai-codex": { Icon: SiOpenai, styles: "bg-foreground/90 text-background" },
+  "github-copilot": { Icon: SiGithub, styles: "bg-foreground/90 text-background" },
+  google: { Icon: SiGoogle, styles: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
+  "google-vertex": { Icon: SiGoogle, styles: "bg-blue-500/15 text-blue-600 dark:text-blue-400" }
+};
+
+const SIZES = {
+  sm: { wrapper: "size-5 rounded", icon: "size-3", text: "text-[10px]" },
+  md: { wrapper: "size-7 rounded-md", icon: "size-4", text: "text-xs" },
+  lg: { wrapper: "size-11 rounded-lg", icon: "size-6", text: "text-base" }
+} as const;
+
+/**
+ * Glanceable provider glyph. The embedded runtime ("On this Mac") gets a monitor; recognised catalog
+ * providers get their brand mark; unknown catalog providers fall back to a lettered chip; custom
+ * endpoints get a wrench.
+ */
 export function ProviderBadge({
-  kind,
+  knownProvider,
+  label,
+  local = false,
   size = "md"
 }: {
-  kind: "cloud" | "local" | "custom";
-  size?: "sm" | "md";
+  /** Pi catalog name (e.g. "anthropic"); null/undefined for local or custom providers. */
+  knownProvider?: string | null;
+  /** Provider label, used for the lettered fallback chip. */
+  label?: string;
+  /** Render the embedded "On this Mac" runtime glyph. */
+  local?: boolean;
+  size?: "sm" | "md" | "lg";
 }): React.JSX.Element {
-  const styles =
-    kind === "cloud"
-      ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-      : kind === "local"
-        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-        : "bg-muted text-muted-foreground";
-  const wrapper = size === "sm" ? "size-5 rounded" : "size-7 rounded-md";
-  const icon = size === "sm" ? "size-3" : "size-4";
+  const s = SIZES[size];
+  const brand = knownProvider ? BRANDS[knownProvider] : undefined;
+
+  let content: React.ReactNode;
+  let styles: string;
+  if (local) {
+    content = <MonitorIcon className={s.icon} />;
+    styles = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  } else if (brand) {
+    content = <brand.Icon className={s.icon} />;
+    styles = brand.styles;
+  } else if (knownProvider) {
+    content = (label ?? knownProvider).charAt(0).toUpperCase();
+    styles = "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400";
+  } else {
+    content = <WrenchIcon className={s.icon} />;
+    styles = "bg-muted text-muted-foreground";
+  }
+
   return (
     <span
       aria-hidden
       className={cn(
-        "flex shrink-0 items-center justify-center text-xs font-semibold",
-        wrapper,
+        "flex shrink-0 items-center justify-center font-semibold",
+        s.wrapper,
+        s.text,
         styles
       )}
     >
-      {kind === "cloud" ? (
-        <SiAnthropic className={icon} />
-      ) : kind === "local" ? (
-        <SiOllama className={icon} />
-      ) : (
-        <WrenchIcon className={icon} />
-      )}
+      {content}
     </span>
   );
 }

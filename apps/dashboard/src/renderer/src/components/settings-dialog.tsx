@@ -25,11 +25,11 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
-import { BoxesIcon, GlobeIcon, PaletteIcon, SettingsIcon } from "lucide-react";
+import { GlobeIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
 import { OfflineTab } from "./settings/offline-tab";
-import { ProvidersTab } from "./settings/providers/providers-tab";
+import { AiModelTab } from "./settings/providers/ai-model-tab";
 import { ThemePicker } from "./theme-picker";
 
 // ── Settings sheet slot ───────────────────────────────────────────────────────
@@ -219,7 +219,7 @@ function AppearancePage() {
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "ai", label: "AI", icon: BoxesIcon },
+  { id: "ai", label: "AI Model", icon: LayersIcon },
   { id: "offline", label: "Offline", icon: GlobeIcon }
 ];
 
@@ -302,7 +302,7 @@ export function SettingsDialog({
                     />
                   )}
                   {page === "appearance" && <AppearancePage />}
-                  {page === "ai" && <ProvidersTab />}
+                  {page === "ai" && <AiModelTab />}
                   {page === "offline" && <OfflineTab />}
                 </div>
                 {/* Sheets and other floating panels portal into this slot so they

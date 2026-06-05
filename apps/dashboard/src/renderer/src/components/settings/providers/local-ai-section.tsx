@@ -7,8 +7,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
-  HardDriveIcon,
   Loader2Icon,
+  MonitorIcon,
   Trash2Icon,
   XIcon
 } from "lucide-react";
@@ -43,7 +43,7 @@ export function LocalAiSection({
   const [downloads, setDownloads] = useState<Record<string, DlState>>({});
   const [busy, setBusy] = useState<Record<string, "use" | "delete">>({});
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const loadModels = useCallback(async () => {
     setModels(await window.api.localLlm.listRecommended());
@@ -125,9 +125,8 @@ export function LocalAiSection({
   }
 
   const activeModel = active?.providerId === EMBEDDED_PROVIDER_ID ? active.model : null;
-  const subtitle = activeModel
-    ? `Using ${activeModel}`
-    : "Runs privately on this Mac — no key, no network";
+  const readyCount = models?.filter((m) => m.installed).length ?? 0;
+  const totalCount = models?.length ?? 0;
 
   return (
     <div className="overflow-hidden rounded-lg border">
@@ -145,19 +144,19 @@ export function LocalAiSection({
         className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
       >
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-          <HardDriveIcon className="size-4" />
+          <MonitorIcon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">On this Mac</span>
-            <Badge variant="secondary">Recommended</Badge>
+            <span className="truncate font-medium text-sm">On this Mac</span>
             {activeModel && <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />}
           </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {subtitle}
-            {hardware ? ` · ${hardwareLine(hardware)}` : ""}
-          </div>
         </div>
+        {models && (
+          <span className="shrink-0 rounded-full border px-2 py-0.5 text-muted-foreground text-xs tabular-nums">
+            {readyCount} ready · {totalCount} available
+          </span>
+        )}
         <ChevronDownIcon
           className={cn(
             "size-4 shrink-0 text-muted-foreground/60 transition-transform",
@@ -169,7 +168,12 @@ export function LocalAiSection({
 
       {expanded && (
         <div className="border-t bg-muted/20">
-          {error && <div className="px-3 pt-2 text-xs text-destructive">{error}</div>}
+          {hardware && (
+            <div className="px-3 pt-2.5 text-muted-foreground text-xs">
+              Runs privately on this Mac · {hardwareLine(hardware)}
+            </div>
+          )}
+          {error && <div className="px-3 pt-2 text-destructive text-xs">{error}</div>}
           {!models && (
             <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
               <Loader2Icon className="size-3.5 animate-spin" />

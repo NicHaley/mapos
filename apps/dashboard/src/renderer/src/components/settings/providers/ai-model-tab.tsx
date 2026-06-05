@@ -95,7 +95,7 @@ export function AiModelTab(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-medium text-base">AI Model</h2>
+        <h2 className="font-medium text-base">AI Models</h2>
         <p className="mt-0.5 text-muted-foreground text-sm">
           The model MapOS uses by default. Switch anytime in a chat.
         </p>

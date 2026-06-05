@@ -217,6 +217,18 @@ export function cancelDownload(id: string): void {
   activeDownloads.get(id)?.abort();
 }
 
+/**
+ * Catalog ids whose download was interrupted (e.g. the app quit mid-download). The downloader (ipull)
+ * writes to `<file>.ipull` with resume metadata embedded and renames on completion, so a leftover
+ * `.ipull` without the final file means a resumable partial. An explicit cancel deletes the partial
+ * (`deleteTempFileOnCancel`), so cancelled downloads are not reported here.
+ */
+export function listInterruptedDownloads(): string[] {
+  return CATALOG.filter(
+    (e) => !existsSync(modelPath(e.fileName)) && existsSync(`${modelPath(e.fileName)}.ipull`)
+  ).map((e) => e.id);
+}
+
 /** Delete a downloaded model file. Accepts a catalog id or a raw filename. */
 export function deleteModel(idOrFileName: string): { ok: true } | { ok: false; error: string } {
   const fileName = byId.get(idOrFileName)?.fileName ?? idOrFileName;

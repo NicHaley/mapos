@@ -219,7 +219,7 @@ function AppearancePage() {
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "ai", label: "AI Model", icon: LayersIcon },
+  { id: "ai", label: "AI Models", icon: LayersIcon },
   { id: "offline", label: "Offline", icon: GlobeIcon }
 ];
 

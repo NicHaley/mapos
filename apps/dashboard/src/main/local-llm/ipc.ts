@@ -5,6 +5,7 @@
  */
 
 import { type BrowserWindow, ipcMain } from "electron";
+import type { DownloadProgress } from "../../shared/local-llm";
 import { clearActiveIfEmbeddedModel } from "../ai";
 import { broadcastAiChanged } from "../ai-ipc";
 import {
@@ -13,6 +14,7 @@ import {
   downloadModel,
   getHardware,
   listInstalled,
+  listInterruptedDownloads,
   listRecommended
 } from "./models";
 
@@ -26,17 +28,17 @@ const HANDLE_CHANNELS = [
 ] as const;
 
 export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
+  const sendProgress = (progress: DownloadProgress): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("local-llm:download-progress", progress);
+    }
+  };
+
   ipcMain.handle("local-llm:get-hardware", () => getHardware());
   ipcMain.handle("local-llm:list-recommended", () => listRecommended());
   ipcMain.handle("local-llm:list-installed", () => listInstalled());
 
-  ipcMain.handle("local-llm:download", (_e, args: { id: string }) =>
-    downloadModel(args.id, (progress) => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("local-llm:download-progress", progress);
-      }
-    })
-  );
+  ipcMain.handle("local-llm:download", (_e, args: { id: string }) => downloadModel(args.id, sendProgress));
 
   ipcMain.handle("local-llm:cancel-download", (_e, args: { id: string }) => {
     cancelDownload(args.id);
@@ -52,6 +54,13 @@ export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
     }
     return result;
   });
+
+  // A download interrupted by an app quit leaves a resumable partial on disk — pick it back up
+  // automatically. The renderer just sees a regular in-flight download via the progress events,
+  // so its progress bar and Cancel button work unchanged.
+  for (const id of listInterruptedDownloads()) {
+    void downloadModel(id, sendProgress);
+  }
 
   return function unregister(): void {
     for (const ch of HANDLE_CHANNELS) ipcMain.removeHandler(ch);

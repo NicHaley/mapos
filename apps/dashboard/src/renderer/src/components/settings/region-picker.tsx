@@ -11,7 +11,8 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDarkMode } from "../../hooks/use-dark-mode";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { GroupHeader } from "./group-header";
 import { type RegionMarker, RegionMap } from "./region-map";
@@ -23,13 +24,14 @@ function formatBytes(n: number): string {
   return `${(mb / 1000).toFixed(1)} GB`;
 }
 
-// Pin tint by status, so the map mirrors the list at a glance.
-function markerColor(r: RegionRow): string {
+// Pin tint by status, so the map mirrors the list at a glance. Not-yet-downloaded
+// regions are quiet white dots (zinc in light mode, where white would disappear).
+function markerColor(r: RegionRow, dark: boolean): string {
   if (r.status === "error") return "#ef4444";
   if (r.status === "downloading" || r.status === "verifying") return "#f59e0b";
   if (r.status === "installed") return "#10b981";
   if (r.status === "update-available") return "#f59e0b";
-  return "#8b8b94";
+  return dark ? "#ffffff" : "#71717a";
 }
 
 const isDownloaded = (r: RegionRow): boolean =>
@@ -86,6 +88,7 @@ function RegionRowItem({
 
   return (
     <div
+      data-region-slug={row.slug}
       className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
       onMouseEnter={() => onHover(row.slug)}
       onMouseLeave={() => onHover(null)}
@@ -178,14 +181,32 @@ function RegionList({
  */
 export function RegionPicker() {
   const packs = useRegionPacks(true);
+  const dark = useDarkMode();
   const [focus, setFocus] = useState<string | null>(null);
+
+  // Clicking a map pin scrolls its row into view (no-op if the search filter hides it).
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollToRegion = useCallback((slug: string) => {
+    listRef.current
+      ?.querySelector(`[data-region-slug="${CSS.escape(slug)}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   const markers = useMemo<RegionMarker[]>(
     () =>
       packs.regions.flatMap((r) =>
-        r.center ? [{ id: r.slug, center: r.center, color: markerColor(r) }] : []
+        r.center
+          ? [
+              {
+                id: r.slug,
+                center: r.center,
+                color: markerColor(r, dark),
+                subtle: r.status === "available"
+              }
+            ]
+          : []
       ),
-    [packs.regions]
+    [packs.regions, dark]
   );
 
   // Filter by region name OR its country (group), then split: downloaded regions
@@ -246,7 +267,7 @@ export function RegionPicker() {
     );
   }
 
-  const map = <RegionMap markers={markers} focus={focus} />;
+  const map = <RegionMap markers={markers} focus={focus} onSelect={scrollToRegion} />;
 
   const search = (
     <div className="relative shrink-0">
@@ -262,7 +283,7 @@ export function RegionPicker() {
 
   const list = (
     // -mr-2/pr-2 parks the scrollbar in the gutter.
-    <div className="-mr-2 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+    <div ref={listRef} className="-mr-2 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
       {nothing ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {q ? `No regions match “${query}”.` : "No regions available."}

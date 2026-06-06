@@ -1,3 +1,4 @@
+import { cn } from "@mapos/ui/lib/utils";
 import DottedMap from "dotted-map";
 import { useMemo } from "react";
 import { useDarkMode } from "../../hooks/use-dark-mode";
@@ -8,17 +9,22 @@ export type RegionMarker = {
   center: [number, number];
   /** CSS color for the pin dot. */
   color: string;
+  /** Quiet pin — hidden until hovered or focused. Used for not-yet-downloaded regions. */
+  subtle?: boolean;
 };
 
 const FRAME_RATIO = 2.8;
 
 export function RegionMap({
   markers,
-  focus
+  focus,
+  onSelect
 }: {
   markers: RegionMarker[];
   /** Marker id to highlight (e.g. the row the user is hovering). */
   focus?: string | null;
+  /** Called with the marker id when a pin is clicked. */
+  onSelect?: (id: string) => void;
 }) {
   const dark = useDarkMode();
 
@@ -61,13 +67,25 @@ export function RegionMap({
         {pins.map((p) => {
           const active = focus === p.id;
           return (
+            // biome-ignore lint/a11y/useKeyWithClickEvents: pins are a pointer-only shortcut into the region list, which is itself keyboard-accessible
             <circle
               key={p.id}
               cx={p.x}
               cy={p.y}
-              r={active ? 1.6 : 1}
+              r={1}
               fill={p.color}
-              className="transition-all duration-200"
+              // Transparent stroke widens the hover hit area without changing the
+              // visual — strokes count for pointer-events as long as they're not "none".
+              stroke="transparent"
+              strokeWidth={1.5}
+              onClick={onSelect ? () => onSelect(p.id) : undefined}
+              // Subtle pins are invisible until hovered (opacity keeps them
+              // hit-testable, unlike visibility) or focused from the list.
+              className={cn(
+                "transition-all duration-200",
+                onSelect && "cursor-pointer",
+                p.subtle && !active && "opacity-0 hover:opacity-100"
+              )}
             />
           );
         })}

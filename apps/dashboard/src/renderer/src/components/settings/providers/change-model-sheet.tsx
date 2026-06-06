@@ -8,7 +8,7 @@ import {
   type ProviderView
 } from "@shared/ai-providers";
 import { CheckIcon, Loader2Icon, LockIcon, SearchIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 import { CapabilityBadges } from "./capability-badges";
 import { ProviderBadge } from "./provider-badge";
@@ -67,6 +67,14 @@ export function ChangeModelSheet({
   const [groups, setGroups] = useState<PickerGroup[] | null>(null);
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+
+  // Plain autoFocus fires while the sheet is still offscreen (translate-x-full), and the
+  // focus scroll-into-view drags the overflow-hidden dialog body sideways. preventScroll
+  // keeps the background still during the slide-in. Stable identity so the ref only fires
+  // on mount, not on every keystroke re-render.
+  const focusOnMount = useCallback((el: HTMLInputElement | null) => {
+    el?.focus({ preventScroll: true });
+  }, []);
 
   // Build the grouped catalog whenever the sheet opens (or the provider set changes).
   useEffect(() => {
@@ -164,7 +172,7 @@ export function ChangeModelSheet({
         <div className="relative">
           <SearchIcon className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 size-4 text-muted-foreground" />
           <Input
-            autoFocus
+            ref={focusOnMount}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search models…"

@@ -333,14 +333,17 @@ export function clearActive(): { ok: true } {
   return { ok: true };
 }
 
-/** Clear the active selection if it points at the given embedded model. Returns whether it cleared. */
+/**
+ * Clear the active selection if it points at the given embedded model, or if the embedded selection
+ * no longer resolves at all (the model was dropped from the catalog or its file deleted — e.g. a
+ * stale id left behind by a catalog update). Returns whether it cleared.
+ */
 export function clearActiveIfEmbeddedModel(modelId: string): boolean {
   const st = load();
-  if (st.active?.providerId === EMBEDDED_PROVIDER_ID && st.active.model === modelId) {
-    write({ ...st, active: null });
-    return true;
-  }
-  return false;
+  if (st.active?.providerId !== EMBEDDED_PROVIDER_ID) return false;
+  if (st.active.model !== modelId && resolveEmbeddedModel(st.active.model)) return false;
+  write({ ...st, active: null });
+  return true;
 }
 
 // ── Model fetching ──────────────────────────────────────────────────────────

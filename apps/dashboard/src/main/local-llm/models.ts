@@ -45,28 +45,28 @@ const GB = 1_000_000_000;
  */
 const CATALOG: CatalogEntry[] = [
   {
-    id: "qwen3.5-4b",
-    label: "Qwen3.5 4B",
+    id: "qwen3-4b-2507",
+    label: "Qwen3 4B Instruct 2507",
     params: "4B",
     quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen_Qwen3.5-4B-GGUF:Q4_K_M",
-    fileName: "qwen3.5-4b.Q4_K_M.gguf",
-    sizeBytes: 3_013_027_808,
+    hfUri: "hf:bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+    fileName: "qwen3-4b-instruct-2507.Q4_K_M.gguf",
+    sizeBytes: 2_497_280_736,
     minMemoryGB: 8,
     description: "Small and fast.",
     capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 262_144 }
   },
   {
-    id: "qwen3.5-9b",
-    label: "Qwen3.5 9B",
-    params: "9B",
+    id: "qwen3-8b",
+    label: "Qwen3 8B",
+    params: "8B",
     quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen_Qwen3.5-9B-GGUF:Q4_K_M",
-    fileName: "qwen3.5-9b.Q4_K_M.gguf",
-    sizeBytes: 6_169_341_984,
+    hfUri: "hf:bartowski/Qwen_Qwen3-8B-GGUF:Q4_K_M",
+    fileName: "qwen3-8b.Q4_K_M.gguf",
+    sizeBytes: 5_027_784_224,
     minMemoryGB: 16,
     description: "The balanced default.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 262_144 }
+    capabilities: { supportsTools: true, supportsImages: false, thinking: true, contextWindow: 32_768 }
   },
   {
     id: "gpt-oss-20b",
@@ -81,16 +81,16 @@ const CATALOG: CatalogEntry[] = [
     capabilities: { supportsTools: true, supportsImages: false, thinking: true, contextWindow: 131_072 }
   },
   {
-    id: "qwen3.6-35b-a3b",
-    label: "Qwen3.6 35B A3B",
-    params: "35B MoE",
+    id: "qwen3-30b-a3b-2507",
+    label: "Qwen3 30B A3B Instruct 2507",
+    params: "30B MoE",
     quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen_Qwen3.6-35B-A3B-GGUF:Q4_K_M",
-    fileName: "qwen3.6-35b-a3b.Q4_K_M.gguf",
-    sizeBytes: 22_285_080_192,
+    hfUri: "hf:bartowski/Qwen_Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M",
+    fileName: "qwen3-30b-a3b-instruct-2507.Q4_K_M.gguf",
+    sizeBytes: 18_632_183_808,
     minMemoryGB: 32,
     description: "Most capable.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: true, contextWindow: 262_144 }
+    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 262_144 }
   }
 ];
 

@@ -1,7 +1,7 @@
 import { Button } from "@mapos/ui/components/button";
 import { cn } from "@mapos/ui/lib/utils";
 import { type ActiveSelectionView, EMBEDDED_PROVIDER_ID } from "@shared/ai-providers";
-import type { RecommendedModel } from "@shared/local-llm";
+import type { InstalledModel, RecommendedModel } from "@shared/local-llm";
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -32,13 +32,21 @@ export function LocalAiSection({
   onActiveChanged: () => void | Promise<void>;
 }): React.JSX.Element {
   const [models, setModels] = useState<RecommendedModel[] | null>(null);
+  // Downloaded .gguf files that aren't in the current catalog (e.g. left behind by a catalog
+  // update). Listed so they can still be deleted.
+  const [orphans, setOrphans] = useState<InstalledModel[]>([]);
   const [downloads, setDownloads] = useState<Record<string, DlState>>({});
   const [busy, setBusy] = useState<Record<string, "use" | "delete">>({});
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const loadModels = useCallback(async () => {
-    setModels(await window.api.localLlm.listRecommended());
+    const [recommended, installed] = await Promise.all([
+      window.api.localLlm.listRecommended(),
+      window.api.localLlm.listInstalled()
+    ]);
+    setModels(recommended);
+    setOrphans(installed.filter((m) => !m.fromCatalog));
   }, []);
 
   useEffect(() => {
@@ -99,7 +107,7 @@ export function LocalAiSection({
     void window.api.localLlm.cancelDownload(m.id);
   }
 
-  async function remove(m: RecommendedModel): Promise<void> {
+  async function remove(m: { id: string }): Promise<void> {
     setBusy((b) => ({ ...b, [m.id]: "delete" }));
     const result = await window.api.localLlm.delete(m.id);
     setBusy((b) => {
@@ -252,6 +260,32 @@ export function LocalAiSection({
                   </div>
                 );
               })}
+              {orphans.map((m) => (
+                <div key={m.fileName} className="flex items-center gap-3 px-3 py-2.5">
+                  <span className="flex size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <span className="truncate font-medium text-sm">{m.label}</span>
+                    <div className="mt-0.5 text-muted-foreground text-xs">
+                      {formatGB(m.sizeBytes)} · No longer in the catalog
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete ${m.label}`}
+                      disabled={!!busy[m.id]}
+                      onClick={() => void remove(m)}
+                    >
+                      {busy[m.id] === "delete" ? (
+                        <Loader2Icon className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2Icon className="size-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

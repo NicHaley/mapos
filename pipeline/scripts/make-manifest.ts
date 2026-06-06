@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import {
   closeSync,
+  createReadStream,
   existsSync,
   openSync,
   readFileSync,
@@ -32,6 +33,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 
 const ARTIFACTS = {
   pmtiles: (region: string) => `${region}.pmtiles`,
@@ -67,8 +69,37 @@ function titleCase(slug: string): string {
     .join(" ");
 }
 
-function sha256(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+/**
+ * Checksum cache: re-hashing every artifact in dist/ on every run is O(total
+ * bytes) — hours at world scale (~500 regions of multi-GB packs). Entries are
+ * keyed by relative path and validated by (size, mtimeMs), so only new or
+ * touched artifacts are hashed. Hashing streams the file (constant memory).
+ * Stale keys are swept on save so the cache tracks what is actually in dist/.
+ */
+type ShaCacheEntry = { size: number; mtimeMs: number; sha256: string };
+type ShaCache = Record<string, ShaCacheEntry>;
+
+function loadShaCache(path: string): ShaCache {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ShaCache;
+  } catch {
+    return {};
+  }
+}
+
+async function sha256Stream(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(path), hash);
+  return hash.digest("hex");
+}
+
+async function cachedSha256(cache: ShaCache, path: string, key: string): Promise<string> {
+  const { size, mtimeMs } = statSync(path);
+  const hit = cache[key];
+  if (hit && hit.size === size && hit.mtimeMs === mtimeMs) return hit.sha256;
+  const sha256 = await sha256Stream(path);
+  cache[key] = { size, mtimeMs, sha256 };
+  return sha256;
 }
 
 /**
@@ -143,6 +174,10 @@ if (region) {
 // 2. Rebuild the manifest from a scan of dist/.
 const manifest: Manifest = { schema: 3, groups: {}, regions: {} };
 
+const shaCachePath = join(dist, ".sha-cache.json");
+const shaCache = loadShaCache(shaCachePath);
+const seenShaKeys = new Set<string>();
+
 for (const entry of readdirSync(dist).sort()) {
   // Skip hidden files and reserved prefixes (_world is a bundled asset, not a region).
   if (entry.startsWith(".") || entry.startsWith("_")) continue;
@@ -161,7 +196,13 @@ for (const entry of readdirSync(dist).sort()) {
       const file = nameFor(entry);
       const path = join(verDir, file);
       if (!existsSync(path)) continue;
-      artifacts[key] = { file, bytes: statSync(path).size, sha256: sha256(path) };
+      const cacheKey = `${entry}/${version}/${file}`;
+      seenShaKeys.add(cacheKey);
+      artifacts[key] = {
+        file,
+        bytes: statSync(path).size,
+        sha256: await cachedSha256(shaCache, path, cacheKey),
+      };
     }
     if (Object.keys(artifacts).length === 0) continue;
     versions[version] = {
@@ -194,6 +235,13 @@ for (const entry of readdirSync(dist).sort()) {
     }
   }
 }
+
+// Persist the checksum cache, dropping entries for files no longer scanned
+// (pruned versions, removed regions) so it stays bounded.
+for (const key of Object.keys(shaCache)) {
+  if (!seenShaKeys.has(key)) delete shaCache[key];
+}
+writeFileSync(shaCachePath, JSON.stringify(shaCache, null, 2));
 
 const manifestPath = join(dist, "manifest.json");
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));

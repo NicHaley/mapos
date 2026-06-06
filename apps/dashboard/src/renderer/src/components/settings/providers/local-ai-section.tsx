@@ -116,8 +116,6 @@ export function LocalAiSection({
   }
 
   const activeModel = active?.providerId === EMBEDDED_PROVIDER_ID ? active.model : null;
-  const readyCount = models?.filter((m) => m.installed).length ?? 0;
-  const totalCount = models?.length ?? 0;
 
   return (
     <div className="overflow-hidden rounded-lg border">
@@ -143,11 +141,6 @@ export function LocalAiSection({
             {activeModel && <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />}
           </div>
         </div>
-        {models && (
-          <span className="shrink-0 rounded-full border px-2 py-0.5 text-muted-foreground text-xs tabular-nums">
-            {readyCount} ready · {totalCount} available
-          </span>
-        )}
         <ChevronDownIcon
           className={cn(
             "size-4 shrink-0 text-muted-foreground/60 transition-transform",
@@ -177,10 +170,13 @@ export function LocalAiSection({
                   <div
                     key={m.id}
                     className={cn(
-                      "flex items-center gap-3 border-l-2 border-l-transparent px-3 py-2.5",
-                      selected && "border-l-emerald-500 bg-accent"
+                      "flex items-center gap-3 px-3 py-2.5",
+                      selected && "bg-accent"
                     )}
                   >
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      {selected && <CheckIcon className="size-4 text-emerald-500" />}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-medium text-sm">{m.label}</span>
@@ -216,11 +212,7 @@ export function LocalAiSection({
                         </Button>
                       ) : m.installed ? (
                         <>
-                          {selected ? (
-                            <span className="px-2 font-medium text-emerald-600 text-xs dark:text-emerald-400">
-                              In use
-                            </span>
-                          ) : (
+                          {!selected && (
                             <Button
                               variant="outline"
                               size="sm"

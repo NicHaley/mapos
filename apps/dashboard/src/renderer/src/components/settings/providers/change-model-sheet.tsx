@@ -16,7 +16,7 @@ import { ProviderBadge } from "./provider-badge";
 type PickerModel = {
   /** Model id passed to setActive. */
   id: string;
-  /** What's shown to the user (mono id for cloud, friendly label for local). */
+  /** What's shown to the user (raw id for cloud, friendly label for local). */
   display: string;
   capabilities: ModelCapabilities;
   source?: CapabilitySource;
@@ -33,7 +33,6 @@ type PickerGroup = {
   knownProvider: string | null;
   local: boolean;
   connected: boolean;
-  mono: boolean;
   models: PickerModel[];
 };
 
@@ -90,7 +89,6 @@ export function ChangeModelSheet({
         knownProvider: null,
         local: true,
         connected: true,
-        mono: false,
         models: local.map((m) => ({
           id: m.id,
           display: m.label,
@@ -120,7 +118,6 @@ export function ChangeModelSheet({
             knownProvider: p.knownProvider,
             local: false,
             connected: p.auth.configured,
-            mono: true,
             models: rows
           };
         })
@@ -198,7 +195,7 @@ export function ChangeModelSheet({
               <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
                 {g.title}
               </span>
-              {!g.connected && <span className="text-muted-foreground/70 text-xs">· not connected</span>}
+              {!g.connected && <span className="text-muted-foreground/70 text-xs">· Not connected</span>}
             </div>
 
             {g.models.length === 0 ? (
@@ -234,9 +231,7 @@ export function ChangeModelSheet({
                           <LockIcon className="size-3.5 text-muted-foreground/60" />
                         ) : null}
                       </span>
-                      <span className={cn("min-w-0 flex-1 truncate text-sm", g.mono && "font-mono")}>
-                        {m.display}
-                      </span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-sm">{m.display}</span>
                       {m.detail && (
                         <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
                           {m.detail}

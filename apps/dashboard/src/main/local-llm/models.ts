@@ -39,57 +39,58 @@ type CatalogEntry = {
 const GB = 1_000_000_000;
 
 /**
- * Curated, tool-capable models. Q4_K_M is the sweet spot for quality/size on Apple Silicon.
+ * Curated, tool-capable models. Q4_K_M is the sweet spot for quality/size on Apple Silicon
+ * (gpt-oss ships natively as MXFP4 — quantizing it further degrades it).
  * Kept deliberately short — a handful of tiers, not a browsable library.
  */
 const CATALOG: CatalogEntry[] = [
   {
-    id: "qwen2.5-3b",
-    label: "Qwen2.5 3B Instruct",
-    params: "3B",
+    id: "qwen3.5-4b",
+    label: "Qwen3.5 4B",
+    params: "4B",
     quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen2.5-3B-Instruct-GGUF:Q4_K_M",
-    fileName: "qwen2.5-3b-instruct.Q4_K_M.gguf",
-    sizeBytes: Math.round(1.93 * GB),
+    hfUri: "hf:bartowski/Qwen_Qwen3.5-4B-GGUF:Q4_K_M",
+    fileName: "qwen3.5-4b.Q4_K_M.gguf",
+    sizeBytes: 3_013_027_808,
     minMemoryGB: 8,
-    description: "Small and fast. Solid tool use on modest machines.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 32_768 }
+    description: "Small and fast.",
+    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 262_144 }
   },
   {
-    id: "qwen2.5-7b",
-    label: "Qwen2.5 7B Instruct",
-    params: "7B",
+    id: "qwen3.5-9b",
+    label: "Qwen3.5 9B",
+    params: "9B",
     quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen2.5-7B-Instruct-GGUF:Q4_K_M",
-    fileName: "qwen2.5-7b-instruct.Q4_K_M.gguf",
-    sizeBytes: Math.round(4.68 * GB),
+    hfUri: "hf:bartowski/Qwen_Qwen3.5-9B-GGUF:Q4_K_M",
+    fileName: "qwen3.5-9b.Q4_K_M.gguf",
+    sizeBytes: 6_169_341_984,
     minMemoryGB: 16,
-    description: "The balanced default. Strong, reliable tool calling.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 32_768 }
+    description: "The balanced default.",
+    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 262_144 }
   },
   {
-    id: "llama3.1-8b",
-    label: "Llama 3.1 8B Instruct",
-    params: "8B",
-    quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M",
-    fileName: "llama3.1-8b-instruct.Q4_K_M.gguf",
-    sizeBytes: Math.round(4.92 * GB),
-    minMemoryGB: 16,
-    description: "Meta's 8B. Long 128K context, good general reasoning.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 131_072 }
-  },
-  {
-    id: "qwen2.5-14b",
-    label: "Qwen2.5 14B Instruct",
-    params: "14B",
-    quant: "Q4_K_M",
-    hfUri: "hf:bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M",
-    fileName: "qwen2.5-14b-instruct.Q4_K_M.gguf",
-    sizeBytes: Math.round(8.99 * GB),
+    id: "gpt-oss-20b",
+    label: "gpt-oss 20B",
+    params: "21B MoE",
+    quant: "MXFP4",
+    hfUri: "hf:ggml-org/gpt-oss-20b-GGUF/gpt-oss-20b-mxfp4.gguf",
+    fileName: "gpt-oss-20b.MXFP4.gguf",
+    sizeBytes: 12_109_566_560,
     minMemoryGB: 24,
-    description: "Most capable. Best quality if you have the memory for it.",
-    capabilities: { supportsTools: true, supportsImages: false, thinking: false, contextWindow: 32_768 }
+    description: "Strong agentic reasoning.",
+    capabilities: { supportsTools: true, supportsImages: false, thinking: true, contextWindow: 131_072 }
+  },
+  {
+    id: "qwen3.6-35b-a3b",
+    label: "Qwen3.6 35B A3B",
+    params: "35B MoE",
+    quant: "Q4_K_M",
+    hfUri: "hf:bartowski/Qwen_Qwen3.6-35B-A3B-GGUF:Q4_K_M",
+    fileName: "qwen3.6-35b-a3b.Q4_K_M.gguf",
+    sizeBytes: 22_285_080_192,
+    minMemoryGB: 32,
+    description: "Most capable.",
+    capabilities: { supportsTools: true, supportsImages: false, thinking: true, contextWindow: 262_144 }
   }
 ];
 

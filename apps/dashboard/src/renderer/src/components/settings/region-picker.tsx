@@ -199,6 +199,7 @@ export function RegionPicker() {
           ? [
               {
                 id: r.slug,
+                name: r.name,
                 center: r.center,
                 color: markerColor(r, dark),
                 subtle: r.status === "available"

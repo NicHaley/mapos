@@ -133,6 +133,33 @@ const sleep = (s: number): Promise<void> => new Promise((res) => setTimeout(res,
 
 // ------------------------------------------------------------------- run ----
 
+// Fail fast on a broken environment instead of logging hundreds of misleading
+// per-region failures (e.g. a PATH without homebrew makes every osmium call die).
+if (!dryRun) {
+  const checks: Array<[string, string[]]> = [
+    ["make", ["--version"]],
+    ["osmium", ["--version"]],
+    ["pmtiles", ["--help"]],
+    ["docker", ["info"]], // also verifies the daemon is actually running
+    ...(noUpload ? [] : [["rclone", ["--version"]] as [string, string[]]]),
+  ];
+  const missing = checks
+    .filter(([cmd, args]) => spawnSync(cmd, args, { stdio: "ignore" }).status !== 0)
+    .map(([cmd]) => cmd);
+  if (missing.length > 0) {
+    console.error(
+      `preflight failed — not available in this environment: ${missing.join(", ")}\n` +
+        `PATH=${process.env.PATH}`,
+    );
+    process.exit(1);
+  }
+  if (!noUpload && !Object.keys(process.env).some((k) => k.startsWith("RCLONE_CONFIG_R2_"))) {
+    console.warn(
+      "warning: no RCLONE_CONFIG_R2_* env vars — uploads will fail unless rclone.conf defines the r2 remote (source the .env, or pass --no-upload)",
+    );
+  }
+}
+
 console.log(`batch: ${regions.length} region(s), VERSION=${version}${dryRun ? " (dry run)" : ""}`);
 console.log(`       resume with: --version ${version}\n`);
 

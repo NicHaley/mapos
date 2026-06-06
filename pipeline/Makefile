@@ -87,8 +87,8 @@ build-slug:
 $(SRC_PBF):
 	@mkdir -p $(WORK)
 	curl -fL -o $@ "$(SRC_URL)"
-	@osmium fileinfo $@ >/dev/null 2>&1 || \
-	  { echo "error: $(SRC_URL) is not a valid OSM PBF" >&2; rm -f $@; exit 1; }
+	@osmium fileinfo $@ >/dev/null || \
+	  { echo "error: $(SRC_URL) failed PBF validation (osmium error above)" >&2; rm -f $@; exit 1; }
 
 # Clip to BBOX if given, else use the source as-is.
 $(REGION_PBF): $(SRC_PBF)

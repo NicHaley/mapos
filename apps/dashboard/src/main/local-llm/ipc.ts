@@ -5,8 +5,9 @@
  */
 
 import { type BrowserWindow, ipcMain } from "electron";
+import { EMBEDDED_PROVIDER_ID } from "../../shared/ai-providers";
 import type { DownloadProgress } from "../../shared/local-llm";
-import { clearActiveIfEmbeddedModel } from "../ai";
+import { clearActiveIfEmbeddedModel, getAiState, setActive } from "../ai";
 import { broadcastAiChanged } from "../ai-ipc";
 import {
   cancelDownload,
@@ -15,7 +16,8 @@ import {
   getHardware,
   listInstalled,
   listInterruptedDownloads,
-  listRecommended
+  listRecommended,
+  resolveEmbeddedModel
 } from "./models";
 
 const HANDLE_CHANNELS = [
@@ -34,11 +36,27 @@ export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
     }
   };
 
+  // A finished download becomes the active model when nothing else is — this is how onboarding's
+  // "Download & continue" lands on a working setup, and it covers resumed downloads too.
+  const downloadAndMaybeActivate = async (
+    id: string
+  ): Promise<Awaited<ReturnType<typeof downloadModel>>> => {
+    const result = await downloadModel(id, sendProgress);
+    if (result.ok && getAiState().active === null) {
+      const m = resolveEmbeddedModel(id);
+      if (m) {
+        setActive(EMBEDDED_PROVIDER_ID, m.id, m.capabilities);
+        broadcastAiChanged(mainWindow);
+      }
+    }
+    return result;
+  };
+
   ipcMain.handle("local-llm:get-hardware", () => getHardware());
   ipcMain.handle("local-llm:list-recommended", () => listRecommended());
   ipcMain.handle("local-llm:list-installed", () => listInstalled());
 
-  ipcMain.handle("local-llm:download", (_e, args: { id: string }) => downloadModel(args.id, sendProgress));
+  ipcMain.handle("local-llm:download", (_e, args: { id: string }) => downloadAndMaybeActivate(args.id));
 
   ipcMain.handle("local-llm:cancel-download", (_e, args: { id: string }) => {
     cancelDownload(args.id);
@@ -59,7 +77,7 @@ export function registerLocalLlmIpc(mainWindow: BrowserWindow): () => void {
   // automatically. The renderer just sees a regular in-flight download via the progress events,
   // so its progress bar and Cancel button work unchanged.
   for (const id of listInterruptedDownloads()) {
-    void downloadModel(id, sendProgress);
+    void downloadAndMaybeActivate(id);
   }
 
   return function unregister(): void {

@@ -1,6 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@mapos/ui/components/alert";
 import { Badge } from "@mapos/ui/components/badge";
 import { Button } from "@mapos/ui/components/button";
+import type { ActiveSelectionView } from "@shared/ai-providers";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -9,9 +10,10 @@ import {
   Loader2Icon,
   MonitorIcon,
   MoonIcon,
+  SparklesIcon,
   SunIcon
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRegionPacks } from "../../hooks/use-region-packs";
 import { readStoredTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
@@ -29,7 +31,17 @@ export function DoneStep({
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiActive, setAiActive] = useState<ActiveSelectionView>(null);
   const { installedPacks } = useRegionPacks(true);
+
+  // Surface the AI pick — kept live so a local download finishing mid-onboarding shows up.
+  useEffect(() => {
+    const sync = (): void => {
+      void window.api.ai.getState().then((s) => setAiActive(s.active));
+    };
+    sync();
+    return window.api.ai.onChanged(sync);
+  }, []);
 
   const regionCount = installedPacks.length;
   const theme = readStoredTheme();
@@ -94,6 +106,12 @@ export function DoneStep({
           {themeIcon}
           {themeLabel}
         </Badge>
+        {aiActive && (
+          <Badge variant="outline" className="text-muted-foreground">
+            <SparklesIcon />
+            {aiActive.model}
+          </Badge>
+        )}
       </div>
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
       <div className="mt-8 flex w-full items-center justify-between gap-3">

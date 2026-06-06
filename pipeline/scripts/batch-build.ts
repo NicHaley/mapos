@@ -97,13 +97,19 @@ regions = regions.slice(0, Math.max(0, limit));
 
 // --------------------------------------------------------------- helpers ----
 
-/** Built = all three artifacts exist with size > 0; partial dirs re-attempt. */
+/**
+ * Built = pmtiles + geocode exist with size > 0, plus routing tiles unless the
+ * valhalla stage left a .no-routing marker (roadless regions ship without
+ * routing). Partial dirs re-attempt.
+ */
 function isBuilt(slug: string): boolean {
   const dir = join(PIPELINE_DIR, "dist", slug, version);
-  return [`${slug}.pmtiles`, "valhalla_tiles.tar", "geocode.sqlite"].every((f) => {
+  const has = (f: string): boolean => {
     const p = join(dir, f);
     return existsSync(p) && statSync(p).size > 0;
-  });
+  };
+  const routing = has("valhalla_tiles.tar") || existsSync(join(dir, ".no-routing"));
+  return routing && has(`${slug}.pmtiles`) && has("geocode.sqlite");
 }
 
 function makeVars(r: CatalogEntry): string[] {

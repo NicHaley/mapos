@@ -204,7 +204,19 @@ for (const entry of readdirSync(dist).sort()) {
         sha256: await cachedSha256(shaCache, path, cacheKey),
       };
     }
-    if (Object.keys(artifacts).length === 0) continue;
+    // Only complete versions are published. A build that died mid-region leaves
+    // partial artifacts behind (and usually no region.json sidecar, so the entry
+    // would surface in the UI as a bare slug under "Other") — and a partial pack
+    // must never be offered to clients. Valhalla is optional: roadless regions
+    // (uninhabited islands) ship without routing tiles, and the stage order
+    // (pmtiles -> valhalla -> geocode) guarantees geocode.sqlite only exists
+    // once valhalla finished or was deliberately skipped.
+    if (!("pmtiles" in artifacts && "geocode" in artifacts)) {
+      if (Object.keys(artifacts).length > 0) {
+        console.error(`skipping incomplete version ${entry}/${version} (${Object.keys(artifacts).join(", ")})`);
+      }
+      continue;
+    }
     versions[version] = {
       path: `${entry}/${version}`,
       total_bytes: Object.values(artifacts).reduce((s, a) => s + a.bytes, 0),

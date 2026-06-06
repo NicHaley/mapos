@@ -123,14 +123,46 @@ pmtiles: $(REGION_PBF)
 # The gis-ops turnkey image builds tiles from any .pbf dropped in /custom_files
 # and emits valhalla_tiles.tar there. Bump Docker Desktop's RAM for big regions.
 
+# valhalla_build_tiles has an intermittent multithreading race ("double free or
+# corruption") that hits near-certainly when an extract yields fewer tiles than
+# build threads — every micro-island in the catalog crashed on it. Build small
+# extracts single-threaded; below this cutoff the build takes seconds anyway.
+VALHALLA_SINGLE_THREAD_BYTES ?= 10485760
+
+# Start from a clean staging dir: a failed build leaves valhalla.json and an
+# empty valhalla_tiles/ behind, which make the image skip straight to tile
+# loading ("Found routing tiles") and die — poisoning every retry.
+#
+# Small extracts get special handling (both checks gated on the size cutoff so
+# big regions never pay for an osmium scan):
+#  - zero routable ways (uninhabited islands): valhalla_build_tiles aborts on
+#    these ("invalid tile id"), so skip the stage — the pack ships without
+#    routing (the app already treats valhalla as optional per pack) and a
+#    .no-routing marker tells batch-build the version is complete.
+#  - fewer tiles than threads: valhalla_build_tiles has an intermittent
+#    multithreading race ("double free or corruption") that hits near-certainly
+#    here, so build single-threaded — takes seconds at this size anyway.
 valhalla: $(REGION_PBF)
+	rm -rf $(WORK)/valhalla
 	@mkdir -p $(WORK)/valhalla $(DIST)
 	cp $(REGION_PBF) $(WORK)/valhalla/
+	@set -e; \
+	threads=""; \
+	if [ "$$(wc -c < $(REGION_PBF))" -lt $(VALHALLA_SINGLE_THREAD_BYTES) ]; then \
+	  if ! osmium tags-filter $(REGION_PBF) w/highway -f opl -o - | grep -q '^w'; then \
+	    echo "==> $(REGION) has no routable ways — skipping valhalla; pack ships without routing"; \
+	    touch $(DIST)/.no-routing; \
+	    exit 0; \
+	  fi; \
+	  echo "==> small extract: building valhalla tiles single-threaded"; \
+	  threads="-e server_threads=1"; \
+	fi; \
 	docker run --rm \
 	  -v "$(PWD)/$(WORK)/valhalla:/custom_files" \
 	  -e serve_tiles=False -e build_elevation=False \
 	  -e build_admins=True -e build_time_zones=True \
-	  $(VALHALLA_IMAGE)
+	  $$threads \
+	  $(VALHALLA_IMAGE); \
 	cp $(WORK)/valhalla/valhalla_tiles.tar $(DIST)/valhalla_tiles.tar
 
 # ------------------------------------------------------------- 3. geocode ----
@@ -197,7 +229,7 @@ manifest:
 upload: manifest
 	rclone copy dist/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
 	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json" \
-	  --exclude ".sha-cache.json"
+	  --exclude ".sha-cache.json" --exclude "**/.no-routing"
 	$(MAKE) prune
 	rclone copyto dist/manifest.json $(R2_REMOTE)/manifest.json --s3-no-check-bucket
 

@@ -79,8 +79,11 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       .sort((a, b) => bboxArea(a.bbox as Bbox) - bboxArea(b.bbox as Bbox));
     if (installedHere.length > 0) {
       const pack = installedHere[0];
-      // Prefer the manifest's display name; fall back to the slug when offline.
-      const name = packs.regions.find((r) => r.slug === pack.region)?.name ?? pack.region;
+      // Prefer the manifest's display name; offline, fall back to the name recorded
+      // in the pack at install time. The raw slug only surfaces for packs installed
+      // before names were recorded, when the manifest is also unreachable.
+      const name =
+        packs.regions.find((r) => r.slug === pack.region)?.name ?? pack.name ?? pack.region;
       return { kind: "covered", name, pack };
     }
 

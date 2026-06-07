@@ -161,6 +161,9 @@ export type RegionManifest = {
 /** A region pack present on disk (flat layout: `<regionsDir>/<region>/`). */
 export type InstalledRegionPack = {
   region: string;
+  /** Display name copied from the manifest at install time so offline UI shows
+   *  "Quebec", not the slug. Absent on packs installed before this was recorded. */
+  name?: string;
   version: string;
   totalBytes: number;
   installedAt: string;

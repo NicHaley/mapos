@@ -81,6 +81,7 @@ export function listLocal(regionsDir: string): InstalledRegionPack[] {
       if (typeof meta.version !== "string") continue;
       out.push({
         region,
+        ...(typeof meta.name === "string" ? { name: meta.name } : {}),
         version: meta.version,
         totalBytes: typeof meta.totalBytes === "number" ? meta.totalBytes : 0,
         installedAt: typeof meta.installedAt === "string" ? meta.installedAt : "",
@@ -212,6 +213,7 @@ export async function downloadRegion(
     for (const { part, final } of renames) renameSync(part, final);
     const meta: InstalledRegionPack = {
       region,
+      ...(entry.name ? { name: entry.name } : {}),
       version: ver,
       totalBytes,
       installedAt: new Date().toISOString(),

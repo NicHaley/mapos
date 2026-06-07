@@ -198,7 +198,7 @@ valhalla: $(REGION_PBF)
 geocode: $(REGION_PBF)
 	@mkdir -p $(DIST)
 	osmium tags-filter $(REGION_PBF) \
-	  n/place w/highway nwr/amenity nwr/shop nwr/tourism nwr/leisure \
+	  n/place w/highway nwr/amenity nwr/shop nwr/tourism nwr/leisure nwr/office nwr/historic \
 	  -o $(WORK)/geocode-src.osm.pbf --overwrite
 	osmium tags-filter $(REGION_PBF) r/boundary=administrative \
 	  -o $(WORK)/admins.osm.pbf --overwrite

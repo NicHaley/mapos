@@ -429,9 +429,26 @@ export function buildMaposCustomTools(
     name: "geocode_search",
     label: "Geocode search",
     description:
-      "Forward geocode a free-text query (place name or address) via Photon/OpenStreetMap. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng.",
+      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox.",
     parameters: Type.Object({
-      query: Type.String({ description: "Search query, e.g. place name or address" }),
+      query: Type.Optional(
+        Type.String({
+          description:
+            "Search query, e.g. place name or address. Also matches category words ('restaurants', 'coffee') offline. Omit for a pure category filter."
+        })
+      ),
+      categories: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Restrict to normalized category ids, e.g. ['restaurant','cafe','hotel','supermarket','park']. Offline region packs only."
+        })
+      ),
+      kinds: Type.Optional(
+        Type.Array(
+          Type.Union([Type.Literal("place"), Type.Literal("poi"), Type.Literal("street")]),
+          { description: "Restrict to feature kinds, e.g. ['poi']. Offline region packs only." }
+        )
+      ),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 8 })),
       lang: Type.Optional(
         Type.String({ description: "ISO 639-1 language code for labels, e.g. 'en', 'fr'" })
@@ -452,6 +469,8 @@ export function buildMaposCustomTools(
       try {
         const results = await getServiceClient().geocoding.forward({
           query: args.query,
+          categories: args.categories,
+          kinds: args.kinds,
           limit: args.limit ?? 8,
           lang: args.lang,
           bbox: args.bbox
@@ -467,19 +486,26 @@ export function buildMaposCustomTools(
     name: "reverse_geocode",
     label: "Reverse geocode",
     description:
-      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap. Returns nearby named feature(s).",
+      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s). Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only).",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, default: 1 })),
-      lang: Type.Optional(Type.String())
+      lang: Type.Optional(Type.String()),
+      categories: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Restrict to normalized category ids, e.g. ['restaurant','cafe']. Offline region packs only."
+        })
+      )
     }),
     execute: async (_id, args) => {
       try {
         const results = await getServiceClient().geocoding.reverse({
           point: { lat: args.lat, lng: args.lng },
           limit: args.limit ?? 1,
-          lang: args.lang
+          lang: args.lang,
+          categories: args.categories
         });
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {

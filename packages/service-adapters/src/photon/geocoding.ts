@@ -93,7 +93,8 @@ export async function forward(
   ep: Endpoint,
   ctx: AdapterContext = {}
 ): Promise<GeocodeResult[]> {
-  const q = req.query.trim();
+  // Photon needs text — a pure category filter (query omitted) is offline-only.
+  const q = req.query?.trim() ?? "";
   if (!q) return [];
   const limit = req.limit ?? DEFAULT_LIMIT;
   const params = new URLSearchParams({ q, limit: String(limit) });

@@ -30,6 +30,7 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { Feature, Geometry, Position } from "geojson";
+import { resolveCategory } from "./categories";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -94,7 +95,29 @@ function altNames(tags: Tags): string | null {
   for (const [k, v] of Object.entries(tags)) {
     if (k.startsWith("name:") && v) out.push(v);
   }
+  // brand is an alternative identity ("BNP" for "BNP Paribas Agence Centrale"),
+  // searchable like a translated name. Skip it when the name already contains it.
+  const brand = tags.brand?.trim();
+  if (brand && !tags.name.toLowerCase().includes(brand.toLowerCase())) out.push(brand);
   return out.length ? out.join("\n") : null;
+}
+
+// Descriptor tags whose values become extra category_terms, so metadata queries
+// like "sushi" or "tennis" match POIs whose NAME doesn't contain the word.
+// Values are ;-separated lists in OSM ("italian;pizza").
+const DESCRIPTOR_KEYS = ["cuisine", "sport"];
+
+function descriptorTerms(tags: Tags): string[] {
+  const out: string[] = [];
+  for (const key of DESCRIPTOR_KEYS) {
+    const raw = tags[key];
+    if (!raw) continue;
+    for (const part of raw.split(";")) {
+      const term = part.trim().toLowerCase().replace(/_/g, " ");
+      if (term) out.push(term);
+    }
+  }
+  return out;
 }
 
 function population(tags: Tags): number | null {
@@ -104,32 +127,56 @@ function population(tags: Tags): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function importance(base: number, pop: number | null): number {
+function importance(base: number, pop: number | null, famous: boolean): number {
   let score = base;
   if (pop && pop > 0) score += Math.min(Math.log10(pop) / 10, 0.7);
+  // A wikidata/wikipedia tag is a cheap fame proxy (Nominatim weights full Wikipedia
+  // importance; we just need landmarks to outrank same-category neighbours, since
+  // POIs otherwise share a flat base score).
+  if (famous) score += 0.2;
   return Math.round(score * 1e4) / 1e4;
 }
 
-/** Average every coordinate in a geometry into one representative [lng, lat]. */
-function representativePoint(geom: Geometry): [number, number] | null {
+type GeomSummary = {
+  lng: number; // average of every coordinate — one representative point
+  lat: number;
+  minLng: number; // extent, degenerate (min == max) for point features
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+};
+
+/** Reduce a geometry to a representative point (coordinate average) + its extent. */
+function summarizeGeometry(geom: Geometry): GeomSummary | null {
   let lngSum = 0;
   let latSum = 0;
   let count = 0;
+  let minLng = Number.POSITIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
   const visit = (coords: unknown): void => {
     if (
       typeof (coords as Position)[0] === "number" &&
       typeof (coords as Position)[1] === "number"
     ) {
-      lngSum += (coords as Position)[0];
-      latSum += (coords as Position)[1];
+      const lng = (coords as Position)[0];
+      const lat = (coords as Position)[1];
+      lngSum += lng;
+      latSum += lat;
       count += 1;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
       return;
     }
     for (const c of coords as unknown[]) visit(c);
   };
   if (geom.type === "GeometryCollection") return null;
   visit(geom.coordinates);
-  return count ? [lngSum / count, latSum / count] : null;
+  if (!count) return null;
+  return { lng: lngSum / count, lat: latSum / count, minLng, minLat, maxLng, maxLat };
 }
 
 // --- self-tagged street address ------------------------------------------------
@@ -329,6 +376,7 @@ for (const suffix of ["", "-wal", "-shm", "-journal"])
 
 const db = new DatabaseSync(output);
 let count = 0;
+let finalCount = 0;
 
 try {
   // Bulk-load pragmas: this file is rebuilt from scratch, durability doesn't matter.
@@ -338,8 +386,10 @@ try {
 
   const insert = db.prepare(
     `INSERT INTO features
-       (osm_type, osm_id, name, alt_names, kind, class, importance, population, admin_context, address, lat, lng)
-     VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @importance, @population, @admin_context, @address, @lat, @lng)`
+       (osm_type, osm_id, name, alt_names, kind, class, category, category_terms, importance, population, admin_context, address, lat, lng,
+        bbox_min_lng, bbox_min_lat, bbox_max_lng, bbox_max_lat)
+     VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @category, @category_terms, @importance, @population, @admin_context, @address, @lat, @lng,
+        @bbox_min_lng, @bbox_min_lat, @bbox_max_lng, @bbox_max_lat)`
   );
 
   db.exec("BEGIN");
@@ -363,10 +413,15 @@ try {
     const c = classify(tags);
     if (!c) continue;
 
-    const point = representativePoint(feature.geometry);
-    if (!point) continue;
+    const geom = summarizeGeometry(feature.geometry);
+    if (!geom) continue;
 
     const pop = population(tags);
+    // Normalized category + FTS synonym blob, POIs only — places/streets aren't a
+    // searchable metadata family (their cls like "city"/"residential" stays in class).
+    // Descriptor tags (cuisine, sport) extend the blob so "sushi"/"tennis" match.
+    const cat = c.kind === "poi" ? resolveCategory(c.cls) : null;
+    const categoryTerms = cat ? [cat.synonyms, ...descriptorTerms(tags)].join(" ") : null;
     insert.run({
       osm_type: tags["@type"] ?? "",
       osm_id: tags["@id"] ? Number.parseInt(tags["@id"], 10) : 0,
@@ -374,14 +429,16 @@ try {
       alt_names: altNames(tags),
       kind: c.kind,
       cls: c.cls,
-      importance: importance(c.base, pop),
+      category: cat?.category ?? null,
+      category_terms: categoryTerms,
+      importance: importance(c.base, pop, Boolean(tags.wikidata || tags.wikipedia)),
       population: pop,
       // Real per-feature admin hierarchy via point-in-polygon ("Neukölln, Berlin, Germany"),
       // walking only up from the feature's own rank so a place isn't labelled by its sub-areas.
       // null when no admins/country are available; the client then falls back to the pack
       // region. We deliberately never store the bare region name (identical on every row, it
       // drives the FTS IDF to ~0 and pollutes region-name queries).
-      admin_context: adminContextFor(point[0], point[1], admins, {
+      admin_context: adminContextFor(geom.lng, geom.lat, admins, {
         ownLevel:
           c.kind === "place"
             ? (PLACE_ADMIN_LEVEL[c.cls] ?? Number.POSITIVE_INFINITY)
@@ -393,20 +450,85 @@ try {
         maxCityLevel
       }),
       address: addressLine(tags),
-      lng: point[0],
-      lat: point[1]
+      lng: geom.lng,
+      lat: geom.lat,
+      bbox_min_lng: geom.minLng,
+      bbox_min_lat: geom.minLat,
+      bbox_max_lng: geom.maxLng,
+      bbox_max_lat: geom.maxLat
     });
 
     count += 1;
     if (count % 50_000 === 0) console.error(`  ...${count.toLocaleString()} features`);
   }
 
+  console.error("Merging duplicate features...");
+  // Street segments: OSM splits a way wherever ANY tag changes, so one street is
+  // many rows ("Boulevard du Larvotto" ×43 in Monaco) and a street search returns
+  // `limit` identical labels. Merge per (name, admin_context) — the admin scope
+  // keeps same-named streets in different towns apart ("Hauptstraße"). When a pack
+  // was built without admin polygons, a coarse ~5 km grid stands in so a name-only
+  // merge can't collapse distinct streets region-wide.
+  db.exec(
+    `CREATE TEMP TABLE street_merge AS
+       SELECT min(id) AS keep_id,
+              avg(lat) AS lat, avg(lng) AS lng,
+              min(bbox_min_lng) AS min_lng, min(bbox_min_lat) AS min_lat,
+              max(bbox_max_lng) AS max_lng, max(bbox_max_lat) AS max_lat
+       FROM features
+       WHERE kind = 'street'
+       GROUP BY name,
+                ifnull(admin_context, ''),
+                CASE WHEN admin_context IS NULL THEN round(lat * 20) ELSE 0 END,
+                CASE WHEN admin_context IS NULL THEN round(lng * 20) ELSE 0 END;
+     UPDATE features SET
+       lat = m.lat, lng = m.lng,
+       bbox_min_lng = m.min_lng, bbox_min_lat = m.min_lat,
+       bbox_max_lng = m.max_lng, bbox_max_lat = m.max_lat
+     FROM street_merge AS m
+     WHERE features.id = m.keep_id;`
+  );
+  const droppedStreets = db
+    .prepare(
+      "DELETE FROM features WHERE kind = 'street' AND id NOT IN (SELECT keep_id FROM street_merge)"
+    )
+    .run().changes;
+
+  // POIs: the classic node+way double-mapping (a restaurant as both the POI node
+  // and its building outline). Dedupe per (name, category, ~55 m grid), preferring
+  // the node (mapper-placed point) but keeping the union extent so the building's
+  // bbox survives on the kept row.
+  db.exec(
+    `CREATE TEMP TABLE poi_merge AS
+       SELECT coalesce(min(CASE WHEN osm_type = 'node' THEN id END), min(id)) AS keep_id,
+              min(bbox_min_lng) AS min_lng, min(bbox_min_lat) AS min_lat,
+              max(bbox_max_lng) AS max_lng, max(bbox_max_lat) AS max_lat
+       FROM features
+       WHERE kind = 'poi'
+       GROUP BY name, ifnull(category, ''), round(lat * 2000), round(lng * 2000);
+     UPDATE features SET
+       bbox_min_lng = m.min_lng, bbox_min_lat = m.min_lat,
+       bbox_max_lng = m.max_lng, bbox_max_lat = m.max_lat
+     FROM poi_merge AS m
+     WHERE features.id = m.keep_id;`
+  );
+  const droppedPois = db
+    .prepare(
+      "DELETE FROM features WHERE kind = 'poi' AND id NOT IN (SELECT keep_id FROM poi_merge)"
+    )
+    .run().changes;
+  console.error(
+    `  merged ${Number(droppedStreets).toLocaleString()} street segments, ${Number(droppedPois).toLocaleString()} duplicate POIs`
+  );
+  finalCount = count - Number(droppedStreets) - Number(droppedPois);
+
   console.error("Populating FTS5 + R-tree...");
   db.exec(
-    `INSERT INTO features_fts(rowid, name, alt_names, admin_context)
-       SELECT id, name, alt_names, admin_context FROM features;
+    `INSERT INTO features_fts(rowid, name, alt_names, admin_context, category_terms, address)
+       SELECT id, name, alt_names, admin_context, category_terms, address FROM features;
      INSERT INTO features_rtree(id, min_lng, max_lng, min_lat, max_lat)
-       SELECT id, lng, lng, lat, lat FROM features;`
+       SELECT id, lng, lng, lat, lat FROM features;
+     INSERT INTO features_fts(features_fts) VALUES('optimize');`
   );
   db.exec("COMMIT");
   db.exec("ANALYZE");
@@ -415,4 +537,4 @@ try {
   db.close();
 }
 
-console.error(`Done: ${count.toLocaleString()} features -> ${output}`);
+console.error(`Done: ${finalCount.toLocaleString()} features (${count.toLocaleString()} before merge) -> ${output}`);

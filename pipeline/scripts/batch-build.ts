@@ -24,12 +24,29 @@
 
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type CatalogEntry, loadCatalog } from "./catalog.ts";
 
 const PIPELINE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LOG_PATH = join(PIPELINE_DIR, "failures.log");
+
+// Auto-load the repo-root .env (BUCKET, RCLONE_CONFIG_R2_*, DIST_DIR) so the driver
+// works without sourcing it first; the spawned `make` inherits the result. Real
+// environment variables win over file values. Mirrors the Makefile's `-include ../.env`.
+const ENV_PATH = join(PIPELINE_DIR, "..", ".env");
+if (existsSync(ENV_PATH)) {
+  for (const line of readFileSync(ENV_PATH, "utf8").split("\n")) {
+    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim());
+    if (!m || process.env[m[1]] !== undefined) continue;
+    process.env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+}
+
+// Built-artifact root, kept in sync with the Makefile's DIST_DIR (which reads the
+// same env var — set it in the repo-root .env to build onto an external drive).
+const DIST_DIR_RAW = process.env.DIST_DIR ?? "dist";
+const DIST_DIR = isAbsolute(DIST_DIR_RAW) ? DIST_DIR_RAW : join(PIPELINE_DIR, DIST_DIR_RAW);
 
 type LogLine = {
   slug: string;
@@ -106,7 +123,7 @@ regions = regions.slice(0, Math.max(0, limit));
  * routing). Partial dirs re-attempt.
  */
 function isBuilt(slug: string): boolean {
-  const dir = join(PIPELINE_DIR, "dist", slug, version);
+  const dir = join(DIST_DIR, slug, version);
   const has = (f: string): boolean => {
     const p = join(dir, f);
     return existsSync(p) && statSync(p).size > 0;
@@ -161,6 +178,12 @@ if (!dryRun) {
       `preflight failed — not available in this environment: ${missing.join(", ")}\n` +
         `PATH=${process.env.PATH}`,
     );
+    process.exit(1);
+  }
+  // An overridden DIST_DIR must already exist (the Makefile's dist-guard enforces the
+  // same per region) — fail here once instead of logging a failure for every region.
+  if (process.env.DIST_DIR && !existsSync(DIST_DIR)) {
+    console.error(`preflight failed — DIST_DIR=${DIST_DIR} does not exist (external drive not mounted?)`);
     process.exit(1);
   }
   if (!noUpload && !Object.keys(process.env).some((k) => k.startsWith("RCLONE_CONFIG_R2_"))) {

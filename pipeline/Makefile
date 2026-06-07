@@ -1,76 +1,80 @@
 # MapOS region build pipeline
 #
 # One region -> three artifacts (PMTiles + Valhalla tiles + geocode SQLite)
-# -> versioned dist/ layout + manifest -> R2. Designed to run on the Mac mini.
+# -> versioned dist/ layout + manifest -> R2.
 #
-# Quick start (tiny test region):
 #   make all             # builds Monaco end to end into dist/
-#   make upload          # push dist/ to R2 (needs rclone remote configured)
-#
-# Build a different region:
-#   make all REGION=toronto SRC_URL=https://download.geofabrik.de/north-america/canada/ontario-latest.osm.pbf \
-#            BBOX=-79.64,43.58,-79.12,43.86
+#   make upload          # push dist/ to R2
 #
 # ------------------------------------------------------------------ config ----
 
+# Repo-root .env (BUCKET, RCLONE_CONFIG_R2_*, DIST_DIR) loads as make syntax —
+# keep values unquoted and $-free. Command-line overrides still win.
+-include ../.env
+# rclone reads credentials from the environment. Guarded: an empty list would
+# turn `export` bare, exporting everything.
+RCLONE_VARS := $(filter RCLONE_CONFIG_%,$(.VARIABLES))
+ifneq ($(RCLONE_VARS),)
+export $(RCLONE_VARS)
+endif
+
 REGION   ?= monaco
 SRC_URL  ?= https://download.geofabrik.de/europe/monaco-latest.osm.pbf
-# Optional bbox "minlng,minlat,maxlng,maxlat". Clips the OSM extract (valhalla,
-# geocode) AND bounds the tile extract. If empty, tiles derive their bbox from
-# the OSM extract's data bounds.
+# Optional "minlng,minlat,maxlng,maxlat" — clips the OSM extract and bounds the tiles.
 BBOX     ?=
-# Version = OSM data date. The build machine's clock is fine here.
+# Version = OSM data date.
 VERSION  ?= $(shell date +%F)
-# Manifest presentation metadata (all optional). NAME is the region's display
-# name; GROUP/GROUP_NAME thread it under a country group the download UI can
-# expand. e.g. GROUP=germany GROUP_NAME=Germany NAME=Berlin.
+# Manifest display metadata, e.g. GROUP=germany GROUP_NAME=Germany NAME=Berlin.
 NAME       ?=
 GROUP      ?=
 GROUP_NAME ?=
-# Country name baked into every geocode result's admin context (e.g. "Germany"), the way
-# Nominatim/Photon always show it. Defaults to GROUP_NAME since a region pack is one country.
+# Country baked into geocode results' admin context. A pack is one country, so
+# GROUP_NAME is the right default.
 COUNTRY    ?= $(GROUP_NAME)
-# Override for the municipality/sub-municipal admin_level split in geocode results. Leave
-# empty for the OSM-standard default (8); set per pack only for countries that deviate
-# (e.g. CITY_LEVEL_MAX=7 for Japan, where wards sit at admin_level 7).
+# Municipality admin_level cutoff in geocode results. Empty = OSM default (8);
+# set for countries that deviate (e.g. 7 for Japan, where wards sit at 7).
 CITY_LEVEL_MAX ?=
-# Versions kept per region (newest first). The rest are pruned from disk and R2 on
-# upload. 2 = live version + previous, so a client mid-download survives a rollout.
+# Versions kept per region; older ones pruned from disk and R2 on upload.
+# 2 = live + previous, so a client mid-download survives a rollout.
 RETAIN     ?= 2
+# Built-artifact root. Point at an external drive for world-scale builds
+# (e.g. DIST_DIR=/Volumes/T7/mapos-dist). work/ stays local: it's the hot
+# I/O path (Valhalla's docker bind mount).
+DIST_DIR ?= dist
 
 WORK     := work/$(REGION)
-DIST     := dist/$(REGION)/$(VERSION)
+DIST     := $(DIST_DIR)/$(REGION)/$(VERSION)
 VALHALLA_IMAGE ?= ghcr.io/gis-ops/docker-valhalla/valhalla:latest
-# Protomaps daily planet basemap builds. We `pmtiles extract` a region from these
-# via HTTP range requests — the schema matches the app's Protomaps style exactly.
+# Protomaps daily planet builds — same schema as the app's style, extracted via
+# HTTP range requests.
 PROTOMAPS_BUILD_BASE ?= https://build.protomaps.com
 TILES_MAXZOOM ?= 15
-# Region packs start at z7: z0-6 comes from the shared world basemap, composited
-# with the region in-app. Must equal the app's WORLD_MAXZOOM + 1 (region-protocol.ts).
-# Building z0-6 per region would be wasted bytes (and duplicate the world).
+# Region packs start where the bundled world basemap ends. Must equal the app's
+# WORLD_MAXZOOM + 1 (region-protocol.ts).
 TILES_MINZOOM ?= 7
-# Whole-world low-zoom basemap maxzoom. This is the always-on "low-fi" backdrop
-# the app renders outside downloaded regions, so keep it small — z6 is country /
-# major-road level. Built once (region-independent) and bundled with the app.
 WORLD_MAXZOOM ?= 6
-# Where the bundled world basemap lands in the dashboard's extraResources.
 DASHBOARD_ASSETS ?= ../apps/dashboard/resources/basemap-assets
-# R2 bucket + rclone remote. BUCKET comes from the root .env (source it before
-# `make upload`); the `r2` remote itself is defined there via RCLONE_CONFIG_R2_* env vars.
 BUCKET    ?= mapos-regions
 R2_REMOTE ?= r2:$(BUCKET)
 
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
 
-.PHONY: all extract pmtiles valhalla geocode manifest upload prune clean distclean world bundle-world build-slug
+.PHONY: all extract pmtiles valhalla geocode manifest upload prune clean distclean world bundle-world build-slug dist-guard
 
 all: pmtiles valhalla geocode manifest
 	@echo "==> $(REGION)@$(VERSION) built into $(DIST)"
 
-# Build one region by catalog slug — URL/name/group/country resolve from
-# regions.json (generated by scripts/gen-catalog.ts). For the whole catalog,
-# use scripts/batch-build.ts instead.
+# An overridden DIST_DIR must already exist: mkdir -p on an unmounted /Volumes
+# path would silently build onto the internal disk.
+dist-guard:
+ifneq ($(DIST_DIR),dist)
+	@test -d "$(DIST_DIR)" || \
+	  { echo "error: DIST_DIR=$(DIST_DIR) does not exist — external drive not mounted?" >&2; exit 1; }
+endif
+
+# Build one region by catalog slug (regions.json). For the whole catalog use
+# scripts/batch-build.ts.
 #   make build-slug SLUG=us-georgia [VERSION=...]
 build-slug:
 	@test -n "$(SLUG)" || { echo "usage: make build-slug SLUG=<slug>"; exit 1; }
@@ -82,16 +86,14 @@ build-slug:
 
 # --------------------------------------------------------------- 0. extract ----
 
-# -f fails on HTTP errors, but Geofabrik serves its "no such extract" page with
-# 200 — so also validate the payload is a real PBF, and remove it on failure or
-# a re-run would treat the cached garbage as a finished download.
+# Geofabrik serves "no such extract" as a 200 HTML page, so validate the payload
+# is a real PBF and remove it on failure.
 $(SRC_PBF):
 	@mkdir -p $(WORK)
 	curl -fL -o $@ "$(SRC_URL)"
 	@osmium fileinfo $@ >/dev/null || \
 	  { echo "error: $(SRC_URL) failed PBF validation (osmium error above)" >&2; rm -f $@; exit 1; }
 
-# Clip to BBOX if given, else use the source as-is.
 $(REGION_PBF): $(SRC_PBF)
 ifeq ($(BBOX),)
 	cp $(SRC_PBF) $(REGION_PBF)
@@ -102,25 +104,14 @@ endif
 extract: $(REGION_PBF)
 
 # ------------------------------------------------------------- 1. PMTiles ----
-# Extract the region from the freshest Protomaps planet build (range requests, so
-# only the covered tiles transfer). Protomaps basemap schema = the app's style
-# works unchanged.
-#
-# The area of interest is, in order of preference:
-#  1. an explicit BBOX,
-#  2. the Geofabrik boundary polygon (POLY_URL, derived from SRC_URL) — clipping
-#     to the real shape instead of the bounding rectangle is the difference
-#     between a country-sized pack and an ocean-sized one for coastal regions,
-#  3. the OSM extract's data bbox.
-# Geofabrik serves missing files as a 200 HTML page, so the .poly path only
-# holds when poly-to-geojson.ts can actually parse the download; anything else
-# falls through to the bbox. The OSM extract is only fetched (via `$(MAKE)
-# extract`) on that fallback — the polygon path needs no pbf, which keeps
-# pmtiles-only rebuilds from re-downloading hundreds of MB per region.
+# Area of interest, in order: explicit BBOX, Geofabrik boundary polygon (clips
+# coastal regions to their real shape, not an ocean-sized rectangle), OSM data
+# bbox. The pbf is only fetched on that last fallback — the polygon path needs
+# none, so pmtiles-only rebuilds skip the big download.
 
 POLY_URL ?= $(if $(findstring -latest.osm.pbf,$(SRC_URL)),$(subst -latest.osm.pbf,.poly,$(SRC_URL)))
 
-pmtiles:
+pmtiles: dist-guard
 	@mkdir -p $(DIST) $(WORK)
 	@set -e; \
 	area=""; \
@@ -148,29 +139,15 @@ pmtiles:
 	  $$area --minzoom=$(TILES_MINZOOM) --maxzoom=$(TILES_MAXZOOM)
 
 # ------------------------------------------------------------ 2. Valhalla ----
-# The gis-ops turnkey image builds tiles from any .pbf dropped in /custom_files
-# and emits valhalla_tiles.tar there. Bump Docker Desktop's RAM for big regions.
 
-# valhalla_build_tiles has an intermittent multithreading race ("double free or
-# corruption") that hits near-certainly when an extract yields fewer tiles than
-# build threads — every micro-island in the catalog crashed on it. Build small
-# extracts single-threaded; below this cutoff the build takes seconds anyway.
+# valhalla_build_tiles has a multithreading race that hits near-certainly when an
+# extract yields fewer tiles than threads; below this cutoff, build single-threaded.
 VALHALLA_SINGLE_THREAD_BYTES ?= 10485760
 
-# Start from a clean staging dir: a failed build leaves valhalla.json and an
-# empty valhalla_tiles/ behind, which make the image skip straight to tile
-# loading ("Found routing tiles") and die — poisoning every retry.
-#
-# Small extracts get special handling (both checks gated on the size cutoff so
-# big regions never pay for an osmium scan):
-#  - zero routable ways (uninhabited islands): valhalla_build_tiles aborts on
-#    these ("invalid tile id"), so skip the stage — the pack ships without
-#    routing (the app already treats valhalla as optional per pack) and a
-#    .no-routing marker tells batch-build the version is complete.
-#  - fewer tiles than threads: valhalla_build_tiles has an intermittent
-#    multithreading race ("double free or corruption") that hits near-certainly
-#    here, so build single-threaded — takes seconds at this size anyway.
-valhalla: $(REGION_PBF)
+# Staging dir is recreated each run — leftovers from a failed build poison retries.
+# Extracts with zero routable ways (uninhabited islands) crash valhalla_build_tiles,
+# so skip the stage and mark the pack .no-routing instead.
+valhalla: dist-guard $(REGION_PBF)
 	rm -rf $(WORK)/valhalla
 	@mkdir -p $(WORK)/valhalla $(DIST)
 	cp $(REGION_PBF) $(WORK)/valhalla/
@@ -195,7 +172,7 @@ valhalla: $(REGION_PBF)
 
 # ------------------------------------------------------------- 3. geocode ----
 
-geocode: $(REGION_PBF)
+geocode: dist-guard $(REGION_PBF)
 	@mkdir -p $(DIST)
 	osmium tags-filter $(REGION_PBF) \
 	  n/place w/highway nwr/amenity nwr/shop nwr/tourism nwr/leisure nwr/office nwr/historic \
@@ -211,66 +188,56 @@ geocode: $(REGION_PBF)
 	      $(if $(CITY_LEVEL_MAX),--max-city-level $(CITY_LEVEL_MAX))
 
 # --------------------------------------------------------------- 4. world ----
-# Whole-world low-zoom basemap, built ONCE (not per region). The app renders this
-# as an always-on low-fi backdrop so the map is never blank outside a downloaded
-# region; the region pmtiles overlays crisp detail on top. Same Protomaps schema
-# as the regions, so the app's generated style covers both with one layer set.
+# Low-zoom whole-world basemap, built once (not per region) and bundled with the
+# app as the backdrop outside downloaded regions.
 
-world:
-	@mkdir -p dist/_world
+world: dist-guard
+	@mkdir -p $(DIST_DIR)/_world
 	@set -e; \
 	build=""; \
 	for i in $$(seq 0 14); do d=$$(date -v-$${i}d +%Y%m%d); \
 	  if curl -fsI "$(PROTOMAPS_BUILD_BASE)/$$d.pmtiles" >/dev/null 2>&1; then build=$$d; break; fi; done; \
 	if [ -z "$$build" ]; then echo "no Protomaps build found in last 14 days" >&2; exit 1; fi; \
 	echo "==> extracting whole-world z0-$(WORLD_MAXZOOM) from Protomaps build $$build"; \
-	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" dist/_world/world.pmtiles \
+	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" $(DIST_DIR)/_world/world.pmtiles \
 	  --bbox=-180,-85.0511,180,85.0511 --maxzoom=$(WORLD_MAXZOOM)
-	@ls -lh dist/_world/world.pmtiles
+	@ls -lh $(DIST_DIR)/_world/world.pmtiles
 
-# Copy the built world basemap into the dashboard's bundled assets (shipped via
-# electron-builder extraResources, served over mapos-asset://basemap/world.pmtiles).
-bundle-world: dist/_world/world.pmtiles
+bundle-world: $(DIST_DIR)/_world/world.pmtiles
 	@mkdir -p $(DASHBOARD_ASSETS)/basemap
-	cp dist/_world/world.pmtiles $(DASHBOARD_ASSETS)/basemap/world.pmtiles
+	cp $(DIST_DIR)/_world/world.pmtiles $(DASHBOARD_ASSETS)/basemap/world.pmtiles
 	@echo "==> bundled world basemap into $(DASHBOARD_ASSETS)/basemap"
 
-dist/_world/world.pmtiles:
+$(DIST_DIR)/_world/world.pmtiles:
 	$(MAKE) world
 
 # ------------------------------------------------------------ manifest/up ----
 
-manifest:
-	pnpm exec tsx scripts/make-manifest.ts --dist dist --region $(REGION) --retain $(RETAIN) \
+manifest: dist-guard
+	pnpm exec tsx scripts/make-manifest.ts --dist $(DIST_DIR) --region $(REGION) --retain $(RETAIN) \
 	  $(if $(NAME),--name "$(NAME)") \
 	  $(if $(GROUP),--group "$(GROUP)") \
 	  $(if $(GROUP_NAME),--group-name "$(GROUP_NAME)")
 
-# Uploads region packs, manifest.json AND the shared world basemap
-# (dist/_world/world.pmtiles -> $(R2_REMOTE)/_world/world.pmtiles) so clients can
-# fetch the backdrop alongside regions once the download manager lands.
-# Depends on `manifest` so the manifest is regenerated (excluding the versions that
-# `prune` then deletes) *before* it's flipped — otherwise a standalone `make upload`
-# could publish a stale manifest pointing at a just-pruned version.
-# Upload artifacts first, prune superseded versions, then flip manifest.json last so
-# a client never sees a manifest pointing at a version that isn't fully uploaded.
+# Order matters: upload artifacts, prune superseded versions, flip manifest.json
+# last — a client must never see a manifest pointing at a version that isn't
+# fully uploaded (or was just pruned).
 upload: manifest
-	rclone copy dist/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
+	rclone copy $(DIST_DIR)/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
 	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json" \
 	  --exclude ".sha-cache.json" --exclude "**/.no-routing"
 	$(MAKE) prune
-	rclone copyto dist/manifest.json $(R2_REMOTE)/manifest.json --s3-no-check-bucket
+	rclone copyto $(DIST_DIR)/manifest.json $(R2_REMOTE)/manifest.json --s3-no-check-bucket
 
-# Keep only the newest RETAIN versions per region; delete older ones locally and on
-# R2. The manifest (rebuilt by `make manifest`) already excludes them, so no client
-# references a pruned version. Safe: only the specific stale prefixes are deleted.
-prune:
+# Delete versions beyond RETAIN, locally and on R2. The manifest (rebuilt above)
+# already excludes them.
+prune: dist-guard
 	@set -e; \
-	stale=$$(pnpm exec tsx scripts/list-stale-versions.ts --dist dist --retain $(RETAIN)); \
+	stale=$$(pnpm exec tsx scripts/list-stale-versions.ts --dist $(DIST_DIR) --retain $(RETAIN)); \
 	if [ -z "$$stale" ]; then echo "==> nothing to prune (retain=$(RETAIN))"; else \
 	  for x in $$stale; do \
 	    echo "==> pruning $$x (local + R2)"; \
-	    rm -rf "dist/$$x"; \
+	    rm -rf "$(DIST_DIR)/$$x"; \
 	    rclone delete "$(R2_REMOTE)/$$x" 2>/dev/null || true; \
 	    rclone rmdir "$(R2_REMOTE)/$$x" 2>/dev/null || true; \
 	  done; \
@@ -282,4 +249,4 @@ clean:
 	rm -rf $(WORK)
 
 distclean: clean
-	rm -rf dist
+	rm -rf $(DIST_DIR)

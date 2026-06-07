@@ -91,14 +91,34 @@ just the regions whose latest logged outcome is a failure. `--limit N` bounds a 
 
 Uploads happen per region (`--no-upload` to skip), so coverage goes live
 progressively and a mid-batch crash publishes nothing half-done — the manifest flip
-stays atomic per region. Sourcing the R2 env (see Upload) is required unless
-`--no-upload` is set.
+stays atomic per region. The R2 credentials come from the repo-root `.env`,
+loaded automatically (see Upload); without them, pass `--no-upload`.
 
 Notes for a full-world run: builds are sequential by design (the Valhalla docker
 build dominates wall-clock, and one download at a time is polite to Geofabrik — never
 run two drivers at once). Disk: ~500 regions at `RETAIN=2` is plausibly several
-hundred GB of `dist/`; consider `--retain 1` for the first world pass. Large regions
-may need more Docker Desktop RAM for the Valhalla stage.
+hundred GB of `dist/`; consider `--retain 1` for the first world pass, or point
+`DIST_DIR` at an external drive (see Output location). Large regions may need more
+Docker Desktop RAM for the Valhalla stage.
+
+## Output location
+
+`DIST_DIR` moves the entire built-artifact tree (region packs, `manifest.json`,
+`.sha-cache.json`) somewhere else — typically an external drive for world-scale
+builds. Set it in the repo-root `.env` so make and the batch driver both pick it up:
+
+```sh
+DIST_DIR=/Volumes/T7/mapos-dist
+```
+
+The directory must already exist — every dist-touching target checks this first
+(`dist-guard`), because `mkdir -p` on an unmounted `/Volumes/...` path would silently
+create a plain folder on the internal disk and build into the wrong place.
+
+`work/` intermediates deliberately stay local: that's the hot I/O path (source pbf
+downloads, osmium filtering, and the Valhalla docker bind mount). Format the external
+drive APFS — the checksum cache keys on mtimes, and exFAT's coarse timestamps would
+force re-hashing. Keep the drive from sleeping during multi-day batch runs.
 
 The shared low-zoom world backdrop is built once (not per region) and bundled with the
 app: `make world && make bundle-world`.
@@ -106,12 +126,15 @@ app: `make world && make bundle-world`.
 ## Upload
 
 `make upload` reads `BUCKET` and the `RCLONE_CONFIG_R2_*` credentials from the repo-root
-`.env`, so source it first:
+`.env`. Both make and the batch driver load it automatically — no sourcing needed:
 
 ```sh
-cd .. && set -a && source .env && set +a && cd pipeline
 make upload                                 # artifacts -> prune -> manifest (atomic)
 ```
+
+Because the file doubles as make syntax, keep values unquoted and free of `$`
+(make would keep the quotes / expand the `$`). Per-invocation overrides still win:
+`make upload DIST_DIR=...`.
 
 It uploads artifacts, prunes superseded versions, then flips `manifest.json` last so a
 client never sees a manifest pointing at a half-uploaded version.

@@ -6,7 +6,19 @@ import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { MapOSLogo } from "./mapos-logo";
 
-export function Landing() {
+type LandingProps = {
+  /** Latest version string (e.g. "1.0.0-alpha.2"), or null if it couldn't be resolved. */
+  version: string | null;
+  /** Human-readable .dmg size (e.g. "44.0 MB"), or null if unavailable. */
+  sizeLabel: string | null;
+};
+
+export function Landing({ version, sizeLabel }: LandingProps) {
+  // "Apple Silicon · v1.0.0-alpha.2 · 44.0 MB", dropping any unknown parts.
+  const caption = ["Apple Silicon", version && `v${version}`, sizeLabel]
+    .filter(Boolean)
+    .join(" · ");
+
   const sunScene = useMemo(
     () => ({
       disableStars: true,
@@ -53,13 +65,13 @@ export function Landing() {
             <div className="mt-1.5 flex flex-wrap flex-col items-center justify-center gap-3.5">
               <a
                 className="inline-flex items-center gap-2 rounded-lg bg-neutral-50 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-neutral-950 no-underline transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:translate-y-px [&_svg]:-mt-px"
-                href="#download"
+                href="/download"
               >
                 <SiApple size={14} aria-hidden="true" />
                 Download for macOS
               </a>
               <span className="font-[family-name:var(--font-jetbrains-mono)] text-[11.5px] tracking-[0.01em] text-neutral-500">
-                Apple Silicon · 4.2 MB
+                {caption}
               </span>
             </div>
           </section>

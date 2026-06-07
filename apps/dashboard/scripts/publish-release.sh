@@ -9,6 +9,7 @@
 # the macOS app, then uploads artifacts to R2 in the order electron-updater
 # expects: binaries + blockmaps first, then latest-mac.yml (with short cache
 # TTL) last, so clients never see a manifest pointing at a missing artifact.
+# Finally prunes all but the newest MAPOS_R2_RETAIN versions (default 2).
 #
 # Expected env vars (in apps/dashboard/.env or your shell):
 #   APPLE_ID                     Apple ID email
@@ -37,10 +38,23 @@ if [[ -f "$DASHBOARD_DIR/.env" ]]; then
   set +a
 fi
 
+# The prune step (below) needs rclone's R2 S3 keys, which live in the repo-root
+# .env alongside the region pipeline's. Pull ONLY those keys — a full source would
+# clobber this script's DIST_DIR (the root .env defines its own for regions).
+ROOT_ENV="$REPO_ROOT/.env"
+if [[ -f "$ROOT_ENV" ]]; then
+  while IFS= read -r line; do
+    [[ "$line" =~ ^RCLONE_CONFIG_R2_ ]] && export "${line?}"
+  done < "$ROOT_ENV"
+fi
+
 # ── config ────────────────────────────────────────────────────────────────────
 # R2 bucket name (not the custom domain). Find it in the Cloudflare dashboard →
 # R2 → bucket details. The custom domain updates.mapos.md should be bound to it.
 BUCKET="${MAPOS_R2_BUCKET:-mapos-updates}"
+# Versions kept on R2 after each publish (newest first); older ones are pruned.
+# 2 = current + previous, so a client mid-download during a rollover survives.
+RETAIN="${MAPOS_R2_RETAIN:-2}"
 
 VERSION=$(node -p "require('$DASHBOARD_DIR/package.json').version")
 echo "publishing MapOS ${VERSION} → r2://${BUCKET}"
@@ -88,6 +102,14 @@ put "$DIST_DIR/$DMG.blockmap" "$DMG.blockmap"
 put "$DIST_DIR/latest-mac.yml" "latest-mac.yml" \
   --content-type="application/x-yaml" \
   --cache-control="public, max-age=60"
+
+# ── prune old versions ────────────────────────────────────────────────────────
+# Best-effort: the new release is fully published by now, so a prune hiccup must
+# not fail the release. Worst case, old artifacts linger and the next publish
+# cleans them up.
+echo "pruning old versions (keeping newest ${RETAIN})…"
+node "$SCRIPT_DIR/prune-r2-updates.mjs" --bucket "$BUCKET" --keep "$RETAIN" --current "$VERSION" \
+  || echo "warning: prune failed (non-fatal) — old versions remain on R2"
 
 echo
 echo "done. verify:"

@@ -44,7 +44,7 @@ export function Landing() {
           <section className="mx-auto flex max-w-[640px] flex-col items-center gap-3.5">
             <div className="flex flex-col items-center">
               <h1 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[38px] font-normal text-neutral-50 sm:text-[clamp(36px,5.2vw,56px)]">
-                Make Your Mark(down)
+                Offline Maps. On Point.
               </h1>
               <p className="m-0 max-w-96 text-center text-lg text-neutral-300">
                 A markdown-native map editor your agents can read, write, and reason about.

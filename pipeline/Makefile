@@ -77,7 +77,8 @@ build-slug:
 	@eval $$(pnpm exec tsx scripts/resolve-region.ts --slug $(SLUG)) && \
 	$(MAKE) all REGION="$$REGION" SRC_URL="$$SRC_URL" VERSION="$(VERSION)" \
 	  NAME="$$NAME" GROUP="$$GROUP" GROUP_NAME="$$GROUP_NAME" COUNTRY="$$COUNTRY" \
-	  $${CITY_LEVEL_MAX:+CITY_LEVEL_MAX="$$CITY_LEVEL_MAX"}
+	  $${CITY_LEVEL_MAX:+CITY_LEVEL_MAX="$$CITY_LEVEL_MAX"} \
+	  $${TILES_MAXZOOM:+TILES_MAXZOOM="$$TILES_MAXZOOM"}
 
 # --------------------------------------------------------------- 0. extract ----
 
@@ -102,22 +103,49 @@ extract: $(REGION_PBF)
 
 # ------------------------------------------------------------- 1. PMTiles ----
 # Extract the region from the freshest Protomaps planet build (range requests, so
-# only the bbox tiles transfer). Protomaps basemap schema = the app's style works
-# unchanged. The OSM extract is used only to derive a bbox when BBOX is unset.
+# only the covered tiles transfer). Protomaps basemap schema = the app's style
+# works unchanged.
+#
+# The area of interest is, in order of preference:
+#  1. an explicit BBOX,
+#  2. the Geofabrik boundary polygon (POLY_URL, derived from SRC_URL) — clipping
+#     to the real shape instead of the bounding rectangle is the difference
+#     between a country-sized pack and an ocean-sized one for coastal regions,
+#  3. the OSM extract's data bbox.
+# Geofabrik serves missing files as a 200 HTML page, so the .poly path only
+# holds when poly-to-geojson.ts can actually parse the download; anything else
+# falls through to the bbox. The OSM extract is only fetched (via `$(MAKE)
+# extract`) on that fallback — the polygon path needs no pbf, which keeps
+# pmtiles-only rebuilds from re-downloading hundreds of MB per region.
 
-pmtiles: $(REGION_PBF)
-	@mkdir -p $(DIST)
+POLY_URL ?= $(if $(findstring -latest.osm.pbf,$(SRC_URL)),$(subst -latest.osm.pbf,.poly,$(SRC_URL)))
+
+pmtiles:
+	@mkdir -p $(DIST) $(WORK)
 	@set -e; \
-	bbox="$(BBOX)"; \
-	if [ -z "$$bbox" ]; then bbox=$$(osmium fileinfo -e -g data.bbox $(REGION_PBF) | tr -d '()'); fi; \
-	if [ -z "$$bbox" ]; then echo "error: empty bbox for $(REGION) — refusing a whole-planet extract" >&2; exit 1; fi; \
+	area=""; \
+	if [ -n "$(BBOX)" ]; then \
+	  echo "==> using explicit bbox $(BBOX)"; \
+	  area="--bbox=$(BBOX)"; \
+	elif [ -n "$(POLY_URL)" ] \
+	  && curl -fsL -o $(WORK)/boundary.poly "$(POLY_URL)" \
+	  && pnpm exec tsx scripts/poly-to-geojson.ts $(WORK)/boundary.poly $(WORK)/boundary.geojson; then \
+	  echo "==> clipping to Geofabrik boundary polygon ($(POLY_URL))"; \
+	  area="--region=$(WORK)/boundary.geojson"; \
+	else \
+	  $(MAKE) extract; \
+	  bbox=$$(osmium fileinfo -e -g data.bbox $(REGION_PBF) | tr -d '()'); \
+	  if [ -z "$$bbox" ]; then echo "error: empty bbox for $(REGION) — refusing a whole-planet extract" >&2; exit 1; fi; \
+	  echo "==> no usable boundary polygon; using data bbox $$bbox"; \
+	  area="--bbox=$$bbox"; \
+	fi; \
 	build=""; \
 	for i in $$(seq 0 14); do d=$$(date -v-$${i}d +%Y%m%d); \
 	  if curl -fsI "$(PROTOMAPS_BUILD_BASE)/$$d.pmtiles" >/dev/null 2>&1; then build=$$d; break; fi; done; \
 	if [ -z "$$build" ]; then echo "no Protomaps build found in last 14 days" >&2; exit 1; fi; \
-	echo "==> extracting bbox $$bbox from Protomaps build $$build"; \
+	echo "==> extracting from Protomaps build $$build (z$(TILES_MINZOOM)-z$(TILES_MAXZOOM))"; \
 	pmtiles extract "$(PROTOMAPS_BUILD_BASE)/$$build.pmtiles" $(DIST)/$(REGION).pmtiles \
-	  --bbox=$$bbox --minzoom=$(TILES_MINZOOM) --maxzoom=$(TILES_MAXZOOM)
+	  $$area --minzoom=$(TILES_MINZOOM) --maxzoom=$(TILES_MAXZOOM)
 
 # ------------------------------------------------------------ 2. Valhalla ----
 # The gis-ops turnkey image builds tiles from any .pbf dropped in /custom_files

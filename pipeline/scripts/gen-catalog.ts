@@ -91,6 +91,14 @@ const COUNTRY_OVERRIDES: Record<string, string> = {
 /** Per-country CITY_LEVEL_MAX overrides (countries whose city admin_level deviates from 8). */
 const CITY_LEVEL_MAX: Record<string, number> = { japan: 7 };
 
+/**
+ * Per-region tile maxzoom caps. Antarctica's Mercator footprint is the full
+ * longitude band under extreme polar inflation — at the default z15 even a
+ * boundary-clipped extract is planet-scale (the bbox version came out at 89 GB).
+ * z10 keeps coastline and stations legible at a sane size.
+ */
+const TILES_MAXZOOM: Record<string, number> = { antarctica: 10 };
+
 type IndexEntry = {
   id: string;
   parent?: string;
@@ -225,6 +233,7 @@ for (const leaf of leaves) {
     continent: root.id,
     pbfUrl,
     ...(cityLevelMax !== undefined ? { cityLevelMax } : {}),
+    ...(leaf.id in TILES_MAXZOOM ? { tilesMaxzoom: TILES_MAXZOOM[leaf.id] } : {}),
   });
 }
 

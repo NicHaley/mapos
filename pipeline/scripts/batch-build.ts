@@ -10,6 +10,8 @@
  *   tsx scripts/batch-build.ts --group germany --no-upload
  *   tsx scripts/batch-build.ts --slug monaco --slug us-georgia
  *   tsx scripts/batch-build.ts --retry-failed            # re-run logged failures
+ *   tsx scripts/batch-build.ts --redo-pmtiles            # re-extract tiles for BUILT regions
+ *                                # (e.g. after a clipping/maxzoom change; other artifacts kept)
  *
  * One batch-wide VERSION (default: today) stamps every region; pass the same
  * --version when resuming a multi-day run or the skip check restarts from zero.
@@ -60,6 +62,7 @@ const noUpload = flag("no-upload");
 const sleepSec = Number(opt("sleep") ?? "0");
 const limit = opt("limit") ? Number(opt("limit")) : Number.POSITIVE_INFINITY;
 const retain = opt("retain");
+const redoPmtiles = flag("redo-pmtiles");
 
 // ----------------------------------------------------------- select work ----
 
@@ -122,6 +125,7 @@ function makeVars(r: CatalogEntry): string[] {
     `GROUP_NAME=${r.groupName}`,
     ...(r.country ? [`COUNTRY=${r.country}`] : []),
     ...(r.cityLevelMax !== undefined ? [`CITY_LEVEL_MAX=${r.cityLevelMax}`] : []),
+    ...(r.tilesMaxzoom !== undefined ? [`TILES_MAXZOOM=${r.tilesMaxzoom}`] : []),
     ...(retain ? [`RETAIN=${retain}`] : []),
   ];
 }
@@ -175,20 +179,30 @@ let failed = 0;
 
 for (const [i, r] of regions.entries()) {
   const tag = `[${i + 1}/${regions.length}] ${r.slug}`;
-  if (isBuilt(r.slug)) {
-    console.log(`${tag} — already built at ${version}, skipping`);
+  // --redo-pmtiles inverts the skip: it only touches regions already built at
+  // this version, re-extracting just the tile artifact (valhalla/geocode kept).
+  if (redoPmtiles ? !isBuilt(r.slug) : isBuilt(r.slug)) {
+    console.log(
+      `${tag} — ${redoPmtiles ? `not built at ${version}, nothing to redo` : `already built at ${version}`}, skipping`,
+    );
     skipped++;
     continue;
   }
   if (dryRun) {
-    console.log(`${tag} — would build (group=${r.group}, ${r.pbfUrl})`);
+    console.log(`${tag} — would ${redoPmtiles ? "redo pmtiles" : "build"} (group=${r.group}, ${r.pbfUrl})`);
     continue;
   }
 
-  let stage = "all";
+  let stage = redoPmtiles ? "pmtiles" : "all";
   try {
-    console.log(`${tag} — building`);
-    runMake("all", makeVars(r));
+    console.log(`${tag} — ${redoPmtiles ? "re-extracting tiles" : "building"}`);
+    if (redoPmtiles) {
+      runMake("pmtiles", makeVars(r));
+      stage = "manifest";
+      runMake("manifest", makeVars(r));
+    } else {
+      runMake("all", makeVars(r));
+    }
     if (!noUpload) {
       stage = "upload";
       runMake("upload", makeVars(r));

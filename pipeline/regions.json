@@ -557,7 +557,8 @@
       "groupName": "Antarctica",
       "country": "Antarctica",
       "continent": "antarctica",
-      "pbfUrl": "https://download.geofabrik.de/antarctica-latest.osm.pbf"
+      "pbfUrl": "https://download.geofabrik.de/antarctica-latest.osm.pbf",
+      "tilesMaxzoom": 10
     },
     {
       "slug": "afghanistan",

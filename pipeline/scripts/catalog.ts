@@ -18,6 +18,8 @@ export type CatalogEntry = {
   continent: string;
   pbfUrl: string;
   cityLevelMax?: number;
+  /** Tile extract maxzoom cap. Set for regions whose Mercator footprint makes the default explode (Antarctica). */
+  tilesMaxzoom?: number;
 };
 
 export function loadCatalog(path: string = CATALOG_PATH): CatalogEntry[] {

@@ -11,11 +11,15 @@
 # TTL) last, so clients never see a manifest pointing at a missing artifact.
 # Finally prunes all but the newest MAPOS_R2_RETAIN versions (default 2).
 #
-# Expected env vars (in apps/dashboard/.env or your shell):
-#   APPLE_ID                     Apple ID email
-#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password from appleid.apple.com
-#   APPLE_TEAM_ID                Apple Developer Team ID
-#   MAPOS_R2_BUCKET              optional R2 bucket name (default: mapos-updates)
+# Upload + prune go through rclone's `r2:` remote (same R2 S3 keys as the region
+# pipeline), so the whole flow uses one credential system.
+#
+# Expected env vars:
+#   APPLE_ID                     Apple ID email                  (apps/dashboard/.env)
+#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password           (apps/dashboard/.env)
+#   APPLE_TEAM_ID                Apple Developer Team ID          (apps/dashboard/.env)
+#   RCLONE_CONFIG_R2_*           R2 S3 keys for the `r2:` remote  (repo-root .env)
+#   MAPOS_R2_BUCKET              optional bucket (default: mapos-updates)
 
 set -euo pipefail
 
@@ -38,14 +42,24 @@ if [[ -f "$DASHBOARD_DIR/.env" ]]; then
   set +a
 fi
 
-# The prune step (below) needs rclone's R2 S3 keys, which live in the repo-root
-# .env alongside the region pipeline's. Pull ONLY those keys — a full source would
+# Upload + prune use rclone's R2 S3 keys, which live in the repo-root .env
+# alongside the region pipeline's. Pull ONLY those keys — a full source would
 # clobber this script's DIST_DIR (the root .env defines its own for regions).
 ROOT_ENV="$REPO_ROOT/.env"
 if [[ -f "$ROOT_ENV" ]]; then
   while IFS= read -r line; do
     [[ "$line" =~ ^RCLONE_CONFIG_R2_ ]] && export "${line?}"
   done < "$ROOT_ENV"
+fi
+
+# Fail fast — before the multi-minute build — if we can't upload afterward.
+if ! command -v rclone >/dev/null 2>&1; then
+  echo "error: rclone not found (brew install rclone)" >&2
+  exit 1
+fi
+if [[ -z "${RCLONE_CONFIG_R2_TYPE:-}" ]]; then
+  echo "error: RCLONE_CONFIG_R2_* not set — add the R2 S3 keys to $ROOT_ENV" >&2
+  exit 1
 fi
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -68,10 +82,9 @@ if [[ ! -d "$DIST_DIR" ]]; then
   exit 1
 fi
 
-# ── wrangler runner ───────────────────────────────────────────────────────────
-# Wrangler is installed in apps/web; reuse it rather than requiring a global.
-WRANGLER=(pnpm --silent --filter @mapos/web exec wrangler)
-
+# ── uploader ──────────────────────────────────────────────────────────────────
+# --s3-no-check-bucket: skip the bucket-existence probe so a bucket-scoped token
+# (no ListBuckets) still works, matching the region pipeline.
 put() {
   local local_path="$1"
   local remote_key="$2"
@@ -81,11 +94,7 @@ put() {
     exit 1
   fi
   echo "  ↑ ${remote_key}"
-  (cd "$REPO_ROOT" && "${WRANGLER[@]}" r2 object put \
-    "${BUCKET}/${remote_key}" \
-    --file="$local_path" \
-    --remote \
-    "$@" >/dev/null)
+  rclone copyto "$local_path" "r2:${BUCKET}/${remote_key}" --s3-no-check-bucket "$@"
 }
 
 # ── upload artifacts (binaries + blockmaps), then manifest ────────────────────
@@ -100,8 +109,8 @@ put "$DIST_DIR/$DMG.blockmap" "$DMG.blockmap"
 # Manifest LAST. Short max-age so a new release propagates within ~60s instead
 # of being masked by CDN caching of the previous yml.
 put "$DIST_DIR/latest-mac.yml" "latest-mac.yml" \
-  --content-type="application/x-yaml" \
-  --cache-control="public, max-age=60"
+  --header-upload "Content-Type: application/x-yaml" \
+  --header-upload "Cache-Control: public, max-age=60"
 
 # ── prune old versions ────────────────────────────────────────────────────────
 # Best-effort: the new release is fully published by now, so a prune hiccup must

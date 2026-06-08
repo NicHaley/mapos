@@ -67,13 +67,13 @@ export function buildMaposSystemPrompt(vaultRoot: string): string {
   // Only document web search when the active services mode can actually serve it
   // (cloud). In local mode there's no provider, and the tool is omitted from the
   // tool set entirely (see buildMaposCustomTools), so don't advertise it.
-  const webSearchSection = getServiceClient().isAvailable("webSearch")
-    ? `## Web search
-
-- \`web_search\` — search the web for current information or external facts the vault can't answer (opening hours, recent news, articles). Returns results with title, url, and a snippet; pass \`recency\` to restrict to a recent time window. This is not a geocoder — to turn place names into coordinates, use \`geocode_search\`.
-
-`
-    : "";
+  // Web search temporarily disabled until the cloud API that powers it is stood up.
+  // To re-enable, restore the gate:
+  //   const webSearchSection = getServiceClient().isAvailable("webSearch")
+  //     ? `## Web search\n\n- \`web_search\` — search the web for current information ...\n\n`
+  //     : "";
+  // (and restore the webSearchAvailable check in buildMaposCustomTools).
+  const webSearchSection = "";
   return `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Your job is to help users organize, explore, and reason about their world through their files.
 
 MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth.
@@ -797,7 +797,9 @@ export function buildMaposCustomTools(
   // (rather than letting it error) keeps the agent from offering web search it
   // can't deliver. The services mode is stable per process, so build-time gating
   // is sufficient.
-  const webSearchAvailable = getServiceClient().isAvailable("webSearch");
+  // Temporarily disabled until the cloud API that powers web search is stood up.
+  // Restore `getServiceClient().isAvailable("webSearch")` to re-enable.
+  const webSearchAvailable = false;
 
   return [
     renderOverlayOnMap,

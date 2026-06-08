@@ -2,6 +2,9 @@ appId: md.mapos.app
 productName: MapOS
 directories:
   buildResources: build
+# Strips foreign-platform native binaries (Valhalla ships darwin+linux prebuilts,
+# ~60MB each) from app.asar.unpacked after packaging. See scripts/after-pack.cjs.
+afterPack: ./scripts/after-pack.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'

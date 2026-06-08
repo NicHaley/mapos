@@ -33,8 +33,16 @@ export function resolve(
   if (offline) return offline;
 
   if (config.mode === "local") {
-    // Local mode is fully offline: anything the offline overlay didn't serve above
-    // has no provider. Surface a capability-appropriate "download a pack" message.
+    // Tiles always work offline, even with zero region packs: the world basemap
+    // (z0–6) ships bundled with the app and is served over the region protocol
+    // worldwide. Packs only layer z7+ detail on top — when one is installed the
+    // offline overlay above already returns this same adapter with that detail. So
+    // the only thing this branch adds is the no-pack base case (a fresh install).
+    if (serviceId === "tiles") {
+      return { adapter: offlineAdapter, endpoint: { url: credentials.regionsDir ?? "" } };
+    }
+    // Everything else is fully offline only via a pack: anything the overlay didn't
+    // serve has no provider. Surface a capability-appropriate "download a pack" message.
     throw new ServiceUnavailableError(serviceId, localUnavailableReason(serviceId));
   }
 

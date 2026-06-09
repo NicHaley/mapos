@@ -30,7 +30,7 @@ import {
   readSync,
   readdirSync,
   statSync,
-  writeFileSync,
+  writeFileSync
 } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -38,7 +38,7 @@ import { pipeline } from "node:stream/promises";
 const ARTIFACTS = {
   pmtiles: (region: string) => `${region}.pmtiles`,
   valhalla: () => "valhalla_tiles.tar",
-  geocode: () => "geocode.sqlite",
+  geocode: () => "geocode.sqlite"
 } as const;
 
 type ArtifactEntry = { file: string; bytes: number; sha256: string };
@@ -54,7 +54,11 @@ type RegionEntry = {
   versions: Record<string, VersionEntry>;
 };
 type GroupEntry = { name: string; regions: string[] };
-type Manifest = { schema: number; groups: Record<string, GroupEntry>; regions: Record<string, RegionEntry> };
+type Manifest = {
+  schema: number;
+  groups: Record<string, GroupEntry>;
+  regions: Record<string, RegionEntry>;
+};
 type RegionMeta = { name?: string; group?: string; groupName?: string };
 
 function optArg(name: string): string | undefined {
@@ -67,6 +71,13 @@ function titleCase(slug: string): string {
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function cleanName(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -110,7 +121,7 @@ async function cachedSha256(cache: ShaCache, path: string, key: string): Promise
  * Returns undefined if the file isn't a readable v3 PMTiles archive.
  */
 function readPmtilesGeo(
-  path: string,
+  path: string
 ): { bbox: [number, number, number, number]; center: [number, number] } | undefined {
   let fd: number | undefined;
   try {
@@ -164,9 +175,9 @@ if (region) {
     }
     const metaPath = join(regionDir, "region.json");
     const meta: RegionMeta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, "utf8")) : {};
-    if (name) meta.name = name;
+    if (name) meta.name = cleanName(name);
     if (group) meta.group = group;
-    if (groupName) meta.groupName = groupName;
+    if (groupName) meta.groupName = cleanName(groupName);
     writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   }
 }
@@ -201,7 +212,7 @@ for (const entry of readdirSync(dist).sort()) {
       artifacts[key] = {
         file,
         bytes: statSync(path).size,
-        sha256: await cachedSha256(shaCache, path, cacheKey),
+        sha256: await cachedSha256(shaCache, path, cacheKey)
       };
     }
     // Only complete versions are published. A build that died mid-region leaves
@@ -213,14 +224,16 @@ for (const entry of readdirSync(dist).sort()) {
     // once valhalla finished or was deliberately skipped.
     if (!("pmtiles" in artifacts && "geocode" in artifacts)) {
       if (Object.keys(artifacts).length > 0) {
-        console.error(`skipping incomplete version ${entry}/${version} (${Object.keys(artifacts).join(", ")})`);
+        console.error(
+          `skipping incomplete version ${entry}/${version} (${Object.keys(artifacts).join(", ")})`
+        );
       }
       continue;
     }
     versions[version] = {
       path: `${entry}/${version}`,
       total_bytes: Object.values(artifacts).reduce((s, a) => s + a.bytes, 0),
-      artifacts,
+      artifacts
     };
   }
   const kept = Object.keys(versions).sort().reverse();
@@ -230,20 +243,21 @@ for (const entry of readdirSync(dist).sort()) {
   const geo = readPmtilesGeo(join(regionDir, kept[0], `${entry}.pmtiles`));
 
   manifest.regions[entry] = {
-    ...(meta.name ? { name: meta.name } : {}),
+    ...(meta.name ? { name: cleanName(meta.name) } : {}),
     ...(meta.group ? { group: meta.group } : {}),
     ...(geo ? { bbox: geo.bbox, center: geo.center } : {}),
     latest: kept[0],
-    versions,
+    versions
   };
 
   if (meta.group) {
+    const groupName = meta.groupName ? cleanName(meta.groupName) : undefined;
     const g = manifest.groups[meta.group];
     if (g) {
-      if (meta.groupName) g.name = meta.groupName;
+      if (groupName) g.name = groupName;
       if (!g.regions.includes(entry)) g.regions.push(entry);
     } else {
-      manifest.groups[meta.group] = { name: meta.groupName ?? titleCase(meta.group), regions: [entry] };
+      manifest.groups[meta.group] = { name: groupName ?? titleCase(meta.group), regions: [entry] };
     }
   }
 }
@@ -258,5 +272,5 @@ writeFileSync(shaCachePath, JSON.stringify(shaCache, null, 2));
 const manifestPath = join(dist, "manifest.json");
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 console.error(
-  `manifest rebuilt: ${Object.keys(manifest.regions).length} region(s), retain=${retain} -> ${manifestPath}`,
+  `manifest rebuilt: ${Object.keys(manifest.regions).length} region(s), retain=${retain} -> ${manifestPath}`
 );

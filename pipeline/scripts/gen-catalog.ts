@@ -121,6 +121,15 @@ function slugify(id: string): string {
     .replace(/^-|-$/g, "");
 }
 
+// Geofabrik authors some index names with an embedded HTML break for their
+// download site, e.g. "Vestlandet<br />(Western Norway)". Flatten to one line.
+function cleanName(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // "us/district-of-columbia" -> "District of Columbia" (particles stay lowercase).
 function titleCaseId(id: string): string {
   const last = id.split("/").pop() ?? id;
@@ -137,7 +146,7 @@ async function loadIndex(src: string): Promise<IndexEntry[]> {
     ? await (await fetch(src)).text()
     : readFileSync(src, "utf8");
   const parsed = JSON.parse(text) as { features: Array<{ properties: IndexEntry }> };
-  return parsed.features.map((f) => f.properties);
+  return parsed.features.map((f) => ({ ...f.properties, name: cleanName(f.properties.name) }));
 }
 
 const entries = await loadIndex(optArg("index") ?? INDEX_URL);

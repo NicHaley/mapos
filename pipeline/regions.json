@@ -3813,7 +3813,7 @@
     {
       "slug": "nord-norge",
       "geofabrikId": "nord-norge",
-      "name": "Nord-Norge<br />(Northern Norway)",
+      "name": "Nord-Norge (Northern Norway)",
       "group": "norway",
       "groupName": "Norway",
       "country": "Norway",
@@ -3824,7 +3824,7 @@
     {
       "slug": "ostlandet",
       "geofabrikId": "ostlandet",
-      "name": "Østlandet<br />(Eastern Norway)",
+      "name": "Østlandet (Eastern Norway)",
       "group": "norway",
       "groupName": "Norway",
       "country": "Norway",
@@ -3835,7 +3835,7 @@
     {
       "slug": "sorlandet",
       "geofabrikId": "sorlandet",
-      "name": "Sørlandet<br />(Southern Norway)",
+      "name": "Sørlandet (Southern Norway)",
       "group": "norway",
       "groupName": "Norway",
       "country": "Norway",
@@ -3857,7 +3857,7 @@
     {
       "slug": "trondelag",
       "geofabrikId": "trondelag",
-      "name": "Trøndelag<br />(Central Norway)",
+      "name": "Trøndelag (Central Norway)",
       "group": "norway",
       "groupName": "Norway",
       "country": "Norway",
@@ -3868,7 +3868,7 @@
     {
       "slug": "vestlandet",
       "geofabrikId": "vestlandet",
-      "name": "Vestlandet<br />(Western Norway)",
+      "name": "Vestlandet (Western Norway)",
       "group": "norway",
       "groupName": "Norway",
       "country": "Norway",
@@ -3879,7 +3879,7 @@
     {
       "slug": "dolnoslaskie",
       "geofabrikId": "dolnoslaskie",
-      "name": "Województwo dolnośląskie<br />(Lower Silesian Voivodeship)",
+      "name": "Województwo dolnośląskie (Lower Silesian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3890,7 +3890,7 @@
     {
       "slug": "kujawsko-pomorskie",
       "geofabrikId": "kujawsko-pomorskie",
-      "name": "Województwo kujawsko-pomorskie<br />(Kuyavian-Pomeranian Voivodeship)",
+      "name": "Województwo kujawsko-pomorskie (Kuyavian-Pomeranian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3901,7 +3901,7 @@
     {
       "slug": "lodzkie",
       "geofabrikId": "lodzkie",
-      "name": "Województwo łódzkie<br />(Łódź Voivodeship)",
+      "name": "Województwo łódzkie (Łódź Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3912,7 +3912,7 @@
     {
       "slug": "lubelskie",
       "geofabrikId": "lubelskie",
-      "name": "Województwo lubelskie<br />(Lublin Voivodeship)",
+      "name": "Województwo lubelskie (Lublin Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3923,7 +3923,7 @@
     {
       "slug": "lubuskie",
       "geofabrikId": "lubuskie",
-      "name": "Województwo lubuskie<br />(Lubusz Voivodeship)",
+      "name": "Województwo lubuskie (Lubusz Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3934,7 +3934,7 @@
     {
       "slug": "malopolskie",
       "geofabrikId": "malopolskie",
-      "name": "Województwo małopolskie<br />(Lesser Poland Voivodeship)",
+      "name": "Województwo małopolskie (Lesser Poland Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3945,7 +3945,7 @@
     {
       "slug": "mazowieckie",
       "geofabrikId": "mazowieckie",
-      "name": "Województwo mazowieckie<br />(Mazovian Voivodeship)",
+      "name": "Województwo mazowieckie (Mazovian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3956,7 +3956,7 @@
     {
       "slug": "opolskie",
       "geofabrikId": "opolskie",
-      "name": "Województwo opolskie<br />(Opole Voivodeship)",
+      "name": "Województwo opolskie (Opole Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3967,7 +3967,7 @@
     {
       "slug": "podkarpackie",
       "geofabrikId": "podkarpackie",
-      "name": "Województwo podkarpackie<br />(Subcarpathian Voivodeship)",
+      "name": "Województwo podkarpackie (Subcarpathian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3978,7 +3978,7 @@
     {
       "slug": "podlaskie",
       "geofabrikId": "podlaskie",
-      "name": "Województwo podlaskie<br />(Podlaskie Voivodeship)",
+      "name": "Województwo podlaskie (Podlaskie Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -3989,7 +3989,7 @@
     {
       "slug": "pomorskie",
       "geofabrikId": "pomorskie",
-      "name": "Województwo pomorskie<br />(Pomeranian Voivodeship)",
+      "name": "Województwo pomorskie (Pomeranian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -4000,7 +4000,7 @@
     {
       "slug": "slaskie",
       "geofabrikId": "slaskie",
-      "name": "Województwo śląskie<br />(Silesian Voivodeship)",
+      "name": "Województwo śląskie (Silesian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -4011,7 +4011,7 @@
     {
       "slug": "swietokrzyskie",
       "geofabrikId": "swietokrzyskie",
-      "name": "Województwo świętokrzyskie<br />(Świętokrzyskie Voivodeship)",
+      "name": "Województwo świętokrzyskie (Świętokrzyskie Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -4022,7 +4022,7 @@
     {
       "slug": "warminsko-mazurskie",
       "geofabrikId": "warminsko-mazurskie",
-      "name": "Województwo warmińsko-mazurskie<br />(Warmian-Masurian Voivodeship)",
+      "name": "Województwo warmińsko-mazurskie (Warmian-Masurian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -4033,7 +4033,7 @@
     {
       "slug": "wielkopolskie",
       "geofabrikId": "wielkopolskie",
-      "name": "Województwo wielkopolskie<br />(Greater Poland Voivodeship)",
+      "name": "Województwo wielkopolskie (Greater Poland Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",
@@ -4044,7 +4044,7 @@
     {
       "slug": "zachodniopomorskie",
       "geofabrikId": "zachodniopomorskie",
-      "name": "Województwo zachodniopomorskie<br />(West Pomeranian Voivodeship)",
+      "name": "Województwo zachodniopomorskie (West Pomeranian Voivodeship)",
       "group": "poland",
       "groupName": "Poland",
       "country": "Poland",

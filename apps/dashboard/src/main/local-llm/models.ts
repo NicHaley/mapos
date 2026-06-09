@@ -7,6 +7,7 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { totalmem } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
 import { createModelDownloader } from "node-llama-cpp";
@@ -130,7 +131,13 @@ function installedFileNames(): Set<string> {
  * default (the most capable that fits), and which are already installed.
  */
 export async function listRecommended(): Promise<RecommendedModel[]> {
-  const { totalMemoryGB } = await getHardware();
+  // Size the catalog against physical RAM via os.totalmem() rather than getHardware(). The catalog's
+  // minMemoryGB tiers are system-memory tiers, and on Apple Silicon's unified memory this is the same
+  // number the runtime would report — but reading it here keeps the recommendation list (shown on the
+  // onboarding + AI Model screens) off node-llama-cpp's getLlama(), whose first call does blocking
+  // native work (addon dlopen, dylib unpack, Metal init) that froze the UI. The native runtime now
+  // loads lazily, only when a model is actually run.
+  const totalMemoryGB = totalmem() / GB;
   const installed = installedFileNames();
   const fitting = CATALOG.filter((e) => e.minMemoryGB <= totalMemoryGB);
   // Recommended = the most capable model that comfortably fits (largest min-memory among fitting).

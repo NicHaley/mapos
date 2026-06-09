@@ -32,14 +32,18 @@ export type RegionRow = {
 };
 
 export type RegionGroupRow = { key: string; name: string; rows: RegionRow[] };
+/** A continent and the country groups nested under it (used for the grouped picker). */
+export type RegionContinentRow = { key: string; name: string; groups: RegionGroupRow[] };
 
 const OTHER_GROUP_KEY = "__other__";
+const OTHER_CONTINENT_KEY = "__other_continent__";
 
 export type UseRegionPacks = {
   loading: boolean;
   /** Set when the manifest can't be fetched (offline, or URL unconfigured). */
   error: string | null;
-  groups: RegionGroupRow[];
+  /** Continent → country groups tree, the grouping the picker renders. */
+  continents: RegionContinentRow[];
   /** Flat list — convenient for the globe's markers. */
   regions: RegionRow[];
   /** Raw installed packs (with bbox). Loaded even when the manifest can't be fetched. */
@@ -186,19 +190,40 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
     });
   }, [manifest, localByRegion, progress]);
 
-  const groups = useMemo<RegionGroupRow[]>(() => {
+  // Continent → country tree, the grouping the picker renders.
+  const continents = useMemo<RegionContinentRow[]>(() => {
     if (!manifest) return [];
     const bySlug = new Map(regions.map((r) => [r.slug, r]));
-    const out: RegionGroupRow[] = [];
-    const grouped = new Set<string>();
+    const out: RegionContinentRow[] = [];
+    const seen = new Set<string>();
 
-    for (const [key, g] of Object.entries(manifest.groups)) {
-      const rows = g.regions.map((s) => bySlug.get(s)).filter((r): r is RegionRow => !!r);
-      for (const r of rows) grouped.add(r.slug);
-      if (rows.length) out.push({ key, name: g.name, rows });
+    for (const [ckey, c] of Object.entries(manifest.continents ?? {})) {
+      const groupRows: RegionGroupRow[] = [];
+      for (const gkey of c.groups) {
+        const rows = (manifest.groups[gkey]?.regions ?? [])
+          .map((s) => bySlug.get(s))
+          .filter((r): r is RegionRow => !!r);
+        if (!rows.length) continue;
+        for (const r of rows) seen.add(r.slug);
+        groupRows.push({ key: gkey, name: manifest.groups[gkey]?.name ?? gkey, rows });
+      }
+      if (groupRows.length) {
+        groupRows.sort((a, b) => a.name.localeCompare(b.name));
+        out.push({ key: ckey, name: c.name, groups: groupRows });
+      }
     }
-    const orphans = regions.filter((r) => !grouped.has(r.slug));
-    if (orphans.length) out.push({ key: OTHER_GROUP_KEY, name: "Other", rows: orphans });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Defensive: any region the continents map didn't place (a group with no
+    // continent, or a stale manifest) lands in a trailing "Other" continent.
+    const orphans = regions.filter((r) => !seen.has(r.slug));
+    if (orphans.length) {
+      out.push({
+        key: OTHER_CONTINENT_KEY,
+        name: "Other",
+        groups: [{ key: OTHER_GROUP_KEY, name: "Other", rows: orphans }]
+      });
+    }
     return out;
   }, [manifest, regions]);
 
@@ -210,7 +235,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   return {
     loading,
     error,
-    groups,
+    continents,
     regions,
     installedPacks: local,
     totalInstalledBytes,

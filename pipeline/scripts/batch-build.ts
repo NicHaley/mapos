@@ -140,6 +140,8 @@ function makeVars(r: CatalogEntry): string[] {
     `NAME=${r.name}`,
     `GROUP=${r.group}`,
     `GROUP_NAME=${r.groupName}`,
+    `CONTINENT=${r.continent}`,
+    `CONTINENT_NAME=${r.continentName}`,
     ...(r.country ? [`COUNTRY=${r.country}`] : []),
     ...(r.cityLevelMax !== undefined ? [`CITY_LEVEL_MAX=${r.cityLevelMax}`] : []),
     ...(r.tilesMaxzoom !== undefined ? [`TILES_MAXZOOM=${r.tilesMaxzoom}`] : []),

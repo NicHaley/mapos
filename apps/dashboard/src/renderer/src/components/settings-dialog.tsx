@@ -166,15 +166,6 @@ function GeneralPage({
       </Section>
 
       <Section
-        title="Index"
-        description="The spatial index caches file metadata for fast map queries. It can always be rebuilt from vault files."
-      >
-        <div className="rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
-          Index rebuild is available from the command palette (coming soon).
-        </div>
-      </Section>
-
-      <Section
         title="Danger zone"
         description={
           isLastVault

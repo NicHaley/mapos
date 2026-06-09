@@ -8,14 +8,16 @@
  * client mid-download isn't broken during a rollout). Older versions are dropped
  * from the manifest here and pruned from disk/R2 by `make prune`.
  *
- * Region display metadata (name, group) lives in a per-region sidecar
- * dist/<region>/region.json, written here when --name/--group are passed at build
- * time so later scans stay deterministic without re-passing the flags.
+ * Region display metadata (name, group, continent) lives in a per-region sidecar
+ * dist/<region>/region.json, written here when --name/--group/--continent are
+ * passed at build time so later scans stay deterministic without re-passing the
+ * flags. Groups are nested under continents in the manifest's `continents` map.
  *
  * Usage:
  *   # refresh a region's sidecar, then rebuild the manifest:
  *   tsx make-manifest.ts --dist dist --region berlin --name Berlin \
- *     --group germany --group-name Germany --retain 2
+ *     --group germany --group-name Germany \
+ *     --continent europe --continent-name Europe --retain 2
  *   # just rebuild the manifest from whatever is already in dist:
  *   tsx make-manifest.ts --dist dist
  */
@@ -46,6 +48,8 @@ type VersionEntry = { path: string; total_bytes: number; artifacts: Record<strin
 type RegionEntry = {
   name?: string;
   group?: string;
+  /** Continent slug — lets the client nest groups under continents. */
+  continent?: string;
   /** [minLng, minLat, maxLng, maxLat] — read from the latest pmtiles header. */
   bbox?: [number, number, number, number];
   /** [lng, lat] — pmtiles header center; used to place the region's globe marker. */
@@ -53,13 +57,22 @@ type RegionEntry = {
   latest: string;
   versions: Record<string, VersionEntry>;
 };
-type GroupEntry = { name: string; regions: string[] };
+type GroupEntry = { name: string; continent?: string; regions: string[] };
+/** Continent display name + the country groups under it, in insertion order. */
+type ContinentEntry = { name: string; groups: string[] };
 type Manifest = {
   schema: number;
+  continents: Record<string, ContinentEntry>;
   groups: Record<string, GroupEntry>;
   regions: Record<string, RegionEntry>;
 };
-type RegionMeta = { name?: string; group?: string; groupName?: string };
+type RegionMeta = {
+  name?: string;
+  group?: string;
+  groupName?: string;
+  continent?: string;
+  continentName?: string;
+};
 
 function optArg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -167,7 +180,9 @@ if (region) {
   const name = optArg("name");
   const group = optArg("group");
   const groupName = optArg("group-name");
-  if (name || group || groupName) {
+  const continent = optArg("continent");
+  const continentName = optArg("continent-name");
+  if (name || group || groupName || continent || continentName) {
     const regionDir = join(dist, region);
     if (!isDir(regionDir)) {
       console.error(`region dir ${regionDir} does not exist`);
@@ -178,12 +193,14 @@ if (region) {
     if (name) meta.name = cleanName(name);
     if (group) meta.group = group;
     if (groupName) meta.groupName = cleanName(groupName);
+    if (continent) meta.continent = continent;
+    if (continentName) meta.continentName = cleanName(continentName);
     writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   }
 }
 
 // 2. Rebuild the manifest from a scan of dist/.
-const manifest: Manifest = { schema: 3, groups: {}, regions: {} };
+const manifest: Manifest = { schema: 4, continents: {}, groups: {}, regions: {} };
 
 const shaCachePath = join(dist, ".sha-cache.json");
 const shaCache = loadShaCache(shaCachePath);
@@ -245,6 +262,7 @@ for (const entry of readdirSync(dist).sort()) {
   manifest.regions[entry] = {
     ...(meta.name ? { name: cleanName(meta.name) } : {}),
     ...(meta.group ? { group: meta.group } : {}),
+    ...(meta.continent ? { continent: meta.continent } : {}),
     ...(geo ? { bbox: geo.bbox, center: geo.center } : {}),
     latest: kept[0],
     versions
@@ -255,9 +273,29 @@ for (const entry of readdirSync(dist).sort()) {
     const g = manifest.groups[meta.group];
     if (g) {
       if (groupName) g.name = groupName;
+      if (meta.continent) g.continent = meta.continent;
       if (!g.regions.includes(entry)) g.regions.push(entry);
     } else {
-      manifest.groups[meta.group] = { name: groupName ?? titleCase(meta.group), regions: [entry] };
+      manifest.groups[meta.group] = {
+        name: groupName ?? titleCase(meta.group),
+        ...(meta.continent ? { continent: meta.continent } : {}),
+        regions: [entry]
+      };
+    }
+
+    // Register the group under its continent (insertion order = first region scanned).
+    if (meta.continent) {
+      const continentName = meta.continentName ? cleanName(meta.continentName) : undefined;
+      const cont = manifest.continents[meta.continent];
+      if (cont) {
+        if (continentName) cont.name = continentName;
+        if (!cont.groups.includes(meta.group)) cont.groups.push(meta.group);
+      } else {
+        manifest.continents[meta.continent] = {
+          name: continentName ?? titleCase(meta.continent),
+          groups: [meta.group]
+        };
+      }
     }
   }
 }

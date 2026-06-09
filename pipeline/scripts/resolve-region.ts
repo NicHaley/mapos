@@ -33,6 +33,8 @@ const vars: Record<string, string | undefined> = {
   NAME: entry.name,
   GROUP: entry.group,
   GROUP_NAME: entry.groupName,
+  CONTINENT: entry.continent,
+  CONTINENT_NAME: entry.continentName,
   COUNTRY: entry.country,
   CITY_LEVEL_MAX: entry.cityLevelMax?.toString(),
   TILES_MAXZOOM: entry.tilesMaxzoom?.toString(),

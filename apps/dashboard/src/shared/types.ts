@@ -129,6 +129,8 @@ export type RegionVersion = {
 export type RegionManifestEntry = {
   name?: string;
   group?: string;
+  /** Continent slug — lets the client nest country groups under continents. */
+  continent?: string;
   /** [minLng, minLat, maxLng, maxLat] — from the latest pmtiles header. */
   bbox?: [number, number, number, number];
   /** [lng, lat] — used to place the region's marker on the globe. */
@@ -150,10 +152,15 @@ export function regionVersionDigest(version: RegionVersion): string {
     .join("|");
 }
 
-export type RegionGroup = { name: string; regions: string[] };
+export type RegionGroup = { name: string; continent?: string; regions: string[] };
+
+/** A continent's display name and the country groups nested under it. */
+export type RegionContinent = { name: string; groups: string[] };
 
 export type RegionManifest = {
   schema: number;
+  /** Continent slug → display name + ordered country groups. */
+  continents: Record<string, RegionContinent>;
   groups: Record<string, RegionGroup>;
   regions: Record<string, RegionManifestEntry>;
 };

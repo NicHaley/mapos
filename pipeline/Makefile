@@ -28,6 +28,9 @@ VERSION  ?= $(shell date +%F)
 NAME       ?=
 GROUP      ?=
 GROUP_NAME ?=
+# Continent grouping, e.g. CONTINENT=north-america CONTINENT_NAME="North America".
+CONTINENT      ?=
+CONTINENT_NAME ?=
 # Country baked into geocode results' admin context. A pack is one country, so
 # GROUP_NAME is the right default.
 COUNTRY    ?= $(GROUP_NAME)
@@ -81,6 +84,7 @@ build-slug:
 	@eval $$(pnpm exec tsx scripts/resolve-region.ts --slug $(SLUG)) && \
 	$(MAKE) all REGION="$$REGION" SRC_URL="$$SRC_URL" VERSION="$(VERSION)" \
 	  NAME="$$NAME" GROUP="$$GROUP" GROUP_NAME="$$GROUP_NAME" COUNTRY="$$COUNTRY" \
+	  CONTINENT="$$CONTINENT" CONTINENT_NAME="$$CONTINENT_NAME" \
 	  $${CITY_LEVEL_MAX:+CITY_LEVEL_MAX="$$CITY_LEVEL_MAX"} \
 	  $${TILES_MAXZOOM:+TILES_MAXZOOM="$$TILES_MAXZOOM"}
 
@@ -217,7 +221,9 @@ manifest: dist-guard
 	pnpm exec tsx scripts/make-manifest.ts --dist $(DIST_DIR) --region $(REGION) --retain $(RETAIN) \
 	  $(if $(NAME),--name "$(NAME)") \
 	  $(if $(GROUP),--group "$(GROUP)") \
-	  $(if $(GROUP_NAME),--group-name "$(GROUP_NAME)")
+	  $(if $(GROUP_NAME),--group-name "$(GROUP_NAME)") \
+	  $(if $(CONTINENT),--continent "$(CONTINENT)") \
+	  $(if $(CONTINENT_NAME),--continent-name "$(CONTINENT_NAME)")
 
 # Order matters: upload artifacts, prune superseded versions, flip manifest.json
 # last — a client must never see a manifest pointing at a version that isn't

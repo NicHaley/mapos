@@ -16,6 +16,8 @@ export type CatalogEntry = {
   country?: string;
   /** Continent root slug — enables batch --continent filtering. */
   continent: string;
+  /** Continent display name (from the Geofabrik index, e.g. "North America"). */
+  continentName: string;
   pbfUrl: string;
   cityLevelMax?: number;
   /** Tile extract maxzoom cap. Set for regions whose Mercator footprint makes the default explode (Antarctica). */

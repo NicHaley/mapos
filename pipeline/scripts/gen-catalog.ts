@@ -80,6 +80,17 @@ const REVIEWED_KEEP = new Set([
   "volga-fed-district",
 ]);
 
+/**
+ * Continent reassignment for top-level Geofabrik roots that are really countries,
+ * not continents. Russia is its own root (no continent parent) and straddles
+ * Europe/Asia; we file it under Europe so the picker tree stays Continent →
+ * Country → sub-region with no one-country "continents". Antarctica stays its own
+ * root because it genuinely is a continent.
+ */
+const CONTINENT_OVERRIDES: Record<string, { slug: string; name: string }> = {
+  russia: { slug: "europe", name: "Europe" }
+};
+
 /** Geocode admin-context country for kept leaves the ISO walk can't resolve. */
 const COUNTRY_OVERRIDES: Record<string, string> = {
   azores: "Portugal",
@@ -221,12 +232,14 @@ for (const leaf of leaves) {
     groupName = "United States";
     country = "United States";
   } else {
-    // Group under the nearest ancestor that is a country (single ISO code);
-    // country-leaves and combos fall back to their continent. The admin-context
-    // country may be the leaf itself (bermuda) — the group never is.
-    const groupNode = c.slice(1).find(singleIso);
-    group = slugify(groupNode?.id ?? root.id);
-    groupName = groupNode?.name ?? root.name;
+    // Group at the COUNTRY level: the nearest single-ISO node in the chain,
+    // INCLUDING the leaf — so a whole-country leaf (Algeria) groups under itself
+    // rather than its continent, keeping every group at one consistent level.
+    // Multi-country combos with no single ISO (gcc-states, israel-and-palestine)
+    // have no country, so they become their own country-level group.
+    const countryNode = c.find(singleIso) ?? leaf;
+    group = slugify(countryNode.id);
+    groupName = countryNode.name;
     country = c.find(singleIso)?.name ?? COUNTRY_OVERRIDES[leaf.id];
   }
 
@@ -239,7 +252,8 @@ for (const leaf of leaves) {
     group,
     groupName,
     ...(country ? { country } : {}),
-    continent: root.id,
+    continent: CONTINENT_OVERRIDES[root.id]?.slug ?? root.id,
+    continentName: CONTINENT_OVERRIDES[root.id]?.name ?? root.name,
     pbfUrl,
     ...(cityLevelMax !== undefined ? { cityLevelMax } : {}),
     ...(leaf.id in TILES_MAXZOOM ? { tilesMaxzoom: TILES_MAXZOOM[leaf.id] } : {}),

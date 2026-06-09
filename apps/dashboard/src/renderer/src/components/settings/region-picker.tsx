@@ -14,7 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDarkMode } from "../../hooks/use-dark-mode";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
-import { GroupHeader } from "./group-header";
+import { ContinentHeader, GroupHeader } from "./group-header";
 import { type RegionMarker, RegionMap } from "./region-map";
 
 function formatBytes(n: number): string {
@@ -210,38 +210,93 @@ export function RegionPicker() {
     [packs.regions, dark]
   );
 
-  // Filter by region name OR its country (group), then split: downloaded regions
-  // float to a dedicated section at the top so they stay easy to find no matter how
-  // long the list grows; the rest keep their manifest grouping, empty groups dropped.
+  // Downloaded regions float to a dedicated section at the top so they stay easy to
+  // find no matter how long the list grows; the rest stay grouped Continent →
+  // Country, empty groups dropped. Continents collapse so the ~250-region world list
+  // stays scannable.
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(() => new Set());
 
-  const groupNameByKey = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const g of packs.groups) m.set(g.key, g.name);
+  // Country + continent name per group key, so the Downloaded section can be filtered
+  // by the same "region / country / continent" search as the tree below it.
+  const labelsByGroup = useMemo(() => {
+    const m = new Map<string, { group: string; continent: string }>();
+    for (const c of packs.continents) {
+      for (const g of c.groups) m.set(g.key, { group: g.name, continent: c.name });
+    }
     return m;
-  }, [packs.groups]);
+  }, [packs.continents]);
 
   const matches = useCallback(
-    (r: RegionRow): boolean =>
-      !q ||
-      r.name.toLowerCase().includes(q) ||
-      (r.group ? (groupNameByKey.get(r.group)?.toLowerCase().includes(q) ?? false) : false),
-    [q, groupNameByKey]
+    (r: RegionRow): boolean => {
+      if (!q) return true;
+      if (r.name.toLowerCase().includes(q)) return true;
+      const l = r.group ? labelsByGroup.get(r.group) : undefined;
+      return (
+        !!l && (l.group.toLowerCase().includes(q) || l.continent.toLowerCase().includes(q))
+      );
+    },
+    [q, labelsByGroup]
   );
 
   const downloaded = useMemo(
     () => packs.regions.filter((r) => isDownloaded(r) && matches(r)),
     [packs.regions, matches]
   );
-  const availableGroups = useMemo(
-    () =>
-      packs.groups
-        .map((g) => ({ ...g, rows: g.rows.filter((r) => !isDownloaded(r) && matches(r)) }))
-        .filter((g) => g.rows.length > 0),
-    [packs.groups, matches]
-  );
-  const nothing = downloaded.length === 0 && availableGroups.length === 0;
+
+  // Continent tree (schema >= 4). A continent or country whose NAME matches the query
+  // keeps all its rows; otherwise rows are matched individually. Single-region
+  // countries (whole-country packs) collapse into one shared list per continent;
+  // subdivided countries (Canada, Germany) keep their own labeled sub-section.
+  const continentSections = useMemo(() => {
+    return packs.continents
+      .map((c) => {
+        const cMatch = !q || c.name.toLowerCase().includes(q);
+        const visible = c.groups
+          .map((g) => {
+            const gMatch = cMatch || g.name.toLowerCase().includes(q);
+            const rows = g.rows.filter(
+              (r) => !isDownloaded(r) && (gMatch || r.name.toLowerCase().includes(q))
+            );
+            return { key: g.key, name: g.name, rows, solo: g.rows.length === 1 };
+          })
+          .filter((g) => g.rows.length > 0);
+        const soloRows = visible
+          .filter((g) => g.solo)
+          .flatMap((g) => g.rows)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const multiGroups = visible.filter((g) => !g.solo);
+        const count = soloRows.length + multiGroups.reduce((n, g) => n + g.rows.length, 0);
+        return { key: c.key, name: c.name, soloRows, multiGroups, count };
+      })
+      .filter((c) => c.count > 0);
+  }, [packs.continents, q]);
+
+  // A continent with a download in progress (or a failed one) auto-expands so its
+  // progress/retry stays visible; a query expands everything it matched.
+  const forced = useMemo(() => {
+    const active = (rows: RegionRow[]): boolean =>
+      rows.some(
+        (r) => r.status === "downloading" || r.status === "verifying" || r.status === "error"
+      );
+    const s = new Set<string>();
+    for (const c of continentSections) {
+      if (active(c.soloRows) || c.multiGroups.some((g) => active(g.rows))) s.add(c.key);
+    }
+    return s;
+  }, [continentSections]);
+
+  const isOpen = (key: string): boolean => !!q || forced.has(key) || expandedSet.has(key);
+  const toggle = (key: string) =>
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const nothing = downloaded.length === 0 && continentSections.length === 0;
 
   if (packs.error) {
     return (
@@ -259,7 +314,7 @@ export function RegionPicker() {
     );
   }
 
-  if (packs.loading && packs.groups.length === 0) {
+  if (packs.loading && packs.continents.length === 0) {
     return (
       <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
         <Spinner className="size-4" />
@@ -305,10 +360,27 @@ export function RegionPicker() {
             </section>
           )}
 
-          {availableGroups.map((group) => (
-            <section key={group.key} className="flex flex-col gap-2">
-              <GroupHeader label={group.name} />
-              <RegionList rows={group.rows} packs={packs} onHover={setFocus} />
+          {continentSections.map((cont) => (
+            <section key={cont.key} className="flex flex-col gap-2">
+              <ContinentHeader
+                label={cont.name}
+                count={cont.count}
+                expanded={isOpen(cont.key)}
+                onToggle={() => toggle(cont.key)}
+              />
+              {isOpen(cont.key) && (
+                <div className="flex flex-col gap-3">
+                  {cont.soloRows.length > 0 && (
+                    <RegionList rows={cont.soloRows} packs={packs} onHover={setFocus} />
+                  )}
+                  {cont.multiGroups.map((group) => (
+                    <section key={group.key} className="flex flex-col gap-1.5">
+                      <GroupHeader label={group.name} />
+                      <RegionList rows={group.rows} packs={packs} onHover={setFocus} />
+                    </section>
+                  ))}
+                </div>
+              )}
             </section>
           ))}
         </>

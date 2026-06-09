@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDarkMode } from "../../hooks/use-dark-mode";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { ContinentHeader, GroupHeader } from "./group-header";
-import { type RegionMarker, RegionMap } from "./region-map";
+import { RegionMap, type RegionMarker } from "./region-map";
 
 function formatBytes(n: number): string {
   if (n <= 0) return "—";
@@ -233,9 +233,7 @@ export function RegionPicker() {
       if (!q) return true;
       if (r.name.toLowerCase().includes(q)) return true;
       const l = r.group ? labelsByGroup.get(r.group) : undefined;
-      return (
-        !!l && (l.group.toLowerCase().includes(q) || l.continent.toLowerCase().includes(q))
-      );
+      return !!l && (l.group.toLowerCase().includes(q) || l.continent.toLowerCase().includes(q));
     },
     [q, labelsByGroup]
   );
@@ -339,7 +337,7 @@ export function RegionPicker() {
 
   const list = (
     // -mr-2/pr-2 parks the scrollbar in the gutter.
-    <div ref={listRef} className="-mr-2 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+    <div ref={listRef} className="-mr-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-2">
       {nothing ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {q ? `No regions match “${query}”.` : "No regions available."}

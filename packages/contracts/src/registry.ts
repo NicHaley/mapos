@@ -34,6 +34,10 @@ export type AuthCredential = z.infer<typeof AuthCredentialSchema>;
 
 export const EndpointSchema = z.object({
   url: z.string(),
-  auth: AuthCredentialSchema.optional()
+  auth: AuthCredentialSchema.optional(),
+  // Desktop offline geocoding only: absolute path to the bundled coarse world
+  // index (countries + major cities), merged beneath any installed region packs
+  // so search works with zero packs. Ignored by every other adapter.
+  worldGeocode: z.string().optional()
 });
 export type Endpoint = z.infer<typeof EndpointSchema>;

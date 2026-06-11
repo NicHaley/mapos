@@ -8,6 +8,7 @@ app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { registerAiIpc } from "./ai-ipc";
 import { setupAppMenu } from "./app-menu";
+import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
 import { setupChat } from "./chat";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
 import { closeDb } from "./db";
@@ -127,14 +128,8 @@ app.whenReady().then(() => {
 
   // Serve downloaded region packs (offline tiles/style) to the renderer, and the
   // global glyphs/sprites + world basemap bundled with the app.
-  const basemapAssetsDir = app.isPackaged
-    ? join(process.resourcesPath, "basemap-assets")
-    : join(__dirname, "../../resources/basemap-assets");
-  registerRegionProtocol(
-    join(appStateDir, "regions"),
-    join(basemapAssetsDir, "basemap", "world.pmtiles")
-  );
-  registerAssetProtocol(basemapAssetsDir);
+  registerRegionProtocol(join(appStateDir, "regions"), worldPmtilesPath());
+  registerAssetProtocol(basemapAssetsDir());
 
   // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user
   // completes the flow; `bootVault()` populates them and is also reused by switch/rename/delete.

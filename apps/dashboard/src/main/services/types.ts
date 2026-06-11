@@ -7,4 +7,7 @@ export type ClientCredentials = {
   /** Root dir holding downloaded region packs, `<userData>/regions`. Used by
    *  offline mode to locate `<regionsDir>/<activeRegion>/geocode.sqlite`. */
   regionsDir?: string;
+  /** Absolute path to the bundled coarse world geocode index (`world.sqlite`),
+   *  the always-available offline search fallback when no pack covers a query. */
+  worldGeocodePath?: string;
 };

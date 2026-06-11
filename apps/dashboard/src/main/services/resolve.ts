@@ -33,16 +33,17 @@ export function resolve(
   if (offline) return offline;
 
   if (config.mode === "local") {
-    // Tiles always work offline, even with zero region packs: the world basemap
-    // (z0–6) ships bundled with the app and is served over the region protocol
-    // worldwide. Packs only layer z7+ detail on top — when one is installed the
-    // offline overlay above already returns this same adapter with that detail. So
-    // the only thing this branch adds is the no-pack base case (a fresh install).
-    if (serviceId === "tiles") {
-      return { adapter: offlineAdapter, endpoint: { url: credentials.regionsDir ?? "" } };
+    // Tiles and geocoding always work offline, even with zero region packs. Tiles:
+    // the bundled z0–6 world basemap serves worldwide. Geocoding: the bundled coarse
+    // world index (countries + major cities) answers as a fallback. Packs layer
+    // detail on top — when one is installed the overlay above already returned this
+    // same adapter with that detail (and the world index merges beneath it). So this
+    // branch is the no-pack base case for a fresh install.
+    if (serviceId === "tiles" || serviceId === "geocoding") {
+      return { adapter: offlineAdapter, endpoint: offlineEndpoint(credentials) };
     }
-    // Everything else is fully offline only via a pack: anything the overlay didn't
-    // serve has no provider. Surface a capability-appropriate "download a pack" message.
+    // Routing/isochrones are fully offline only via a pack: anything the overlay
+    // didn't serve has no provider. Surface a "download a pack" message.
     throw new ServiceUnavailableError(serviceId, localUnavailableReason(serviceId));
   }
 
@@ -101,8 +102,22 @@ function resolveOfflineOverlay(
   if (!provided) return null;
 
   // endpoint.url carries the regions directory; each offline adapter enumerates
-  // installed packs from it and selects per request.
-  return { adapter: offlineAdapter, endpoint: { url: regionsDir } };
+  // installed packs from it and selects per request. `worldGeocode` lets the
+  // geocoding adapter merge the bundled coarse world index beneath the pack(s).
+  return { adapter: offlineAdapter, endpoint: offlineEndpoint(credentials) };
+}
+
+/**
+ * Endpoint for the offline adapter: the regions dir plus the bundled world
+ * geocode index path. `has.geocoding` (the overlay gate) deliberately keys on
+ * real packs only, never this — so the world index is a local fallback and never
+ * silently replaces cloud geocoding for a user with no packs.
+ */
+function offlineEndpoint(credentials: ClientCredentials): Endpoint {
+  return {
+    url: credentials.regionsDir ?? "",
+    ...(credentials.worldGeocodePath ? { worldGeocode: credentials.worldGeocodePath } : {})
+  };
 }
 
 function resolveServer(serviceId: ServiceId, baseUrl: string, authToken?: string): Resolution {

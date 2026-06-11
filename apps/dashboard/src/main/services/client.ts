@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { app } from "electron";
+import { worldGeocodePath } from "../asset-paths";
 import { loadOrInitMaposConfig } from "../mapos-config";
 import { closeRegionArchives } from "../region-protocol";
 import { type MaposServiceClient, createClient } from "./index";
@@ -11,7 +12,9 @@ let cached: MaposServiceClient | null = null;
 function readCredentials(): ClientCredentials {
   return {
     // Region packs live in userData, alongside index.db — large, derived, sync-excluded.
-    regionsDir: join(app.getPath("userData"), "regions")
+    regionsDir: join(app.getPath("userData"), "regions"),
+    // Bundled coarse world index — the offline geocoding fallback when no pack matches.
+    worldGeocodePath: worldGeocodePath()
   };
 }
 

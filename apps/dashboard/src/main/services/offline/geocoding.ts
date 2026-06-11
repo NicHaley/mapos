@@ -5,6 +5,7 @@ import type {
   GeocodeReverseRequest
 } from "@mapos/contracts";
 import type { AdapterContext, GeocodingCapability } from "@mapos/service-adapters";
+import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { listInstalledRegions, regionsContaining } from "./installed-regions";
 
@@ -22,6 +23,11 @@ import { listInstalledRegions, regionsContaining } from "./installed-regions";
 
 const DEFAULT_LIMIT = 8;
 const REVERSE_WINDOW_DEG = 0.05; // ~5km bbox prefilter for nearest-neighbour
+
+// Synthetic region for the bundled coarse world index. Whole-planet bbox so it's a
+// candidate everywhere; kept out of reverse (it answers forward search only).
+const WORLD_REGION = "world";
+const WORLD_BBOX: [number, number, number, number] = [-180, -90, 180, 90];
 
 // Viewport-bias tuning (added to the rank score, where lower is better). The
 // distance penalty is normalised by the viewport's squared half-span, so a feature
@@ -104,8 +110,10 @@ function inFilter(
 
 function rowToResult(row: FeatureRow, region: string): GeocodeResult {
   // Street line (own addr:* tags) + admin hierarchy, e.g. "Skalitzer Str. 12, Kreuzberg,
-  // Berlin, Germany". Falls back to the pack region when the pack carries neither.
-  const secondary = [row.address, row.admin_context].filter(Boolean).join(", ") || region;
+  // Berlin, Germany". Falls back to the pack region when the pack carries neither — but
+  // the world index's "region" is a sentinel, not a place, so it shows nothing instead.
+  const fallback = region === WORLD_REGION ? "" : region;
+  const secondary = [row.address, row.admin_context].filter(Boolean).join(", ") || fallback;
   const result: GeocodeResult = {
     // Region-qualified so rowids from different packs don't collide.
     id: `offline:${region}:${row.id}`,
@@ -148,6 +156,12 @@ async function forward(
   if (!match && !hasFilters) return [];
   const limit = req.limit ?? DEFAULT_LIMIT;
   const regions = listInstalledRegions(ep.url).filter((r) => r.geocode);
+  // Append the bundled coarse world index (countries + major cities) as an
+  // always-available fallback, last so pack rows rank/dedup ahead of it. Skipped
+  // when the file is absent (older build / dev before `make bundle-world`).
+  if (ep.worldGeocode && existsSync(ep.worldGeocode)) {
+    regions.push({ region: WORLD_REGION, dir: "", geocode: ep.worldGeocode, bbox: WORLD_BBOX });
+  }
   if (regions.length === 0) return [];
 
   // Viewport bias: when a bbox is supplied, nudge ranking toward its centre with a
@@ -220,7 +234,23 @@ async function forward(
     }
   }
   merged.sort((a, b) => a.row.score - b.row.score);
-  return merged.slice(0, limit).map(({ row, region }) => rowToResult(row, region));
+  // A place a pack covers in detail also exists in the coarse world index (the same
+  // city). Collapse such duplicates on a ~10 km grid, preferring the pack row so a
+  // downloaded region's "Berlin" wins over the world fallback's. Same-named places
+  // far apart (London UK vs London ON) fall in different cells and both survive.
+  const deduped: typeof merged = [];
+  const slot = new Map<string, number>();
+  for (const m of merged) {
+    const key = `${m.row.name.toLowerCase()}|${Math.round(m.row.lat * 10)}|${Math.round(m.row.lng * 10)}`;
+    const at = slot.get(key);
+    if (at === undefined) {
+      slot.set(key, deduped.length);
+      deduped.push(m);
+    } else if (deduped[at].region === WORLD_REGION && m.region !== WORLD_REGION) {
+      deduped[at] = m; // swap the world fallback out for the detailed pack feature
+    }
+  }
+  return deduped.slice(0, limit).map(({ row, region }) => rowToResult(row, region));
 }
 
 async function reverse(

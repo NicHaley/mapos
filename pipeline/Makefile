@@ -56,6 +56,11 @@ TILES_MAXZOOM ?= 15
 # WORLD_MAXZOOM + 1 (region-protocol.ts).
 TILES_MINZOOM ?= 7
 WORLD_MAXZOOM ?= 6
+# Natural Earth admin-0 countries: point-in-polygon source for the world index's
+# admin context (the bundled world.pmtiles has only point labels, not polygons).
+# Build-time input only — not shipped in the app.
+NE_ADMIN0_URL ?= https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson
+WORLD_WORK := work/_world
 DASHBOARD_ASSETS ?= ../apps/dashboard/resources/basemap-assets
 BUCKET    ?= mapos-regions
 R2_REMOTE ?= r2:$(BUCKET)
@@ -63,7 +68,7 @@ R2_REMOTE ?= r2:$(BUCKET)
 SRC_PBF  := $(WORK)/source.osm.pbf
 REGION_PBF := $(WORK)/$(REGION).osm.pbf
 
-.PHONY: all extract pmtiles valhalla geocode manifest upload prune clean distclean world bundle-world build-slug dist-guard
+.PHONY: all extract pmtiles valhalla geocode manifest upload prune clean distclean world world-geocode bundle-world build-slug dist-guard
 
 all: pmtiles valhalla geocode manifest
 	@echo "==> $(REGION)@$(VERSION) built into $(DIST)"
@@ -207,13 +212,31 @@ world: dist-guard
 	  --bbox=-180,-85.0511,180,85.0511 --maxzoom=$(WORLD_MAXZOOM)
 	@ls -lh $(DIST_DIR)/_world/world.pmtiles
 
-bundle-world: $(DIST_DIR)/_world/world.pmtiles
+# Coarse global geocode index (countries + major cities) extracted from the world
+# basemap, so search/reverse work with zero region packs. Decoupled from the heavy
+# per-region pipeline: rebuild whenever world.pmtiles is refreshed. Country context
+# comes from Natural Earth admin-0 via the same point-in-polygon path packs use.
+world-geocode: dist-guard $(DIST_DIR)/_world/world.pmtiles
+	@mkdir -p $(WORLD_WORK)
+	@test -f $(WORLD_WORK)/ne_admin0.geojson || \
+	  { echo "==> fetching Natural Earth admin-0"; curl -fsSL -o $(WORLD_WORK)/ne_admin0.geojson "$(NE_ADMIN0_URL)"; }
+	pnpm exec tsx geocode/ne-admins-to-seq.ts $(WORLD_WORK)/ne_admin0.geojson > $(WORLD_WORK)/world-admins.geojsonseq
+	pnpm exec tsx geocode/extract-world-places.ts $(DIST_DIR)/_world/world.pmtiles \
+	  | pnpm exec tsx geocode/build-geocode.ts $(DIST_DIR)/_world/world.sqlite --region "World" \
+	      --admins $(WORLD_WORK)/world-admins.geojsonseq
+	@ls -lh $(DIST_DIR)/_world/world.sqlite
+
+bundle-world: $(DIST_DIR)/_world/world.pmtiles $(DIST_DIR)/_world/world.sqlite
 	@mkdir -p $(DASHBOARD_ASSETS)/basemap
 	cp $(DIST_DIR)/_world/world.pmtiles $(DASHBOARD_ASSETS)/basemap/world.pmtiles
-	@echo "==> bundled world basemap into $(DASHBOARD_ASSETS)/basemap"
+	cp $(DIST_DIR)/_world/world.sqlite $(DASHBOARD_ASSETS)/basemap/world.sqlite
+	@echo "==> bundled world basemap + geocode index into $(DASHBOARD_ASSETS)/basemap"
 
 $(DIST_DIR)/_world/world.pmtiles:
 	$(MAKE) world
+
+$(DIST_DIR)/_world/world.sqlite:
+	$(MAKE) world-geocode
 
 # ------------------------------------------------------------ manifest/up ----
 

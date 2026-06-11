@@ -37,6 +37,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // --- what counts as geocodable -------------------------------------------------
 
 const PLACE_WEIGHTS: Record<string, number> = {
+  // country / state are only emitted by the world index (extract-world-places.ts);
+  // region packs have no country/state place nodes. Ranked above city so "India"
+  // outranks "Indianapolis" and "Bavaria" outranks a same-prefix town.
+  country: 1.5,
+  state: 1.1,
   city: 1.0,
   town: 0.7,
   borough: 0.6,
@@ -272,6 +277,10 @@ function loadAdmins(path: string): AdminArea[] {
 // by its country, not by the "Mitte" district its label point happens to sit in. POIs
 // and streets have no own level (Infinity), so they pick up the full local hierarchy.
 const PLACE_ADMIN_LEVEL: Record<string, number> = {
+  // World-index tiers: a country has nothing coarser (admin_context stays null);
+  // a state walks up to its country (admin_level 2) → "Bavaria, Germany".
+  country: 2,
+  state: 4,
   city: 8,
   town: 8,
   village: 8,

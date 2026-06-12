@@ -124,9 +124,8 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
             render={
               <div className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur">
                 <GlobeIcon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <span className="max-w-40 truncate">
-                  {coverage.name} • {formatBytes(coverage.pack.totalBytes)}
-                </span>
+                <span className="max-w-40 truncate">{coverage.name}</span>
+                <span className="shrink-0">• {formatBytes(coverage.pack.totalBytes)}</span>
               </div>
             }
           />
@@ -154,12 +153,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
         </div>
       ) : (
         <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
-          <span className="max-w-40 truncate text-muted-foreground">
-            {coverage.row.name} • {formatBytes(coverage.row.latestBytes)}
-          </span>
+          <span className="max-w-40 truncate text-muted-foreground">{coverage.row.name}</span>
+          {/* Size lives in the button (shrink-0), so a long region name truncates
+              without ever pushing the download size out of view. */}
           <Button
             size="sm"
-            className="h-6 rounded-full px-2.5"
+            className="h-6 shrink-0 rounded-full px-2.5"
             onPointerDown={stop}
             onClick={(e) => {
               stop(e);
@@ -167,7 +166,7 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
             }}
           >
             <DownloadIcon className="size-3.5" />
-            Download
+            {formatBytes(coverage.row.latestBytes)}
           </Button>
         </div>
       );

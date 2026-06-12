@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
+import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
 import type { ConversationMeta, PlaceRecord } from "@shared/types";
 import { cn } from "@mapos/ui/lib/utils";
@@ -11,13 +12,17 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
-  CommandPrimitive
+  CommandPrimitive,
+  CommandShortcut
 } from "@mapos/ui/components/command";
 import { InputGroup, InputGroupAddon } from "@mapos/ui/components/input-group";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 
 const DEBOUNCE_MS = 300;
 /** Cap local (file / conversation) matches so the popover stays scannable. */
 const LOCAL_RESULT_LIMIT = 6;
+/** ⌘1–⌘9 select the Nth visible result; one keyboard row's worth. */
+const MAX_HOTKEYS = 9;
 
 function trimQuery(q: string): string {
   return q.trim();
@@ -36,27 +41,17 @@ function pickLang(): string | undefined {
   return short && short.length === 2 ? short : undefined;
 }
 
-function fileTypeLabel(type: string): string {
-  switch (type) {
-    case "place":
-      return "Place";
-    case "note":
-      return "Note";
-    case "collection":
-      return "Collection";
-    case "GeoJsonLayer":
-      return "Layer";
-    default:
-      return capitalize(type);
-  }
-}
-
-/** Second line for a file result: its type, qualified by the containing folder when nested. */
-function fileSecondaryLabel(file: PlaceRecord): string {
-  const slash = file.filePath.lastIndexOf("/");
-  const dir = slash > 0 ? file.filePath.slice(0, slash) : "";
-  const label = fileTypeLabel(file.type);
-  return dir ? `${label} · ${dir}` : label;
+/**
+ * Context for a file result: its containing folder, relative to the vault root
+ * ("tokyo-2026", not "/Users/…/MapOS/tokyo-2026"). Empty for files at the root.
+ */
+function fileRelativeDir(filePath: string, vaultRoot: string): string {
+  const rel =
+    vaultRoot && filePath.startsWith(vaultRoot)
+      ? filePath.slice(vaultRoot.length).replace(/^\//, "")
+      : filePath;
+  const slash = rel.lastIndexOf("/");
+  return slash > 0 ? rel.slice(0, slash) : "";
 }
 
 function conversationTitle(c: ConversationMeta): string {
@@ -81,6 +76,30 @@ function cleanErrorMessage(e: unknown): string {
     .replace(/^\w*Error:\s*/, "")
     .trim();
   return cleaned || "Search failed";
+}
+
+/** A row reachable via ⌘N, in display order (files → conversations → places). */
+type HotkeyTarget =
+  | { kind: "file"; file: PlaceRecord }
+  | { kind: "conversation"; conversation: ConversationMeta }
+  | { kind: "place"; result: GeocodeSearchResult };
+
+/**
+ * Right-aligned ⌘N chip on a result row. `index` is the row's flattened position.
+ * Wrapped in CommandShortcut: its `data-slot` is what hides CommandItem's built-in
+ * trailing CheckIcon — otherwise the two `ml-auto` elements split the free space
+ * and the chip floats mid-row instead of hugging the right edge.
+ */
+function HotkeyHint({ index }: { index: number }): React.JSX.Element | null {
+  if (index >= MAX_HOTKEYS) return null;
+  return (
+    <CommandShortcut className="shrink-0 self-center">
+      <KbdGroup>
+        <Kbd>{modSymbol}</Kbd>
+        <Kbd>{index + 1}</Kbd>
+      </KbdGroup>
+    </CommandShortcut>
+  );
 }
 
 export type GeocodeSearchPanelProps = {
@@ -117,6 +136,11 @@ export function GeocodeSearchPanel({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { getViewportBBox } = useMapViewport();
+  // Vault root, for showing file locations as vault-relative folders.
+  const [vaultRoot, setVaultRoot] = useState("");
+  useEffect(() => {
+    void window.api.fs.getVaultRoot().then(setVaultRoot);
+  }, []);
 
   const debouncedTrim = trimQuery(debouncedQuery);
   const queryTrim = trimQuery(query);
@@ -196,6 +220,40 @@ export function GeocodeSearchPanel({
     [onSelectResult]
   );
 
+  // ⌘1–⌘9 quick-select, numbering every visible row in display order. Built from
+  // the same lists the groups render, so the chip on row N and the key ⌘N can't
+  // disagree. Digit codes (not e.key) are layout-independent under modifiers.
+  const hotkeyTargets = useMemo<HotkeyTarget[]>(
+    () =>
+      [
+        ...fileMatches.map((file) => ({ kind: "file", file }) as const),
+        ...conversationMatches.map(
+          (conversation) => ({ kind: "conversation", conversation }) as const
+        ),
+        ...results.map((result) => ({ kind: "place", result }) as const)
+      ].slice(0, MAX_HOTKEYS),
+    [fileMatches, conversationMatches, results]
+  );
+
+  useShortcuts(
+    Array.from({ length: MAX_HOTKEYS }, (_, i) => ({
+      def: {
+        code: `Digit${i + 1}`,
+        meta: true,
+        // Gating on `active` keeps an idle embedded panel (place card) from
+        // stealing keys while the popover's panel is the one in use.
+        enabled: active && i < hotkeyTargets.length
+      },
+      handler: () => {
+        const target = hotkeyTargets[i];
+        if (!target) return;
+        if (target.kind === "place") pick(target.result);
+        else if (target.kind === "file") onSelectFile?.(target.file);
+        else onSelectConversation?.(target.conversation);
+      }
+    }))
+  );
+
   const hasAnyResults =
     results.length > 0 || fileMatches.length > 0 || conversationMatches.length > 0;
 
@@ -237,27 +295,35 @@ export function GeocodeSearchPanel({
         ) : null}
         {fileMatches.length > 0 ? (
           <CommandGroup heading="Files">
-            {fileMatches.map((f) => (
-              <CommandItem
-                key={`file-${f.filePath}`}
-                value={`file-${f.filePath}`}
-                onSelect={() => onSelectFile?.(f)}
-                className="items-start rounded-md"
-              >
-                <FileTextIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                  <span className="truncate font-medium leading-tight">{f.title}</span>
-                  <span className="truncate text-xs leading-tight text-muted-foreground">
-                    {capitalize(fileSecondaryLabel(f))}
-                  </span>
-                </div>
-              </CommandItem>
-            ))}
+            {fileMatches.map((f, index) => {
+              const dir = fileRelativeDir(f.filePath, vaultRoot);
+              return (
+                <CommandItem
+                  key={`file-${f.filePath}`}
+                  value={`file-${f.filePath}`}
+                  onSelect={() => onSelectFile?.(f)}
+                  className="rounded-md"
+                >
+                  <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+                    <span className="max-w-full shrink-0 truncate font-medium leading-tight">
+                      {f.title}
+                    </span>
+                    {dir ? (
+                      <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
+                        {dir}
+                      </span>
+                    ) : null}
+                  </div>
+                  <HotkeyHint index={index} />
+                </CommandItem>
+              );
+            })}
           </CommandGroup>
         ) : null}
         {conversationMatches.length > 0 ? (
           <CommandGroup heading="Conversations">
-            {conversationMatches.map((c) => {
+            {conversationMatches.map((c, index) => {
               const title = conversationTitle(c);
               const secondary = c.title && c.preview ? c.preview : formatConversationDate(c.updated_at);
               return (
@@ -265,17 +331,20 @@ export function GeocodeSearchPanel({
                   key={`conv-${c.id}`}
                   value={`conv-${c.id}`}
                   onSelect={() => onSelectConversation?.(c)}
-                  className="items-start rounded-md"
+                  className="rounded-md"
                 >
-                  <MessageCircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                    <span className="truncate font-medium leading-tight">{title}</span>
+                  <MessageCircleIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+                    <span className="max-w-full shrink-0 truncate font-medium leading-tight">
+                      {title}
+                    </span>
                     {secondary ? (
-                      <span className="truncate text-xs leading-tight text-muted-foreground">
+                      <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
                         {capitalize(secondary)}
                       </span>
                     ) : null}
                   </div>
+                  <HotkeyHint index={fileMatches.length + index} />
                 </CommandItem>
               );
             })}
@@ -286,21 +355,22 @@ export function GeocodeSearchPanel({
             {results.map((r, index) => {
               const value = `${r.id}-${index}`;
               return (
-                <CommandItem
-                  key={value}
-                  value={value}
-                  onSelect={() => pick(r)}
-                  className="items-start rounded-md"
-                >
-                  <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                    <span className="truncate font-medium leading-tight">{r.primaryLabel}</span>
+                <CommandItem key={value} value={value} onSelect={() => pick(r)} className="rounded-md">
+                  <MapPinIcon className="size-4 shrink-0 text-muted-foreground" />
+                  {/* Single line — secondary inline in grey — so items with and without
+                      context (countries have none) keep a consistent height. The name
+                      never shrinks; the context truncates into whatever space is left. */}
+                  <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+                    <span className="max-w-full shrink-0 truncate font-medium leading-tight">
+                      {r.primaryLabel}
+                    </span>
                     {r.secondaryLabel ? (
-                      <span className="truncate text-xs leading-tight text-muted-foreground">
+                      <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
                         {capitalize(r.secondaryLabel)}
                       </span>
                     ) : null}
                   </div>
+                  <HotkeyHint index={fileMatches.length + conversationMatches.length + index} />
                 </CommandItem>
               );
             })}

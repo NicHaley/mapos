@@ -39,12 +39,15 @@ const EXCLUDE = new Set([
   "great-britain", //        overlaps england, scotland, wales (under united-kingdom)
   "sea", //                  South-East Asia; overlaps the individual SEA countries
   "south-africa-and-lesotho", // overlaps south-africa + lesotho
+  "us", //                   whole-US node Geofabrik added in 2026; the us/* states
+  //                         still parent to north-america, so it reads as a childless
+  //                         leaf and would double-cover every state
   "us-midwest", //           the five US regional combos overlap the us/* states
   "us-northeast",
   "us-pacific",
   "us-south",
   "us-west",
-  "enfield", //              single-borough extract; keep greater-london whole instead
+  "enfield" //              single-borough extract; keep greater-london whole instead
 ]);
 
 /**
@@ -77,7 +80,7 @@ const REVIEWED_KEEP = new Set([
   "siberian-fed-district",
   "south-fed-district",
   "ural-fed-district",
-  "volga-fed-district",
+  "volga-fed-district"
 ]);
 
 /**
@@ -96,7 +99,7 @@ const COUNTRY_OVERRIDES: Record<string, string> = {
   azores: "Portugal",
   "canary-islands": "Spain",
   kosovo: "Kosovo",
-  "isle-of-man": "Isle of Man",
+  "isle-of-man": "Isle of Man"
 };
 
 /** Per-country CITY_LEVEL_MAX overrides (countries whose city admin_level deviates from 8). */
@@ -147,7 +150,7 @@ function titleCaseId(id: string): string {
   return last
     .split("-")
     .map((w, i) =>
-      i > 0 && ["of", "and", "the"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1),
+      i > 0 && ["of", "and", "the"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)
     )
     .join(" ");
 }
@@ -199,7 +202,7 @@ for (const leaf of leaves) {
     !REVIEWED_KEEP.has(leaf.id)
   ) {
     console.warn(
-      `warning: unreviewed shallow leaf "${leaf.id}" (${leaf.name}) — check it is not an overlapping combo extract, then add it to REVIEWED_KEEP or EXCLUDE`,
+      `warning: unreviewed shallow leaf "${leaf.id}" (${leaf.name}) — check it is not an overlapping combo extract, then add it to REVIEWED_KEEP or EXCLUDE`
     );
   }
 }
@@ -226,8 +229,8 @@ for (const leaf of leaves) {
   let groupName: string;
   let country: string | undefined;
   if (c.some((n) => n.id.startsWith("us/"))) {
-    // The index has no `us` country node — states hang off north-america with
-    // us/-prefixed ids (and us/california's leaves are norcal/socal).
+    // States hang off north-america with us/-prefixed ids (and us/california's
+    // leaves are norcal/socal). The `us` node itself is EXCLUDEd as redundant.
     group = "united-states";
     groupName = "United States";
     country = "United States";
@@ -256,7 +259,7 @@ for (const leaf of leaves) {
     continentName: CONTINENT_OVERRIDES[root.id]?.name ?? root.name,
     pbfUrl,
     ...(cityLevelMax !== undefined ? { cityLevelMax } : {}),
-    ...(leaf.id in TILES_MAXZOOM ? { tilesMaxzoom: TILES_MAXZOOM[leaf.id] } : {}),
+    ...(leaf.id in TILES_MAXZOOM ? { tilesMaxzoom: TILES_MAXZOOM[leaf.id] } : {})
   });
 }
 

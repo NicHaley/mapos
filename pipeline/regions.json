@@ -5538,17 +5538,6 @@
       "pbfUrl": "https://download.geofabrik.de/south-america/uruguay-latest.osm.pbf"
     },
     {
-      "slug": "us",
-      "geofabrikId": "us",
-      "name": "United States of America",
-      "group": "us",
-      "groupName": "United States of America",
-      "country": "United States of America",
-      "continent": "north-america",
-      "continentName": "North America",
-      "pbfUrl": "https://download.geofabrik.de/north-america/us-latest.osm.pbf"
-    },
-    {
       "slug": "uzbekistan",
       "geofabrikId": "uzbekistan",
       "name": "Uzbekistan",

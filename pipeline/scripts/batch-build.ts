@@ -15,15 +15,27 @@
  *
  * One batch-wide VERSION (default: today) stamps every region; pass the same
  * --version when resuming a multi-day run or the skip check restarts from zero.
- * Failures append JSONL to failures.log and the batch continues; successes are
- * logged there too so --retry-failed can key on each slug's latest outcome.
+ * A failed region is retried in place (--retries, default 1) before being
+ * logged: most batch failures are transient network errors. Failures append
+ * JSONL to failures.log and the batch continues; successes are logged there too
+ * so --retry-failed can key on each slug's latest outcome. Full make output
+ * tees to work/<slug>/build.log, which survives (with the work dir) only when
+ * the region fails.
  *
  * Sequential by design: the Valhalla docker build dominates wall-clock, and one
  * download at a time is polite to Geofabrik. Don't run two drivers at once.
  */
 
-import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  appendFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type CatalogEntry, loadCatalog } from "./catalog.ts";
@@ -54,6 +66,7 @@ type LogLine = {
   status: "done" | "failed";
   stage?: string;
   error?: string;
+  log?: string;
   at: string;
 };
 
@@ -80,6 +93,9 @@ const sleepSec = Number(opt("sleep") ?? "0");
 const limit = opt("limit") ? Number(opt("limit")) : Number.POSITIVE_INFINITY;
 const retain = opt("retain");
 const redoPmtiles = flag("redo-pmtiles");
+// Extra in-place attempts per region before logging it failed.
+const retries = Number(opt("retries") ?? "1");
+const RETRY_SLEEP_SEC = 30;
 
 // ----------------------------------------------------------- select work ----
 
@@ -145,13 +161,35 @@ function makeVars(r: CatalogEntry): string[] {
     ...(r.country ? [`COUNTRY=${r.country}`] : []),
     ...(r.cityLevelMax !== undefined ? [`CITY_LEVEL_MAX=${r.cityLevelMax}`] : []),
     ...(r.tilesMaxzoom !== undefined ? [`TILES_MAXZOOM=${r.tilesMaxzoom}`] : []),
-    ...(retain ? [`RETAIN=${retain}`] : []),
+    ...(retain ? [`RETAIN=${retain}`] : [])
   ];
 }
 
-function runMake(target: string, vars: string[]): void {
-  const res = spawnSync("make", [target, ...vars], { cwd: PIPELINE_DIR, stdio: "inherit" });
-  if (res.status !== 0) throw new Error(`make ${target} exited with ${res.status ?? "signal"}`);
+// Tees make output to the console and (when given) a per-region log, so a
+// failure's actual error text survives the batch instead of just an exit code.
+// Piped stdio costs the TTY — progress bars print as plain periodic lines.
+function runMake(target: string, vars: string[], logPath?: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("make", [target, ...vars], {
+      cwd: PIPELINE_DIR,
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    const log = logPath ? createWriteStream(logPath, { flags: "a" }) : undefined;
+    child.stdout.on("data", (d: Buffer) => {
+      process.stdout.write(d);
+      log?.write(d);
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      process.stderr.write(d);
+      log?.write(d);
+    });
+    child.on("error", reject);
+    child.on("close", (status) => {
+      log?.end();
+      if (status === 0) resolve();
+      else reject(new Error(`make ${target} exited with ${status ?? "signal"}`));
+    });
+  });
 }
 
 function logOutcome(entry: Omit<LogLine, "at">): void {
@@ -170,7 +208,7 @@ if (!dryRun) {
     ["osmium", ["--version"]],
     ["pmtiles", ["--help"]],
     ["docker", ["info"]], // also verifies the daemon is actually running
-    ...(noUpload ? [] : [["rclone", ["--version"]] as [string, string[]]]),
+    ...(noUpload ? [] : [["rclone", ["--version"]] as [string, string[]]])
   ];
   const missing = checks
     .filter(([cmd, args]) => spawnSync(cmd, args, { stdio: "ignore" }).status !== 0)
@@ -178,19 +216,21 @@ if (!dryRun) {
   if (missing.length > 0) {
     console.error(
       `preflight failed — not available in this environment: ${missing.join(", ")}\n` +
-        `PATH=${process.env.PATH}`,
+        `PATH=${process.env.PATH}`
     );
     process.exit(1);
   }
   // An overridden DIST_DIR must already exist (the Makefile's dist-guard enforces the
   // same per region) — fail here once instead of logging a failure for every region.
   if (process.env.DIST_DIR && !existsSync(DIST_DIR)) {
-    console.error(`preflight failed — DIST_DIR=${DIST_DIR} does not exist (external drive not mounted?)`);
+    console.error(
+      `preflight failed — DIST_DIR=${DIST_DIR} does not exist (external drive not mounted?)`
+    );
     process.exit(1);
   }
   if (!noUpload && !Object.keys(process.env).some((k) => k.startsWith("RCLONE_CONFIG_R2_"))) {
     console.warn(
-      "warning: no RCLONE_CONFIG_R2_* env vars — uploads will fail unless rclone.conf defines the r2 remote (source the .env, or pass --no-upload)",
+      "warning: no RCLONE_CONFIG_R2_* env vars — uploads will fail unless rclone.conf defines the r2 remote (source the .env, or pass --no-upload)"
     );
   }
 }
@@ -208,45 +248,74 @@ for (const [i, r] of regions.entries()) {
   // this version, re-extracting just the tile artifact (valhalla/geocode kept).
   if (redoPmtiles ? !isBuilt(r.slug) : isBuilt(r.slug)) {
     console.log(
-      `${tag} — ${redoPmtiles ? `not built at ${version}, nothing to redo` : `already built at ${version}`}, skipping`,
+      `${tag} — ${redoPmtiles ? `not built at ${version}, nothing to redo` : `already built at ${version}`}, skipping`
     );
     skipped++;
     continue;
   }
   if (dryRun) {
-    console.log(`${tag} — would ${redoPmtiles ? "redo pmtiles" : "build"} (group=${r.group}, ${r.pbfUrl})`);
+    console.log(
+      `${tag} — would ${redoPmtiles ? "redo pmtiles" : "build"} (group=${r.group}, ${r.pbfUrl})`
+    );
     continue;
   }
 
+  const logRel = join("work", r.slug, "build.log");
+  const logPath = join(PIPELINE_DIR, logRel);
   let stage = redoPmtiles ? "pmtiles" : "all";
-  try {
-    console.log(`${tag} — ${redoPmtiles ? "re-extracting tiles" : "building"}`);
+  const attempt = async (): Promise<void> => {
     if (redoPmtiles) {
-      runMake("pmtiles", makeVars(r));
+      stage = "pmtiles";
+      await runMake("pmtiles", makeVars(r), logPath);
       stage = "manifest";
-      runMake("manifest", makeVars(r));
+      await runMake("manifest", makeVars(r), logPath);
     } else {
-      runMake("all", makeVars(r));
+      stage = "all";
+      await runMake("all", makeVars(r), logPath);
     }
     if (!noUpload) {
       stage = "upload";
-      runMake("upload", makeVars(r));
+      await runMake("upload", makeVars(r), logPath);
     }
-    // Free work/<slug> (multi-GB for large regions). On failure it is kept for inspection.
+    // Free work/<slug> (multi-GB for large regions), build.log included. On
+    // failure it is kept for inspection.
     stage = "clean";
-    runMake("clean", [`REGION=${r.slug}`]);
+    await runMake("clean", [`REGION=${r.slug}`]);
+  };
+
+  console.log(`${tag} — ${redoPmtiles ? "re-extracting tiles" : "building"}`);
+  let error = "";
+  let ok = false;
+  for (let n = 0; n <= retries && !ok; n++) {
+    if (n > 0) {
+      console.warn(
+        `${tag} — failed at ${stage} (${error}); retry ${n}/${retries} in ${RETRY_SLEEP_SEC}s`
+      );
+      await sleep(RETRY_SLEEP_SEC);
+    }
+    try {
+      mkdirSync(dirname(logPath), { recursive: true });
+      writeFileSync(logPath, ""); // fresh log per attempt
+      await attempt();
+      ok = true;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+  if (ok) {
     logOutcome({ slug: r.slug, version, status: "done" });
     built++;
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    console.error(`${tag} — FAILED at ${stage}: ${error}`);
-    logOutcome({ slug: r.slug, version, status: "failed", stage, error });
+  } else {
+    console.error(`${tag} — FAILED at ${stage}: ${error} (see ${logRel})`);
+    logOutcome({ slug: r.slug, version, status: "failed", stage, error, log: logRel });
     failed++;
   }
   if (sleepSec > 0 && i < regions.length - 1) await sleep(sleepSec);
 }
 
-console.log(`\nbatch done: ${built} built, ${skipped} skipped, ${failed} failed (VERSION=${version})`);
+console.log(
+  `\nbatch done: ${built} built, ${skipped} skipped, ${failed} failed (VERSION=${version})`
+);
 if (failed > 0) {
   console.log(`see ${LOG_PATH}; re-run with --retry-failed --version ${version}`);
   process.exit(1);

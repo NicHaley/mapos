@@ -242,7 +242,9 @@ function loadAdmins(path: string): AdminArea[] {
       continue;
     }
     const tags = (feature.properties ?? {}) as Tags;
-    const name = tags.name?.trim();
+    // English name where available so the composed admin context reads in one
+    // language and matches the basemap (lang:"en") and place primaries.
+    const name = tags["name:en"]?.trim() || tags.name?.trim();
     const level = Number.parseInt(tags.admin_level ?? "", 10);
     const geom = feature.geometry;
     if (!name || !Number.isFinite(level) || !geom) continue;
@@ -313,8 +315,9 @@ const DEFAULT_MAX_CITY_LEVEL = 8;
  * containing hierarchy (areas coarser than the feature itself), then pick ONE area from
  * the sub-municipal band (a district/suburb) and ONE from the municipality band (the city
  * — never skipped in favour of the state, which is what mislabels Bremerhaven as Bremen),
- * and ALWAYS append the country. The country comes from the region's group, not the
- * polygons — a city extract has no level-2 boundary, just as Nominatim uses a country table.
+ * and ALWAYS append the country. The country comes from the region's group (--country) when
+ * set — a city extract has no level-2 boundary — otherwise from a level-2 polygon, which is
+ * how the world index (no single --country, but ships country polygons) gets it.
  */
 function adminContextFor(
   lng: number,
@@ -326,6 +329,7 @@ function adminContextFor(
   // band is the most specific in that band: the smallest district, and the city itself.
   let locality: string | null = null; // sub-municipal: district / borough / suburb
   let city: string | null = null; // municipality / county / state (first <= maxCityLevel)
+  let countryArea: string | null = null; // admin_level 2, tracked apart from the city band
   let coarsest: string | null = null; // fallback when nothing reaches the municipality band
   for (const a of admins) {
     if (lng < a.bbox[0] || lng > a.bbox[2] || lat < a.bbox[1] || lat > a.bbox[3]) continue;
@@ -333,7 +337,9 @@ function adminContextFor(
     if (a.name === opts.ownName) continue; // nor by an area sharing its name (places only)
     if (!a.polys.some((rings) => pointInRings(lng, lat, rings))) continue;
     coarsest = a.name; // sorted desc, so the last match seen is the coarsest
-    if (a.level > opts.maxCityLevel) {
+    if (a.level === 2) {
+      countryArea = a.name; // country tier — kept separate so it never fills the city slot
+    } else if (a.level > opts.maxCityLevel) {
       if (!locality) locality = a.name;
     } else if (!city) {
       city = a.name;
@@ -341,12 +347,15 @@ function adminContextFor(
   }
   // If no area reached the municipality band (a country whose smallest admin unit is
   // sub-municipal, or a sparse extract), fall back to the coarsest area so the city tier
-  // is never silently dropped.
-  if (!city && coarsest && coarsest !== locality) city = coarsest;
+  // is never silently dropped — unless that coarsest area is the country itself.
+  if (!city && coarsest && coarsest !== locality && coarsest !== countryArea) city = coarsest;
   const parts: string[] = [];
   if (locality) parts.push(locality);
   if (city && city !== locality) parts.push(city);
-  if (opts.country && !parts.includes(opts.country)) parts.push(opts.country);
+  // Country: the explicit --country (a pack's group) wins; otherwise the level-2 polygon.
+  // The world index ships country + province polygons but no single --country flag.
+  const countryName = opts.country ?? countryArea;
+  if (countryName && !parts.includes(countryName)) parts.push(countryName);
   return parts.length ? parts.join(", ") : null;
 }
 
@@ -431,11 +440,21 @@ try {
     // Descriptor tags (cuisine, sport) extend the blob so "sushi"/"tennis" match.
     const cat = c.kind === "poi" ? resolveCategory(c.cls) : null;
     const categoryTerms = cat ? [cat.synonyms, ...descriptorTerms(tags)].join(" ") : null;
+    // Primary label in English where available, matching the basemap (rendered with
+    // lang:"en") and the world index, and giving English queries the exact-name boost
+    // (so "germany" beats German cities carrying "Germany" in their context). The local
+    // name stays searchable as an alt — both pipelines (osmium and the world pmtiles
+    // extractor) feed this the same {name, name:en} shape, so the rule lives here only.
+    const localName = tags.name;
+    const enName = tags["name:en"]?.trim();
+    const primaryName = enName || localName;
+    const alts = altNames(tags);
     insert.run({
       osm_type: tags["@type"] ?? "",
       osm_id: tags["@id"] ? Number.parseInt(tags["@id"], 10) : 0,
-      name: tags.name,
-      alt_names: altNames(tags),
+      name: primaryName,
+      alt_names:
+        localName && localName !== primaryName ? (alts ? `${localName}\n${alts}` : localName) : alts,
       kind: c.kind,
       cls: c.cls,
       category: cat?.category ?? null,
@@ -454,7 +473,8 @@ try {
             : Number.POSITIVE_INFINITY,
         // Only a place suppresses a same-named container (so the city "Berlin" → "Germany",
         // not "Berlin, Germany"). A POI named "Berlin" should still keep "Berlin" as context.
-        ownName: c.kind === "place" ? tags.name : "",
+        // Use the English primary, since admin names are now resolved in English too.
+        ownName: c.kind === "place" ? primaryName : "",
         country,
         maxCityLevel
       }),

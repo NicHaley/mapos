@@ -69,6 +69,20 @@ function formatConversationDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * Electron wraps IPC failures as "Error invoking remote method '…': SomeError: <msg>".
+ * Strip the invoke wrapper and the error-class prefix so the user sees the human
+ * reason, not a stack-trace-looking string.
+ */
+function cleanErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : "";
+  const cleaned = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, "")
+    .replace(/^\w*Error:\s*/, "")
+    .trim();
+  return cleaned || "Search failed";
+}
+
 export type GeocodeSearchPanelProps = {
   /** When false, search is idle and internal query is cleared. */
   active: boolean;
@@ -143,7 +157,7 @@ export function GeocodeSearchPanel({
       })
       .catch((e: unknown) => {
         if (e instanceof Error && e.name === "AbortError") return;
-        setError(e instanceof Error ? e.message : "Search failed");
+        setError(cleanErrorMessage(e));
         setResults([]);
       })
       .finally(() => {

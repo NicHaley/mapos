@@ -3,6 +3,7 @@ import { CircularProgress } from "@mapos/ui/components/circular-progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { formatBytes } from "@renderer/lib/format";
+import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage";
 import { DownloadIcon, GlobeIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
@@ -15,21 +16,6 @@ import { type RegionRow, useRegionPacks } from "../../hooks/use-region-packs";
 // Below this zoom the map shows roughly a continent or more, where "is this area
 // downloaded" isn't a meaningful question — hide the indicator entirely.
 const MIN_ZOOM = 4;
-
-type Bbox = [number, number, number, number];
-
-/**
- * Point-in-bbox test. Mirrors `contains()` in
- * apps/dashboard/src/main/services/offline/installed-regions.ts (the source of truth for
- * region selection); that module is Node-only, so it can't be imported into the renderer.
- */
-function bboxContains(b: Bbox, lng: number, lat: number): boolean {
-  return lng >= b[0] && lng <= b[2] && lat >= b[1] && lat <= b[3];
-}
-
-function bboxArea(b: Bbox): number {
-  return (b[2] - b[0]) * (b[3] - b[1]);
-}
 
 function stop(e: React.SyntheticEvent): void {
   e.stopPropagation();

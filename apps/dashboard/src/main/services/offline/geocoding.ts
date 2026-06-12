@@ -108,6 +108,20 @@ function inFilter(
   return ` AND ${column} IN (${names.join(", ")})`;
 }
 
+/**
+ * Dedup key for collapsing the same place returned by a pack and the world index.
+ * Folds case + diacritics to match the FTS tokenizer (`remove_diacritics`), so the
+ * pack's local name ("Montréal") and the world index's English name ("Montreal")
+ * collapse to one row; the ~10 km grid keeps distinct same-named places apart.
+ */
+function dedupeKey(name: string, lat: number, lng: number): string {
+  const folded = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  return `${folded}|${Math.round(lat * 10)}|${Math.round(lng * 10)}`;
+}
+
 function rowToResult(row: FeatureRow, region: string): GeocodeResult {
   // Street line (own addr:* tags) + admin hierarchy, e.g. "Skalitzer Str. 12, Kreuzberg,
   // Berlin, Germany". Falls back to the pack region when the pack carries neither — but
@@ -241,7 +255,7 @@ async function forward(
   const deduped: typeof merged = [];
   const slot = new Map<string, number>();
   for (const m of merged) {
-    const key = `${m.row.name.toLowerCase()}|${Math.round(m.row.lat * 10)}|${Math.round(m.row.lng * 10)}`;
+    const key = dedupeKey(m.row.name, m.row.lat, m.row.lng);
     const at = slot.get(key);
     if (at === undefined) {
       slot.set(key, deduped.length);

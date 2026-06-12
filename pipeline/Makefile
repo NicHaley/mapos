@@ -60,6 +60,10 @@ WORLD_MAXZOOM ?= 6
 # admin context (the bundled world.pmtiles has only point labels, not polygons).
 # Build-time input only — not shipped in the app.
 NE_ADMIN0_URL ?= https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson
+# 10m (not 50m) admin-1: NE only carries provinces for ~9 large federal countries at
+# 50m; 10m covers all ~4,600 worldwide. It's a build input (not bundled), so the
+# larger file costs nothing at runtime.
+NE_ADMIN1_URL ?= https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson
 WORLD_WORK := work/_world
 DASHBOARD_ASSETS ?= ../apps/dashboard/resources/basemap-assets
 BUCKET    ?= mapos-regions
@@ -214,13 +218,17 @@ world: dist-guard
 
 # Coarse global geocode index (countries + major cities) extracted from the world
 # basemap, so search/reverse work with zero region packs. Decoupled from the heavy
-# per-region pipeline: rebuild whenever world.pmtiles is refreshed. Country context
-# comes from Natural Earth admin-0 via the same point-in-polygon path packs use.
+# per-region pipeline: rebuild whenever world.pmtiles is refreshed. Admin context
+# ("Montreal -> Quebec, Canada") comes from Natural Earth admin-0 (countries) +
+# admin-1 (states/provinces) via the same point-in-polygon path packs use.
 world-geocode: dist-guard $(DIST_DIR)/_world/world.pmtiles
 	@mkdir -p $(WORLD_WORK)
 	@test -f $(WORLD_WORK)/ne_admin0.geojson || \
 	  { echo "==> fetching Natural Earth admin-0"; curl -fsSL -o $(WORLD_WORK)/ne_admin0.geojson "$(NE_ADMIN0_URL)"; }
+	@test -f $(WORLD_WORK)/ne_admin1.geojson || \
+	  { echo "==> fetching Natural Earth admin-1"; curl -fsSL -o $(WORLD_WORK)/ne_admin1.geojson "$(NE_ADMIN1_URL)"; }
 	pnpm exec tsx geocode/ne-admins-to-seq.ts $(WORLD_WORK)/ne_admin0.geojson > $(WORLD_WORK)/world-admins.geojsonseq
+	pnpm exec tsx geocode/ne-admins-to-seq.ts --level 4 $(WORLD_WORK)/ne_admin1.geojson >> $(WORLD_WORK)/world-admins.geojsonseq
 	pnpm exec tsx geocode/extract-world-places.ts $(DIST_DIR)/_world/world.pmtiles \
 	  | pnpm exec tsx geocode/build-geocode.ts $(DIST_DIR)/_world/world.sqlite --region "World" \
 	      --admins $(WORLD_WORK)/world-admins.geojsonseq

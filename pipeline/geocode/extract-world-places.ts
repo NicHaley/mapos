@@ -62,6 +62,9 @@ type PlaceProps = Record<string, unknown>;
 /** Map a places-layer feature to synthetic OSM tags, or null to drop it. */
 function toTags(props: PlaceProps): Record<string, string> | null {
   const kind = typeof props.kind === "string" ? props.kind : "";
+  // Emit the raw local name as `name` (+ name:* incl. name:en), exactly the shape
+  // `osmium export` produces for packs. build-geocode owns the name:en-primary rule,
+  // so both pipelines converge on one convention.
   const name = typeof props.name === "string" ? props.name.trim() : "";
   if (!name) return null;
 
@@ -106,44 +109,58 @@ async function main(): Promise<void> {
   const source = new NodeFileSource(input);
   const pmtiles = new PMTiles(source);
   const header = await pmtiles.getHeader();
-  // Every place with min_zoom <= maxZoom is present at the archive's maxZoom, so a
-  // single sweep of that level captures all of them exactly once (modulo edge buffers).
-  const z = Number.isFinite(maxzoomArg) ? maxzoomArg : header.maxZoom;
-  const side = 2 ** z;
+  // Sweep every zoom 0..maxZoom and union. A label isn't present at all zooms: it
+  // has a min_zoom AND (for coarse tiers) a max_zoom — country labels are drawn at
+  // low zoom and dropped higher up so a continent-sized name doesn't blanket the
+  // map. So a single-level sweep would miss big countries (visible only at low z)
+  // or, at low z, the cities (visible only higher). Dedup collapses cross-zoom and
+  // tile-edge repeats; wikidata is the stable key, with a ~1 km grid fallback.
+  const maxZoom = Number.isFinite(maxzoomArg) ? maxzoomArg : header.maxZoom;
 
   const seen = new Set<string>();
   const counts: Record<string, number> = {};
   let emitted = 0;
 
-  for (let x = 0; x < side; x++) {
-    for (let y = 0; y < side; y++) {
-      const tile = await pmtiles.getZxy(z, x, y);
-      if (!tile?.data) continue;
-      let bytes = new Uint8Array(tile.data);
-      if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
-      const layer = new VectorTile(new Pbf(bytes)).layers.places;
-      if (!layer) continue;
-      for (let i = 0; i < layer.length; i++) {
-        const f = layer.feature(i);
-        const tags = toTags(f.properties as PlaceProps);
-        if (!tags) continue;
-        const gj = f.toGeoJSON(x, y, z) as Feature<Point>;
-        if (gj.geometry?.type !== "Point") continue;
-        const [lng, lat] = gj.geometry.coordinates;
-        const key = dedupeKey(tags, lng, lat);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        counts[tags.place] = (counts[tags.place] ?? 0) + 1;
-        process.stdout.write(
-          `${JSON.stringify({ type: "Feature", geometry: gj.geometry, properties: tags })}\n`
-        );
-        emitted += 1;
+  for (let z = 0; z <= maxZoom; z++) {
+    const side = 2 ** z;
+    for (let x = 0; x < side; x++) {
+      for (let y = 0; y < side; y++) {
+        const tile = await pmtiles.getZxy(z, x, y);
+        if (!tile?.data) continue;
+        let bytes = new Uint8Array(tile.data);
+        if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
+        const layer = new VectorTile(new Pbf(bytes)).layers.places;
+        if (!layer) continue;
+        for (let i = 0; i < layer.length; i++) {
+          const f = layer.feature(i);
+          const tags = toTags(f.properties as PlaceProps);
+          if (!tags) continue;
+          const gj = f.toGeoJSON(x, y, z) as Feature<Point>;
+          if (gj.geometry?.type !== "Point") continue;
+          const [rawLng, lat] = gj.geometry.coordinates;
+          // Low-zoom tiles + tile buffers can project a longitude outside [-180,180]
+          // (Sydney came out at -208.78 = 151.22 - 360), which breaks point-in-polygon
+          // admin lookup and the map marker. Wrap to the canonical range.
+          const lng = ((((rawLng + 180) % 360) + 360) % 360) - 180;
+          const key = dedupeKey(tags, lng, lat);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          counts[tags.place] = (counts[tags.place] ?? 0) + 1;
+          process.stdout.write(
+            `${JSON.stringify({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [lng, lat] },
+              properties: tags
+            })}\n`
+          );
+          emitted += 1;
+        }
       }
     }
   }
   source.close();
   console.error(
-    `extracted ${emitted.toLocaleString()} places from z${z} (${Object.entries(counts)
+    `extracted ${emitted.toLocaleString()} places from z0-${maxZoom} (${Object.entries(counts)
       .map(([k, v]) => `${k}:${v}`)
       .join(", ")})`
   );

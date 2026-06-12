@@ -220,18 +220,25 @@ world: dist-guard
 # basemap, so search/reverse work with zero region packs. Decoupled from the heavy
 # per-region pipeline: rebuild whenever world.pmtiles is refreshed. Admin context
 # ("Montreal -> Quebec, Canada") comes from Natural Earth admin-0 (countries) +
-# admin-1 (states/provinces) via the same point-in-polygon path packs use.
+# admin-1 (states/provinces) via the same point-in-polygon path packs use. The
+# places extract is materialized (not piped) because it feeds TWO steps: NE
+# polygons are renamed from it via Wikidata QID (--names) so the admin context
+# matches the searchable node names exactly ("United States", not NE's
+# map-label "United States of America").
 world-geocode: dist-guard $(DIST_DIR)/_world/world.pmtiles
 	@mkdir -p $(WORLD_WORK)
 	@test -f $(WORLD_WORK)/ne_admin0.geojson || \
 	  { echo "==> fetching Natural Earth admin-0"; curl -fsSL -o $(WORLD_WORK)/ne_admin0.geojson "$(NE_ADMIN0_URL)"; }
 	@test -f $(WORLD_WORK)/ne_admin1.geojson || \
 	  { echo "==> fetching Natural Earth admin-1"; curl -fsSL -o $(WORLD_WORK)/ne_admin1.geojson "$(NE_ADMIN1_URL)"; }
-	pnpm exec tsx geocode/ne-admins-to-seq.ts $(WORLD_WORK)/ne_admin0.geojson > $(WORLD_WORK)/world-admins.geojsonseq
-	pnpm exec tsx geocode/ne-admins-to-seq.ts --level 4 $(WORLD_WORK)/ne_admin1.geojson >> $(WORLD_WORK)/world-admins.geojsonseq
 	pnpm exec tsx geocode/extract-world-places.ts $(DIST_DIR)/_world/world.pmtiles \
-	  | pnpm exec tsx geocode/build-geocode.ts $(DIST_DIR)/_world/world.sqlite --region "World" \
-	      --admins $(WORLD_WORK)/world-admins.geojsonseq
+	  > $(WORLD_WORK)/world-places.geojsonseq
+	pnpm exec tsx geocode/ne-admins-to-seq.ts --names $(WORLD_WORK)/world-places.geojsonseq \
+	  $(WORLD_WORK)/ne_admin0.geojson > $(WORLD_WORK)/world-admins.geojsonseq
+	pnpm exec tsx geocode/ne-admins-to-seq.ts --level 4 --names $(WORLD_WORK)/world-places.geojsonseq \
+	  $(WORLD_WORK)/ne_admin1.geojson >> $(WORLD_WORK)/world-admins.geojsonseq
+	pnpm exec tsx geocode/build-geocode.ts $(DIST_DIR)/_world/world.sqlite --region "World" \
+	  --admins $(WORLD_WORK)/world-admins.geojsonseq < $(WORLD_WORK)/world-places.geojsonseq
 	@ls -lh $(DIST_DIR)/_world/world.sqlite
 
 bundle-world: $(DIST_DIR)/_world/world.pmtiles $(DIST_DIR)/_world/world.sqlite
@@ -243,7 +250,12 @@ bundle-world: $(DIST_DIR)/_world/world.pmtiles $(DIST_DIR)/_world/world.sqlite
 $(DIST_DIR)/_world/world.pmtiles:
 	$(MAKE) world
 
-$(DIST_DIR)/_world/world.sqlite:
+# Depends on world.pmtiles (the index is derived from its places layer) AND the
+# scripts that build it, so neither a refreshed basemap nor a pipeline change can
+# silently bundle a stale geocode index.
+$(DIST_DIR)/_world/world.sqlite: $(DIST_DIR)/_world/world.pmtiles \
+    geocode/extract-world-places.ts geocode/ne-admins-to-seq.ts \
+    geocode/build-geocode.ts geocode/schema.sql
 	$(MAKE) world-geocode
 
 # ------------------------------------------------------------ manifest/up ----

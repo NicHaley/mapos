@@ -89,7 +89,8 @@ export function registerAssetProtocol(assetsDir: string): void {
 }
 
 const CORS = { "access-control-allow-origin": "*" } as const;
-const ATTRIBUTION = '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>';
+const ATTRIBUTION =
+  '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
 
 // Zero bytes is a valid empty protobuf (no layers / no glyphs). Serving it for a
 // missing tile or glyph range keeps MapLibre quiet (no 404 log) while it falls

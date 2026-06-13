@@ -33,6 +33,7 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
+import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
@@ -59,41 +60,6 @@ function geometryUsesMapClickPulseAnchor(geometryJson: string | undefined): bool
   } catch {
     return false;
   }
-}
-
-function representativeLngLatFromGeometryJson(geometryJson: string): [number, number] | null {
-  try {
-    const geo = JSON.parse(geometryJson) as {
-      type: string;
-      coordinates: unknown;
-    };
-    if (geo.type === "Point" && Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
-      const c = geo.coordinates as number[];
-      const lng = c[0];
-      const lat = c[1];
-      if (typeof lng !== "number" || typeof lat !== "number") return null;
-      return [lng, lat];
-    }
-    if (geo.type === "LineString" && Array.isArray(geo.coordinates)) {
-      const [minLng, minLat, maxLng, maxLat] = bbox({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: geo.coordinates as [number, number][] },
-        properties: {}
-      });
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-    }
-    if (geo.type === "Polygon" && Array.isArray(geo.coordinates)) {
-      const [minLng, minLat, maxLng, maxLat] = bbox({
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: geo.coordinates as [number, number][][] },
-        properties: {}
-      });
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
@@ -836,13 +802,13 @@ function App(): React.JSX.Element {
   const savePreviewPlaceToVault = useCallback(
     async (place: PlaceRecord | null) => {
       if (place?.previewMarkdown === undefined || !place.geometry) return;
-      const lngLat = representativeLngLatFromGeometryJson(place.geometry);
-      if (!lngLat) return;
-      const [lng, lat] = lngLat;
+      // Preserve the feature's geometry type: points save as lat/lng, lines and
+      // polygons as WKT — otherwise a selected polygon would be flattened to a point.
+      const geometryArgs = geometryJsonToCreateArgs(place.geometry);
+      if (!geometryArgs) return;
       const create = await window.api.fs.createNoteFile({
         parentFolderPath: parentFolderForNewFiles,
-        lat,
-        lng,
+        ...geometryArgs,
         includePlaceFrontmatterDefaults: false
       });
       if (!create.success) {

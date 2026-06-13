@@ -1,9 +1,8 @@
 import type { MapOverlayPayload } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { useCallback } from "react";
+import { type GeometryCreateArgs, lineStringWkt, polygonWkt } from "../lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "../lib/place-utils";
-
-type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 
 type OverlayFeature = {
   title: string;
@@ -11,23 +10,8 @@ type OverlayFeature = {
   /** Structured details persisted as frontmatter (points only). */
   properties?: Record<string, string>;
   /** Args for createNoteFile that produce the right `geometry` frontmatter. */
-  createArgs: Omit<CreateNoteArgs, "parentFolderPath">;
+  createArgs: GeometryCreateArgs;
 };
-
-function fmtCoord(n: number): string {
-  return Number.isFinite(n) ? String(n) : "0";
-}
-
-function lineStringWkt(coords: [number, number][]): string {
-  return `LINESTRING(${coords.map(([lng, lat]) => `${fmtCoord(lng)} ${fmtCoord(lat)}`).join(", ")})`;
-}
-
-function polygonWkt(rings: [number, number][][]): string {
-  const parts = rings.map(
-    (ring) => `(${ring.map(([lng, lat]) => `${fmtCoord(lng)} ${fmtCoord(lat)}`).join(", ")})`
-  );
-  return `POLYGON(${parts.join(", ")})`;
-}
 
 function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
   const { points, lines, polygons } = mapOverlay;

@@ -336,7 +336,7 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
         {hasDetail && (
           <ChevronDownIcon
             className={cn(
-              "size-3.5 shrink-0 transition-transform ml-auto",
+              "size-3.5 shrink-0 transition-transform",
               expanded ? "rotate-180" : "rotate-0"
             )}
           />

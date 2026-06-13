@@ -212,7 +212,6 @@ export type ChatStore = {
   sendMessage: (convId: string, text: string) => void;
   abort: (convId: string) => void;
   undo: (convId: string) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
-  clearOverlay: (convId: string) => void;
   deleteConversation: (convId: string) => Promise<void>;
   renameConversation: (convId: string, title: string) => Promise<{ success: boolean; error?: string }>;
   removeFromStore: (convId: string) => void;
@@ -300,10 +299,6 @@ export function useChatStore(): ChatStore {
     return result;
   }, []);
 
-  const clearOverlay = useCallback((convId: string) => {
-    window.api.chat.clearOverlay(convId);
-  }, []);
-
   const deleteConversation = useCallback(async (convId: string) => {
     await window.api.chat.deleteConversation(convId);
     dispatch({ type: "remove", convId });
@@ -324,7 +319,6 @@ export function useChatStore(): ChatStore {
     sendMessage,
     abort,
     undo,
-    clearOverlay,
     deleteConversation,
     renameConversation,
     removeFromStore

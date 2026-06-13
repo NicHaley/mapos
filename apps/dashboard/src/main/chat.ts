@@ -16,6 +16,7 @@ import {
   type UserMessage
 } from "@earendil-works/pi-ai";
 import { type BrowserWindow, ipcMain } from "electron";
+import type { GeocodeResult } from "@mapos/contracts";
 import type { PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
@@ -189,6 +190,23 @@ export function setupChat(
   const undoEntries = new Map<string, UndoEntry>();
   /** Active turn streaming state, keyed by convId. */
   const turnStates = new Map<string, TurnState>();
+  /**
+   * Geocoder results cached per conversation, keyed by `GeocodeResult.id`, so
+   * `present_features` can resolve a `result_id` back to the source result and derive
+   * its facts (rather than trusting the model's reformatting). Scoped to the conversation
+   * — not the Pi session — so it survives across turns AND across session re-creation on a
+   * config change. In-memory only: empty after an app restart, after which a stale
+   * `result_id` reports a cache miss and the agent re-searches.
+   */
+  const geocodeCaches = new Map<string, Map<string, GeocodeResult>>();
+  function geocodeCacheForConv(convId: string): Map<string, GeocodeResult> {
+    let cache = geocodeCaches.get(convId);
+    if (!cache) {
+      cache = new Map();
+      geocodeCaches.set(convId, cache);
+    }
+    return cache;
+  }
 
   initConversationsDir();
 
@@ -249,7 +267,8 @@ export function setupChat(
         conv.layers = [];
         saveConvState(convId, { layers: [] });
       },
-      () => (conversations.get(convId)?.layers?.length ?? 0) > 0
+      () => (conversations.get(convId)?.layers?.length ?? 0) > 0,
+      geocodeCacheForConv(convId)
     );
   }
 
@@ -545,16 +564,6 @@ export function setupChat(
     return { success: errors.length === 0, errors };
   });
 
-  ipcMain.on("chat:clear-overlay", (_event, payload: { convId: string }) => {
-    const conv = conversations.get(payload.convId);
-    if (!conv) return;
-    conv.layers = [];
-    saveConvState(payload.convId, { layers: [] });
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("map:overlay-clear");
-    }
-  });
-
   ipcMain.handle("chat:rename-conversation", (_event, id: string, rawTitle: string) => {
     const title = rawTitle.trim();
     if (!title) return { success: false, error: "Title cannot be empty" };
@@ -593,6 +602,7 @@ export function setupChat(
       compactIndex(entries);
       conversations.delete(id);
       undoEntries.delete(id);
+      geocodeCaches.delete(id);
     } catch (err) {
       console.error("[main] failed to delete conversation:", err);
     }
@@ -605,7 +615,7 @@ export function setupChat(
     "chat:delete-conversation",
     "chat:rename-conversation"
   ] as const;
-  const CHAT_ON_CHANNELS = ["chat:send", "chat:abort", "chat:clear-overlay"] as const;
+  const CHAT_ON_CHANNELS = ["chat:send", "chat:abort"] as const;
 
   return function stopChat(): void {
     for (const entry of sessions.values()) {

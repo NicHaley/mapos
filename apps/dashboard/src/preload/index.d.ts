@@ -239,7 +239,6 @@ declare global {
       chat: {
         send: (convId: string, message: string) => void;
         abort: (convId: string) => void;
-        clearOverlay: (convId: string) => void;
         loadConversation: (convId: string) => Promise<ConversationLoadResult>;
         listConversations: () => Promise<ConversationMeta[]>;
         deleteConversation: (id: string) => Promise<void>;

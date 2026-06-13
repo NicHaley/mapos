@@ -365,7 +365,6 @@ const api = {
         success: boolean;
         error?: string;
       }>,
-    clearOverlay: (convId: string) => ipcRenderer.send("chat:clear-overlay", { convId }),
     onChunk: (cb: (data: ChatChunkPayload) => void) =>
       ipcRenderer.on("chat:chunk", (_e, d) => cb(d)),
     onThinkingChunk: (cb: (data: ChatChunkPayload) => void) =>

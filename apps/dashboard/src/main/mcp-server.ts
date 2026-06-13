@@ -169,7 +169,10 @@ export function buildMaposCustomTools(
   onVaultWrite: (op: VaultOperation) => void,
   onLayerUpdate: (layer: MapOverlayLayer) => void,
   onLayersClear: () => void,
-  hasLayers: () => boolean
+  hasLayers: () => boolean,
+  /** Conversation-scoped cache of geocoder results, keyed by `GeocodeResult.id`. Owned by
+   *  the caller so it outlives this tool set (which is rebuilt when the session is). */
+  geocodeStore: Map<string, GeocodeResult>
 ): ToolDefinition[] {
   // Pass-by-reference store for large geometries returned to the agent.
   const routeStore = new Map<string, [number, number][]>();
@@ -185,11 +188,11 @@ export function buildMaposCustomTools(
     return id;
   };
 
-  // Pass-by-reference store for geocoder results. present_features references a result
-  // by its `id`, and the structured details are derived HERE from the cached result —
-  // identical to the search UI — so facts never round-trip through (and get reformatted
-  // or fabricated by) the model. Keyed by GeocodeResult.id, which is already stable.
-  const geocodeStore = new Map<string, GeocodeResult>();
+  // `geocodeStore` (passed in, conversation-scoped) caches geocoder results so
+  // present_features can reference a result by its `id`: the structured details are derived
+  // HERE from the cached result — identical to the search UI — so facts never round-trip
+  // through (and get reformatted or fabricated by) the model. Keyed by the stable
+  // GeocodeResult.id.
   const stashGeocodeResults = (results: GeocodeResult[]): void => {
     for (const r of results) {
       geocodeStore.set(r.id, r);
@@ -401,6 +404,10 @@ export function buildMaposCustomTools(
       const layerId = toolCallId;
       const refs: string[] = [];
       const points: MapOverlayLayer["points"] = [];
+      // result_ids the model referenced that aren't in the cache (and had no coord
+      // fallback), so they were dropped. Reported back so the agent re-searches instead
+      // of silently showing a short list. Happens mainly after a restart clears the cache.
+      const unresolvedResultIds: string[] = [];
       args.features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
           refs.push(`vault:${f.path}`);
@@ -431,8 +438,9 @@ export function buildMaposCustomTools(
             refs.push(`overlay:${id}`);
             return;
           }
-          // Cache miss (e.g. referenced across a reload): fall through to ad-hoc coords
-          // if the model also supplied them, otherwise skip this feature.
+          // Cache miss (e.g. referenced after a restart cleared the cache): fall through
+          // to ad-hoc coords if the model also supplied them, otherwise record it as
+          // unresolved below so the agent knows to re-search.
         }
 
         if (typeof f.lat === "number" && typeof f.lng === "number" && f.title) {
@@ -446,7 +454,13 @@ export function buildMaposCustomTools(
             ...(Object.keys(properties).length > 0 ? { properties } : {})
           });
           refs.push(`overlay:${id}`);
+          return;
         }
+
+        // Nothing resolved this feature. If it named a result_id, surface it so the
+        // agent re-searches; a feature with no result_id/path/coords is a malformed
+        // call and is simply skipped.
+        if (f.result_id) unresolvedResultIds.push(f.result_id);
       });
 
       // Only emit a layer when there are ad-hoc points to draw. An all-vault list
@@ -469,6 +483,12 @@ export function buildMaposCustomTools(
           kind: "feature_list",
           count: refs.length,
           refs: refs.join(","),
+          ...(unresolvedResultIds.length > 0
+            ? {
+                unresolved_result_ids: unresolvedResultIds,
+                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
+              }
+            : {}),
           assistant_instructions:
             "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
         })

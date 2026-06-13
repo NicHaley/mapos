@@ -922,6 +922,7 @@ export function ChatPane({
           )}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
+              autoFocus
               placeholder={
                 aiConfigured === false
                   ? "Connect AI in Settings to start chatting"

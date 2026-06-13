@@ -1,3 +1,9 @@
+import type {
+  AssistantMessage as PiAssistantMessage,
+  ToolResultMessage as PiToolResultMessage,
+  UserMessage as PiUserMessage,
+  TextContent
+} from "@earendil-works/pi-ai";
 import {
   Conversation,
   ConversationContent,
@@ -26,12 +32,6 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
-import type {
-  AssistantMessage as PiAssistantMessage,
-  TextContent,
-  ToolResultMessage as PiToolResultMessage,
-  UserMessage as PiUserMessage
-} from "@earendil-works/pi-ai";
 import type { MapOverlayPayload, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
@@ -50,10 +50,7 @@ import {
   XIcon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  FeatureMessageProvider,
-  FeatureResolverProvider
-} from "../contexts/feature-resolver";
+import { FeatureMessageProvider, FeatureResolverProvider } from "../contexts/feature-resolver";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FeatureList } from "./feature-list";
 import { FolderPickerPopover } from "./folder-picker-popover";
@@ -61,13 +58,10 @@ import { FolderPickerPopover } from "./folder-picker-popover";
 const STREAMDOWN_FEATURES_COMPONENTS = { features: FeatureList };
 const STREAMDOWN_FEATURES_ALLOWED_TAGS = { features: ["refs"] };
 
-const VAULT_FILE_TOOLS = new Set([
-  "write_vault_file",
-  "delete_vault_file",
-  "rename_vault_file"
-]);
+const VAULT_FILE_TOOLS = new Set(["write_vault_file", "delete_vault_file", "rename_vault_file"]);
 
 const TOOL_LABELS: Record<string, string> = {
+  present_features: "Showing Features",
   render_overlay_on_map: "Rendering On Map",
   clear_map_overlay: "Clearing Overlay",
   query_spatial_index: "Querying Vault",
@@ -373,6 +367,57 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
   );
 }
 
+/**
+ * Render a `present_features` tool call as the connected FeatureList. The tool
+ * returns `{ kind: "feature_list", refs }`; we resolve those refs against the
+ * live overlay / message snapshot via the same FeatureList used by `<features>`
+ * tags. While the call is still running (or if the result can't be parsed) fall
+ * back to the generic ToolCallRow so the user sees its status.
+ */
+function PresentFeaturesCard({ call }: { call: ActiveToolCall }): React.JSX.Element {
+  const refs = useMemo(() => {
+    if (!call.result) return null;
+    try {
+      const parsed = JSON.parse(call.result) as { refs?: unknown };
+      return typeof parsed.refs === "string" && parsed.refs.length > 0 ? parsed.refs : null;
+    } catch {
+      return null;
+    }
+  }, [call.result]);
+
+  if (call.status === "error" || !refs) return <ToolCallRow call={call} />;
+  return <FeatureList refs={refs} />;
+}
+
+/** Pick the right renderer for a tool call in the assistant bubble. */
+function ToolCallView({
+  call,
+  onOpenFile
+}: {
+  call: ActiveToolCall;
+  onOpenFile: (filePath: string) => void;
+}): React.JSX.Element {
+  if (VAULT_FILE_TOOLS.has(call.name)) return <FileChangeRow call={call} onOpenFile={onOpenFile} />;
+  return <ToolCallRow call={call} />;
+}
+
+/**
+ * Split a turn's tool calls into the `present_features` cards (rendered as the
+ * connected list, placed AFTER the assistant's synthesis text) and everything
+ * else (rendered as rows ABOVE the text). Keeping the list below the prose makes
+ * "Here are some spots near home:" read as the intro to its own card instead of
+ * a detached block up in the tool-call area.
+ */
+function splitFeatureCalls(calls: ActiveToolCall[]): {
+  featureCalls: ActiveToolCall[];
+  otherCalls: ActiveToolCall[];
+} {
+  const featureCalls: ActiveToolCall[] = [];
+  const otherCalls: ActiveToolCall[] = [];
+  for (const c of calls) (c.name === "present_features" ? featureCalls : otherCalls).push(c);
+  return { featureCalls, otherCalls };
+}
+
 function mapOverlayFeatureCount(o: MapOverlayPayload): number {
   return o.points.length + o.lines.length + o.polygons.length;
 }
@@ -442,6 +487,8 @@ function AssistantBubble({
 
   if (!text && !thinking && toolCalls.length === 0) return null;
 
+  const { featureCalls, otherCalls } = splitFeatureCalls(toolCalls);
+
   return (
     <Message from="assistant">
       {thinking && (
@@ -450,15 +497,11 @@ function AssistantBubble({
           <ReasoningContent>{thinking}</ReasoningContent>
         </Reasoning>
       )}
-      {toolCalls.length > 0 && (
+      {otherCalls.length > 0 && (
         <div className="w-full flex flex-col gap-2">
-          {toolCalls.map((tc) =>
-            VAULT_FILE_TOOLS.has(tc.name) ? (
-              <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
-            ) : (
-              <ToolCallRow key={tc.id} call={tc} />
-            )
-          )}
+          {otherCalls.map((tc) => (
+            <ToolCallView key={tc.id} call={tc} onOpenFile={onOpenFile} />
+          ))}
         </div>
       )}
       {text && (
@@ -472,6 +515,15 @@ function AssistantBubble({
             </MessageResponse>
           </FeatureMessageProvider>
         </MessageContent>
+      )}
+      {featureCalls.length > 0 && (
+        <FeatureMessageProvider overlaySnapshot={overlaySnapshot}>
+          <div className="w-full flex flex-col gap-2">
+            {featureCalls.map((tc) => (
+              <PresentFeaturesCard key={tc.id} call={tc} />
+            ))}
+          </div>
+        </FeatureMessageProvider>
       )}
     </Message>
   );
@@ -553,6 +605,11 @@ export function ChatPane({
     streamingThinking !== "" ||
     activeToolCalls.length > 0;
 
+  // present_features renders as a list card below the streaming text; other tool
+  // calls render as rows above it (mirrors AssistantBubble for persisted turns).
+  const { featureCalls: streamingFeatureCalls, otherCalls: streamingOtherCalls } =
+    splitFeatureCalls(activeToolCalls);
+
   /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
   const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
@@ -573,9 +630,7 @@ export function ChatPane({
   }, [refreshAiStatus]);
 
   function openAiSettings(): void {
-    window.dispatchEvent(
-      new CustomEvent("mapos:open-settings", { detail: { section: "ai" } })
-    );
+    window.dispatchEvent(new CustomEvent("mapos:open-settings", { detail: { section: "ai" } }));
   }
 
   // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
@@ -622,250 +677,257 @@ export function ChatPane({
 
   return (
     <FeatureResolverProvider value={featureResolverValue}>
-    <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
-      <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
-        <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
-        <div className="flex items-center gap-1">
-          {isSavedConversation && (
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-                <EllipsisIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end">
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => void handleDeleteConversation()}
-                >
-                  <Trash2Icon />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <XIcon />
-          </Button>
-        </div>
-      </div>
-
-      <Conversation className="min-h-0">
-        <ConversationContent>
-          {aiConfigured === false && messages.length === 0 && (
-            <div className="mx-2 my-3 flex flex-col items-start gap-3 rounded-lg border border-dashed bg-sidebar-accent/30 px-4 py-5">
-              <div className="flex items-center gap-2">
-                <SparklesIcon className="size-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Connect AI to start chatting</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Bring your own Anthropic key or run a local model with Ollama.
-              </p>
-              <Button size="sm" onClick={openAiSettings}>
-                Open AI settings
-              </Button>
-            </div>
-          )}
-          {aiConfigured !== false &&
-            messages.length === 0 &&
-            !awaitingFirstToken &&
-            !streamingThinking &&
-            !streamingContent && (
-              <ConversationEmptyState
-                title=""
-                description="Ask about your saved places, notes, or get help organizing your map."
-              />
-            )}
-
-          {(() => {
-            // Walk the message list and merge consecutive assistant messages
-            // (toolResult rows between them don't break the group) into a
-            // single bubble. User and error rows flush the group.
-            const rendered: React.JSX.Element[] = [];
-            let group: PiAssistantMessage[] = [];
-
-            const flush = (): void => {
-              if (group.length === 0) return;
-              const last = group[group.length - 1];
-              if (!last) {
-                group = [];
-                return;
-              }
-              rendered.push(
-                <AssistantBubble
-                  key={`assistant_${group[0]?.timestamp}_${rendered.length}`}
-                  msgs={group}
-                  toolResultsById={toolResultsById}
-                  overlaySnapshot={overlaySnapshots[last.timestamp] ?? null}
-                  onOpenFile={onOpenFile}
-                />
-              );
-              group = [];
-            };
-
-            for (let idx = 0; idx < messages.length; idx++) {
-              const msg = messages[idx];
-              if (!msg) continue;
-              if (msg.role === "assistant") {
-                group.push(msg);
-                continue;
-              }
-              if (msg.role === "toolResult") continue;
-              flush();
-              if (msg.role === "error") {
-                rendered.push(
-                  <div
-                    key={msg.id}
-                    className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
+        <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
+          <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
+          <div className="flex items-center gap-1">
+            {isSavedConversation && (
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                  <EllipsisIcon />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="end">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => void handleDeleteConversation()}
                   >
-                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                    {msg.reconfigureProvider === "ai" && (
-                      <button
-                        type="button"
-                        onClick={openAiSettings}
-                        className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
-                      >
-                        Reconfigure →
-                      </button>
-                    )}
-                  </div>
-                );
-              } else if (msg.role === "user") {
-                rendered.push(
-                  <Message key={`${msg.timestamp}_${idx}`} from="user">
-                    <MessageContent>
-                      <MessageResponse>{userMessageText(msg)}</MessageResponse>
-                    </MessageContent>
-                  </Message>
-                );
-              }
-            }
-            flush();
-            return rendered;
-          })()}
+                    <Trash2Icon />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+              <XIcon />
+            </Button>
+          </div>
+        </div>
 
-          {awaitingFirstToken && (
-            <Message from="assistant">
-              <div
-                className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
-                aria-live="polite"
-              >
-                <PulseLoader color="text-muted-foreground/70" />
-                <Shimmer as="span" duration={1}>
-                  Working on it…
-                </Shimmer>
-              </div>
-            </Message>
-          )}
-
-          {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
-            <Message from="assistant">
-              {streamingThinking && (
-                <Reasoning isStreaming={!streamingContent}>
-                  <ReasoningTrigger />
-                  <ReasoningContent>{streamingThinking}</ReasoningContent>
-                </Reasoning>
-              )}
-              {activeToolCalls.length > 0 && (
-                <div className="w-full space-y-0.5">
-                  {activeToolCalls.map((tc) =>
-                    VAULT_FILE_TOOLS.has(tc.name) ? (
-                      <FileChangeRow key={tc.id} call={tc} onOpenFile={onOpenFile} />
-                    ) : (
-                      <ToolCallRow key={tc.id} call={tc} />
-                    )
-                  )}
+        <Conversation className="min-h-0">
+          <ConversationContent>
+            {aiConfigured === false && messages.length === 0 && (
+              <div className="mx-2 my-3 flex flex-col items-start gap-3 rounded-lg border border-dashed bg-sidebar-accent/30 px-4 py-5">
+                <div className="flex items-center gap-2">
+                  <SparklesIcon className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Connect AI to start chatting</span>
                 </div>
-              )}
-              {streamingContent && (
-                <MessageContent>
-                  <FeatureMessageProvider overlaySnapshot={null}>
-                    <MessageResponse
-                      isAnimating
-                      components={STREAMDOWN_FEATURES_COMPONENTS}
-                      allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
-                    >
-                      {streamingContent}
-                    </MessageResponse>
-                  </FeatureMessageProvider>
-                </MessageContent>
-              )}
-            </Message>
-          )}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
-
-      <div className="px-3 pb-3 pt-0">
-        {(canUndo || showAddAllToVaultRow) && (
-          <div className="flex flex-col gap-2 py-2">
-            {canUndo && (
-              <div className="flex justify-end">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className={overlayActionButtonClass}
-                  onClick={onUndo}
-                >
-                  <Undo2Icon className="size-3.5" />
-                  Undo
+                <p className="text-xs text-muted-foreground">
+                  Bring your own Anthropic key or run a local model with Ollama.
+                </p>
+                <Button size="sm" onClick={openAiSettings}>
+                  Open AI settings
                 </Button>
               </div>
             )}
-            {showAddAllToVaultRow && (
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="shrink-0">
-                  {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"}
-                </span>
-                <div className="flex items-center gap-1">
+            {aiConfigured !== false &&
+              messages.length === 0 &&
+              !awaitingFirstToken &&
+              !streamingThinking &&
+              !streamingContent && (
+                <ConversationEmptyState
+                  title=""
+                  description="Ask about your saved places, notes, or get help organizing your map."
+                />
+              )}
+
+            {(() => {
+              // Walk the message list and merge consecutive assistant messages
+              // (toolResult rows between them don't break the group) into a
+              // single bubble. User and error rows flush the group.
+              const rendered: React.JSX.Element[] = [];
+              let group: PiAssistantMessage[] = [];
+
+              const flush = (): void => {
+                if (group.length === 0) return;
+                const last = group[group.length - 1];
+                if (!last) {
+                  group = [];
+                  return;
+                }
+                rendered.push(
+                  <AssistantBubble
+                    key={`assistant_${group[0]?.timestamp}_${rendered.length}`}
+                    msgs={group}
+                    toolResultsById={toolResultsById}
+                    overlaySnapshot={overlaySnapshots[last.timestamp] ?? null}
+                    onOpenFile={onOpenFile}
+                  />
+                );
+                group = [];
+              };
+
+              for (let idx = 0; idx < messages.length; idx++) {
+                const msg = messages[idx];
+                if (!msg) continue;
+                if (msg.role === "assistant") {
+                  group.push(msg);
+                  continue;
+                }
+                if (msg.role === "toolResult") continue;
+                flush();
+                if (msg.role === "error") {
+                  rendered.push(
+                    <div
+                      key={msg.id}
+                      className="flex flex-col gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                    >
+                      <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                      {msg.reconfigureProvider === "ai" && (
+                        <button
+                          type="button"
+                          onClick={openAiSettings}
+                          className="self-start text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                        >
+                          Reconfigure →
+                        </button>
+                      )}
+                    </div>
+                  );
+                } else if (msg.role === "user") {
+                  rendered.push(
+                    <Message key={`${msg.timestamp}_${idx}`} from="user">
+                      <MessageContent>
+                        <MessageResponse>{userMessageText(msg)}</MessageResponse>
+                      </MessageContent>
+                    </Message>
+                  );
+                }
+              }
+              flush();
+              return rendered;
+            })()}
+
+            {awaitingFirstToken && (
+              <Message from="assistant">
+                <div
+                  className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground/70 not-prose"
+                  aria-live="polite"
+                >
+                  <PulseLoader color="text-muted-foreground/70" />
+                  <Shimmer as="span" duration={1}>
+                    Working on it…
+                  </Shimmer>
+                </div>
+              </Message>
+            )}
+
+            {(streamingThinking || streamingContent || activeToolCalls.length > 0) && (
+              <Message from="assistant">
+                {streamingThinking && (
+                  <Reasoning isStreaming={!streamingContent}>
+                    <ReasoningTrigger />
+                    <ReasoningContent>{streamingThinking}</ReasoningContent>
+                  </Reasoning>
+                )}
+                {streamingOtherCalls.length > 0 && (
+                  <div className="w-full space-y-0.5">
+                    {streamingOtherCalls.map((tc) => (
+                      <ToolCallView key={tc.id} call={tc} onOpenFile={onOpenFile} />
+                    ))}
+                  </div>
+                )}
+                {streamingContent && (
+                  <MessageContent>
+                    <FeatureMessageProvider overlaySnapshot={null}>
+                      <MessageResponse
+                        isAnimating
+                        components={STREAMDOWN_FEATURES_COMPONENTS}
+                        allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+                      >
+                        {streamingContent}
+                      </MessageResponse>
+                    </FeatureMessageProvider>
+                  </MessageContent>
+                )}
+                {streamingFeatureCalls.length > 0 && (
+                  <FeatureMessageProvider overlaySnapshot={null}>
+                    <div className="w-full flex flex-col gap-2">
+                      {streamingFeatureCalls.map((tc) => (
+                        <PresentFeaturesCard key={tc.id} call={tc} />
+                      ))}
+                    </div>
+                  </FeatureMessageProvider>
+                )}
+              </Message>
+            )}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+
+        <div className="px-3 pb-3 pt-0">
+          {(canUndo || showAddAllToVaultRow) && (
+            <div className="flex flex-col gap-2 py-2">
+              {canUndo && (
+                <div className="flex justify-end">
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     className={overlayActionButtonClass}
-                    disabled={addAllOverlayBusy}
-                    onClick={onClearOverlay}
+                    onClick={onUndo}
                   >
-                    Clear
+                    <Undo2Icon className="size-3.5" />
+                    Undo
                   </Button>
-                  <FolderPickerPopover
-                    open={folderPickerOpen}
-                    onOpenChange={setFolderPickerOpen}
-                    defaultParentFolderPath={defaultParentFolderPath}
-                    onSelect={(folderPath) => void handleAddAllToVault(folderPath)}
-                    trigger={
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className={overlayActionButtonClass}
-                        disabled={addAllOverlayBusy}
-                      >
-                        {addAllOverlayBusy ? (
-                          <Loader2Icon className="size-3.5 animate-spin" />
-                        ) : (
-                          <FilePlusIcon className="size-3.5" />
-                        )}
-                        Add all to vault
-                        <ChevronDownIcon className="size-3" />
-                      </Button>
-                    }
-                  />
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-        <PromptInput onSubmit={handleSubmit}>
-          <PromptInputTextarea
-            placeholder={
-              aiConfigured === false ? "Connect AI in Settings to start chatting" : "Message MapOS..."
-            }
-            disabled={loading || aiConfigured === false}
-          />
-          <PromptInputFooter>
-            <div />
-            <PromptInputSubmit status={chatStatus} onStop={onAbort} />
-          </PromptInputFooter>
-        </PromptInput>
+              )}
+              {showAddAllToVaultRow && (
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="shrink-0">
+                    {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={overlayActionButtonClass}
+                      disabled={addAllOverlayBusy}
+                      onClick={onClearOverlay}
+                    >
+                      Clear
+                    </Button>
+                    <FolderPickerPopover
+                      open={folderPickerOpen}
+                      onOpenChange={setFolderPickerOpen}
+                      defaultParentFolderPath={defaultParentFolderPath}
+                      onSelect={(folderPath) => void handleAddAllToVault(folderPath)}
+                      trigger={
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className={overlayActionButtonClass}
+                          disabled={addAllOverlayBusy}
+                        >
+                          {addAllOverlayBusy ? (
+                            <Loader2Icon className="size-3.5 animate-spin" />
+                          ) : (
+                            <FilePlusIcon className="size-3.5" />
+                          )}
+                          Add all to vault
+                          <ChevronDownIcon className="size-3" />
+                        </Button>
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <PromptInput onSubmit={handleSubmit}>
+            <PromptInputTextarea
+              placeholder={
+                aiConfigured === false
+                  ? "Connect AI in Settings to start chatting"
+                  : "Message MapOS..."
+              }
+              disabled={loading || aiConfigured === false}
+            />
+            <PromptInputFooter>
+              <div />
+              <PromptInputSubmit status={chatStatus} onStop={onAbort} />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
       </div>
-    </div>
     </FeatureResolverProvider>
   );
 }

@@ -49,6 +49,19 @@ function hasOverlayRef(text: string): boolean {
   return OVERLAY_REF_PATTERN.test(text);
 }
 
+/**
+ * True when the agent called `present_features` this turn. That tool renders a
+ * map-connected list whose `overlay:` rows resolve against the live overlay, so
+ * its snapshot must be pinned just like a `<features overlay:>` tag in text.
+ */
+function usedPresentFeatures(rows: Message[]): boolean {
+  return rows.some(
+    (m) =>
+      m.role === "assistant" &&
+      m.content.some((b) => b.type === "toolCall" && b.name === "present_features")
+  );
+}
+
 const LOCAL_PROVIDER_KEY = "mapos-local";
 
 /**
@@ -419,7 +432,7 @@ export function setupChat(
         .filter((b): b is TextContent => b.type === "text")
         .map((b) => b.text)
         .join("");
-      if (hasOverlayRef(text)) {
+      if (hasOverlayRef(text) || usedPresentFeatures(newRows)) {
         overlaySnapshot = {
           messageTimestamp: lastAssistant.timestamp,
           overlay: conv.overlay

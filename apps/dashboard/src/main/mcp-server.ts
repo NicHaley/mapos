@@ -111,10 +111,10 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
-After calling any of these, display the results with \`render_overlay_on_map\`:
-- points from \`geocode_search\` / \`reverse_geocode\` → the \`points\` array
-- a route from \`get_directions\` → a \`lines\` entry with \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
-- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`polygons\` entry
+After calling any of these, display the results:
+- points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
+- a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
+- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry
 
 Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
 
@@ -126,27 +126,34 @@ For any vault file write or delete, use write_vault_file or delete_vault_file �
 
 ## Display vs. action intent
 
-- If the user asks you to find, show, search, explore, or preview → use render_overlay_on_map for ephemeral display. Do not write files.
+- If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features for a browsable list of places; use render_overlay_on_map for routes, areas, and bulk geometry.
 - If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.
 
-## Listing features in chat
+## Showing places and features in chat
 
-When referencing features in a response, you may emit a \`<features>\` tag and the UI will render a clickable, interactive list connected to the map. Use it whenever a flat list of features would be more useful than prose mentions.
+When you present a set of located places the user might browse or pick from — search results, recommendations, saved places matching a query — call \`present_features\`. It draws the markers on the map AND renders a clickable list in the chat from the same data, so the list and the map never drift apart. This is the primary way to present places.
 
-Syntax: \`<features refs="<entry>,<entry>,..."/>\` — a single self-closing tag with a comma-separated \`refs\` attribute. Each entry has the form \`<kind>:<id>\`:
+The list \`present_features\` renders IS the user's view of the results — every feature's title is shown and is clickable. So once you've called it, do NOT re-list the places in your reply in ANY form: no numbered or bulleted list, no one-place-per-line rundown, no emoji-prefixed lines, no table. That just duplicates what's already on screen and the duplicate isn't connected to the map. Keep your reply to a brief synthesis — one or two sentences — and call out at most one or two standouts by name if it helps.
 
-- \`vault:<file-path>\` — a saved vault file (use the same path returned by \`query_spatial_index\`)
-- \`overlay:<id>\` — a feature currently rendered on the map by \`render_overlay_on_map\`. The id must match the \`id\` you supplied to that tool.
+If a place needs a per-row note (why it's relevant, a distance, a short descriptor like the street it's on), put that text in that feature's \`preview_markdown\` so it shows inside the card. Do not move it into a prose list.
 
-Order is preserved in the rendered list.
+\`present_features\` takes an ordered \`features\` array (order is preserved). Each entry is either:
+- a saved vault place — set \`path\` to its vault file path (as returned by \`query_spatial_index\`). Its marker already exists on the map.
+- an external/ad-hoc result not yet saved (a geocode/POI hit) — set \`lat\`, \`lng\`, \`title\`, and optional \`preview_markdown\`. It is drawn as a temporary marker.
 
-**Hard rule:** any \`overlay:\` ref MUST be preceded by a \`render_overlay_on_map\` call earlier in the same response. The ids must match. Otherwise the ref will render as a stale row.
+You can mix both kinds in one call; the list interleaves them in the order given.
 
-Example — after a geocode_search for ramen + render_overlay_on_map with ids \`r1\`, \`r2\`, plus two saved places:
+Example — the user asks for taco places near home. Find them, then ONE call:
+\`present_features({ features: [ { title: "Mont Tacos", lat: ..., lng: ..., preview_markdown: "On Saint-Denis St — very close to home" }, { title: "Tacosmaya", lat: ..., lng: ..., preview_markdown: "Avenue du Mont-Royal Est" }, ... ] })\`
+Then a reply like: "Seven taco spots near your home — Mont Tacos and Maison du Tacos on Saint-Denis are the closest." No list of the seven; the card already shows them.
 
-\`\`\`
-<features refs="vault:tokyo-2026/kinka-izakaya.md,overlay:r1,vault:tokyo-2026/ichiran.md,overlay:r2"/>
-\`\`\``;
+Use \`render_overlay_on_map\` instead when the result is NOT a browsable list:
+- routes (lines), isochrones/areas (polygons), or other pure geometry
+- a large dataset or layer the user views in aggregate rather than picking from row by row (e.g. "map every cafe in the city", an imported file)
+
+When unsure: a couple dozen places the user might click → \`present_features\`; geometry or bulk layers → \`render_overlay_on_map\`.
+
+(A \`<features refs="vault:<path>"/>\` tag is also still supported for referencing a single saved place inline within a sentence. Prefer \`present_features\` for any actual list.)`;
 }
 
 export function buildMaposCustomTools(
@@ -178,7 +185,7 @@ export function buildMaposCustomTools(
     name: "render_overlay_on_map",
     label: "Render map overlay",
     description:
-      "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
+      "Display lines, polygons, or bulk points on the map as a temporary overlay without saving. Use for routes, isochrones/areas, and large datasets/layers the user views in aggregate. For a browsable list of places the user will pick from, use present_features instead (it renders a clickable, map-connected list). Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
     parameters: Type.Object({
       points: Type.Optional(
         Type.Array(
@@ -309,6 +316,86 @@ export function buildMaposCustomTools(
         counts.polygons && `${counts.polygons} polygons`
       ].filter(Boolean);
       return TEXT_RESULT(`Displayed ${parts.join(", ")} on map`);
+    }
+  });
+
+  const presentFeatures = defineTool({
+    name: "present_features",
+    label: "Present features",
+    description:
+      "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is either a saved vault place (set `path`) or an external/ad-hoc result (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
+    parameters: Type.Object({
+      features: Type.Array(
+        Type.Object({
+          title: Type.String({ description: "Display name for the feature" }),
+          path: Type.Optional(
+            Type.String({
+              description:
+                "Vault file path of a saved place (as returned by query_spatial_index). Set this for a place already in the vault — its marker already exists on the map. Leave lat/lng unset in this case."
+            })
+          ),
+          lat: Type.Optional(
+            Type.Number({ description: "Latitude — set together with lng for an external/ad-hoc result" })
+          ),
+          lng: Type.Optional(
+            Type.Number({ description: "Longitude — set together with lat for an external/ad-hoc result" })
+          ),
+          preview_markdown: Type.Optional(
+            Type.String({
+              description: "Optional markdown shown in the place preview card before save"
+            })
+          )
+        }),
+        { minItems: 1, description: "Ordered features to show; order is preserved in the rendered list" }
+      ),
+      layer_name: Type.Optional(
+        Type.String({ default: "search-results", description: "Name for the overlay layer" })
+      )
+    }),
+    execute: async (_id, args) => {
+      const refs: string[] = [];
+      const points: MapOverlayPayload["points"] = [];
+      args.features.forEach((f, i) => {
+        if (f.path != null && f.path.length > 0) {
+          refs.push(`vault:${f.path}`);
+          return;
+        }
+        if (typeof f.lat === "number" && typeof f.lng === "number") {
+          const id = `feature-${i}`;
+          points.push({
+            id,
+            lat: f.lat,
+            lng: f.lng,
+            title: f.title,
+            ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
+          });
+          refs.push(`overlay:${id}`);
+        }
+      });
+
+      // Only touch the overlay when there are ad-hoc points to draw. An all-vault
+      // list references markers that already exist, so replacing the overlay with
+      // an empty payload would needlessly clear whatever is currently shown.
+      if (points.length > 0 && !mainWindow.isDestroyed()) {
+        const payload: MapOverlayPayload = {
+          layerName: args.layer_name ?? "search-results",
+          points,
+          lines: [],
+          polygons: []
+        };
+        mainWindow.webContents.send("map:overlay", payload);
+        onOverlayUpdate(payload);
+      }
+
+      return TEXT_RESULT(
+        JSON.stringify({
+          kind: "feature_list",
+          count: refs.length,
+          refs: refs.join(","),
+          assistant_instructions:
+            "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
+        })
+      );
     }
   });
 
@@ -802,6 +889,7 @@ export function buildMaposCustomTools(
   const webSearchAvailable = false;
 
   return [
+    presentFeatures,
     renderOverlayOnMap,
     clearMapOverlay,
     querySpatialIndexTool,

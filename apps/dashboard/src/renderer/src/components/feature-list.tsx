@@ -1,6 +1,6 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { MapPinIcon } from "lucide-react";
-import { type MouseEvent, useMemo } from "react";
+import { ChevronDownIcon, MapPinIcon } from "lucide-react";
+import { type MouseEvent, useMemo, useState } from "react";
 import type {
   MapOverlayPayload,
   OverlayLine,
@@ -11,6 +11,9 @@ import type {
 import { useFeatureResolver } from "../contexts/feature-resolver";
 
 const MAP_OVERLAY_PREFIX = "map-overlay:";
+
+/** Above this many rows the list collapses to a preview with a "Show all" toggle. */
+const COLLAPSE_THRESHOLD = 8;
 
 type FeatureEntry =
   | { kind: "vault"; ref: string; path: string }
@@ -175,6 +178,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
 
 export function FeatureList(props: { refs?: string }): React.JSX.Element | null {
   const { getPlace, liveOverlay, overlaySnapshot } = useFeatureResolver();
+  const [expanded, setExpanded] = useState(false);
   const entries = useMemo(() => parseRefs(props.refs), [props.refs]);
 
   const resolved = useMemo<Resolved[]>(() => {
@@ -207,11 +211,26 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
 
   if (resolved.length === 0) return null;
 
+  const hasOverflow = resolved.length > COLLAPSE_THRESHOLD;
+  const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
+
   return (
-    <div className="not-prose rounded-lg overflow-hiddenmy-2 flex border border-sidebar-border/60 flex-col divide-y divide-sidebar-border bg-sidebar-accent/20">
-      {resolved.map((r) => (
+    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
+      {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}
+      {hasOverflow && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          {expanded ? "Show fewer" : `Show all ${resolved.length}`}
+          <ChevronDownIcon
+            className={cn("size-3 transition-transform", expanded ? "rotate-180" : "rotate-0")}
+          />
+        </button>
+      )}
     </div>
   );
 }

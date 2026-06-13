@@ -1035,7 +1035,16 @@ function App(): React.JSX.Element {
                 isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
                 onAddLayerToVault={handleAddLayerToVault}
                 onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
+                onOpenInNewTab={() => {
+                  const c = conversations.find((c) => c.id === activeChatConvId);
+                  handleSwitchChatConv(
+                    activeChatConvId,
+                    c?.title || c?.preview || "New Chat",
+                    true
+                  );
+                }}
                 onAbort={() => chatStore.abort(activeChatConvId)}
+                onRename={(title) => handleSidebarRenameChat(activeChatConvId, title)}
                 onUndo={() => void chatStore.undo(activeChatConvId)}
                 onClose={() => {
                   if (activeTabIndex >= 0) handleCloseTab(activeTabIndex);

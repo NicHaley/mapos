@@ -28,9 +28,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
+import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
@@ -44,12 +46,14 @@ import {
   FileX2Icon,
   Loader2Icon,
   PencilIcon,
+  PlusIcon,
   SparklesIcon,
+  SquareIcon,
   Trash2Icon,
   Undo2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FeatureResolverProvider, useFeatureResolver } from "../contexts/feature-resolver";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FeatureList } from "./feature-list";
@@ -609,6 +613,8 @@ export function ChatPane({
   onAbort,
   onUndo,
   onOpenFile,
+  onOpenInNewTab,
+  onRename,
   onClose,
   onDeleted,
   overlayLayers,
@@ -628,6 +634,10 @@ export function ChatPane({
   onAbort: () => void;
   onUndo: () => void;
   onOpenFile: (filePath: string) => void;
+  /** Open this conversation in a new tab. */
+  onOpenInNewTab: () => void;
+  /** Rename the conversation; resolves with success or an error message. */
+  onRename: (title: string) => Promise<{ success: boolean; error?: string }>;
   /** Close the chat pane without deleting the conversation. */
   onClose: () => void;
   /** Called after the active conversation has been deleted on disk. */
@@ -707,6 +717,59 @@ export function ChatPane({
     onDeleted(convId);
   }
 
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renaming]);
+
+  const startRename = useCallback(() => {
+    setRenameDraft(convTitle);
+    setRenameError(null);
+    setRenaming(true);
+  }, [convTitle]);
+
+  const cancelRename = useCallback(() => {
+    setRenaming(false);
+    setRenameError(null);
+  }, []);
+
+  const commitRename = useCallback(async () => {
+    const draft = renameDraft.trim();
+    if (!draft) {
+      setRenameError("Title cannot be empty");
+      renameInputRef.current?.focus();
+      return;
+    }
+    const result = await onRename(draft);
+    if (!result.success) {
+      setRenameError(result.error ?? "Rename failed");
+      renameInputRef.current?.focus();
+      return;
+    }
+    setRenaming(false);
+    setRenameError(null);
+  }, [renameDraft, onRename]);
+
+  const handleRenameKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void commitRename();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelRename();
+      }
+    },
+    [commitRename, cancelRename]
+  );
+
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
   /** Pre-chunk gap: request is in flight but nothing has appeared in the transcript yet. */
   const awaitingFirstToken =
@@ -735,7 +798,29 @@ export function ChatPane({
     <FeatureResolverProvider value={featureResolverValue}>
       <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
         <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
-          <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
+          {renaming ? (
+            <ErrorTooltip error={renameError}>
+              <input
+                ref={renameInputRef}
+                value={renameDraft}
+                onChange={(e) => {
+                  setRenameDraft(e.target.value);
+                  setRenameError(null);
+                }}
+                onKeyDown={handleRenameKeyDown}
+                onBlur={() => void commitRename()}
+                className={cn(
+                  "min-w-0 flex-1 mx-2 h-6 box-border rounded px-1 text-sm font-normal leading-6",
+                  "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
+                  renameError
+                    ? "ring-2 ring-inset ring-destructive"
+                    : "ring-2 ring-inset ring-blue-500"
+                )}
+              />
+            </ErrorTooltip>
+          ) : (
+            <span className="truncate px-2 text-sm font-normal">{convTitle}</span>
+          )}
           <div className="flex items-center gap-1">
             {isSavedConversation && (
               <DropdownMenu>
@@ -743,6 +828,21 @@ export function ChatPane({
                   <EllipsisIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom" align="end">
+                  <DropdownMenuItem onClick={onOpenInNewTab}>
+                    <PlusIcon />
+                    Open in New Tab
+                  </DropdownMenuItem>
+                  {chatStatus !== "ready" && (
+                    <DropdownMenuItem onClick={onAbort}>
+                      <SquareIcon />
+                      Stop
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={startRename}>
+                    <PencilIcon />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     variant="destructive"
                     onClick={() => void handleDeleteConversation()}

@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { InputGroupButton } from "@mapos/ui/components/input-group";
@@ -36,11 +37,13 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import {
   EllipsisIcon,
+  FolderOpenIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
   MapPinPlus,
   Maximize2Icon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
   XIcon
@@ -383,6 +386,10 @@ export function PlaceCard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const editorRef = useRef<Editor | null>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement>(null);
+  // Set when "Rename" is chosen so the menu returns focus to the title input
+  // (instead of its trigger) once it closes.
+  const renameRequestedRef = useRef(false);
   const isDark = useDarkMode();
 
   const filePathBaseName =
@@ -559,6 +566,7 @@ export function PlaceCard({
           <div className="flex-1 min-w-0 pt-1">
             <ErrorTooltip error={titleError}>
               <AutoSizeTextArea
+                inputRef={titleInputRef}
                 aria-label="Place name"
                 className={cn(
                   "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
@@ -612,7 +620,42 @@ export function PlaceCard({
               >
                 <EllipsisIcon />
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end">
+              <DropdownMenuContent
+                side="bottom"
+                align="end"
+                finalFocus={() => {
+                  if (renameRequestedRef.current) {
+                    renameRequestedRef.current = false;
+                    // Focus + select all once the menu has finished closing, so
+                    // the whole title is highlighted ready to overtype.
+                    requestAnimationFrame(() => {
+                      titleInputRef.current?.focus({ preventScroll: true });
+                      titleInputRef.current?.select();
+                    });
+                    return false; // we manage focus ourselves for rename
+                  }
+                  return true;
+                }}
+              >
+                <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+                  <PlusIcon />
+                  Open in New Tab
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => void window.api.fs.revealInFinder(currentFilePath)}
+                >
+                  <FolderOpenIcon />
+                  Reveal in Finder
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    renameRequestedRef.current = true;
+                  }}
+                >
+                  <PencilIcon />
+                  Rename
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={() => {

@@ -32,7 +32,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { cn } from "@mapos/ui/lib/utils";
-import type { MapOverlayPayload, PlaceRecord } from "@shared/types";
+import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
 import {
@@ -50,7 +50,7 @@ import {
   XIcon
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FeatureMessageProvider, FeatureResolverProvider } from "../contexts/feature-resolver";
+import { FeatureResolverProvider, useFeatureResolver } from "../contexts/feature-resolver";
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FeatureList } from "./feature-list";
 import { FolderPickerPopover } from "./folder-picker-popover";
@@ -367,14 +367,83 @@ function ToolCallRow({ call }: { call: ActiveToolCall }): React.JSX.Element {
   );
 }
 
+type LayerActions = {
+  /** Add this layer's ad-hoc features to the vault. The overlay stays on the map. */
+  onAddLayerToVault: (layer: MapOverlayLayer, parentFolderPath: string | null) => Promise<void>;
+  /** Default destination folder for the add-to-vault picker. */
+  defaultParentFolderPath: string | null;
+};
+
+/** First `overlay:` ref in a refs string → its owning layer id (the prefix before `:`). */
+function layerIdFromRefs(refs: string, layers: MapOverlayLayer[]): MapOverlayLayer | null {
+  const overlayEntry = refs
+    .split(",")
+    .map((s) => s.trim())
+    .find((s) => s.startsWith("overlay:"));
+  if (!overlayEntry) return null;
+  const id = overlayEntry.slice("overlay:".length);
+  return layers.find((l) => id === l.id || id.startsWith(`${l.id}:`)) ?? null;
+}
+
+/** Per-card footer: add the layer's ad-hoc features to the vault. */
+function FeatureCardActions({
+  layer,
+  onAddLayerToVault,
+  defaultParentFolderPath
+}: { layer: MapOverlayLayer } & LayerActions): React.JSX.Element | null {
+  const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const count = layer.points.length + layer.lines.length + layer.polygons.length;
+  if (count === 0) return null;
+
+  async function handleAdd(folderPath: string | null): Promise<void> {
+    setBusy(true);
+    try {
+      await onAddLayerToVault(layer, folderPath);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <FolderPickerPopover
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        defaultParentFolderPath={defaultParentFolderPath}
+        onSelect={(folderPath) => void handleAdd(folderPath)}
+        trigger={
+          <Button variant="ghost" size="sm" className={overlayActionButtonClass} disabled={busy}>
+            {busy ? (
+              <Loader2Icon className="size-3.5 animate-spin" />
+            ) : (
+              <FilePlusIcon className="size-3.5" />
+            )}
+            Add {count} to vault
+            <ChevronDownIcon className="size-3" />
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
 /**
- * Render a `present_features` tool call as the connected FeatureList. The tool
- * returns `{ kind: "feature_list", refs }`; we resolve those refs against the
- * live overlay / message snapshot via the same FeatureList used by `<features>`
- * tags. While the call is still running (or if the result can't be parsed) fall
- * back to the generic ToolCallRow so the user sees its status.
+ * Render a `present_features` tool call as the connected FeatureList plus a
+ * footer to add its result set to the vault or remove it from the map. The tool
+ * returns `{ kind: "feature_list", refs }`; refs resolve against the live layers
+ * (same FeatureList used by inline `<features>` tags). While the call is still
+ * running (or if the result can't be parsed) fall back to the generic
+ * ToolCallRow so the user sees its status.
  */
-function PresentFeaturesCard({ call }: { call: ActiveToolCall }): React.JSX.Element {
+function PresentFeaturesCard({
+  call,
+  actions
+}: {
+  call: ActiveToolCall;
+  actions: LayerActions;
+}): React.JSX.Element {
+  const { overlayLayers } = useFeatureResolver();
   const refs = useMemo(() => {
     if (!call.result) return null;
     try {
@@ -384,9 +453,18 @@ function PresentFeaturesCard({ call }: { call: ActiveToolCall }): React.JSX.Elem
       return null;
     }
   }, [call.result]);
+  const layer = useMemo(
+    () => (refs ? layerIdFromRefs(refs, overlayLayers) : null),
+    [refs, overlayLayers]
+  );
 
   if (call.status === "error" || !refs) return <ToolCallRow call={call} />;
-  return <FeatureList refs={refs} />;
+  return (
+    <div className="flex w-full flex-col">
+      <FeatureList refs={refs} />
+      {layer && <FeatureCardActions layer={layer} {...actions} />}
+    </div>
+  );
 }
 
 /** Pick the right renderer for a tool call in the assistant bubble. */
@@ -418,10 +496,6 @@ function splitFeatureCalls(calls: ActiveToolCall[]): {
   return { featureCalls, otherCalls };
 }
 
-function mapOverlayFeatureCount(o: MapOverlayPayload): number {
-  return o.points.length + o.lines.length + o.polygons.length;
-}
-
 function userMessageText(msg: PiUserMessage): string {
   if (typeof msg.content === "string") return msg.content;
   for (const block of msg.content) {
@@ -449,13 +523,13 @@ function toolResultText(msg: PiToolResultMessage): string {
 function AssistantBubble({
   msgs,
   toolResultsById,
-  overlaySnapshot,
-  onOpenFile
+  onOpenFile,
+  layerActions
 }: {
   msgs: PiAssistantMessage[];
   toolResultsById: Map<string, PiToolResultMessage>;
-  overlaySnapshot: MapOverlayPayload | null;
   onOpenFile: (filePath: string) => void;
+  layerActions: LayerActions;
 }): React.JSX.Element | null {
   let text = "";
   let thinking = "";
@@ -506,24 +580,20 @@ function AssistantBubble({
       )}
       {text && (
         <MessageContent>
-          <FeatureMessageProvider overlaySnapshot={overlaySnapshot}>
-            <MessageResponse
-              components={STREAMDOWN_FEATURES_COMPONENTS}
-              allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
-            >
-              {text}
-            </MessageResponse>
-          </FeatureMessageProvider>
+          <MessageResponse
+            components={STREAMDOWN_FEATURES_COMPONENTS}
+            allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+          >
+            {text}
+          </MessageResponse>
         </MessageContent>
       )}
       {featureCalls.length > 0 && (
-        <FeatureMessageProvider overlaySnapshot={overlaySnapshot}>
-          <div className="w-full flex flex-col gap-2">
-            {featureCalls.map((tc) => (
-              <PresentFeaturesCard key={tc.id} call={tc} />
-            ))}
-          </div>
-        </FeatureMessageProvider>
+        <div className="w-full flex flex-col gap-2">
+          {featureCalls.map((tc) => (
+            <PresentFeaturesCard key={tc.id} call={tc} actions={layerActions} />
+          ))}
+        </div>
       )}
     </Message>
   );
@@ -538,14 +608,12 @@ export function ChatPane({
   onSubmit,
   onAbort,
   onUndo,
-  onClearOverlay,
   onOpenFile,
   onClose,
   onDeleted,
-  mapOverlay,
-  mapOverlayNonce,
-  onAddAllOverlayToVault,
-  addAllOverlayBusy,
+  overlayLayers,
+  focusLayer,
+  onAddLayerToVault,
   isSavedConversation,
   defaultParentFolderPath,
   placesByPath,
@@ -559,31 +627,30 @@ export function ChatPane({
   onSubmit: (text: string) => void;
   onAbort: () => void;
   onUndo: () => void;
-  onClearOverlay: () => void;
   onOpenFile: (filePath: string) => void;
   /** Close the chat pane without deleting the conversation. */
   onClose: () => void;
   /** Called after the active conversation has been deleted on disk. */
   onDeleted: (convId: string) => void;
-  mapOverlay: MapOverlayPayload;
-  /** Increments when the map receives a new non-empty overlay (resets Add-all visibility). */
-  mapOverlayNonce: number;
-  onAddAllOverlayToVault: (parentFolderPath: string | null) => void | Promise<void>;
-  addAllOverlayBusy: boolean;
+  /** All accumulated overlay layers; used to resolve `overlay:` refs and per-card actions. */
+  overlayLayers: MapOverlayLayer[];
+  /** Emphasize one layer on the map (hovered card); null clears focus. */
+  focusLayer: (layerId: string | null) => void;
+  /** Add a result layer's features to the vault. The overlay stays on the map. */
+  onAddLayerToVault: (layer: MapOverlayLayer, parentFolderPath: string | null) => Promise<void>;
   /** True once the conversation has been written to disk; gates the delete menu. */
   isSavedConversation: boolean;
   /** Folder pre-selected as the default destination in the folder picker. */
   defaultParentFolderPath: string | null;
-  /** Renderer-side mirror of indexed vault places, keyed by file path. Used to resolve `<features vault:...>` refs. */
+  /** Renderer-side mirror of indexed vault places, keyed by file path. Used to resolve `vault:` refs. */
   placesByPath: Map<string, PlaceRecord>;
-  /** File path of the currently-selected place. Used to highlight matching `<features>` rows. */
+  /** File path of the currently-selected place. Used to highlight matching rows. */
   selectedFilePath: string | null;
-  /** Open a feature; when restoreOverlay is provided, replay it before opening. */
-  onOpenFeature: (place: PlaceRecord, restoreOverlay?: MapOverlayPayload) => void;
+  /** Open a feature (place card + map). */
+  onOpenFeature: (place: PlaceRecord) => void;
 }): React.JSX.Element {
   const {
     messages,
-    overlaySnapshots,
     streamingContent,
     streamingThinking,
     activeToolCalls,
@@ -610,9 +677,6 @@ export function ChatPane({
   const { featureCalls: streamingFeatureCalls, otherCalls: streamingOtherCalls } =
     splitFeatureCalls(activeToolCalls);
 
-  /** Hide Add all after the user sends a message (until a new map overlay bumps nonce). */
-  const [addAllHiddenAfterUserMessage, setAddAllHiddenAfterUserMessage] = useState(false);
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   /** undefined while loading; null when configured. */
   const [aiConfigured, setAiConfigured] = useState<boolean | undefined>(undefined);
 
@@ -633,21 +697,9 @@ export function ChatPane({
     window.dispatchEvent(new CustomEvent("mapos:open-settings", { detail: { section: "ai" } }));
   }
 
-  // Reset Add-all visibility when the map receives a new overlay (parent bumps nonce).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional subscription to mapOverlayNonce only
-  useEffect(() => {
-    setAddAllHiddenAfterUserMessage(false);
-  }, [mapOverlayNonce]);
-
   function handleSubmit({ text }: { text: string }): void {
     if (!text.trim() || loading) return;
-    setAddAllHiddenAfterUserMessage(true);
     onSubmit(text);
-  }
-
-  async function handleAddAllToVault(folderPath: string | null): Promise<void> {
-    await onAddAllOverlayToVault(folderPath);
-    onClearOverlay();
   }
 
   async function handleDeleteConversation(): Promise<void> {
@@ -656,8 +708,6 @@ export function ChatPane({
   }
 
   const chatStatus: ChatStatus = loading ? (streamingContent ? "streaming" : "submitted") : "ready";
-  const mapOverlayCount = mapOverlayFeatureCount(mapOverlay);
-  const showAddAllToVaultRow = mapOverlayCount > 0 && !addAllHiddenAfterUserMessage;
   /** Pre-chunk gap: request is in flight but nothing has appeared in the transcript yet. */
   const awaitingFirstToken =
     assistantPending &&
@@ -668,11 +718,17 @@ export function ChatPane({
   const featureResolverValue = useMemo(
     () => ({
       getPlace: (filePath: string) => placesByPath.get(filePath),
-      liveOverlay: mapOverlay,
+      overlayLayers,
       selectedFilePath,
-      onOpenFeature
+      onOpenFeature,
+      focusLayer
     }),
-    [placesByPath, mapOverlay, selectedFilePath, onOpenFeature]
+    [placesByPath, overlayLayers, selectedFilePath, onOpenFeature, focusLayer]
+  );
+
+  const layerActions = useMemo<LayerActions>(
+    () => ({ onAddLayerToVault, defaultParentFolderPath }),
+    [onAddLayerToVault, defaultParentFolderPath]
   );
 
   return (
@@ -749,8 +805,8 @@ export function ChatPane({
                     key={`assistant_${group[0]?.timestamp}_${rendered.length}`}
                     msgs={group}
                     toolResultsById={toolResultsById}
-                    overlaySnapshot={overlaySnapshots[last.timestamp] ?? null}
                     onOpenFile={onOpenFile}
+                    layerActions={layerActions}
                   />
                 );
                 group = [];
@@ -828,25 +884,21 @@ export function ChatPane({
                 )}
                 {streamingContent && (
                   <MessageContent>
-                    <FeatureMessageProvider overlaySnapshot={null}>
-                      <MessageResponse
-                        isAnimating
-                        components={STREAMDOWN_FEATURES_COMPONENTS}
-                        allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
-                      >
-                        {streamingContent}
-                      </MessageResponse>
-                    </FeatureMessageProvider>
+                    <MessageResponse
+                      isAnimating
+                      components={STREAMDOWN_FEATURES_COMPONENTS}
+                      allowedTags={STREAMDOWN_FEATURES_ALLOWED_TAGS}
+                    >
+                      {streamingContent}
+                    </MessageResponse>
                   </MessageContent>
                 )}
                 {streamingFeatureCalls.length > 0 && (
-                  <FeatureMessageProvider overlaySnapshot={null}>
-                    <div className="w-full flex flex-col gap-2">
-                      {streamingFeatureCalls.map((tc) => (
-                        <PresentFeaturesCard key={tc.id} call={tc} />
-                      ))}
-                    </div>
-                  </FeatureMessageProvider>
+                  <div className="w-full flex flex-col gap-2">
+                    {streamingFeatureCalls.map((tc) => (
+                      <PresentFeaturesCard key={tc.id} call={tc} actions={layerActions} />
+                    ))}
+                  </div>
                 )}
               </Message>
             )}
@@ -855,61 +907,17 @@ export function ChatPane({
         </Conversation>
 
         <div className="px-3 pb-3 pt-0">
-          {(canUndo || showAddAllToVaultRow) && (
-            <div className="flex flex-col gap-2 py-2">
-              {canUndo && (
-                <div className="flex justify-end">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className={overlayActionButtonClass}
-                    onClick={onUndo}
-                  >
-                    <Undo2Icon className="size-3.5" />
-                    Undo
-                  </Button>
-                </div>
-              )}
-              {showAddAllToVaultRow && (
-                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span className="shrink-0">
-                    {mapOverlayCount} feature{mapOverlayCount === 1 ? "" : "s"}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={overlayActionButtonClass}
-                      disabled={addAllOverlayBusy}
-                      onClick={onClearOverlay}
-                    >
-                      Clear
-                    </Button>
-                    <FolderPickerPopover
-                      open={folderPickerOpen}
-                      onOpenChange={setFolderPickerOpen}
-                      defaultParentFolderPath={defaultParentFolderPath}
-                      onSelect={(folderPath) => void handleAddAllToVault(folderPath)}
-                      trigger={
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className={overlayActionButtonClass}
-                          disabled={addAllOverlayBusy}
-                        >
-                          {addAllOverlayBusy ? (
-                            <Loader2Icon className="size-3.5 animate-spin" />
-                          ) : (
-                            <FilePlusIcon className="size-3.5" />
-                          )}
-                          Add all to vault
-                          <ChevronDownIcon className="size-3" />
-                        </Button>
-                      }
-                    />
-                  </div>
-                </div>
-              )}
+          {canUndo && (
+            <div className="flex justify-end py-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className={overlayActionButtonClass}
+                onClick={onUndo}
+              >
+                <Undo2Icon className="size-3.5" />
+                Undo
+              </Button>
             </div>
           )}
           <PromptInput onSubmit={handleSubmit}>

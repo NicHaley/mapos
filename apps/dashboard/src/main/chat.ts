@@ -13,24 +13,20 @@ import {
   type Api,
   type Message,
   type Model,
-  type TextContent,
   type UserMessage
 } from "@earendil-works/pi-ai";
 import { type BrowserWindow, ipcMain } from "electron";
-import type { OverlaySnapshotEntry, PlaceRecord, UndoEntry } from "../shared/types";
+import type { PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
   appendMessages,
-  appendOverlaySnapshot,
   appendToIndex,
   compactIndex,
   getConversationFilePath,
-  getConversationOverlaysFilePath,
   getConversationStateFilePath,
   initConversationsDir,
   loadConvState,
   readConversationIndex,
-  readOverlaySnapshots,
   saveConvState,
   setConversationsDir
 } from "./conversations";
@@ -42,25 +38,6 @@ import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
-
-/** Matches any `<features>` tag whose `refs` attribute contains an `overlay:` entry. */
-const OVERLAY_REF_PATTERN = /<features\b[^>]*\brefs=["'][^"']*\boverlay:/i;
-function hasOverlayRef(text: string): boolean {
-  return OVERLAY_REF_PATTERN.test(text);
-}
-
-/**
- * True when the agent called `present_features` this turn. That tool renders a
- * map-connected list whose `overlay:` rows resolve against the live overlay, so
- * its snapshot must be pinned just like a `<features overlay:>` tag in text.
- */
-function usedPresentFeatures(rows: Message[]): boolean {
-  return rows.some(
-    (m) =>
-      m.role === "assistant" &&
-      m.content.some((b) => b.type === "toolCall" && b.name === "present_features")
-  );
-}
 
 const LOCAL_PROVIDER_KEY = "mapos-local";
 
@@ -235,7 +212,7 @@ export function setupChat(
         id,
         messages,
         sdkSessionId: meta?.sdkSessionId,
-        overlay: state.overlay,
+        layers: state.layers,
         ...(meta?.title ? { title: meta.title } : {})
       };
       conversations.set(id, conv);
@@ -258,13 +235,21 @@ export function setupChat(
           entry.operations.push(op);
         }
       },
-      (overlay) => {
+      (layer) => {
         const conv = conversations.get(convId);
         if (!conv) return;
-        conv.overlay = overlay;
-        saveConvState(convId, { overlay });
+        // Replace any existing layer with the same id (re-run of the same tool
+        // call), otherwise append. Order is preserved.
+        conv.layers = [...(conv.layers ?? []).filter((l) => l.id !== layer.id), layer];
+        saveConvState(convId, { layers: conv.layers });
       },
-      () => conversations.get(convId)?.overlay
+      () => {
+        const conv = conversations.get(convId);
+        if (!conv) return;
+        conv.layers = [];
+        saveConvState(convId, { layers: [] });
+      },
+      () => (conversations.get(convId)?.layers?.length ?? 0) > 0
     );
   }
 
@@ -422,32 +407,15 @@ export function setupChat(
       appendMessages(conv, newRows);
     }
 
-    // Overlay refs in the assistant text need to resolve even after the live
-    // overlay has been replaced. Snapshot the current overlay keyed by the
-    // last assistant message's timestamp so renderer-side lookups work.
-    let overlaySnapshot: OverlaySnapshotEntry | undefined;
-    const lastAssistant = [...newRows].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant && conv.overlay) {
-      const text = lastAssistant.content
-        .filter((b): b is TextContent => b.type === "text")
-        .map((b) => b.text)
-        .join("");
-      if (hasOverlayRef(text) || usedPresentFeatures(newRows)) {
-        overlaySnapshot = {
-          messageTimestamp: lastAssistant.timestamp,
-          overlay: conv.overlay
-        };
-        appendOverlaySnapshot(convId, overlaySnapshot);
-      }
-    }
-
+    // Overlay layers produced this turn are already persisted via onLayerUpdate
+    // and pushed to the renderer over `map:overlay-add`, so cards resolve their
+    // refs against the live layer set — no per-message snapshot needed.
     if (!mainWindow.isDestroyed()) {
       const canUndo = (undoEntries.get(convId)?.operations.length ?? 0) > 0;
       mainWindow.webContents.send("chat:done", {
         convId,
         canUndo,
-        newMessages: newRows,
-        ...(overlaySnapshot ? { overlaySnapshot } : {})
+        newMessages: newRows
       });
     }
     turnStates.delete(convId);
@@ -455,11 +423,10 @@ export function setupChat(
 
   ipcMain.handle("chat:load-conversation", (_event, id: string) => {
     const conv = ensureLoaded(id);
-    if (!conv) return { messages: [], overlay: null, overlaySnapshots: [] };
+    if (!conv) return { messages: [], layers: [] };
     return {
       messages: conv.messages,
-      overlay: conv.overlay ?? null,
-      overlaySnapshots: readOverlaySnapshots(id)
+      layers: conv.layers ?? []
     };
   });
 
@@ -581,8 +548,8 @@ export function setupChat(
   ipcMain.on("chat:clear-overlay", (_event, payload: { convId: string }) => {
     const conv = conversations.get(payload.convId);
     if (!conv) return;
-    conv.overlay = null;
-    saveConvState(payload.convId, { overlay: null });
+    conv.layers = [];
+    saveConvState(payload.convId, { layers: [] });
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send("map:overlay-clear");
     }
@@ -622,8 +589,6 @@ export function setupChat(
       if (existsSync(convFile)) rmSync(convFile);
       const stateFile = getConversationStateFilePath(id);
       if (existsSync(stateFile)) rmSync(stateFile);
-      const overlaysFile = getConversationOverlaysFilePath(id);
-      if (existsSync(overlaysFile)) rmSync(overlaysFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
       conversations.delete(id);

@@ -13,7 +13,7 @@ import { Type } from "typebox";
 import { MapServiceError } from "@mapos/service-adapters";
 import { computeBbox } from "./bbox";
 import { getServiceClient } from "./services/client";
-import type { MapOverlayPayload, PlaceRecord, VaultOperation } from "../shared/types";
+import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
 import {
   querySpatialIndex,
   rebuildIndexFromPlaces,
@@ -116,7 +116,7 @@ After calling any of these, display the results:
 - a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
 - each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry
 
-Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
+Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
@@ -161,8 +161,9 @@ export function buildMaposCustomTools(
   places: Map<string, PlaceRecord>,
   maposDir: string,
   onVaultWrite: (op: VaultOperation) => void,
-  onOverlayUpdate: (overlay: MapOverlayPayload | null) => void,
-  getOverlay: () => MapOverlayPayload | null | undefined
+  onLayerUpdate: (layer: MapOverlayLayer) => void,
+  onLayersClear: () => void,
+  hasLayers: () => boolean
 ): ToolDefinition[] {
   // Pass-by-reference store for large geometries returned to the agent.
   const routeStore = new Map<string, [number, number][]>();
@@ -254,10 +255,14 @@ export function buildMaposCustomTools(
         })
       )
     }),
-    execute: async (_toolCallId, args) => {
+    execute: async (toolCallId, args) => {
       if (!mainWindow.isDestroyed()) {
+        // Namespace every marker id with the layer id so ids stay unique once
+        // layers accumulate on the map (two calls would otherwise both emit
+        // `overlay-point-0`).
+        const layerId = toolCallId;
         const points = (args.points ?? []).map((p, i) => ({
-          id: p.id ?? `overlay-point-${i}`,
+          id: `${layerId}:${p.id ?? `point-${i}`}`,
           lat: p.lat,
           lng: p.lng,
           title: p.title,
@@ -277,14 +282,14 @@ export function buildMaposCustomTools(
             coordinates = (l.coordinates ?? []) as [number, number][];
           }
           return {
-            id: l.id ?? `overlay-line-${i}`,
+            id: `${layerId}:${l.id ?? `line-${i}`}`,
             coordinates,
             title: l.title,
             ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
           };
         });
         const polygons = (args.polygons ?? []).map((p, i) => ({
-          id: p.id ?? `overlay-polygon-${i}`,
+          id: `${layerId}:${p.id ?? `polygon-${i}`}`,
           coordinates: (p.coordinates as [number, number][][]).map((ring) => {
             if (ring.length < 2) return ring;
             const first = ring[0];
@@ -296,14 +301,15 @@ export function buildMaposCustomTools(
           title: p.title,
           ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
         }));
-        const payload: MapOverlayPayload = {
+        const layer: MapOverlayLayer = {
+          id: layerId,
           layerName: args.layer_name ?? "search-results",
           points,
           lines,
           polygons
         };
-        mainWindow.webContents.send("map:overlay", payload);
-        onOverlayUpdate(payload);
+        mainWindow.webContents.send("map:overlay-add", layer);
+        onLayerUpdate(layer);
       }
       const counts = {
         points: (args.points ?? []).length,
@@ -352,16 +358,18 @@ export function buildMaposCustomTools(
         Type.String({ default: "search-results", description: "Name for the overlay layer" })
       )
     }),
-    execute: async (_id, args) => {
+    execute: async (toolCallId, args) => {
+      const layerId = toolCallId;
       const refs: string[] = [];
-      const points: MapOverlayPayload["points"] = [];
+      const points: MapOverlayLayer["points"] = [];
       args.features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
           refs.push(`vault:${f.path}`);
           return;
         }
         if (typeof f.lat === "number" && typeof f.lng === "number") {
-          const id = `feature-${i}`;
+          // Namespace with the layer id so ids stay unique across accumulated layers.
+          const id = `${layerId}:feature-${i}`;
           points.push({
             id,
             lat: f.lat,
@@ -373,18 +381,19 @@ export function buildMaposCustomTools(
         }
       });
 
-      // Only touch the overlay when there are ad-hoc points to draw. An all-vault
-      // list references markers that already exist, so replacing the overlay with
-      // an empty payload would needlessly clear whatever is currently shown.
+      // Only emit a layer when there are ad-hoc points to draw. An all-vault list
+      // references markers that already exist as persistent places, so there is
+      // nothing new to add to the map.
       if (points.length > 0 && !mainWindow.isDestroyed()) {
-        const payload: MapOverlayPayload = {
+        const layer: MapOverlayLayer = {
+          id: layerId,
           layerName: args.layer_name ?? "search-results",
           points,
           lines: [],
           polygons: []
         };
-        mainWindow.webContents.send("map:overlay", payload);
-        onOverlayUpdate(payload);
+        mainWindow.webContents.send("map:overlay-add", layer);
+        onLayerUpdate(layer);
       }
 
       return TEXT_RESULT(
@@ -403,16 +412,16 @@ export function buildMaposCustomTools(
     name: "clear_map_overlay",
     label: "Clear map overlay",
     description:
-      "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
+      "Remove ALL temporary overlay layers from the map (every result set shown this conversation). Call only when the user explicitly asks to clear the map. Result sets otherwise stay on the map and accumulate, so you rarely need this.",
     parameters: Type.Object({}),
     execute: async () => {
-      if (getOverlay() != null) {
+      if (hasLayers()) {
         if (!mainWindow.isDestroyed()) {
           mainWindow.webContents.send("map:overlay-clear");
         }
-        onOverlayUpdate(null);
+        onLayersClear();
       }
-      return TEXT_RESULT("Overlay cleared");
+      return TEXT_RESULT("Cleared all overlay layers");
     }
   });
 

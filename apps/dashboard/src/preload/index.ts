@@ -26,7 +26,7 @@ import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
   InstalledRegionPack,
-  MapOverlayPayload,
+  MapOverlayLayer,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -54,8 +54,8 @@ const api = {
     }
   },
   map: {
-    onOverlay: (cb: (data: MapOverlayPayload) => void) =>
-      ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
+    onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) =>
+      ipcRenderer.on("map:overlay-add", (_e, layer) => cb(layer)),
     onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
     sendViewport: (data: {
       north: number;
@@ -74,7 +74,7 @@ const api = {
     },
     /** Overlay listeners are owned by App (shared with Chat); not cleared by MapView.removeListeners. */
     removeOverlayListeners: () => {
-      ipcRenderer.removeAllListeners("map:overlay");
+      ipcRenderer.removeAllListeners("map:overlay-add");
       ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },

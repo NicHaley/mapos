@@ -1,31 +1,20 @@
-import { createContext, type ReactNode, useContext, useMemo } from "react";
-import type { MapOverlayPayload, PlaceRecord } from "../../../shared/types";
+import { createContext, type ReactNode, useContext } from "react";
+import type { MapOverlayLayer, PlaceRecord } from "../../../shared/types";
 
 type FeatureResolverContextValue = {
   /** Synchronous lookup against the renderer's in-memory places mirror. */
   getPlace: (filePath: string) => PlaceRecord | undefined;
-  /** Currently-active map overlay. Resolves `overlay:` refs from messages with no snapshot. */
-  liveOverlay: MapOverlayPayload | null;
+  /** All accumulated overlay layers; `overlay:` refs resolve by scanning these. */
+  overlayLayers: MapOverlayLayer[];
   /** File path of the currently-selected place, used to highlight matching rows. */
   selectedFilePath: string | null;
-  /**
-   * Open a feature. When `restoreOverlay` is provided, the caller will first
-   * replay the overlay snapshot (replacing the current overlay) before opening
-   * the mini place card. Used when a row references a stale overlay id.
-   */
-  onOpenFeature: (place: PlaceRecord, restoreOverlay?: MapOverlayPayload) => void;
+  /** Open a feature (place card + map). */
+  onOpenFeature: (place: PlaceRecord) => void;
+  /** Emphasize one overlay layer on the map (the hovered card); null clears focus. */
+  focusLayer: (layerId: string | null) => void;
 };
 
 const FeatureResolverContext = createContext<FeatureResolverContextValue | null>(null);
-
-type FeatureMessageContextValue = {
-  /** Overlay captured at message-persist time, used to resolve `overlay:` refs that are no longer live. */
-  overlaySnapshot: MapOverlayPayload | null;
-};
-
-const FeatureMessageContext = createContext<FeatureMessageContextValue>({
-  overlaySnapshot: null
-});
 
 export function FeatureResolverProvider({
   value,
@@ -37,22 +26,10 @@ export function FeatureResolverProvider({
   return <FeatureResolverContext.Provider value={value}>{children}</FeatureResolverContext.Provider>;
 }
 
-export function FeatureMessageProvider({
-  overlaySnapshot,
-  children
-}: {
-  overlaySnapshot: MapOverlayPayload | null;
-  children: ReactNode;
-}): React.JSX.Element {
-  const value = useMemo(() => ({ overlaySnapshot }), [overlaySnapshot]);
-  return <FeatureMessageContext.Provider value={value}>{children}</FeatureMessageContext.Provider>;
-}
-
-export function useFeatureResolver(): FeatureResolverContextValue & FeatureMessageContextValue {
-  const app = useContext(FeatureResolverContext);
-  const message = useContext(FeatureMessageContext);
-  if (!app) {
+export function useFeatureResolver(): FeatureResolverContextValue {
+  const ctx = useContext(FeatureResolverContext);
+  if (!ctx) {
     throw new Error("useFeatureResolver must be used within a FeatureResolverProvider");
   }
-  return { ...app, ...message };
+  return ctx;
 }

@@ -2,7 +2,7 @@ import { cn } from "@mapos/ui/lib/utils";
 import { ChevronDownIcon, MapPinIcon } from "lucide-react";
 import { type MouseEvent, useMemo, useState } from "react";
 import type {
-  MapOverlayPayload,
+  MapOverlayLayer,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -38,18 +38,20 @@ function parseRefs(refsAttr: string | undefined): FeatureEntry[] {
 }
 
 type OverlayMatch =
-  | { feature: OverlayPoint; kind: "point" }
-  | { feature: OverlayLine; kind: "line" }
-  | { feature: OverlayPolygon; kind: "polygon" };
+  | { feature: OverlayPoint; kind: "point"; layerId: string }
+  | { feature: OverlayLine; kind: "line"; layerId: string }
+  | { feature: OverlayPolygon; kind: "polygon"; layerId: string };
 
-function findInOverlay(overlay: MapOverlayPayload | null, id: string): OverlayMatch | null {
-  if (!overlay) return null;
-  const point = overlay.points.find((p) => p.id === id);
-  if (point) return { feature: point, kind: "point" };
-  const line = overlay.lines.find((l) => l.id === id);
-  if (line) return { feature: line, kind: "line" };
-  const polygon = overlay.polygons.find((p) => p.id === id);
-  if (polygon) return { feature: polygon, kind: "polygon" };
+/** Scan all accumulated layers for a feature by id (ids are unique across layers). */
+function findInLayers(layers: MapOverlayLayer[], id: string): OverlayMatch | null {
+  for (const l of layers) {
+    const point = l.points.find((p) => p.id === id);
+    if (point) return { feature: point, kind: "point", layerId: l.id };
+    const line = l.lines.find((ln) => ln.id === id);
+    if (line) return { feature: line, kind: "line", layerId: l.id };
+    const polygon = l.polygons.find((pg) => pg.id === id);
+    if (polygon) return { feature: polygon, kind: "polygon", layerId: l.id };
+  }
   return null;
 }
 
@@ -120,15 +122,15 @@ function slugTitleFromPath(path: string): string {
 type Resolved = {
   entry: FeatureEntry;
   place: PlaceRecord | null;
-  /** When set, clicking this row should first replay this overlay before opening. */
-  restoreOverlay: MapOverlayPayload | null;
-  /** True when the ref can't be resolved at all (deleted vault file or stale overlay). */
+  /** Overlay layer this row belongs to (null for vault rows or stale refs). */
+  layerId: string | null;
+  /** True when the ref can't be resolved at all (deleted vault file or removed layer). */
   stale: boolean;
 };
 
 function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
   const { selectedFilePath, onOpenFeature } = useFeatureResolver();
-  const { entry, place, restoreOverlay, stale } = resolved;
+  const { entry, place, stale } = resolved;
 
   const title =
     place?.title ?? (entry.kind === "vault" ? slugTitleFromPath(entry.path) : "Overlay feature");
@@ -138,7 +140,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
     if (stale || !place) return;
-    onOpenFeature(place, restoreOverlay ?? undefined);
+    onOpenFeature(place);
   }
 
   return (
@@ -177,7 +179,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
 }
 
 export function FeatureList(props: { refs?: string }): React.JSX.Element | null {
-  const { getPlace, liveOverlay, overlaySnapshot } = useFeatureResolver();
+  const { getPlace, overlayLayers, focusLayer } = useFeatureResolver();
   const [expanded, setExpanded] = useState(false);
   const entries = useMemo(() => parseRefs(props.refs), [props.refs]);
 
@@ -185,29 +187,18 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
     return entries.map((entry) => {
       if (entry.kind === "vault") {
         const place = getPlace(entry.path) ?? null;
-        return { entry, place, restoreOverlay: null, stale: place == null };
+        return { entry, place, layerId: null, stale: place == null };
       }
-      const live = findInOverlay(liveOverlay, entry.id);
-      if (live) {
-        return {
-          entry,
-          place: placeFromOverlayMatch(live),
-          restoreOverlay: null,
-          stale: false
-        };
+      const match = findInLayers(overlayLayers, entry.id);
+      if (match) {
+        return { entry, place: placeFromOverlayMatch(match), layerId: match.layerId, stale: false };
       }
-      const snap = findInOverlay(overlaySnapshot, entry.id);
-      if (snap) {
-        return {
-          entry,
-          place: placeFromOverlayMatch(snap),
-          restoreOverlay: overlaySnapshot,
-          stale: false
-        };
-      }
-      return { entry, place: null, restoreOverlay: null, stale: true };
+      return { entry, place: null, layerId: null, stale: true };
     });
-  }, [entries, getPlace, liveOverlay, overlaySnapshot]);
+  }, [entries, getPlace, overlayLayers]);
+
+  // A card maps to one overlay layer; hovering it focuses that layer on the map.
+  const cardLayerId = resolved.find((r) => r.layerId != null)?.layerId ?? null;
 
   if (resolved.length === 0) return null;
 
@@ -215,7 +206,11 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
   const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
 
   return (
-    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
+    <div
+      className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20"
+      onMouseEnter={cardLayerId ? () => focusLayer(cardLayerId) : undefined}
+      onMouseLeave={cardLayerId ? () => focusLayer(null) : undefined}
+    >
       {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}

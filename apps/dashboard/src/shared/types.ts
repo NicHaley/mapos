@@ -46,6 +46,18 @@ export type MapOverlayPayload = {
   polygons: OverlayPolygon[];
 };
 
+/**
+ * One accumulated overlay layer on the map. Each `present_features` /
+ * `render_overlay_on_map` call produces a layer with a stable `id` (the tool
+ * call id). Layers accumulate rather than replace, so multiple result sets
+ * coexist; a chat card owns its layer and can add it to the vault or remove it.
+ * Marker ids within a layer are namespaced (`<id>:feature-0`) to stay unique
+ * across layers.
+ */
+export type MapOverlayLayer = MapOverlayPayload & {
+  id: string;
+};
+
 export type FileNode = {
   name: string;
   path: string;
@@ -73,8 +85,6 @@ export type ChatDonePayload = {
   canUndo: boolean;
   /** Pi-native messages that the agent appended this turn (assistant + toolResult rows). */
   newMessages: Message[];
-  /** Set when an assistant message in this turn mentioned an overlay ref worth pinning. */
-  overlaySnapshot?: OverlaySnapshotEntry;
 };
 export type ChatErrorPayload = {
   convId: string;
@@ -83,17 +93,6 @@ export type ChatErrorPayload = {
   code?: "AI_NOT_CONFIGURED" | "AI_DECRYPT_FAILED";
   /** When set, the renderer should surface a "Reconfigure" link that deep-links to a settings section. */
   reconfigureProvider?: "ai";
-};
-
-/**
- * Overlay snapshot pinned to an assistant message whose text mentions an
- * `overlay:` ref. Stored in a sidecar JSONL so historic refs stay resolvable
- * after the live overlay has been replaced or cleared. The key is the
- * assistant message's epoch-ms timestamp (Pi `AssistantMessage.timestamp`).
- */
-export type OverlaySnapshotEntry = {
-  messageTimestamp: number;
-  overlay: MapOverlayPayload;
 };
 
 export type ConversationMeta = {
@@ -199,6 +198,6 @@ export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {
   messages: Message[];
-  overlay: MapOverlayPayload | null;
-  overlaySnapshots: OverlaySnapshotEntry[];
+  /** All accumulated overlay layers for this conversation, in order. */
+  layers: MapOverlayLayer[];
 };

@@ -28,7 +28,7 @@ import type {
   ConversationMeta,
   FileNode,
   InstalledRegionPack,
-  MapOverlayPayload,
+  MapOverlayLayer,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -72,7 +72,7 @@ declare global {
         removeListeners: () => void;
       };
       map: {
-        onOverlay: (cb: (data: MapOverlayPayload) => void) => void;
+        onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) => void;
         onOverlayClear: (cb: () => void) => void;
         sendViewport: (data: ViewportState) => void;
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;

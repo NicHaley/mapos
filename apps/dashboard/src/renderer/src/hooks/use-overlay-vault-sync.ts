@@ -60,47 +60,38 @@ function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
   ];
 }
 
-export function useOverlayVaultSync({
-  mapOverlay,
-  setAddAllOverlayBusy
-}: {
-  mapOverlay: MapOverlayPayload;
-  setAddAllOverlayBusy: (busy: boolean) => void;
-}): { handleAddAllOverlayToVault: (parentFolderPath: string | null) => Promise<void> } {
-  const handleAddAllOverlayToVault = useCallback(
-    async (parentFolderPath: string | null) => {
-      const features = overlayVaultFeatures(mapOverlay);
+export function useOverlayVaultSync(): {
+  addLayerToVault: (layer: MapOverlayPayload, parentFolderPath: string | null) => Promise<void>;
+} {
+  const addLayerToVault = useCallback(
+    async (layer: MapOverlayPayload, parentFolderPath: string | null) => {
+      const features = overlayVaultFeatures(layer);
       if (features.length === 0) return;
-      setAddAllOverlayBusy(true);
-      try {
-        await Promise.all(
-          features.map(async (f) => {
-            const create = await window.api.fs.createNoteFile({
-              parentFolderPath,
-              ...f.createArgs
-            });
-            if (!create.success) {
-              console.error("[add all overlay]", create.error);
-              return;
-            }
-            const baseName = filenameBaseFromPlaceTitle(f.title);
-            const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-            if (!renamed.ok) {
-              console.error("[add all overlay]", renamed.error);
-              return;
-            }
-            if (f.preview_markdown?.trim()) {
-              const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
-              if (!w.success) console.error("[add all overlay] write body", w.error);
-            }
-          })
-        );
-      } finally {
-        setAddAllOverlayBusy(false);
-      }
+      await Promise.all(
+        features.map(async (f) => {
+          const create = await window.api.fs.createNoteFile({
+            parentFolderPath,
+            ...f.createArgs
+          });
+          if (!create.success) {
+            console.error("[add layer to vault]", create.error);
+            return;
+          }
+          const baseName = filenameBaseFromPlaceTitle(f.title);
+          const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+          if (!renamed.ok) {
+            console.error("[add layer to vault]", renamed.error);
+            return;
+          }
+          if (f.preview_markdown?.trim()) {
+            const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
+            if (!w.success) console.error("[add layer to vault] write body", w.error);
+          }
+        })
+      );
     },
-    [mapOverlay, setAddAllOverlayBusy]
+    []
   );
 
-  return { handleAddAllOverlayToVault };
+  return { addLayerToVault };
 }

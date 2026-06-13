@@ -125,6 +125,23 @@ function placeFromOverlayFeature(
   };
 }
 
+/**
+ * Look up an overlay feature's full geometry by id across all overlay layers.
+ * Used to recover geometry that MapLibre clipped to a tile boundary on click.
+ */
+function findOverlayGeometry(
+  layers: MapOverlayLayer[],
+  id: string
+): GeoJSONGeometry | null {
+  for (const layer of layers) {
+    const polygon = layer.polygons.find((pg) => pg.id === id);
+    if (polygon) return { type: "Polygon", coordinates: polygon.coordinates };
+    const line = layer.lines.find((ln) => ln.id === id);
+    if (line) return { type: "LineString", coordinates: line.coordinates };
+  }
+  return null;
+}
+
 const POINT_FILTER = ["==", ["geometry-type"], "Point"];
 const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
 const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
@@ -939,7 +956,11 @@ const MapView = forwardRef<
         const title = (feature.properties.title as string | undefined) ?? "Map overlay";
         const previewMarkdown = (feature.properties.preview_markdown as string | undefined) ?? "";
         try {
-          const geometry = feature.geometry as GeoJSONGeometry;
+          // MapLibre clips `feature.geometry` to the vector tile the click landed
+          // in, so a polygon spanning multiple tiles comes back as just the clicked
+          // tile's slice. Recover the full, unclipped geometry from the source data
+          // by id; only fall back to the clipped geometry if no match is found.
+          const geometry = findOverlayGeometry(overlayLayers, id) ?? (feature.geometry as GeoJSONGeometry);
           onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown), clickMeta);
           return;
         } catch {
@@ -948,7 +969,7 @@ const MapView = forwardRef<
       }
       onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     },
-    [folderPlaces, linkedPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
+    [folderPlaces, linkedPlaces, selectedPlace, overlayLayers, onSelectPlace, onMapClickEmpty]
   );
 
   const interactiveLayerIds = useMemo(() => {

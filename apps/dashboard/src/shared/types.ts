@@ -9,7 +9,53 @@ export type PlaceRecord = {
   filePath: string;
   /** When set, PlaceCard shows preview content without reading the file; no save/rename. */
   previewMarkdown?: string;
+  /**
+   * Structured details for a preview place (search result / chat feature), rendered
+   * read-only in the place card by the same properties system and persisted verbatim
+   * as frontmatter on "Add". Only present in preview mode; saved vault files carry
+   * their properties in the file's frontmatter instead.
+   */
+  properties?: Record<string, string>;
 };
+
+/**
+ * Canonical detail keys, in the order they render in the place-card grid and in
+ * which they're written to frontmatter on "Add". Known keys come first (this order);
+ * any extra keys follow in insertion order. The renderer special-cases these for
+ * labels and link affordances. Keep in sync with the place-card detail renderer.
+ */
+export const CANONICAL_DETAIL_KEYS = [
+  "category",
+  "address",
+  "source_url",
+  "osm_id",
+  "wikidata_id"
+] as const;
+
+/**
+ * Return a copy of `props` with the canonical keys first (in {@link CANONICAL_DETAIL_KEYS}
+ * order), then any remaining keys in their original insertion order. Empty/blank values
+ * are dropped so the preview grid only shows filled keys.
+ */
+export function orderDetailProperties(
+  props: Record<string, string> | undefined
+): Record<string, string> {
+  if (!props) return {};
+  const ordered: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const key of CANONICAL_DETAIL_KEYS) {
+    const v = props[key];
+    if (typeof v === "string" && v.trim()) {
+      ordered[key] = v;
+      seen.add(key);
+    }
+  }
+  for (const [key, v] of Object.entries(props)) {
+    if (seen.has(key)) continue;
+    if (typeof v === "string" && v.trim()) ordered[key] = v;
+  }
+  return ordered;
+}
 
 export type PlaceUpdate =
   | { event: "add" | "change"; place: PlaceRecord }
@@ -22,6 +68,11 @@ export type OverlayPoint = {
   title: string;
   /** Shown in mini PlaceCard body before save (optional). */
   preview_markdown?: string;
+  /**
+   * Structured details (category, address, source_url, osm_id, wikidata_id, …).
+   * Rendered read-only in the place card and persisted as frontmatter on "Add".
+   */
+  properties?: Record<string, string>;
 };
 
 export type OverlayLine = {
@@ -44,6 +95,18 @@ export type MapOverlayPayload = {
   points: OverlayPoint[];
   lines: OverlayLine[];
   polygons: OverlayPolygon[];
+};
+
+/**
+ * One accumulated overlay layer on the map. Each `present_features` /
+ * `render_overlay_on_map` call produces a layer with a stable `id` (the tool
+ * call id). Layers accumulate rather than replace, so multiple result sets
+ * coexist; a chat card owns its layer and can add it to the vault or remove it.
+ * Marker ids within a layer are namespaced (`<id>:feature-0`) to stay unique
+ * across layers.
+ */
+export type MapOverlayLayer = MapOverlayPayload & {
+  id: string;
 };
 
 export type FileNode = {
@@ -73,8 +136,6 @@ export type ChatDonePayload = {
   canUndo: boolean;
   /** Pi-native messages that the agent appended this turn (assistant + toolResult rows). */
   newMessages: Message[];
-  /** Set when an assistant message in this turn mentioned an overlay ref worth pinning. */
-  overlaySnapshot?: OverlaySnapshotEntry;
 };
 export type ChatErrorPayload = {
   convId: string;
@@ -83,17 +144,6 @@ export type ChatErrorPayload = {
   code?: "AI_NOT_CONFIGURED" | "AI_DECRYPT_FAILED";
   /** When set, the renderer should surface a "Reconfigure" link that deep-links to a settings section. */
   reconfigureProvider?: "ai";
-};
-
-/**
- * Overlay snapshot pinned to an assistant message whose text mentions an
- * `overlay:` ref. Stored in a sidecar JSONL so historic refs stay resolvable
- * after the live overlay has been replaced or cleared. The key is the
- * assistant message's epoch-ms timestamp (Pi `AssistantMessage.timestamp`).
- */
-export type OverlaySnapshotEntry = {
-  messageTimestamp: number;
-  overlay: MapOverlayPayload;
 };
 
 export type ConversationMeta = {
@@ -199,6 +249,6 @@ export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {
   messages: Message[];
-  overlay: MapOverlayPayload | null;
-  overlaySnapshots: OverlaySnapshotEntry[];
+  /** All accumulated overlay layers for this conversation, in order. */
+  layers: MapOverlayLayer[];
 };

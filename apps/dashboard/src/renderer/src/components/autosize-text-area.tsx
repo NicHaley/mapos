@@ -16,6 +16,8 @@ interface AutoSizeTextAreaProps {
   disabled?: boolean;
   readOnly?: boolean;
   "aria-label"?: string;
+  /** Access the underlying textarea (e.g. to focus it imperatively). */
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export function AutoSizeTextArea({
@@ -29,7 +31,8 @@ export function AutoSizeTextArea({
   autoFocus = false,
   disabled = false,
   readOnly = false,
-  "aria-label": ariaLabel
+  "aria-label": ariaLabel,
+  inputRef
 }: AutoSizeTextAreaProps) {
   const { ref, bounds } = useMeasure<HTMLTextAreaElement>();
 
@@ -69,7 +72,10 @@ export function AutoSizeTextArea({
         }
       }}
       placeholder={placeholder}
-      ref={ref}
+      ref={(node) => {
+        ref.current = node;
+        if (inputRef) inputRef.current = node;
+      }}
       spellCheck={false}
       rows={1}
       value={value}

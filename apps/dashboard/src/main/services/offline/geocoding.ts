@@ -41,6 +41,8 @@ const VIEWPORT_BIAS_CAP = 8.0;
 
 type FeatureRow = {
   id: number;
+  osm_type: string | null;
+  osm_id: number | null;
   name: string;
   class: string | null;
   category: string | null;
@@ -57,8 +59,25 @@ type FeatureRow = {
 
 // Columns every query returns, shared by both search paths and reverse.
 const FEATURE_COLS =
-  "f.id, f.name, f.class, f.category, f.kind, f.admin_context, f.address, f.lat, f.lng, " +
+  "f.id, f.osm_type, f.osm_id, f.name, f.class, f.category, f.kind, f.admin_context, f.address, f.lat, f.lng, " +
   "f.bbox_min_lng, f.bbox_min_lat, f.bbox_max_lng, f.bbox_max_lat";
+
+/** OSM element type as our enum, accepting both full words and Photon's N/W/R. */
+function normalizeOsmType(raw: string | null): "node" | "way" | "relation" | undefined {
+  switch (raw?.toLowerCase()) {
+    case "node":
+    case "n":
+      return "node";
+    case "way":
+    case "w":
+      return "way";
+    case "relation":
+    case "r":
+      return "relation";
+    default:
+      return undefined;
+  }
+}
 
 // One read-only connection per file path, reused across queries.
 const connections = new Map<string, Database.Database>();
@@ -138,9 +157,15 @@ function rowToResult(row: FeatureRow, region: string): GeocodeResult {
     // only context is the country "Monaco") — same as Photon's same-as-primary skip.
     secondaryLabel: secondary.toLowerCase() === row.name.toLowerCase() ? "" : secondary
   };
-  // Prefer the normalized category (v2 packs) over the raw OSM class.
-  const category = row.category ?? row.class;
-  if (category) result.categories = [category];
+  // The normalized category id only (never the raw `class` fallback — that would leak
+  // "amenity:restaurant" into a field that's meant to be a clean vocabulary token).
+  if (row.category) result.category = row.category;
+  // Real OSM identity, straight from the pack (no rebuild needed — it was always stored).
+  const osmType = normalizeOsmType(row.osm_type);
+  if (osmType && row.osm_id) {
+    result.osmType = osmType;
+    result.osmId = row.osm_id;
+  }
   // Geometry extent for zoom-to-fit; skip degenerate (point-feature) boxes.
   if (
     row.bbox_min_lng != null &&

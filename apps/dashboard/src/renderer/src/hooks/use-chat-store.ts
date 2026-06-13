@@ -5,7 +5,7 @@ import type {
   ChatErrorPayload,
   ChatToolCallPayload,
   ChatToolResultPayload,
-  MapOverlayPayload
+  MapOverlayLayer
 } from "@shared/types";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useReducer, useRef } from "react";
@@ -33,8 +33,6 @@ export type StoredRow = Message | ErrorRow;
 
 export type ConvChatState = {
   messages: StoredRow[];
-  /** Overlay snapshots keyed by assistant message timestamp. Pins stale `overlay:` refs. */
-  overlaySnapshots: Record<number, MapOverlayPayload>;
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ActiveToolCall[];
@@ -54,7 +52,6 @@ type ChatStoreAction =
       type: "loaded";
       convId: string;
       messages: Message[];
-      overlaySnapshots: Record<number, MapOverlayPayload>;
     }
   | { type: "user_message"; convId: string; content: string }
   | { type: "chunk"; convId: string; text: string }
@@ -72,7 +69,6 @@ type ChatStoreAction =
       convId: string;
       canUndo: boolean;
       newMessages: Message[];
-      snapshot?: { messageTimestamp: number; overlay: MapOverlayPayload };
     }
   | { type: "undo_confirmed"; convId: string }
   | { type: "error"; convId: string; message: string; reconfigureProvider?: "ai" }
@@ -81,7 +77,6 @@ type ChatStoreAction =
 
 export const emptyConv: ConvChatState = {
   messages: [],
-  overlaySnapshots: {},
   streamingContent: "",
   streamingThinking: "",
   activeToolCalls: [],
@@ -108,7 +103,6 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
       return updateConv(state, action.convId, () => ({
         ...emptyConv,
         messages: action.messages,
-        overlaySnapshots: action.overlaySnapshots,
         loaded: true
       }));
     }
@@ -166,12 +160,6 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
       return updateConv(state, action.convId, (c) => ({
         ...c,
         messages: [...c.messages, ...action.newMessages],
-        overlaySnapshots: action.snapshot
-          ? {
-              ...c.overlaySnapshots,
-              [action.snapshot.messageTimestamp]: action.snapshot.overlay
-            }
-          : c.overlaySnapshots,
         streamingContent: "",
         streamingThinking: "",
         activeToolCalls: [],
@@ -220,11 +208,10 @@ function chatStoreReducer(state: ChatStoreState, action: ChatStoreAction): ChatS
 export type ChatStore = {
   state: ChatStoreState;
   getConv: (convId: string) => ConvChatState;
-  loadConversation: (convId: string) => Promise<MapOverlayPayload | null>;
+  loadConversation: (convId: string) => Promise<MapOverlayLayer[]>;
   sendMessage: (convId: string, text: string) => void;
   abort: (convId: string) => void;
   undo: (convId: string) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
-  clearOverlay: (convId: string) => void;
   deleteConversation: (convId: string) => Promise<void>;
   renameConversation: (convId: string, title: string) => Promise<{ success: boolean; error?: string }>;
   removeFromStore: (convId: string) => void;
@@ -260,8 +247,7 @@ export function useChatStore(): ChatStore {
         type: "done",
         convId: d.convId,
         canUndo: d.canUndo,
-        newMessages: d.newMessages,
-        ...(d.overlaySnapshot ? { snapshot: d.overlaySnapshot } : {})
+        newMessages: d.newMessages
       })
     );
     window.api.chat.onError((d: ChatErrorPayload) =>
@@ -281,21 +267,13 @@ export function useChatStore(): ChatStore {
   );
 
   const loadConversation = useCallback(
-    async (convId: string): Promise<MapOverlayPayload | null> => {
+    async (convId: string): Promise<MapOverlayLayer[]> => {
       const existing = inFlightLoads.current.get(convId);
       if (existing) return existing;
       const p = (async () => {
-        const { messages, overlay, overlaySnapshots } =
-          await window.api.chat.loadConversation(convId);
-        const snapshotMap: Record<number, MapOverlayPayload> = {};
-        for (const s of overlaySnapshots) snapshotMap[s.messageTimestamp] = s.overlay;
-        dispatch({
-          type: "loaded",
-          convId,
-          messages,
-          overlaySnapshots: snapshotMap
-        });
-        return overlay;
+        const { messages, layers } = await window.api.chat.loadConversation(convId);
+        dispatch({ type: "loaded", convId, messages });
+        return layers;
       })().finally(() => {
         inFlightLoads.current.delete(convId);
       });
@@ -321,10 +299,6 @@ export function useChatStore(): ChatStore {
     return result;
   }, []);
 
-  const clearOverlay = useCallback((convId: string) => {
-    window.api.chat.clearOverlay(convId);
-  }, []);
-
   const deleteConversation = useCallback(async (convId: string) => {
     await window.api.chat.deleteConversation(convId);
     dispatch({ type: "remove", convId });
@@ -345,7 +319,6 @@ export function useChatStore(): ChatStore {
     sendMessage,
     abort,
     undo,
-    clearOverlay,
     deleteConversation,
     renameConversation,
     removeFromStore

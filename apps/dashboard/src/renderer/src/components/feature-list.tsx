@@ -1,8 +1,8 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { MapPinIcon } from "lucide-react";
-import { type MouseEvent, useMemo } from "react";
+import { ChevronDownIcon, MapPinIcon } from "lucide-react";
+import { type MouseEvent, useMemo, useState } from "react";
 import type {
-  MapOverlayPayload,
+  MapOverlayLayer,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -11,6 +11,9 @@ import type {
 import { useFeatureResolver } from "../contexts/feature-resolver";
 
 const MAP_OVERLAY_PREFIX = "map-overlay:";
+
+/** Above this many rows the list collapses to a preview with a "Show all" toggle. */
+const COLLAPSE_THRESHOLD = 8;
 
 type FeatureEntry =
   | { kind: "vault"; ref: string; path: string }
@@ -35,18 +38,20 @@ function parseRefs(refsAttr: string | undefined): FeatureEntry[] {
 }
 
 type OverlayMatch =
-  | { feature: OverlayPoint; kind: "point" }
-  | { feature: OverlayLine; kind: "line" }
-  | { feature: OverlayPolygon; kind: "polygon" };
+  | { feature: OverlayPoint; kind: "point"; layerId: string }
+  | { feature: OverlayLine; kind: "line"; layerId: string }
+  | { feature: OverlayPolygon; kind: "polygon"; layerId: string };
 
-function findInOverlay(overlay: MapOverlayPayload | null, id: string): OverlayMatch | null {
-  if (!overlay) return null;
-  const point = overlay.points.find((p) => p.id === id);
-  if (point) return { feature: point, kind: "point" };
-  const line = overlay.lines.find((l) => l.id === id);
-  if (line) return { feature: line, kind: "line" };
-  const polygon = overlay.polygons.find((p) => p.id === id);
-  if (polygon) return { feature: polygon, kind: "polygon" };
+/** Scan all accumulated layers for a feature by id (ids are unique across layers). */
+function findInLayers(layers: MapOverlayLayer[], id: string): OverlayMatch | null {
+  for (const l of layers) {
+    const point = l.points.find((p) => p.id === id);
+    if (point) return { feature: point, kind: "point", layerId: l.id };
+    const line = l.lines.find((ln) => ln.id === id);
+    if (line) return { feature: line, kind: "line", layerId: l.id };
+    const polygon = l.polygons.find((pg) => pg.id === id);
+    if (polygon) return { feature: polygon, kind: "polygon", layerId: l.id };
+  }
   return null;
 }
 
@@ -55,56 +60,51 @@ function placeFromOverlayMatch(match: OverlayMatch): PlaceRecord {
   const filePath = `${MAP_OVERLAY_PREFIX}${feature.id}`;
   const title = ("title" in feature ? feature.title : null) || "Overlay feature";
   const previewMarkdown = feature.preview_markdown ?? "";
+  // Only point features carry structured details; lines/polygons (routes/areas) don't.
+  const properties = "properties" in feature ? feature.properties : undefined;
+  const detail = {
+    filePath,
+    title,
+    type: "Preview" as const,
+    previewMarkdown,
+    ...(properties && Object.keys(properties).length > 0 ? { properties } : {})
+  };
   if (kind === "point") {
     return {
-      filePath,
-      title,
-      type: "Preview",
+      ...detail,
       geometry: JSON.stringify({
         type: "Point",
         coordinates: [(feature as OverlayPoint).lng, (feature as OverlayPoint).lat]
-      }),
-      previewMarkdown
+      })
     };
   }
   if (kind === "line") {
     return {
-      filePath,
-      title,
-      type: "Preview",
+      ...detail,
       geometry: JSON.stringify({
         type: "LineString",
         coordinates: (feature as OverlayLine).coordinates
-      }),
-      previewMarkdown
+      })
     };
   }
   return {
-    filePath,
-    title,
-    type: "Preview",
+    ...detail,
     geometry: JSON.stringify({
       type: "Polygon",
       coordinates: (feature as OverlayPolygon).coordinates
-    }),
-    previewMarkdown
+    })
   };
 }
 
-/** Vault subtitle = parent folder. Overlay subtitle = first non-redundant line of preview_markdown. */
-function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null, title: string): string | null {
+/** Vault subtitle = parent folder. Overlay subtitle = address detail (matches the search list). */
+function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null): string | null {
   if (entry.kind === "vault" && place) {
     const slash = place.filePath.lastIndexOf("/");
     if (slash <= 0) return null;
     return place.filePath.slice(0, slash);
   }
-  if (entry.kind === "overlay" && place?.previewMarkdown) {
-    const firstLine = place.previewMarkdown
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
-    if (!firstLine || firstLine === title) return null;
-    return firstLine;
+  if (entry.kind === "overlay") {
+    return place?.properties?.address ?? null;
   }
   return null;
 }
@@ -117,25 +117,25 @@ function slugTitleFromPath(path: string): string {
 type Resolved = {
   entry: FeatureEntry;
   place: PlaceRecord | null;
-  /** When set, clicking this row should first replay this overlay before opening. */
-  restoreOverlay: MapOverlayPayload | null;
-  /** True when the ref can't be resolved at all (deleted vault file or stale overlay). */
+  /** True when the ref can't be resolved at all (deleted vault file or removed layer). */
   stale: boolean;
 };
 
 function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
-  const { selectedFilePath, onOpenFeature } = useFeatureResolver();
-  const { entry, place, restoreOverlay, stale } = resolved;
+  const { selectedFilePath, onOpenFeature, focusFeature } = useFeatureResolver();
+  const { entry, place, stale } = resolved;
 
   const title =
     place?.title ?? (entry.kind === "vault" ? slugTitleFromPath(entry.path) : "Overlay feature");
-  const subtitle = rowSubtitle(entry, place, title);
+  const subtitle = rowSubtitle(entry, place);
   const isSelected = !stale && place != null && selectedFilePath === place.filePath;
+  // Only overlay rows map to an emphasizable map feature; vault rows just clear focus.
+  const focusId = !stale && entry.kind === "overlay" ? entry.id : null;
 
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
     if (stale || !place) return;
-    onOpenFeature(place, restoreOverlay ?? undefined);
+    onOpenFeature(place);
   }
 
   return (
@@ -143,8 +143,10 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
       type="button"
       disabled={stale}
       onClick={handleClick}
+      onMouseEnter={() => focusFeature(focusId)}
+      onMouseLeave={() => focusFeature(null)}
       className={cn(
-        "flex w-full items-start gap-2.5 px-2.5 py-2 text-left transition-colors",
+        "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors",
         "hover:bg-sidebar-accent/50",
         isSelected && "bg-sidebar-accent/60",
         stale && "cursor-default opacity-50 hover:bg-transparent"
@@ -159,14 +161,20 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
     >
       <MapPinIcon
         className={cn(
-          "size-3.5 shrink-0 mt-0.5",
+          "size-3.5 shrink-0",
           entry.kind === "vault" ? "text-foreground/80" : "text-muted-foreground/70"
         )}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium text-foreground">{title}</span>
+      {/* Single line — name never shrinks, the secondary truncates into the space left —
+          so it matches the geocode search results list (see geocode-search-panel). */}
+      <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <span className="max-w-full shrink-0 truncate text-sm font-medium text-foreground leading-tight">
+          {title}
+        </span>
         {subtitle && (
-          <span className="truncate text-xs text-muted-foreground font-mono">{subtitle}</span>
+          <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
+            {subtitle}
+          </span>
         )}
       </div>
     </button>
@@ -174,44 +182,46 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
 }
 
 export function FeatureList(props: { refs?: string }): React.JSX.Element | null {
-  const { getPlace, liveOverlay, overlaySnapshot } = useFeatureResolver();
+  const { getPlace, overlayLayers } = useFeatureResolver();
+  const [expanded, setExpanded] = useState(false);
   const entries = useMemo(() => parseRefs(props.refs), [props.refs]);
 
   const resolved = useMemo<Resolved[]>(() => {
     return entries.map((entry) => {
       if (entry.kind === "vault") {
         const place = getPlace(entry.path) ?? null;
-        return { entry, place, restoreOverlay: null, stale: place == null };
+        return { entry, place, stale: place == null };
       }
-      const live = findInOverlay(liveOverlay, entry.id);
-      if (live) {
-        return {
-          entry,
-          place: placeFromOverlayMatch(live),
-          restoreOverlay: null,
-          stale: false
-        };
+      const match = findInLayers(overlayLayers, entry.id);
+      if (match) {
+        return { entry, place: placeFromOverlayMatch(match), stale: false };
       }
-      const snap = findInOverlay(overlaySnapshot, entry.id);
-      if (snap) {
-        return {
-          entry,
-          place: placeFromOverlayMatch(snap),
-          restoreOverlay: overlaySnapshot,
-          stale: false
-        };
-      }
-      return { entry, place: null, restoreOverlay: null, stale: true };
+      return { entry, place: null, stale: true };
     });
-  }, [entries, getPlace, liveOverlay, overlaySnapshot]);
+  }, [entries, getPlace, overlayLayers]);
 
   if (resolved.length === 0) return null;
 
+  const hasOverflow = resolved.length > COLLAPSE_THRESHOLD;
+  const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
+
   return (
-    <div className="not-prose rounded-lg overflow-hiddenmy-2 flex border border-sidebar-border/60 flex-col divide-y divide-sidebar-border bg-sidebar-accent/20">
-      {resolved.map((r) => (
+    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
+      {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}
+      {hasOverflow && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          {expanded ? "Show fewer" : `Show all ${resolved.length}`}
+          <ChevronDownIcon
+            className={cn("size-3 transition-transform", expanded ? "rotate-180" : "rotate-0")}
+          />
+        </button>
+      )}
     </div>
   );
 }

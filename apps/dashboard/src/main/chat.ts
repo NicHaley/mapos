@@ -13,24 +13,21 @@ import {
   type Api,
   type Message,
   type Model,
-  type TextContent,
   type UserMessage
 } from "@earendil-works/pi-ai";
 import { type BrowserWindow, ipcMain } from "electron";
-import type { OverlaySnapshotEntry, PlaceRecord, UndoEntry } from "../shared/types";
+import type { GeocodeResult } from "@mapos/contracts";
+import type { PlaceRecord, UndoEntry } from "../shared/types";
 import {
   type ActiveConversation,
   appendMessages,
-  appendOverlaySnapshot,
   appendToIndex,
   compactIndex,
   getConversationFilePath,
-  getConversationOverlaysFilePath,
   getConversationStateFilePath,
   initConversationsDir,
   loadConvState,
   readConversationIndex,
-  readOverlaySnapshots,
   saveConvState,
   setConversationsDir
 } from "./conversations";
@@ -42,12 +39,6 @@ import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
 import { parsePlaceFile } from "./watcher";
-
-/** Matches any `<features>` tag whose `refs` attribute contains an `overlay:` entry. */
-const OVERLAY_REF_PATTERN = /<features\b[^>]*\brefs=["'][^"']*\boverlay:/i;
-function hasOverlayRef(text: string): boolean {
-  return OVERLAY_REF_PATTERN.test(text);
-}
 
 const LOCAL_PROVIDER_KEY = "mapos-local";
 
@@ -199,6 +190,23 @@ export function setupChat(
   const undoEntries = new Map<string, UndoEntry>();
   /** Active turn streaming state, keyed by convId. */
   const turnStates = new Map<string, TurnState>();
+  /**
+   * Geocoder results cached per conversation, keyed by `GeocodeResult.id`, so
+   * `present_features` can resolve a `result_id` back to the source result and derive
+   * its facts (rather than trusting the model's reformatting). Scoped to the conversation
+   * — not the Pi session — so it survives across turns AND across session re-creation on a
+   * config change. In-memory only: empty after an app restart, after which a stale
+   * `result_id` reports a cache miss and the agent re-searches.
+   */
+  const geocodeCaches = new Map<string, Map<string, GeocodeResult>>();
+  function geocodeCacheForConv(convId: string): Map<string, GeocodeResult> {
+    let cache = geocodeCaches.get(convId);
+    if (!cache) {
+      cache = new Map();
+      geocodeCaches.set(convId, cache);
+    }
+    return cache;
+  }
 
   initConversationsDir();
 
@@ -222,7 +230,7 @@ export function setupChat(
         id,
         messages,
         sdkSessionId: meta?.sdkSessionId,
-        overlay: state.overlay,
+        layers: state.layers,
         ...(meta?.title ? { title: meta.title } : {})
       };
       conversations.set(id, conv);
@@ -245,13 +253,22 @@ export function setupChat(
           entry.operations.push(op);
         }
       },
-      (overlay) => {
+      (layer) => {
         const conv = conversations.get(convId);
         if (!conv) return;
-        conv.overlay = overlay;
-        saveConvState(convId, { overlay });
+        // Replace any existing layer with the same id (re-run of the same tool
+        // call), otherwise append. Order is preserved.
+        conv.layers = [...(conv.layers ?? []).filter((l) => l.id !== layer.id), layer];
+        saveConvState(convId, { layers: conv.layers });
       },
-      () => conversations.get(convId)?.overlay
+      () => {
+        const conv = conversations.get(convId);
+        if (!conv) return;
+        conv.layers = [];
+        saveConvState(convId, { layers: [] });
+      },
+      () => (conversations.get(convId)?.layers?.length ?? 0) > 0,
+      geocodeCacheForConv(convId)
     );
   }
 
@@ -409,32 +426,15 @@ export function setupChat(
       appendMessages(conv, newRows);
     }
 
-    // Overlay refs in the assistant text need to resolve even after the live
-    // overlay has been replaced. Snapshot the current overlay keyed by the
-    // last assistant message's timestamp so renderer-side lookups work.
-    let overlaySnapshot: OverlaySnapshotEntry | undefined;
-    const lastAssistant = [...newRows].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant && conv.overlay) {
-      const text = lastAssistant.content
-        .filter((b): b is TextContent => b.type === "text")
-        .map((b) => b.text)
-        .join("");
-      if (hasOverlayRef(text)) {
-        overlaySnapshot = {
-          messageTimestamp: lastAssistant.timestamp,
-          overlay: conv.overlay
-        };
-        appendOverlaySnapshot(convId, overlaySnapshot);
-      }
-    }
-
+    // Overlay layers produced this turn are already persisted via onLayerUpdate
+    // and pushed to the renderer over `map:overlay-add`, so cards resolve their
+    // refs against the live layer set — no per-message snapshot needed.
     if (!mainWindow.isDestroyed()) {
       const canUndo = (undoEntries.get(convId)?.operations.length ?? 0) > 0;
       mainWindow.webContents.send("chat:done", {
         convId,
         canUndo,
-        newMessages: newRows,
-        ...(overlaySnapshot ? { overlaySnapshot } : {})
+        newMessages: newRows
       });
     }
     turnStates.delete(convId);
@@ -442,11 +442,10 @@ export function setupChat(
 
   ipcMain.handle("chat:load-conversation", (_event, id: string) => {
     const conv = ensureLoaded(id);
-    if (!conv) return { messages: [], overlay: null, overlaySnapshots: [] };
+    if (!conv) return { messages: [], layers: [] };
     return {
       messages: conv.messages,
-      overlay: conv.overlay ?? null,
-      overlaySnapshots: readOverlaySnapshots(id)
+      layers: conv.layers ?? []
     };
   });
 
@@ -565,16 +564,6 @@ export function setupChat(
     return { success: errors.length === 0, errors };
   });
 
-  ipcMain.on("chat:clear-overlay", (_event, payload: { convId: string }) => {
-    const conv = conversations.get(payload.convId);
-    if (!conv) return;
-    conv.overlay = null;
-    saveConvState(payload.convId, { overlay: null });
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("map:overlay-clear");
-    }
-  });
-
   ipcMain.handle("chat:rename-conversation", (_event, id: string, rawTitle: string) => {
     const title = rawTitle.trim();
     if (!title) return { success: false, error: "Title cannot be empty" };
@@ -609,12 +598,11 @@ export function setupChat(
       if (existsSync(convFile)) rmSync(convFile);
       const stateFile = getConversationStateFilePath(id);
       if (existsSync(stateFile)) rmSync(stateFile);
-      const overlaysFile = getConversationOverlaysFilePath(id);
-      if (existsSync(overlaysFile)) rmSync(overlaysFile);
       const entries = readConversationIndex().filter((e) => e.id !== id);
       compactIndex(entries);
       conversations.delete(id);
       undoEntries.delete(id);
+      geocodeCaches.delete(id);
     } catch (err) {
       console.error("[main] failed to delete conversation:", err);
     }
@@ -627,7 +615,7 @@ export function setupChat(
     "chat:delete-conversation",
     "chat:rename-conversation"
   ] as const;
-  const CHAT_ON_CHANNELS = ["chat:send", "chat:abort", "chat:clear-overlay"] as const;
+  const CHAT_ON_CHANNELS = ["chat:send", "chat:abort"] as const;
 
   return function stopChat(): void {
     for (const entry of sessions.values()) {

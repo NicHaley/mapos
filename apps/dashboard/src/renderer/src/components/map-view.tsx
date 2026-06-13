@@ -18,6 +18,7 @@ import MapGL, {
   Source,
   useMap
 } from "react-map-gl/maplibre";
+import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
 import "@renderer/lib/pmtiles-protocol";
@@ -25,7 +26,7 @@ import "@renderer/lib/pmtiles-protocol";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
-import type { OverlayLine, OverlayPoint, OverlayPolygon, PlaceRecord } from "../../../shared/types";
+import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,13 +89,33 @@ function parseGeometry(geometryJson: string): GeoJSONGeometry {
   return JSON.parse(geometryJson) as GeoJSONGeometry;
 }
 
-type OverlayRenderData = {
-  points: OverlayPoint[];
-  lines: OverlayLine[];
-  polygons: OverlayPolygon[];
-};
+const EMPTY_LAYERS: MapOverlayLayer[] = [];
 
-const EMPTY_OVERLAY: OverlayRenderData = { points: [], lines: [], polygons: [] };
+/** Features other than the focused one (the hovered chat row) dim to this. */
+const UNFOCUSED_OPACITY = 0.3;
+
+/**
+ * Per-feature opacity for overlay layer sources: the focused feature keeps `base`, every
+ * other feature dims. Returns a plain number when nothing is focused so MapLibre can skip
+ * the data-driven evaluation entirely.
+ */
+function overlayFeatureOpacity(
+  focusedFeatureId: string | null,
+  base: number
+): DataDrivenPropertyValueSpecification<number> {
+  if (focusedFeatureId == null) return base;
+  return [
+    "case",
+    ["==", ["get", "overlayId"], focusedFeatureId],
+    base,
+    base * UNFOCUSED_OPACITY
+  ];
+}
+
+/** Stable, css-safe source id for an overlay layer (layer ids are tool-call ids). */
+function overlaySourceId(layerId: string): string {
+  return `overlay-${layerId.replace(/[^a-zA-Z0-9]/g, "-")}`;
+}
 
 const MAP_OVERLAY_PREFIX = "map-overlay:";
 
@@ -121,6 +142,23 @@ function placeFromOverlayFeature(
     geometry: JSON.stringify(geometry),
     previewMarkdown: previewMarkdown ?? ""
   };
+}
+
+/**
+ * Look up an overlay feature's full geometry by id across all overlay layers.
+ * Used to recover geometry that MapLibre clipped to a tile boundary on click.
+ */
+function findOverlayGeometry(
+  layers: MapOverlayLayer[],
+  id: string
+): GeoJSONGeometry | null {
+  for (const layer of layers) {
+    const polygon = layer.polygons.find((pg) => pg.id === id);
+    if (polygon) return { type: "Polygon", coordinates: polygon.coordinates };
+    const line = layer.lines.find((ln) => ln.id === id);
+    if (line) return { type: "LineString", coordinates: line.coordinates };
+  }
+  return null;
 }
 
 const POINT_FILTER = ["==", ["geometry-type"], "Point"];
@@ -356,9 +394,11 @@ const MapView = forwardRef<
     /** Where new notes are created (context menu): explicit folder, or parent of last vault file. */
     parentFolderForNewFiles?: string | null;
     onSelectedFeaturePosition?: (x: number, y: number) => void;
-    /** Ephemeral MCP overlay; owned by App (single IPC subscription). */
-    mapOverlay?: OverlayRenderData;
-    /** Only render the overlay layer when the chat sidebar is open. */
+    /** Accumulated MCP overlay layers; owned by App (single IPC subscription). */
+    overlayLayers?: MapOverlayLayer[];
+    /** Overlay feature id to emphasize (the hovered chat row); others dim. Null = all full opacity. */
+    focusedFeatureId?: string | null;
+    /** Only render the overlay layers when the chat sidebar is open. */
     showOverlay?: boolean;
     /** GeoJSON files loaded on-demand (not indexed in DB). */
     geoJsonLayers?: Array<{
@@ -379,7 +419,8 @@ const MapView = forwardRef<
     selectedFolder,
     parentFolderForNewFiles,
     onSelectedFeaturePosition,
-    mapOverlay = EMPTY_OVERLAY,
+    overlayLayers = EMPTY_LAYERS,
+    focusedFeatureId = null,
     showOverlay = false,
     geoJsonLayers = [],
     selectionPulseAnchor = null,
@@ -404,7 +445,11 @@ const MapView = forwardRef<
   } | null>(null);
 
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
-  const overlay = mapOverlay;
+  /** All overlay points across layers, each tagged with its layer id for focus dimming. */
+  const overlayPoints = useMemo(
+    () => overlayLayers.flatMap((l) => l.points.map((p) => ({ ...p, layerId: l.id }))),
+    [overlayLayers]
+  );
 
   const onSelectedFeaturePositionRef = useRef(onSelectedFeaturePosition);
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
@@ -730,43 +775,51 @@ const MapView = forwardRef<
     }
   }, [contextMenu, onCreatePlace, parentForCreate, selectedPlace]);
 
-  const overlayGeoJSON = useMemo(() => {
-    const features: Array<{
-      type: "Feature";
-      geometry:
-        | { type: "LineString"; coordinates: [number, number][] }
-        | { type: "Polygon"; coordinates: [number, number][][] };
-      properties?: Record<string, unknown>;
-    }> = [];
-    for (const l of overlay.lines) {
-      features.push({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: l.coordinates },
-        properties: {
-          kind: "overlay",
-          overlayId: l.id,
-          title: l.title,
-          preview_markdown: l.preview_markdown
-        } as Record<string, unknown>
-      });
-    }
-    for (const p of overlay.polygons) {
-      features.push({
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: p.coordinates },
-        properties: {
-          kind: "overlay",
-          overlayId: p.id,
-          title: p.title,
-          preview_markdown: p.preview_markdown
-        } as Record<string, unknown>
-      });
-    }
-    if (features.length === 0) return null;
-    return { type: "FeatureCollection" as const, features };
-  }, [overlay.lines, overlay.polygons]);
-
-  const hasOverlayGeoJSON = overlayGeoJSON && overlayGeoJSON.features.length > 0;
+  // One GeoJSON source per overlay layer, so each layer's lines/polygons can be
+  // dimmed independently with a plain numeric opacity (no data-driven expression).
+  const overlayLayerSources = useMemo(() => {
+    return overlayLayers
+      .map((l) => {
+        const features: Array<{
+          type: "Feature";
+          geometry:
+            | { type: "LineString"; coordinates: [number, number][] }
+            | { type: "Polygon"; coordinates: [number, number][][] };
+          properties: Record<string, unknown>;
+        }> = [];
+        for (const ln of l.lines) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: ln.coordinates },
+            properties: {
+              kind: "overlay",
+              overlayId: ln.id,
+              title: ln.title,
+              preview_markdown: ln.preview_markdown
+            }
+          });
+        }
+        for (const pg of l.polygons) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "Polygon", coordinates: pg.coordinates },
+            properties: {
+              kind: "overlay",
+              overlayId: pg.id,
+              title: pg.title,
+              preview_markdown: pg.preview_markdown
+            }
+          });
+        }
+        return {
+          layerId: l.id,
+          sourceId: overlaySourceId(l.id),
+          data:
+            features.length > 0 ? { type: "FeatureCollection" as const, features } : null
+        };
+      })
+      .filter((s): s is typeof s & { data: NonNullable<(typeof s)["data"]> } => s.data != null);
+  }, [overlayLayers]);
 
   const toFeature = useCallback((p: PlaceRecord & { geometry: string }) => {
     return {
@@ -922,7 +975,11 @@ const MapView = forwardRef<
         const title = (feature.properties.title as string | undefined) ?? "Map overlay";
         const previewMarkdown = (feature.properties.preview_markdown as string | undefined) ?? "";
         try {
-          const geometry = feature.geometry as GeoJSONGeometry;
+          // MapLibre clips `feature.geometry` to the vector tile the click landed
+          // in, so a polygon spanning multiple tiles comes back as just the clicked
+          // tile's slice. Recover the full, unclipped geometry from the source data
+          // by id; only fall back to the clipped geometry if no match is found.
+          const geometry = findOverlayGeometry(overlayLayers, id) ?? (feature.geometry as GeoJSONGeometry);
           onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown), clickMeta);
           return;
         } catch {
@@ -931,7 +988,7 @@ const MapView = forwardRef<
       }
       onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     },
-    [folderPlaces, linkedPlaces, selectedPlace, onSelectPlace, onMapClickEmpty]
+    [folderPlaces, linkedPlaces, selectedPlace, overlayLayers, onSelectPlace, onMapClickEmpty]
   );
 
   const interactiveLayerIds = useMemo(() => {
@@ -945,14 +1002,14 @@ const MapView = forwardRef<
     if (selectedGeoJSON) {
       ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
     }
-    if (hasOverlayGeoJSON) {
-      ids.push("overlay-polygons", "overlay-lines-hit", "overlay-lines");
+    for (const { sourceId } of overlayLayerSources) {
+      ids.push(`${sourceId}-polygons`, `${sourceId}-lines-hit`, `${sourceId}-lines`);
     }
     for (const { sourceId } of augmentedGeoJsonLayers) {
       ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
     }
     return ids;
-  }, [folderGeoJSON, linkedGeoJSON, selectedGeoJSON, hasOverlayGeoJSON, augmentedGeoJsonLayers]);
+  }, [folderGeoJSON, linkedGeoJSON, selectedGeoJSON, overlayLayerSources, augmentedGeoJsonLayers]);
 
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
@@ -1151,28 +1208,33 @@ const MapView = forwardRef<
           </Source>
         )}
         {showOverlay &&
-          overlay.points.map((p) => (
-            <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-              <button
-                type="button"
-                title={p.title}
-                onPointerDown={(ev) => ev.stopPropagation()}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  onSelectPlace?.(placeFromOverlayPoint(p));
-                }}
-                className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  backgroundColor: "#8b5cf6",
-                  border: "2px dashed white",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.4)"
-                }}
-              />
-            </Marker>
-          ))}
+          overlayPoints.map((p) => {
+            const dimmed = focusedFeatureId != null && p.id !== focusedFeatureId;
+            return (
+              <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
+                <button
+                  type="button"
+                  title={p.title}
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    onSelectPlace?.(placeFromOverlayPoint(p));
+                  }}
+                  className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: "50%",
+                    backgroundColor: "#8b5cf6",
+                    border: "2px dashed white",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                    opacity: dimmed ? UNFOCUSED_OPACITY : 1,
+                    transition: "opacity 120ms ease-out"
+                  }}
+                />
+              </Marker>
+            );
+          })}
         {augmentedGeoJsonLayers.map(({ sourceId, data }) => (
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source key={sourceId} id={sourceId} type="geojson" data={data}>
@@ -1211,43 +1273,54 @@ const MapView = forwardRef<
             />
           </Source>
         ))}
-        {showOverlay && hasOverlayGeoJSON && (
-          // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
-          <Source id="overlay-geojson" type="geojson" data={overlayGeoJSON}>
-            <Layer
-              id="overlay-polygons"
-              type="fill"
-              // @ts-expect-error - MapLibre filter expression; types are strict
-              filter={POLYGON_FILTER}
-              paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 }}
-            />
-            <Layer
-              id="overlay-polygon-outline"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
-              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-            />
-            <Layer
-              id="overlay-lines-hit"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
-              paint={{
-                "line-color": "#000000",
-                "line-opacity": 0,
-                "line-width": 14
-              }}
-            />
-            <Layer
-              id="overlay-lines"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
-              paint={{ "line-color": "#8b5cf6", "line-width": 2, "line-dasharray": [2, 1] }}
-            />
-          </Source>
-        )}
+        {showOverlay &&
+          overlayLayerSources.map(({ sourceId, data }) => {
+            const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
+            const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
+            return (
+              // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
+              <Source key={sourceId} id={sourceId} type="geojson" data={data}>
+                <Layer
+                  id={`${sourceId}-polygons`}
+                  type="fill"
+                  // @ts-expect-error - MapLibre filter expression; types are strict
+                  filter={POLYGON_FILTER}
+                  paint={{ "fill-color": "#8b5cf6", "fill-opacity": fillOpacity }}
+                />
+                <Layer
+                  id={`${sourceId}-polygon-outline`}
+                  type="line"
+                  // @ts-expect-error - MapLibre filter expression
+                  filter={POLYGON_FILTER}
+                  paint={{
+                    "line-color": "#8b5cf6",
+                    "line-width": 2,
+                    "line-opacity": lineOpacity,
+                    "line-dasharray": [2, 1]
+                  }}
+                />
+                <Layer
+                  id={`${sourceId}-lines-hit`}
+                  type="line"
+                  // @ts-expect-error - MapLibre filter expression
+                  filter={LINESTRING_FILTER}
+                  paint={{ "line-color": "#000000", "line-opacity": 0, "line-width": 14 }}
+                />
+                <Layer
+                  id={`${sourceId}-lines`}
+                  type="line"
+                  // @ts-expect-error - MapLibre filter expression
+                  filter={LINESTRING_FILTER}
+                  paint={{
+                    "line-color": "#8b5cf6",
+                    "line-width": 2,
+                    "line-opacity": lineOpacity,
+                    "line-dasharray": [2, 1]
+                  }}
+                />
+              </Source>
+            );
+          })}
         {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
         <RegionCoverageIndicator />
       </MapGL>

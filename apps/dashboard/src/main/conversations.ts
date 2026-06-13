@@ -1,13 +1,14 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
-import type { MapOverlayPayload, OverlaySnapshotEntry } from "../shared/types";
+import type { MapOverlayLayer } from "../shared/types";
 
 export type ActiveConversation = {
   id: string;
   messages: Message[];
   sdkSessionId?: string;
-  overlay?: MapOverlayPayload | null;
+  /** Accumulated overlay layers shown on the map for this conversation. */
+  layers?: MapOverlayLayer[];
   title?: string;
 };
 
@@ -29,17 +30,18 @@ export function setConversationsDir(dir: string): void {
   activeConversationsIndex = join(dir, "index.jsonl");
 }
 
-export function loadConvState(id: string): { overlay: MapOverlayPayload | null } {
+export function loadConvState(id: string): { layers: MapOverlayLayer[] } {
   try {
     const p = join(activeConversationsDir, `${id}.state.json`);
-    if (!existsSync(p)) return { overlay: null };
-    return JSON.parse(readFileSync(p, "utf-8")) as { overlay: MapOverlayPayload | null };
+    if (!existsSync(p)) return { layers: [] };
+    const parsed = JSON.parse(readFileSync(p, "utf-8")) as { layers?: MapOverlayLayer[] };
+    return { layers: parsed.layers ?? [] };
   } catch {
-    return { overlay: null };
+    return { layers: [] };
   }
 }
 
-export function saveConvState(id: string, state: { overlay: MapOverlayPayload | null }): void {
+export function saveConvState(id: string, state: { layers: MapOverlayLayer[] }): void {
   try {
     writeFileSync(join(activeConversationsDir, `${id}.state.json`), JSON.stringify(state), "utf-8");
   } catch (err) {
@@ -143,35 +145,4 @@ export function getConversationFilePath(id: string): string {
 
 export function getConversationStateFilePath(id: string): string {
   return join(activeConversationsDir, `${id}.state.json`);
-}
-
-export function getConversationOverlaysFilePath(id: string): string {
-  return join(activeConversationsDir, `${id}.overlays.jsonl`);
-}
-
-export function appendOverlaySnapshot(convId: string, entry: OverlaySnapshotEntry): void {
-  try {
-    appendFileSync(getConversationOverlaysFilePath(convId), `${JSON.stringify(entry)}\n`, "utf-8");
-  } catch (err) {
-    console.error("[main] failed to append overlay snapshot:", err);
-  }
-}
-
-export function readOverlaySnapshots(convId: string): OverlaySnapshotEntry[] {
-  try {
-    const p = getConversationOverlaysFilePath(convId);
-    if (!existsSync(p)) return [];
-    return readFileSync(p, "utf-8")
-      .split("\n")
-      .filter(Boolean)
-      .flatMap((line) => {
-        try {
-          return [JSON.parse(line) as OverlaySnapshotEntry];
-        } catch {
-          return [];
-        }
-      });
-  } catch {
-    return [];
-  }
 }

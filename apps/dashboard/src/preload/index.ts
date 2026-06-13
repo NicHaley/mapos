@@ -26,7 +26,7 @@ import type {
   ChatToolCallPayload,
   ChatToolResultPayload,
   InstalledRegionPack,
-  MapOverlayPayload,
+  MapOverlayLayer,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -54,8 +54,8 @@ const api = {
     }
   },
   map: {
-    onOverlay: (cb: (data: MapOverlayPayload) => void) =>
-      ipcRenderer.on("map:overlay", (_e, data) => cb(data)),
+    onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) =>
+      ipcRenderer.on("map:overlay-add", (_e, layer) => cb(layer)),
     onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
     sendViewport: (data: {
       north: number;
@@ -74,7 +74,7 @@ const api = {
     },
     /** Overlay listeners are owned by App (shared with Chat); not cleared by MapView.removeListeners. */
     removeOverlayListeners: () => {
-      ipcRenderer.removeAllListeners("map:overlay");
+      ipcRenderer.removeAllListeners("map:overlay-add");
       ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },
@@ -96,6 +96,11 @@ const api = {
       }>,
     writeFrontmatterProperty: (filePath: string, key: string, value: unknown) =>
       ipcRenderer.invoke("fs:write-frontmatter-property", filePath, key, value) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
+    writeFrontmatterProperties: (filePath: string, properties: Record<string, unknown>) =>
+      ipcRenderer.invoke("fs:write-frontmatter-properties", filePath, properties) as Promise<{
         success: boolean;
         error?: string;
       }>,
@@ -360,7 +365,6 @@ const api = {
         success: boolean;
         error?: string;
       }>,
-    clearOverlay: (convId: string) => ipcRenderer.send("chat:clear-overlay", { convId }),
     onChunk: (cb: (data: ChatChunkPayload) => void) =>
       ipcRenderer.on("chat:chunk", (_e, d) => cb(d)),
     onThinkingChunk: (cb: (data: ChatChunkPayload) => void) =>

@@ -3,7 +3,9 @@ import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import type { ConversationMeta, MapOverlayPayload } from "@shared/types";
+import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
+import { orderDetailProperties } from "@shared/types";
+import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
@@ -31,6 +33,7 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
+import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
@@ -48,13 +51,6 @@ const FIT_BUFFER = 2.5 * BASE_UNITS;
 
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 
-const EMPTY_MAP_OVERLAY: MapOverlayPayload = {
-  layerName: "",
-  points: [],
-  lines: [],
-  polygons: []
-};
-
 /** Lines, polygons, etc. — pulse should anchor at map click; Points use geometry coordinates. */
 function geometryUsesMapClickPulseAnchor(geometryJson: string | undefined): boolean {
   if (!geometryJson) return false;
@@ -66,53 +62,21 @@ function geometryUsesMapClickPulseAnchor(geometryJson: string | undefined): bool
   }
 }
 
-function representativeLngLatFromGeometryJson(geometryJson: string): [number, number] | null {
-  try {
-    const geo = JSON.parse(geometryJson) as {
-      type: string;
-      coordinates: unknown;
-    };
-    if (geo.type === "Point" && Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
-      const c = geo.coordinates as number[];
-      const lng = c[0];
-      const lat = c[1];
-      if (typeof lng !== "number" || typeof lat !== "number") return null;
-      return [lng, lat];
-    }
-    if (geo.type === "LineString" && Array.isArray(geo.coordinates)) {
-      const [minLng, minLat, maxLng, maxLat] = bbox({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: geo.coordinates as [number, number][] },
-        properties: {}
-      });
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-    }
-    if (geo.type === "Polygon" && Array.isArray(geo.coordinates)) {
-      const [minLng, minLat, maxLng, maxLat] = bbox({
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: geo.coordinates as [number, number][][] },
-        properties: {}
-      });
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
   const geometry = JSON.stringify({
     type: "Point",
     coordinates: [r.lng, r.lat]
   });
+  // Same shared derivation the chat path uses, so the card is identical either way.
+  const properties = detailPropertiesFromGeocodeResult(r);
   return {
     filePath: `geocode-search:${r.id}`,
     title: r.primaryLabel,
     type: "Search",
     geometry,
     /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
-    previewMarkdown: ""
+    previewMarkdown: "",
+    ...(Object.keys(properties).length > 0 ? { properties } : {})
   };
 }
 
@@ -169,10 +133,10 @@ function App(): React.JSX.Element {
   const [mapPeekPlace, setMapPeekPlace] = useState<PlaceRecord | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
-  const [mapOverlay, setMapOverlay] = useState<MapOverlayPayload>(EMPTY_MAP_OVERLAY);
-  /** Bumps when a non-empty overlay is pushed so chat can re-show "Add all". */
-  const [mapOverlayNonce, setMapOverlayNonce] = useState(0);
-  const [addAllOverlayBusy, setAddAllOverlayBusy] = useState(false);
+  /** Accumulated overlay layers across this conversation's result sets. */
+  const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
+  /** Overlay feature to emphasize on the map (the hovered chat row); null = all full opacity. */
+  const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
     null
   );
@@ -234,13 +198,17 @@ function App(): React.JSX.Element {
     return ids;
   }, [chatStore.state]);
 
-  const handleOverlayRestore = useCallback((overlay: MapOverlayPayload | null) => {
-    if (overlay) {
-      setMapOverlay(overlay);
-      setMapOverlayNonce((n) => n + 1);
-    } else {
-      setMapOverlay(EMPTY_MAP_OVERLAY);
-    }
+  const addLayer = useCallback((layer: MapOverlayLayer) => {
+    setOverlayLayers((prev) => [...prev.filter((l) => l.id !== layer.id), layer]);
+  }, []);
+  const clearLayers = useCallback(() => {
+    setOverlayLayers([]);
+    setFocusedFeatureId(null);
+  }, []);
+  /** Replace the on-screen layer set when switching/reopening a conversation. */
+  const handleLayersRestore = useCallback((layers: MapOverlayLayer[]) => {
+    setOverlayLayers(layers);
+    setFocusedFeatureId(null);
   }, []);
 
   useEffect(() => {
@@ -357,11 +325,11 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
-        // Lazy-load conversation; restore the saved overlay for this chat once loaded.
-        void chatStore.loadConversation(entry.convId).then(handleOverlayRestore);
+        // Lazy-load conversation; restore its saved overlay layers once loaded.
+        void chatStore.loadConversation(entry.convId).then(handleLayersRestore);
       }
     },
-    [getMapPadding, chatStore, handleOverlayRestore]
+    [getMapPadding, chatStore, handleLayersRestore]
   );
 
   const onNavEmpty = useCallback(() => {
@@ -388,7 +356,7 @@ function App(): React.JSX.Element {
 
   usePlacesWatcher({ selectedPlaceRef, clearPlace });
   const placesByPath = usePlacesIndex();
-  useMapOverlaySync({ selectedPlaceRef, clearPlace, setMapOverlay, setMapOverlayNonce });
+  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
 
   /** AI `pan_to` from chat: route through the map handle so the camera respects
    * sidebar/main-pane padding instead of centering behind them. */
@@ -653,14 +621,9 @@ function App(): React.JSX.Element {
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
   );
 
-  /** Chat <features> row click: pan to the feature and open it in mini mode.
-   *  When the row references a stale overlay id, replay the message's snapshot first. */
+  /** Chat feature-list row click: pan to the feature and open it in mini mode. */
   const handleOpenFeatureFromChat = useCallback(
-    (place: PlaceRecord, restoreOverlay?: MapOverlayPayload) => {
-      if (restoreOverlay) {
-        setMapOverlay(restoreOverlay);
-        setMapOverlayNonce((n) => n + 1);
-      }
+    (place: PlaceRecord) => {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       setSelectedPlace(place);
@@ -839,13 +802,13 @@ function App(): React.JSX.Element {
   const savePreviewPlaceToVault = useCallback(
     async (place: PlaceRecord | null) => {
       if (place?.previewMarkdown === undefined || !place.geometry) return;
-      const lngLat = representativeLngLatFromGeometryJson(place.geometry);
-      if (!lngLat) return;
-      const [lng, lat] = lngLat;
+      // Preserve the feature's geometry type: points save as lat/lng, lines and
+      // polygons as WKT — otherwise a selected polygon would be flattened to a point.
+      const geometryArgs = geometryJsonToCreateArgs(place.geometry);
+      if (!geometryArgs) return;
       const create = await window.api.fs.createNoteFile({
         parentFolderPath: parentFolderForNewFiles,
-        lat,
-        lng,
+        ...geometryArgs,
         includePlaceFrontmatterDefaults: false
       });
       if (!create.success) {
@@ -857,6 +820,13 @@ function App(): React.JSX.Element {
       if (!renamed.ok) {
         console.error("[save search]", renamed.error);
         return;
+      }
+      // Persist the previewed details as frontmatter (canonical order, empties dropped)
+      // so the saved file matches the preview card exactly.
+      const properties = orderDetailProperties(place.properties);
+      if (Object.keys(properties).length > 0) {
+        const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
+        if (!wp.success) console.error("[save search] write properties", wp.error);
       }
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
@@ -897,10 +867,15 @@ function App(): React.JSX.Element {
     await savePreviewPlaceToVault(selectedPlace);
   }, [selectedPlace, savePreviewPlaceToVault]);
 
-  const { handleAddAllOverlayToVault } = useOverlayVaultSync({
-    mapOverlay,
-    setAddAllOverlayBusy
-  });
+  const { addLayerToVault } = useOverlayVaultSync();
+  /** Add a result layer's features to the vault. The overlay stays on the map so the
+   *  card's rows remain resolvable and visible afterward. */
+  const handleAddLayerToVault = useCallback(
+    async (layer: MapOverlayLayer, parentFolderPath: string | null) => {
+      await addLayerToVault(layer, parentFolderPath);
+    },
+    [addLayerToVault]
+  );
 
   const { handlePathRelocated, handleDeletedPath } = usePathSync({
     nav,
@@ -952,11 +927,8 @@ function App(): React.JSX.Element {
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
-          mapOverlay={{
-            points: mapOverlay.points,
-            lines: mapOverlay.lines,
-            polygons: mapOverlay.polygons
-          }}
+          overlayLayers={overlayLayers}
+          focusedFeatureId={focusedFeatureId}
           showOverlay={activeChatConvId !== null}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
@@ -1057,16 +1029,23 @@ function App(): React.JSX.Element {
                   return c?.title || c?.preview || "New Chat";
                 })()}
                 convState={chatStore.getConv(activeChatConvId)}
-                mapOverlay={mapOverlay}
-                mapOverlayNonce={mapOverlayNonce}
+                overlayLayers={overlayLayers}
+                focusFeature={setFocusedFeatureId}
                 defaultParentFolderPath={parentFolderForNewFiles}
-                addAllOverlayBusy={addAllOverlayBusy}
                 isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
-                onAddAllOverlayToVault={handleAddAllOverlayToVault}
+                onAddLayerToVault={handleAddLayerToVault}
                 onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
+                onOpenInNewTab={() => {
+                  const c = conversations.find((c) => c.id === activeChatConvId);
+                  handleSwitchChatConv(
+                    activeChatConvId,
+                    c?.title || c?.preview || "New Chat",
+                    true
+                  );
+                }}
                 onAbort={() => chatStore.abort(activeChatConvId)}
+                onRename={(title) => handleSidebarRenameChat(activeChatConvId, title)}
                 onUndo={() => void chatStore.undo(activeChatConvId)}
-                onClearOverlay={() => chatStore.clearOverlay(activeChatConvId)}
                 onClose={() => {
                   if (activeTabIndex >= 0) handleCloseTab(activeTabIndex);
                   else setActiveChatConvId(null);

@@ -1,30 +1,17 @@
 import type { MapOverlayPayload } from "@shared/types";
+import { orderDetailProperties } from "@shared/types";
 import { useCallback } from "react";
+import { type GeometryCreateArgs, lineStringWkt, polygonWkt } from "../lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "../lib/place-utils";
-
-type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 
 type OverlayFeature = {
   title: string;
   preview_markdown?: string;
+  /** Structured details persisted as frontmatter (points only). */
+  properties?: Record<string, string>;
   /** Args for createNoteFile that produce the right `geometry` frontmatter. */
-  createArgs: Omit<CreateNoteArgs, "parentFolderPath">;
+  createArgs: GeometryCreateArgs;
 };
-
-function fmtCoord(n: number): string {
-  return Number.isFinite(n) ? String(n) : "0";
-}
-
-function lineStringWkt(coords: [number, number][]): string {
-  return `LINESTRING(${coords.map(([lng, lat]) => `${fmtCoord(lng)} ${fmtCoord(lat)}`).join(", ")})`;
-}
-
-function polygonWkt(rings: [number, number][][]): string {
-  const parts = rings.map(
-    (ring) => `(${ring.map(([lng, lat]) => `${fmtCoord(lng)} ${fmtCoord(lat)}`).join(", ")})`
-  );
-  return `POLYGON(${parts.join(", ")})`;
-}
 
 function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
   const { points, lines, polygons } = mapOverlay;
@@ -33,6 +20,7 @@ function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
       (p): OverlayFeature => ({
         title: p.title,
         preview_markdown: p.preview_markdown,
+        properties: p.properties,
         createArgs: { lat: p.lat, lng: p.lng }
       })
     ),
@@ -60,47 +48,45 @@ function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
   ];
 }
 
-export function useOverlayVaultSync({
-  mapOverlay,
-  setAddAllOverlayBusy
-}: {
-  mapOverlay: MapOverlayPayload;
-  setAddAllOverlayBusy: (busy: boolean) => void;
-}): { handleAddAllOverlayToVault: (parentFolderPath: string | null) => Promise<void> } {
-  const handleAddAllOverlayToVault = useCallback(
-    async (parentFolderPath: string | null) => {
-      const features = overlayVaultFeatures(mapOverlay);
+export function useOverlayVaultSync(): {
+  addLayerToVault: (layer: MapOverlayPayload, parentFolderPath: string | null) => Promise<void>;
+} {
+  const addLayerToVault = useCallback(
+    async (layer: MapOverlayPayload, parentFolderPath: string | null) => {
+      const features = overlayVaultFeatures(layer);
       if (features.length === 0) return;
-      setAddAllOverlayBusy(true);
-      try {
-        await Promise.all(
-          features.map(async (f) => {
-            const create = await window.api.fs.createNoteFile({
-              parentFolderPath,
-              ...f.createArgs
-            });
-            if (!create.success) {
-              console.error("[add all overlay]", create.error);
-              return;
-            }
-            const baseName = filenameBaseFromPlaceTitle(f.title);
-            const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
-            if (!renamed.ok) {
-              console.error("[add all overlay]", renamed.error);
-              return;
-            }
-            if (f.preview_markdown?.trim()) {
-              const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
-              if (!w.success) console.error("[add all overlay] write body", w.error);
-            }
-          })
-        );
-      } finally {
-        setAddAllOverlayBusy(false);
-      }
+      await Promise.all(
+        features.map(async (f) => {
+          const create = await window.api.fs.createNoteFile({
+            parentFolderPath,
+            ...f.createArgs
+          });
+          if (!create.success) {
+            console.error("[add layer to vault]", create.error);
+            return;
+          }
+          const baseName = filenameBaseFromPlaceTitle(f.title);
+          const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
+          if (!renamed.ok) {
+            console.error("[add layer to vault]", renamed.error);
+            return;
+          }
+          // Write structured details as frontmatter (canonical order, empties dropped)
+          // before the body, so the saved file matches the preview card exactly.
+          const properties = orderDetailProperties(f.properties);
+          if (Object.keys(properties).length > 0) {
+            const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
+            if (!wp.success) console.error("[add layer to vault] write properties", wp.error);
+          }
+          if (f.preview_markdown?.trim()) {
+            const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);
+            if (!w.success) console.error("[add layer to vault] write body", w.error);
+          }
+        })
+      );
     },
-    [mapOverlay, setAddAllOverlayBusy]
+    []
   );
 
-  return { handleAddAllOverlayToVault };
+  return { addLayerToVault };
 }

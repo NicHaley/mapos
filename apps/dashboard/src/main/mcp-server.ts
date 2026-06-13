@@ -10,10 +10,15 @@ import { dirname, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type BrowserWindow, ipcMain } from "electron";
 import { Type } from "typebox";
+import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { computeBbox } from "./bbox";
 import { getServiceClient } from "./services/client";
-import type { MapOverlayPayload, PlaceRecord, VaultOperation } from "../shared/types";
+import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
+import {
+  detailPropertiesFromGeocodeResult,
+  sanitizeAdHocProperties
+} from "../shared/geocode-detail";
 import {
   querySpatialIndex,
   rebuildIndexFromPlaces,
@@ -111,12 +116,12 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
-After calling any of these, display the results with \`render_overlay_on_map\`:
-- points from \`geocode_search\` / \`reverse_geocode\` → the \`points\` array
-- a route from \`get_directions\` → a \`lines\` entry with \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
-- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`polygons\` entry
+After calling any of these, display the results:
+- points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
+- a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
+- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry
 
-Call \`clear_map_overlay\` when starting a new search or when the user asks to clear.
+Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
@@ -126,27 +131,35 @@ For any vault file write or delete, use write_vault_file or delete_vault_file �
 
 ## Display vs. action intent
 
-- If the user asks you to find, show, search, explore, or preview → use render_overlay_on_map for ephemeral display. Do not write files.
+- If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features for a browsable list of places; use render_overlay_on_map for routes, areas, and bulk geometry.
 - If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.
 
-## Listing features in chat
+## Showing places and features in chat
 
-When referencing features in a response, you may emit a \`<features>\` tag and the UI will render a clickable, interactive list connected to the map. Use it whenever a flat list of features would be more useful than prose mentions.
+When you present a set of located places the user might browse or pick from — search results, recommendations, saved places matching a query — call \`present_features\`. It draws the markers on the map AND renders a clickable list in the chat from the same data, so the list and the map never drift apart. This is the primary way to present places.
 
-Syntax: \`<features refs="<entry>,<entry>,..."/>\` — a single self-closing tag with a comma-separated \`refs\` attribute. Each entry has the form \`<kind>:<id>\`:
+The list \`present_features\` renders IS the user's view of the results — every feature's title is shown and is clickable. So once you've called it, do NOT re-list the places in your reply in ANY form: no numbered or bulleted list, no one-place-per-line rundown, no emoji-prefixed lines, no table. That just duplicates what's already on screen and the duplicate isn't connected to the map. Keep your reply to a brief synthesis — one or two sentences — and call out at most one or two standouts by name if it helps.
 
-- \`vault:<file-path>\` — a saved vault file (use the same path returned by \`query_spatial_index\`)
-- \`overlay:<id>\` — a feature currently rendered on the map by \`render_overlay_on_map\`. The id must match the \`id\` you supplied to that tool.
+\`present_features\` takes an ordered \`features\` array (order is preserved). Each entry is ONE of:
+- a geocode/POI result you just looked up — set \`result_id\` to that result's \`id\`. This is STRONGLY PREFERRED: the app fills in the marker, title, and structured properties (category, address, …) from the cached result, so the card is identical to the search UI and you never have to (and must not) re-type or reformat its facts. Add only an optional \`preview_markdown\` note.
+- a saved vault place — set \`path\` to its vault file path (from \`query_spatial_index\`). Its marker already exists on the map.
+- a genuinely ad-hoc place you could NOT look up — set \`lat\`, \`lng\`, \`title\`, optional \`properties\`, optional \`preview_markdown\`.
 
-Order is preserved in the rendered list.
+Do not transcribe a geocoder result's name/category/address into the call — reference it by \`result_id\` and let the app derive them; transcribing causes drift (e.g. "fast_food" becoming "fast food"). For ad-hoc places, put structured facts in \`properties\` using canonical keys (\`category\` as a lowercase token, \`address\`, \`source_url\`, plus extra keys like \`cuisine\`), and reserve \`preview_markdown\` for free prose (why it's relevant, a recommendation). Never provide \`osm_id\`/\`wikidata_id\` yourself — you have no reliable source and they're dropped. Never write a per-row note as a prose list in your reply.
 
-**Hard rule:** any \`overlay:\` ref MUST be preceded by a \`render_overlay_on_map\` call earlier in the same response. The ids must match. Otherwise the ref will render as a stale row.
+You can mix kinds in one call; the list interleaves them in the order given.
 
-Example — after a geocode_search for ramen + render_overlay_on_map with ids \`r1\`, \`r2\`, plus two saved places:
+Example — the user asks for taco places near home. Call \`geocode_search\`, then ONE call referencing the results by id:
+\`present_features({ features: [ { result_id: "offline:quebec:1023", preview_markdown: "Great al pastor, very close to home." }, { result_id: "offline:quebec:4471" }, ... ] })\`
+Then a reply like: "Seven taco spots near your home — Mont Tacos and Maison du Tacos on Saint-Denis are the closest." No list of the seven; the card already shows them.
 
-\`\`\`
-<features refs="vault:tokyo-2026/kinka-izakaya.md,overlay:r1,vault:tokyo-2026/ichiran.md,overlay:r2"/>
-\`\`\``;
+Use \`render_overlay_on_map\` instead when the result is NOT a browsable list:
+- routes (lines), isochrones/areas (polygons), or other pure geometry
+- a large dataset or layer the user views in aggregate rather than picking from row by row (e.g. "map every cafe in the city", an imported file)
+
+When unsure: a couple dozen places the user might click → \`present_features\`; geometry or bulk layers → \`render_overlay_on_map\`.
+
+(A \`<features refs="vault:<path>"/>\` tag is also still supported for referencing a single saved place inline within a sentence. Prefer \`present_features\` for any actual list.)`;
 }
 
 export function buildMaposCustomTools(
@@ -154,8 +167,12 @@ export function buildMaposCustomTools(
   places: Map<string, PlaceRecord>,
   maposDir: string,
   onVaultWrite: (op: VaultOperation) => void,
-  onOverlayUpdate: (overlay: MapOverlayPayload | null) => void,
-  getOverlay: () => MapOverlayPayload | null | undefined
+  onLayerUpdate: (layer: MapOverlayLayer) => void,
+  onLayersClear: () => void,
+  hasLayers: () => boolean,
+  /** Conversation-scoped cache of geocoder results, keyed by `GeocodeResult.id`. Owned by
+   *  the caller so it outlives this tool set (which is rebuilt when the session is). */
+  geocodeStore: Map<string, GeocodeResult>
 ): ToolDefinition[] {
   // Pass-by-reference store for large geometries returned to the agent.
   const routeStore = new Map<string, [number, number][]>();
@@ -171,6 +188,21 @@ export function buildMaposCustomTools(
     return id;
   };
 
+  // `geocodeStore` (passed in, conversation-scoped) caches geocoder results so
+  // present_features can reference a result by its `id`: the structured details are derived
+  // HERE from the cached result — identical to the search UI — so facts never round-trip
+  // through (and get reformatted or fabricated by) the model. Keyed by the stable
+  // GeocodeResult.id.
+  const stashGeocodeResults = (results: GeocodeResult[]): void => {
+    for (const r of results) {
+      geocodeStore.set(r.id, r);
+      if (geocodeStore.size > 500) {
+        const oldest = geocodeStore.keys().next().value;
+        if (oldest != null) geocodeStore.delete(oldest);
+      }
+    }
+  };
+
   const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
   const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
 
@@ -178,7 +210,7 @@ export function buildMaposCustomTools(
     name: "render_overlay_on_map",
     label: "Render map overlay",
     description:
-      "Display points, lines, or polygons on the map as temporary overlay without saving. Use for search results, isochrones, routes, or any spatial data. Points: POIs, geocode results. Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
+      "Display lines, polygons, or bulk points on the map as a temporary overlay without saving. Use for routes, isochrones/areas, and large datasets/layers the user views in aggregate. For a browsable list of places the user will pick from, use present_features instead (it renders a clickable, map-connected list). Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
     parameters: Type.Object({
       points: Type.Optional(
         Type.Array(
@@ -247,10 +279,14 @@ export function buildMaposCustomTools(
         })
       )
     }),
-    execute: async (_toolCallId, args) => {
+    execute: async (toolCallId, args) => {
       if (!mainWindow.isDestroyed()) {
+        // Namespace every marker id with the layer id so ids stay unique once
+        // layers accumulate on the map (two calls would otherwise both emit
+        // `overlay-point-0`).
+        const layerId = toolCallId;
         const points = (args.points ?? []).map((p, i) => ({
-          id: p.id ?? `overlay-point-${i}`,
+          id: `${layerId}:${p.id ?? `point-${i}`}`,
           lat: p.lat,
           lng: p.lng,
           title: p.title,
@@ -270,14 +306,14 @@ export function buildMaposCustomTools(
             coordinates = (l.coordinates ?? []) as [number, number][];
           }
           return {
-            id: l.id ?? `overlay-line-${i}`,
+            id: `${layerId}:${l.id ?? `line-${i}`}`,
             coordinates,
             title: l.title,
             ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
           };
         });
         const polygons = (args.polygons ?? []).map((p, i) => ({
-          id: p.id ?? `overlay-polygon-${i}`,
+          id: `${layerId}:${p.id ?? `polygon-${i}`}`,
           coordinates: (p.coordinates as [number, number][][]).map((ring) => {
             if (ring.length < 2) return ring;
             const first = ring[0];
@@ -289,14 +325,15 @@ export function buildMaposCustomTools(
           title: p.title,
           ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
         }));
-        const payload: MapOverlayPayload = {
+        const layer: MapOverlayLayer = {
+          id: layerId,
           layerName: args.layer_name ?? "search-results",
           points,
           lines,
           polygons
         };
-        mainWindow.webContents.send("map:overlay", payload);
-        onOverlayUpdate(payload);
+        mainWindow.webContents.send("map:overlay-add", layer);
+        onLayerUpdate(layer);
       }
       const counts = {
         points: (args.points ?? []).length,
@@ -312,20 +349,167 @@ export function buildMaposCustomTools(
     }
   });
 
+  const presentFeatures = defineTool({
+    name: "present_features",
+    label: "Present features",
+    description:
+      "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), or a genuinely ad-hoc place you couldn't look up (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
+    parameters: Type.Object({
+      features: Type.Array(
+        Type.Object({
+          result_id: Type.Optional(
+            Type.String({
+              description:
+                "The `id` of a result returned by geocode_search/reverse_geocode. PREFER this for anything you looked up: the app derives the marker, title, and properties (category, address, …) from the cached result — identical to the search UI. When set, leave title/lat/lng/properties unset; only `preview_markdown` is additive."
+            })
+          ),
+          title: Type.Optional(
+            Type.String({
+              description:
+                "Display name. Required ONLY for an ad-hoc place (no result_id and no path). Ignored when result_id or path is set."
+            })
+          ),
+          path: Type.Optional(
+            Type.String({
+              description:
+                "Vault file path of a saved place (as returned by query_spatial_index). Set this for a place already in the vault — its marker already exists on the map. Leave lat/lng unset in this case."
+            })
+          ),
+          lat: Type.Optional(
+            Type.Number({ description: "Latitude — set together with lng ONLY for an ad-hoc result (no result_id)" })
+          ),
+          lng: Type.Optional(
+            Type.Number({ description: "Longitude — set together with lat ONLY for an ad-hoc result (no result_id)" })
+          ),
+          preview_markdown: Type.Optional(
+            Type.String({
+              description:
+                "Optional free-prose note shown as the place card's body before save (e.g. why it's relevant, a recommendation). Put structured facts in `properties`, NOT here. Allowed alongside result_id."
+            })
+          ),
+          properties: Type.Optional(
+            Type.Record(Type.String(), Type.String(), {
+              description:
+                "Structured details for an AD-HOC feature only (with result_id the app supplies these from the source). Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. \"restaurant\", \"fast_food\"), `address` (street line), `source_url` (full URL). You may add extra keys (e.g. `cuisine`). Do NOT provide `osm_id`/`wikidata_id` — you have no reliable source for them and they will be dropped."
+            })
+          )
+        }),
+        { minItems: 1, description: "Ordered features to show; order is preserved in the rendered list" }
+      ),
+      layer_name: Type.Optional(
+        Type.String({ default: "search-results", description: "Name for the overlay layer" })
+      )
+    }),
+    execute: async (toolCallId, args) => {
+      const layerId = toolCallId;
+      const refs: string[] = [];
+      const points: MapOverlayLayer["points"] = [];
+      // result_ids the model referenced that aren't in the cache (and had no coord
+      // fallback), so they were dropped. Reported back so the agent re-searches instead
+      // of silently showing a short list. Happens mainly after a restart clears the cache.
+      const unresolvedResultIds: string[] = [];
+      args.features.forEach((f, i) => {
+        if (f.path != null && f.path.length > 0) {
+          refs.push(`vault:${f.path}`);
+          return;
+        }
+        // Namespace with the layer id so ids stay unique across accumulated layers.
+        const id = `${layerId}:feature-${i}`;
+
+        // Preferred path: a geocoder result referenced by id. Title + properties are
+        // derived HERE from the cached result via the same code the search UI uses, so
+        // the model can't reformat facts or fabricate ids. Any extra keys it passed are
+        // kept (sanitized), but source-derived category/address win.
+        if (f.result_id) {
+          const cached = geocodeStore.get(f.result_id);
+          if (cached) {
+            const properties = {
+              ...sanitizeAdHocProperties(f.properties),
+              ...detailPropertiesFromGeocodeResult(cached)
+            };
+            points.push({
+              id,
+              lat: cached.lat,
+              lng: cached.lng,
+              title: cached.primaryLabel,
+              ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
+              ...(Object.keys(properties).length > 0 ? { properties } : {})
+            });
+            refs.push(`overlay:${id}`);
+            return;
+          }
+          // Cache miss (e.g. referenced after a restart cleared the cache): fall through
+          // to ad-hoc coords if the model also supplied them, otherwise record it as
+          // unresolved below so the agent knows to re-search.
+        }
+
+        if (typeof f.lat === "number" && typeof f.lng === "number" && f.title) {
+          const properties = sanitizeAdHocProperties(f.properties);
+          points.push({
+            id,
+            lat: f.lat,
+            lng: f.lng,
+            title: f.title,
+            ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
+            ...(Object.keys(properties).length > 0 ? { properties } : {})
+          });
+          refs.push(`overlay:${id}`);
+          return;
+        }
+
+        // Nothing resolved this feature. If it named a result_id, surface it so the
+        // agent re-searches; a feature with no result_id/path/coords is a malformed
+        // call and is simply skipped.
+        if (f.result_id) unresolvedResultIds.push(f.result_id);
+      });
+
+      // Only emit a layer when there are ad-hoc points to draw. An all-vault list
+      // references markers that already exist as persistent places, so there is
+      // nothing new to add to the map.
+      if (points.length > 0 && !mainWindow.isDestroyed()) {
+        const layer: MapOverlayLayer = {
+          id: layerId,
+          layerName: args.layer_name ?? "search-results",
+          points,
+          lines: [],
+          polygons: []
+        };
+        mainWindow.webContents.send("map:overlay-add", layer);
+        onLayerUpdate(layer);
+      }
+
+      return TEXT_RESULT(
+        JSON.stringify({
+          kind: "feature_list",
+          count: refs.length,
+          refs: refs.join(","),
+          ...(unresolvedResultIds.length > 0
+            ? {
+                unresolved_result_ids: unresolvedResultIds,
+                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
+              }
+            : {}),
+          assistant_instructions:
+            "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
+        })
+      );
+    }
+  });
+
   const clearMapOverlay = defineTool({
     name: "clear_map_overlay",
     label: "Clear map overlay",
     description:
-      "Remove temporary search results from the map. Call when starting a new search or when the user asks to clear the overlay.",
+      "Remove ALL temporary overlay layers from the map (every result set shown this conversation). Call only when the user explicitly asks to clear the map. Result sets otherwise stay on the map and accumulate, so you rarely need this.",
     parameters: Type.Object({}),
     execute: async () => {
-      if (getOverlay() != null) {
+      if (hasLayers()) {
         if (!mainWindow.isDestroyed()) {
           mainWindow.webContents.send("map:overlay-clear");
         }
-        onOverlayUpdate(null);
+        onLayersClear();
       }
-      return TEXT_RESULT("Overlay cleared");
+      return TEXT_RESULT("Cleared all overlay layers");
     }
   });
 
@@ -429,7 +613,7 @@ export function buildMaposCustomTools(
     name: "geocode_search",
     label: "Geocode search",
     description:
-      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox.",
+      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
@@ -475,6 +659,7 @@ export function buildMaposCustomTools(
           lang: args.lang,
           bbox: args.bbox
         });
+        stashGeocodeResults(results);
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
@@ -486,7 +671,7 @@ export function buildMaposCustomTools(
     name: "reverse_geocode",
     label: "Reverse geocode",
     description:
-      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s). Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only).",
+      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s), each with a stable `id`. Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only). To show a result, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address.",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),
@@ -507,6 +692,7 @@ export function buildMaposCustomTools(
           lang: args.lang,
           categories: args.categories
         });
+        stashGeocodeResults(results);
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
@@ -802,6 +988,7 @@ export function buildMaposCustomTools(
   const webSearchAvailable = false;
 
   return [
+    presentFeatures,
     renderOverlayOnMap,
     clearMapOverlay,
     querySpatialIndexTool,

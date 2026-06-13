@@ -446,6 +446,42 @@ export function setupPlacesWatcher(
     }
   );
 
+  // Merge several frontmatter properties in one round-trip, preserving existing keys
+  // and the body. New keys are appended in the object's iteration order; empty/blank
+  // values are skipped. Used when saving a preview place (search/chat) to the vault so
+  // the file isn't rewritten once per property.
+  ipcMain.handle(
+    "fs:write-frontmatter-properties",
+    async (_event, filePath: string, properties: Record<string, unknown>) => {
+      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
+      if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
+        return { success: false, error: "Path outside vault" };
+      try {
+        const raw = await readFile(filePath, "utf-8");
+        const parsed = matter(raw);
+        for (const [key, value] of Object.entries(properties)) {
+          if (value === null || value === undefined || value === "") continue;
+          parsed.data[key] = value;
+        }
+        writeVaultFile(filePath, matter.stringify(parsed.content, parsed.data));
+        const rec = parsed.data as Record<string, unknown>;
+        collectPropertyKeysFromData(rec, knownPropertyKeys);
+        replaceFeaturePropertiesForFile(filePath, rec);
+        const place = placeRecordFromMatterData(rec, filePath);
+        if (place) {
+          places.set(filePath, place);
+          syncFeatureForFile(filePath, place);
+        } else {
+          places.delete(filePath);
+          removeFeatures([filePath]);
+        }
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    }
+  );
+
   // Rewrite frontmatter with keys in the given order, preserving all values and the body.
   ipcMain.handle("fs:reorder-frontmatter", async (_event, filePath: string, keyOrder: string[]) => {
     const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
@@ -832,6 +868,7 @@ export function setupPlacesWatcher(
     "fs:write-file",
     "fs:write-place-body",
     "fs:write-frontmatter-property",
+    "fs:write-frontmatter-properties",
     "fs:reorder-frontmatter",
     "properties:list-all-keys",
     "properties:values-for-key",

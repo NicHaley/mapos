@@ -28,7 +28,7 @@ import type {
   ConversationMeta,
   FileNode,
   InstalledRegionPack,
-  MapOverlayPayload,
+  MapOverlayLayer,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -72,7 +72,7 @@ declare global {
         removeListeners: () => void;
       };
       map: {
-        onOverlay: (cb: (data: MapOverlayPayload) => void) => void;
+        onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) => void;
         onOverlayClear: (cb: () => void) => void;
         sendViewport: (data: ViewportState) => void;
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
@@ -98,6 +98,10 @@ declare global {
           filePath: string,
           key: string,
           value: unknown
+        ) => Promise<{ success: boolean; error?: string }>;
+        writeFrontmatterProperties: (
+          filePath: string,
+          properties: Record<string, unknown>
         ) => Promise<{ success: boolean; error?: string }>;
         reorderFrontmatter: (
           filePath: string,
@@ -235,7 +239,6 @@ declare global {
       chat: {
         send: (convId: string, message: string) => void;
         abort: (convId: string) => void;
-        clearOverlay: (convId: string) => void;
         loadConversation: (convId: string) => Promise<ConversationLoadResult>;
         listConversations: () => Promise<ConversationMeta[]>;
         deleteConversation: (id: string) => Promise<void>;

@@ -336,13 +336,8 @@ export function ProjectSidebar({
         }
       }
       if (e.metaKey || e.ctrlKey) {
-        setSelectedPaths((prev) => {
-          const next = new Set(prev);
-          if (next.has(node.path)) next.delete(node.path);
-          else next.add(node.path);
-          return next;
-        });
-        setPathAnchor(node.path);
+        // Cmd/Ctrl+click → open in a new (background) tab, browser convention.
+        void openPath(node, true);
         return;
       }
       // Plain click: collapse multi-selection and open.
@@ -376,13 +371,8 @@ export function ProjectSidebar({
         }
       }
       if (e.metaKey || e.ctrlKey) {
-        setSelectedConvIds((prev) => {
-          const next = new Set(prev);
-          if (next.has(conv.id)) next.delete(conv.id);
-          else next.add(conv.id);
-          return next;
-        });
-        setConvAnchor(conv.id);
+        // Cmd/Ctrl+click → open in a new (background) tab, browser convention.
+        onSelectChat?.(conv.id, title, true);
         return;
       }
       setSelectedConvIds(new Set([conv.id]));

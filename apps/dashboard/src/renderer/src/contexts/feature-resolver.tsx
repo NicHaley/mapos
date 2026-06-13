@@ -10,8 +10,8 @@ type FeatureResolverContextValue = {
   selectedFilePath: string | null;
   /** Open a feature (place card + map). */
   onOpenFeature: (place: PlaceRecord) => void;
-  /** Emphasize one overlay layer on the map (the hovered card); null clears focus. */
-  focusLayer: (layerId: string | null) => void;
+  /** Emphasize one overlay feature on the map (the hovered row); null clears focus. */
+  focusFeature: (featureId: string | null) => void;
 };
 
 const FeatureResolverContext = createContext<FeatureResolverContextValue | null>(null);

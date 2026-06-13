@@ -169,8 +169,8 @@ function App(): React.JSX.Element {
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
   /** Accumulated overlay layers across this conversation's result sets. */
   const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
-  /** Layer to emphasize on the map (the hovered chat card); null = all full opacity. */
-  const [focusedLayerId, setFocusedLayerId] = useState<string | null>(null);
+  /** Overlay feature to emphasize on the map (the hovered chat row); null = all full opacity. */
+  const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
     null
   );
@@ -237,12 +237,12 @@ function App(): React.JSX.Element {
   }, []);
   const clearLayers = useCallback(() => {
     setOverlayLayers([]);
-    setFocusedLayerId(null);
+    setFocusedFeatureId(null);
   }, []);
   /** Replace the on-screen layer set when switching/reopening a conversation. */
   const handleLayersRestore = useCallback((layers: MapOverlayLayer[]) => {
     setOverlayLayers(layers);
-    setFocusedLayerId(null);
+    setFocusedFeatureId(null);
   }, []);
 
   useEffect(() => {
@@ -962,7 +962,7 @@ function App(): React.JSX.Element {
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
           overlayLayers={overlayLayers}
-          focusedLayerId={focusedLayerId}
+          focusedFeatureId={focusedFeatureId}
           showOverlay={activeChatConvId !== null}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
@@ -1064,7 +1064,7 @@ function App(): React.JSX.Element {
                 })()}
                 convState={chatStore.getConv(activeChatConvId)}
                 overlayLayers={overlayLayers}
-                focusLayer={setFocusedLayerId}
+                focusFeature={setFocusedFeatureId}
                 defaultParentFolderPath={parentFolderForNewFiles}
                 isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
                 onAddLayerToVault={handleAddLayerToVault}

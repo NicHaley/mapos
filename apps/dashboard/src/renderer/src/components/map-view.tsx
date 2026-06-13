@@ -18,6 +18,7 @@ import MapGL, {
   Source,
   useMap
 } from "react-map-gl/maplibre";
+import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
 import "@renderer/lib/pmtiles-protocol";
@@ -90,8 +91,26 @@ function parseGeometry(geometryJson: string): GeoJSONGeometry {
 
 const EMPTY_LAYERS: MapOverlayLayer[] = [];
 
-/** Markers/features outside the focused layer (the hovered chat card) dim to this. */
+/** Features other than the focused one (the hovered chat row) dim to this. */
 const UNFOCUSED_OPACITY = 0.3;
+
+/**
+ * Per-feature opacity for overlay layer sources: the focused feature keeps `base`, every
+ * other feature dims. Returns a plain number when nothing is focused so MapLibre can skip
+ * the data-driven evaluation entirely.
+ */
+function overlayFeatureOpacity(
+  focusedFeatureId: string | null,
+  base: number
+): DataDrivenPropertyValueSpecification<number> {
+  if (focusedFeatureId == null) return base;
+  return [
+    "case",
+    ["==", ["get", "overlayId"], focusedFeatureId],
+    base,
+    base * UNFOCUSED_OPACITY
+  ];
+}
 
 /** Stable, css-safe source id for an overlay layer (layer ids are tool-call ids). */
 function overlaySourceId(layerId: string): string {
@@ -377,8 +396,8 @@ const MapView = forwardRef<
     onSelectedFeaturePosition?: (x: number, y: number) => void;
     /** Accumulated MCP overlay layers; owned by App (single IPC subscription). */
     overlayLayers?: MapOverlayLayer[];
-    /** Layer id to emphasize (the hovered chat card); others dim. Null = all full opacity. */
-    focusedLayerId?: string | null;
+    /** Overlay feature id to emphasize (the hovered chat row); others dim. Null = all full opacity. */
+    focusedFeatureId?: string | null;
     /** Only render the overlay layers when the chat sidebar is open. */
     showOverlay?: boolean;
     /** GeoJSON files loaded on-demand (not indexed in DB). */
@@ -401,7 +420,7 @@ const MapView = forwardRef<
     parentFolderForNewFiles,
     onSelectedFeaturePosition,
     overlayLayers = EMPTY_LAYERS,
-    focusedLayerId = null,
+    focusedFeatureId = null,
     showOverlay = false,
     geoJsonLayers = [],
     selectionPulseAnchor = null,
@@ -1190,7 +1209,7 @@ const MapView = forwardRef<
         )}
         {showOverlay &&
           overlayPoints.map((p) => {
-            const dimmed = focusedLayerId != null && p.layerId !== focusedLayerId;
+            const dimmed = focusedFeatureId != null && p.id !== focusedFeatureId;
             return (
               <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
                 <button
@@ -1255,8 +1274,9 @@ const MapView = forwardRef<
           </Source>
         ))}
         {showOverlay &&
-          overlayLayerSources.map(({ layerId, sourceId, data }) => {
-            const o = focusedLayerId != null && layerId !== focusedLayerId ? UNFOCUSED_OPACITY : 1;
+          overlayLayerSources.map(({ sourceId, data }) => {
+            const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
+            const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
             return (
               // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
@@ -1265,7 +1285,7 @@ const MapView = forwardRef<
                   type="fill"
                   // @ts-expect-error - MapLibre filter expression; types are strict
                   filter={POLYGON_FILTER}
-                  paint={{ "fill-color": "#8b5cf6", "fill-opacity": 0.25 * o }}
+                  paint={{ "fill-color": "#8b5cf6", "fill-opacity": fillOpacity }}
                 />
                 <Layer
                   id={`${sourceId}-polygon-outline`}
@@ -1275,7 +1295,7 @@ const MapView = forwardRef<
                   paint={{
                     "line-color": "#8b5cf6",
                     "line-width": 2,
-                    "line-opacity": o,
+                    "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
                   }}
                 />
@@ -1294,7 +1314,7 @@ const MapView = forwardRef<
                   paint={{
                     "line-color": "#8b5cf6",
                     "line-width": 2,
-                    "line-opacity": o,
+                    "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
                   }}
                 />

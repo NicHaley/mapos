@@ -117,20 +117,20 @@ function slugTitleFromPath(path: string): string {
 type Resolved = {
   entry: FeatureEntry;
   place: PlaceRecord | null;
-  /** Overlay layer this row belongs to (null for vault rows or stale refs). */
-  layerId: string | null;
   /** True when the ref can't be resolved at all (deleted vault file or removed layer). */
   stale: boolean;
 };
 
 function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
-  const { selectedFilePath, onOpenFeature } = useFeatureResolver();
+  const { selectedFilePath, onOpenFeature, focusFeature } = useFeatureResolver();
   const { entry, place, stale } = resolved;
 
   const title =
     place?.title ?? (entry.kind === "vault" ? slugTitleFromPath(entry.path) : "Overlay feature");
   const subtitle = rowSubtitle(entry, place);
   const isSelected = !stale && place != null && selectedFilePath === place.filePath;
+  // Only overlay rows map to an emphasizable map feature; vault rows just clear focus.
+  const focusId = !stale && entry.kind === "overlay" ? entry.id : null;
 
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -143,6 +143,8 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
       type="button"
       disabled={stale}
       onClick={handleClick}
+      onMouseEnter={() => focusFeature(focusId)}
+      onMouseLeave={() => focusFeature(null)}
       className={cn(
         "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors",
         "hover:bg-sidebar-accent/50",
@@ -180,7 +182,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
 }
 
 export function FeatureList(props: { refs?: string }): React.JSX.Element | null {
-  const { getPlace, overlayLayers, focusLayer } = useFeatureResolver();
+  const { getPlace, overlayLayers } = useFeatureResolver();
   const [expanded, setExpanded] = useState(false);
   const entries = useMemo(() => parseRefs(props.refs), [props.refs]);
 
@@ -188,18 +190,15 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
     return entries.map((entry) => {
       if (entry.kind === "vault") {
         const place = getPlace(entry.path) ?? null;
-        return { entry, place, layerId: null, stale: place == null };
+        return { entry, place, stale: place == null };
       }
       const match = findInLayers(overlayLayers, entry.id);
       if (match) {
-        return { entry, place: placeFromOverlayMatch(match), layerId: match.layerId, stale: false };
+        return { entry, place: placeFromOverlayMatch(match), stale: false };
       }
-      return { entry, place: null, layerId: null, stale: true };
+      return { entry, place: null, stale: true };
     });
   }, [entries, getPlace, overlayLayers]);
-
-  // A card maps to one overlay layer; hovering it focuses that layer on the map.
-  const cardLayerId = resolved.find((r) => r.layerId != null)?.layerId ?? null;
 
   if (resolved.length === 0) return null;
 
@@ -207,11 +206,7 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
   const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
 
   return (
-    <div
-      className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20"
-      onMouseEnter={cardLayerId ? () => focusLayer(cardLayerId) : undefined}
-      onMouseLeave={cardLayerId ? () => focusLayer(null) : undefined}
-    >
+    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
       {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}

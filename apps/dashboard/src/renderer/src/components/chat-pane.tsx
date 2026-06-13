@@ -612,7 +612,7 @@ export function ChatPane({
   onClose,
   onDeleted,
   overlayLayers,
-  focusLayer,
+  focusFeature,
   onAddLayerToVault,
   isSavedConversation,
   defaultParentFolderPath,
@@ -634,8 +634,8 @@ export function ChatPane({
   onDeleted: (convId: string) => void;
   /** All accumulated overlay layers; used to resolve `overlay:` refs and per-card actions. */
   overlayLayers: MapOverlayLayer[];
-  /** Emphasize one layer on the map (hovered card); null clears focus. */
-  focusLayer: (layerId: string | null) => void;
+  /** Emphasize one overlay feature on the map (hovered row); null clears focus. */
+  focusFeature: (featureId: string | null) => void;
   /** Add a result layer's features to the vault. The overlay stays on the map. */
   onAddLayerToVault: (layer: MapOverlayLayer, parentFolderPath: string | null) => Promise<void>;
   /** True once the conversation has been written to disk; gates the delete menu. */
@@ -721,9 +721,9 @@ export function ChatPane({
       overlayLayers,
       selectedFilePath,
       onOpenFeature,
-      focusLayer
+      focusFeature
     }),
-    [placesByPath, overlayLayers, selectedFilePath, onOpenFeature, focusLayer]
+    [placesByPath, overlayLayers, selectedFilePath, onOpenFeature, focusFeature]
   );
 
   const layerActions = useMemo<LayerActions>(

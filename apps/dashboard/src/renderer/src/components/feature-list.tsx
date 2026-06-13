@@ -60,56 +60,51 @@ function placeFromOverlayMatch(match: OverlayMatch): PlaceRecord {
   const filePath = `${MAP_OVERLAY_PREFIX}${feature.id}`;
   const title = ("title" in feature ? feature.title : null) || "Overlay feature";
   const previewMarkdown = feature.preview_markdown ?? "";
+  // Only point features carry structured details; lines/polygons (routes/areas) don't.
+  const properties = "properties" in feature ? feature.properties : undefined;
+  const detail = {
+    filePath,
+    title,
+    type: "Preview" as const,
+    previewMarkdown,
+    ...(properties && Object.keys(properties).length > 0 ? { properties } : {})
+  };
   if (kind === "point") {
     return {
-      filePath,
-      title,
-      type: "Preview",
+      ...detail,
       geometry: JSON.stringify({
         type: "Point",
         coordinates: [(feature as OverlayPoint).lng, (feature as OverlayPoint).lat]
-      }),
-      previewMarkdown
+      })
     };
   }
   if (kind === "line") {
     return {
-      filePath,
-      title,
-      type: "Preview",
+      ...detail,
       geometry: JSON.stringify({
         type: "LineString",
         coordinates: (feature as OverlayLine).coordinates
-      }),
-      previewMarkdown
+      })
     };
   }
   return {
-    filePath,
-    title,
-    type: "Preview",
+    ...detail,
     geometry: JSON.stringify({
       type: "Polygon",
       coordinates: (feature as OverlayPolygon).coordinates
-    }),
-    previewMarkdown
+    })
   };
 }
 
-/** Vault subtitle = parent folder. Overlay subtitle = first non-redundant line of preview_markdown. */
-function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null, title: string): string | null {
+/** Vault subtitle = parent folder. Overlay subtitle = address detail (matches the search list). */
+function rowSubtitle(entry: FeatureEntry, place: PlaceRecord | null): string | null {
   if (entry.kind === "vault" && place) {
     const slash = place.filePath.lastIndexOf("/");
     if (slash <= 0) return null;
     return place.filePath.slice(0, slash);
   }
-  if (entry.kind === "overlay" && place?.previewMarkdown) {
-    const firstLine = place.previewMarkdown
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
-    if (!firstLine || firstLine === title) return null;
-    return firstLine;
+  if (entry.kind === "overlay") {
+    return place?.properties?.address ?? null;
   }
   return null;
 }
@@ -134,7 +129,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
 
   const title =
     place?.title ?? (entry.kind === "vault" ? slugTitleFromPath(entry.path) : "Overlay feature");
-  const subtitle = rowSubtitle(entry, place, title);
+  const subtitle = rowSubtitle(entry, place);
   const isSelected = !stale && place != null && selectedFilePath === place.filePath;
 
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
@@ -149,7 +144,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
       disabled={stale}
       onClick={handleClick}
       className={cn(
-        "flex w-full items-start gap-2.5 px-2.5 py-2 text-left transition-colors",
+        "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors",
         "hover:bg-sidebar-accent/50",
         isSelected && "bg-sidebar-accent/60",
         stale && "cursor-default opacity-50 hover:bg-transparent"
@@ -164,14 +159,20 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
     >
       <MapPinIcon
         className={cn(
-          "size-3.5 shrink-0 mt-0.5",
+          "size-3.5 shrink-0",
           entry.kind === "vault" ? "text-foreground/80" : "text-muted-foreground/70"
         )}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium text-foreground">{title}</span>
+      {/* Single line — name never shrinks, the secondary truncates into the space left —
+          so it matches the geocode search results list (see geocode-search-panel). */}
+      <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <span className="max-w-full shrink-0 truncate text-sm font-medium text-foreground leading-tight">
+          {title}
+        </span>
         {subtitle && (
-          <span className="truncate text-xs text-muted-foreground font-mono">{subtitle}</span>
+          <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
+            {subtitle}
+          </span>
         )}
       </div>
     </button>

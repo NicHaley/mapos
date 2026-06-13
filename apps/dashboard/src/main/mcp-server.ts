@@ -10,10 +10,15 @@ import { dirname, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type BrowserWindow, ipcMain } from "electron";
 import { Type } from "typebox";
+import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { computeBbox } from "./bbox";
 import { getServiceClient } from "./services/client";
 import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
+import {
+  detailPropertiesFromGeocodeResult,
+  sanitizeAdHocProperties
+} from "../shared/geocode-detail";
 import {
   querySpatialIndex,
   rebuildIndexFromPlaces,
@@ -135,16 +140,17 @@ When you present a set of located places the user might browse or pick from — 
 
 The list \`present_features\` renders IS the user's view of the results — every feature's title is shown and is clickable. So once you've called it, do NOT re-list the places in your reply in ANY form: no numbered or bulleted list, no one-place-per-line rundown, no emoji-prefixed lines, no table. That just duplicates what's already on screen and the duplicate isn't connected to the map. Keep your reply to a brief synthesis — one or two sentences — and call out at most one or two standouts by name if it helps.
 
-If a place needs a per-row note (why it's relevant, a distance, a short descriptor like the street it's on), put that text in that feature's \`preview_markdown\` so it shows inside the card. Do not move it into a prose list.
+\`present_features\` takes an ordered \`features\` array (order is preserved). Each entry is ONE of:
+- a geocode/POI result you just looked up — set \`result_id\` to that result's \`id\`. This is STRONGLY PREFERRED: the app fills in the marker, title, and structured properties (category, address, …) from the cached result, so the card is identical to the search UI and you never have to (and must not) re-type or reformat its facts. Add only an optional \`preview_markdown\` note.
+- a saved vault place — set \`path\` to its vault file path (from \`query_spatial_index\`). Its marker already exists on the map.
+- a genuinely ad-hoc place you could NOT look up — set \`lat\`, \`lng\`, \`title\`, optional \`properties\`, optional \`preview_markdown\`.
 
-\`present_features\` takes an ordered \`features\` array (order is preserved). Each entry is either:
-- a saved vault place — set \`path\` to its vault file path (as returned by \`query_spatial_index\`). Its marker already exists on the map.
-- an external/ad-hoc result not yet saved (a geocode/POI hit) — set \`lat\`, \`lng\`, \`title\`, and optional \`preview_markdown\`. It is drawn as a temporary marker.
+Do not transcribe a geocoder result's name/category/address into the call — reference it by \`result_id\` and let the app derive them; transcribing causes drift (e.g. "fast_food" becoming "fast food"). For ad-hoc places, put structured facts in \`properties\` using canonical keys (\`category\` as a lowercase token, \`address\`, \`source_url\`, plus extra keys like \`cuisine\`), and reserve \`preview_markdown\` for free prose (why it's relevant, a recommendation). Never provide \`osm_id\`/\`wikidata_id\` yourself — you have no reliable source and they're dropped. Never write a per-row note as a prose list in your reply.
 
-You can mix both kinds in one call; the list interleaves them in the order given.
+You can mix kinds in one call; the list interleaves them in the order given.
 
-Example — the user asks for taco places near home. Find them, then ONE call:
-\`present_features({ features: [ { title: "Mont Tacos", lat: ..., lng: ..., preview_markdown: "On Saint-Denis St — very close to home" }, { title: "Tacosmaya", lat: ..., lng: ..., preview_markdown: "Avenue du Mont-Royal Est" }, ... ] })\`
+Example — the user asks for taco places near home. Call \`geocode_search\`, then ONE call referencing the results by id:
+\`present_features({ features: [ { result_id: "offline:quebec:1023", preview_markdown: "Great al pastor, very close to home." }, { result_id: "offline:quebec:4471" }, ... ] })\`
 Then a reply like: "Seven taco spots near your home — Mont Tacos and Maison du Tacos on Saint-Denis are the closest." No list of the seven; the card already shows them.
 
 Use \`render_overlay_on_map\` instead when the result is NOT a browsable list:
@@ -177,6 +183,21 @@ export function buildMaposCustomTools(
       if (oldest != null) routeStore.delete(oldest);
     }
     return id;
+  };
+
+  // Pass-by-reference store for geocoder results. present_features references a result
+  // by its `id`, and the structured details are derived HERE from the cached result —
+  // identical to the search UI — so facts never round-trip through (and get reformatted
+  // or fabricated by) the model. Keyed by GeocodeResult.id, which is already stable.
+  const geocodeStore = new Map<string, GeocodeResult>();
+  const stashGeocodeResults = (results: GeocodeResult[]): void => {
+    for (const r of results) {
+      geocodeStore.set(r.id, r);
+      if (geocodeStore.size > 500) {
+        const oldest = geocodeStore.keys().next().value;
+        if (oldest != null) geocodeStore.delete(oldest);
+      }
+    }
   };
 
   const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
@@ -329,11 +350,22 @@ export function buildMaposCustomTools(
     name: "present_features",
     label: "Present features",
     description:
-      "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is either a saved vault place (set `path`) or an external/ad-hoc result (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
+      "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), or a genuinely ad-hoc place you couldn't look up (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
     parameters: Type.Object({
       features: Type.Array(
         Type.Object({
-          title: Type.String({ description: "Display name for the feature" }),
+          result_id: Type.Optional(
+            Type.String({
+              description:
+                "The `id` of a result returned by geocode_search/reverse_geocode. PREFER this for anything you looked up: the app derives the marker, title, and properties (category, address, …) from the cached result — identical to the search UI. When set, leave title/lat/lng/properties unset; only `preview_markdown` is additive."
+            })
+          ),
+          title: Type.Optional(
+            Type.String({
+              description:
+                "Display name. Required ONLY for an ad-hoc place (no result_id and no path). Ignored when result_id or path is set."
+            })
+          ),
           path: Type.Optional(
             Type.String({
               description:
@@ -341,14 +373,21 @@ export function buildMaposCustomTools(
             })
           ),
           lat: Type.Optional(
-            Type.Number({ description: "Latitude — set together with lng for an external/ad-hoc result" })
+            Type.Number({ description: "Latitude — set together with lng ONLY for an ad-hoc result (no result_id)" })
           ),
           lng: Type.Optional(
-            Type.Number({ description: "Longitude — set together with lat for an external/ad-hoc result" })
+            Type.Number({ description: "Longitude — set together with lat ONLY for an ad-hoc result (no result_id)" })
           ),
           preview_markdown: Type.Optional(
             Type.String({
-              description: "Optional markdown shown in the place preview card before save"
+              description:
+                "Optional free-prose note shown as the place card's body before save (e.g. why it's relevant, a recommendation). Put structured facts in `properties`, NOT here. Allowed alongside result_id."
+            })
+          ),
+          properties: Type.Optional(
+            Type.Record(Type.String(), Type.String(), {
+              description:
+                "Structured details for an AD-HOC feature only (with result_id the app supplies these from the source). Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. \"restaurant\", \"fast_food\"), `address` (street line), `source_url` (full URL). You may add extra keys (e.g. `cuisine`). Do NOT provide `osm_id`/`wikidata_id` — you have no reliable source for them and they will be dropped."
             })
           )
         }),
@@ -367,15 +406,44 @@ export function buildMaposCustomTools(
           refs.push(`vault:${f.path}`);
           return;
         }
-        if (typeof f.lat === "number" && typeof f.lng === "number") {
-          // Namespace with the layer id so ids stay unique across accumulated layers.
-          const id = `${layerId}:feature-${i}`;
+        // Namespace with the layer id so ids stay unique across accumulated layers.
+        const id = `${layerId}:feature-${i}`;
+
+        // Preferred path: a geocoder result referenced by id. Title + properties are
+        // derived HERE from the cached result via the same code the search UI uses, so
+        // the model can't reformat facts or fabricate ids. Any extra keys it passed are
+        // kept (sanitized), but source-derived category/address win.
+        if (f.result_id) {
+          const cached = geocodeStore.get(f.result_id);
+          if (cached) {
+            const properties = {
+              ...sanitizeAdHocProperties(f.properties),
+              ...detailPropertiesFromGeocodeResult(cached)
+            };
+            points.push({
+              id,
+              lat: cached.lat,
+              lng: cached.lng,
+              title: cached.primaryLabel,
+              ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
+              ...(Object.keys(properties).length > 0 ? { properties } : {})
+            });
+            refs.push(`overlay:${id}`);
+            return;
+          }
+          // Cache miss (e.g. referenced across a reload): fall through to ad-hoc coords
+          // if the model also supplied them, otherwise skip this feature.
+        }
+
+        if (typeof f.lat === "number" && typeof f.lng === "number" && f.title) {
+          const properties = sanitizeAdHocProperties(f.properties);
           points.push({
             id,
             lat: f.lat,
             lng: f.lng,
             title: f.title,
-            ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
+            ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
+            ...(Object.keys(properties).length > 0 ? { properties } : {})
           });
           refs.push(`overlay:${id}`);
         }
@@ -525,7 +593,7 @@ export function buildMaposCustomTools(
     name: "geocode_search",
     label: "Geocode search",
     description:
-      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points with labels. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox.",
+      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
@@ -571,6 +639,7 @@ export function buildMaposCustomTools(
           lang: args.lang,
           bbox: args.bbox
         });
+        stashGeocodeResults(results);
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
@@ -582,7 +651,7 @@ export function buildMaposCustomTools(
     name: "reverse_geocode",
     label: "Reverse geocode",
     description:
-      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s). Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only).",
+      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s), each with a stable `id`. Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only). To show a result, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address.",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),
@@ -603,6 +672,7 @@ export function buildMaposCustomTools(
           lang: args.lang,
           categories: args.categories
         });
+        stashGeocodeResults(results);
         return TEXT_RESULT(JSON.stringify({ results }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));

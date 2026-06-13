@@ -99,6 +99,10 @@ declare global {
           key: string,
           value: unknown
         ) => Promise<{ success: boolean; error?: string }>;
+        writeFrontmatterProperties: (
+          filePath: string,
+          properties: Record<string, unknown>
+        ) => Promise<{ success: boolean; error?: string }>;
         reorderFrontmatter: (
           filePath: string,
           keyOrder: string[]

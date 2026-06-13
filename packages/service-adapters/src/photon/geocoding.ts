@@ -23,6 +23,8 @@ const PhotonPropertiesSchema = z.object({
   postcode: z.string().optional(),
   osm_key: z.string().optional(),
   osm_value: z.string().optional(),
+  osm_type: z.string().optional(),
+  osm_id: z.number().optional(),
   // [west, north, east, south] per Photon
   extent: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional()
 });
@@ -82,8 +84,23 @@ function featureToResult(feature: PhotonFeature, index: number): GeocodeResult |
     const [west, north, east, south] = props.extent;
     result.bbox = { west, north, east, south };
   }
-  if (props.osm_key && props.osm_value) {
-    result.categories = [`${props.osm_key}:${props.osm_value}`];
+  // Category = the OSM value token, lowercased. This matches the offline pack's
+  // normalized vocabulary for the common cases without vendoring the full category
+  // map across the pipeline boundary (a few remaps like coffee→coffee_shop differ on
+  // this cloud-fallback path only).
+  if (props.osm_value) result.category = props.osm_value.toLowerCase();
+  // Photon reports osm_type as a single letter (N/W/R); normalize to our enum.
+  const osmType =
+    props.osm_type === "N"
+      ? "node"
+      : props.osm_type === "W"
+        ? "way"
+        : props.osm_type === "R"
+          ? "relation"
+          : undefined;
+  if (osmType && typeof props.osm_id === "number") {
+    result.osmType = osmType;
+    result.osmId = props.osm_id;
   }
   return result;
 }

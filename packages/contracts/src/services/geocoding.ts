@@ -41,7 +41,15 @@ export const GeocodeResultSchema = z.object({
   secondaryLabel: z.string(),
   /** Optional extent returned by the provider (reverse geocoding rarely has it). */
   bbox: BBoxSchema.optional(),
-  /** Optional OSM-style category tags, e.g. ["amenity:restaurant"]. */
-  categories: z.array(z.string()).optional()
+  /**
+   * Normalized category id (a single controlled-vocabulary token, e.g. "restaurant",
+   * "fast_food"). Offline packs store this directly; Photon derives it from the OSM
+   * value tag. Absent for features without a category (cities, streets).
+   */
+  category: z.string().optional(),
+  /** OSM element type of the source feature, when known. */
+  osmType: z.enum(["node", "way", "relation"]).optional(),
+  /** OSM element id of the source feature, when known. Pair with osmType for a URL. */
+  osmId: z.number().optional()
 });
 export type GeocodeResult = z.infer<typeof GeocodeResultSchema>;

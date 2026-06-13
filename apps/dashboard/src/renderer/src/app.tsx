@@ -4,6 +4,8 @@ import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/c
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
+import { orderDetailProperties } from "@shared/types";
+import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
@@ -99,13 +101,16 @@ function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
     type: "Point",
     coordinates: [r.lng, r.lat]
   });
+  // Same shared derivation the chat path uses, so the card is identical either way.
+  const properties = detailPropertiesFromGeocodeResult(r);
   return {
     filePath: `geocode-search:${r.id}`,
     title: r.primaryLabel,
     type: "Search",
     geometry,
     /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
-    previewMarkdown: ""
+    previewMarkdown: "",
+    ...(Object.keys(properties).length > 0 ? { properties } : {})
   };
 }
 
@@ -849,6 +854,13 @@ function App(): React.JSX.Element {
       if (!renamed.ok) {
         console.error("[save search]", renamed.error);
         return;
+      }
+      // Persist the previewed details as frontmatter (canonical order, empties dropped)
+      // so the saved file matches the preview card exactly.
+      const properties = orderDetailProperties(place.properties);
+      if (Object.keys(properties).length > 0) {
+        const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
+        if (!wp.success) console.error("[save search] write properties", wp.error);
       }
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);

@@ -1,4 +1,5 @@
 import type { MapOverlayPayload } from "@shared/types";
+import { orderDetailProperties } from "@shared/types";
 import { useCallback } from "react";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "../lib/place-utils";
 
@@ -7,6 +8,8 @@ type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 type OverlayFeature = {
   title: string;
   preview_markdown?: string;
+  /** Structured details persisted as frontmatter (points only). */
+  properties?: Record<string, string>;
   /** Args for createNoteFile that produce the right `geometry` frontmatter. */
   createArgs: Omit<CreateNoteArgs, "parentFolderPath">;
 };
@@ -33,6 +36,7 @@ function overlayVaultFeatures(mapOverlay: MapOverlayPayload): OverlayFeature[] {
       (p): OverlayFeature => ({
         title: p.title,
         preview_markdown: p.preview_markdown,
+        properties: p.properties,
         createArgs: { lat: p.lat, lng: p.lng }
       })
     ),
@@ -82,6 +86,13 @@ export function useOverlayVaultSync(): {
           if (!renamed.ok) {
             console.error("[add layer to vault]", renamed.error);
             return;
+          }
+          // Write structured details as frontmatter (canonical order, empties dropped)
+          // before the body, so the saved file matches the preview card exactly.
+          const properties = orderDetailProperties(f.properties);
+          if (Object.keys(properties).length > 0) {
+            const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
+            if (!wp.success) console.error("[add layer to vault] write properties", wp.error);
           }
           if (f.preview_markdown?.trim()) {
             const w = await window.api.fs.writePlaceBody(renamed.filePath, f.preview_markdown);

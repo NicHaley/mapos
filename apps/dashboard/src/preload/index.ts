@@ -99,6 +99,11 @@ const api = {
         success: boolean;
         error?: string;
       }>,
+    writeFrontmatterProperties: (filePath: string, properties: Record<string, unknown>) =>
+      ipcRenderer.invoke("fs:write-frontmatter-properties", filePath, properties) as Promise<{
+        success: boolean;
+        error?: string;
+      }>,
     reorderFrontmatter: (filePath: string, keyOrder: string[]) =>
       ipcRenderer.invoke("fs:reorder-frontmatter", filePath, keyOrder) as Promise<{
         success: boolean;

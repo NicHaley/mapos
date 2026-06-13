@@ -692,6 +692,18 @@ export function PlaceCard({
             allVaultKeyTypes={doc.keys}
           />
         )}
+        {/* Preview place (search result / chat feature): the same properties grid,
+            read-only, so it looks exactly like the vault file it becomes on save. */}
+        {place.previewMarkdown !== undefined &&
+          place.properties &&
+          Object.keys(place.properties).length > 0 && (
+            <PropertiesPanel
+              readOnly
+              filePath={currentFilePath}
+              frontmatter={place.properties}
+              allVaultKeyTypes={[]}
+            />
+          )}
         {doc.kind === "geojson-layer" &&
           (() => {
             const GJ_EXCLUDED = new Set(["name", "description"]);

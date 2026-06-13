@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import {
   CalendarIcon,
   CheckIcon,
+  ExternalLinkIcon,
   GripVerticalIcon,
   HashIcon,
   PlusIcon,
@@ -129,6 +130,46 @@ function coerceToType(value: unknown, type: PropertyType): unknown {
       break;
   }
   return defaultValueForType(type);
+}
+
+/**
+ * External URL for a property value, or null when it isn't linkable. Any value that is
+ * itself an http(s) URL is linkable regardless of its key (so `source_url`, `website`,
+ * or any custom key holding a URL gets the ↗). Recognized id keys whose values are NOT
+ * URLs map to a canonical URL — keep these in sync with the place-card grid.
+ */
+function detailLinkUrl(key: string, value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (!v) return null;
+  // Any value that is itself an http(s) URL is linkable, whatever the key.
+  if (/^https?:\/\/\S+$/i.test(v)) return v;
+  // Otherwise, recognized id keys resolve to a canonical URL.
+  if (key === "wikidata_id")
+    return /^Q\d+$/i.test(v) ? `https://www.wikidata.org/wiki/${v.toUpperCase()}` : null;
+  if (key === "osm_id") {
+    const m = v.match(/^(node|way|relation)\/(\d+)$/i);
+    return m ? `https://www.openstreetmap.org/${m[1].toLowerCase()}/${m[2]}` : null;
+  }
+  return null;
+}
+
+/** Small ↗ that opens an external URL (routed to the default browser by the main process). */
+function OpenLinkButton({ url }: { url: string }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        window.open(url, "_blank", "noopener");
+      }}
+      className="shrink-0 rounded p-0.5 text-sidebar-foreground/40 outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 ring-sidebar-ring"
+      aria-label="Open link"
+      title={url}
+    >
+      <ExternalLinkIcon className="size-3" />
+    </button>
+  );
 }
 
 function toDisplayString(value: unknown): string {
@@ -629,8 +670,9 @@ function PropertyValue({
   }
 
   // text / number
+  const linkUrl = detailLinkUrl(propKey, value);
   return (
-    <div className="relative flex h-8 min-w-0 w-full items-center">
+    <div className="relative flex h-8 min-w-0 w-full items-center gap-1">
       <Popover
         open={open}
         onOpenChange={(val) => {
@@ -638,7 +680,7 @@ function PropertyValue({
           if (!val) commitDraft();
         }}
       >
-        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+        <PopoverTrigger className="flex h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {isEmpty ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
@@ -667,6 +709,60 @@ function PropertyValue({
           />
         </PopoverContent>
       </Popover>
+      {linkUrl && <OpenLinkButton url={linkUrl} />}
+    </div>
+  );
+}
+
+// ─── ReadOnlyPropertiesPanel ─────────────────────────────────────────────────
+
+/**
+ * A static rendering of properties that mirrors the editable panel's two-column
+ * grid exactly (so a preview place looks identical to what it becomes after save),
+ * minus all editing affordances. Known id/url keys still render their ↗ open-link.
+ */
+function ReadOnlyPropertyRow({
+  propKey,
+  value
+}: {
+  propKey: string;
+  value: unknown;
+}): React.JSX.Element {
+  const linkUrl = detailLinkUrl(propKey, value);
+  return (
+    <div className="grid h-8 grid-cols-2 items-center">
+      <div className="flex min-h-0 min-w-0 items-center">
+        <div className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground">
+          <span className="inline-flex size-4 shrink-0 items-center justify-center">
+            {typeIcon(inferPropertyType(value))}
+          </span>
+          <span className="truncate">{propKey}</span>
+        </div>
+      </div>
+      <div className="flex min-h-0 min-w-0 items-center">
+        <div className="flex h-8 w-full items-center gap-1 rounded-md px-2 text-sm">
+          <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
+          {linkUrl && <OpenLinkButton url={linkUrl} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReadOnlyPropertiesPanel({
+  frontmatter
+}: {
+  frontmatter: Record<string, unknown>;
+}): React.JSX.Element | null {
+  const keys = Object.keys(frontmatter);
+  if (keys.length === 0) return null;
+  return (
+    <div className="px-2 pb-6 text-sidebar-foreground">
+      <div className="flex flex-col">
+        {keys.map((key) => (
+          <ReadOnlyPropertyRow key={key} propKey={key} value={frontmatter[key]} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -686,6 +782,13 @@ interface PropertiesPanelProps {
   onWriteProperty?: (key: string, value: unknown) => Promise<void>;
   /** Whether drag-to-reorder persists. Default true. */
   reorderable?: boolean;
+  /**
+   * Render a static, non-editable view that mirrors the editable layout exactly.
+   * Used for preview places (search results / chat features) so the card looks
+   * identical to the vault file it becomes on save. `filePath`, `allVaultKeyTypes`,
+   * `onWriteProperty`, and `reorderable` are ignored in this mode.
+   */
+  readOnly?: boolean;
 }
 
 function PropertiesPanelInner({
@@ -861,6 +964,7 @@ function PropertiesPanelInner({
   );
 }
 
-export function PropertiesPanel(props: PropertiesPanelProps): React.JSX.Element {
+export function PropertiesPanel(props: PropertiesPanelProps): React.JSX.Element | null {
+  if (props.readOnly) return <ReadOnlyPropertiesPanel frontmatter={props.frontmatter} />;
   return <PropertiesPanelInner key={props.filePath} {...props} />;
 }

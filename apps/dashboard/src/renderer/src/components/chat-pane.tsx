@@ -721,6 +721,9 @@ export function ChatPane({
   const [renameDraft, setRenameDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  // Set when a cancel or successful commit unmounts the input, so the blur it
+  // synthesizes doesn't re-trigger commitRename (which would save a cancelled edit).
+  const skipBlurCommitRef = useRef(false);
 
   useEffect(() => {
     if (renaming) {
@@ -736,6 +739,7 @@ export function ChatPane({
   }, [convTitle]);
 
   const cancelRename = useCallback(() => {
+    skipBlurCommitRef.current = true;
     setRenaming(false);
     setRenameError(null);
   }, []);
@@ -753,6 +757,7 @@ export function ChatPane({
       renameInputRef.current?.focus();
       return;
     }
+    skipBlurCommitRef.current = true;
     setRenaming(false);
     setRenameError(null);
   }, [renameDraft, onRename]);
@@ -808,7 +813,14 @@ export function ChatPane({
                   setRenameError(null);
                 }}
                 onKeyDown={handleRenameKeyDown}
-                onBlur={() => void commitRename()}
+                onBlur={() => {
+                  // A cancel/commit already tore down the input; don't double-fire.
+                  if (skipBlurCommitRef.current) {
+                    skipBlurCommitRef.current = false;
+                    return;
+                  }
+                  void commitRename();
+                }}
                 className={cn(
                   "min-w-0 flex-1 mx-2 h-6 box-border rounded px-1 text-sm font-normal leading-6",
                   "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",

@@ -461,9 +461,13 @@ export function PlaceCard({
       if (e.key === "Escape") {
         const active = document.activeElement;
         if (active?.getAttribute("aria-label") === "Place name") {
+          // Cancel the edit by reverting the draft. We deliberately do NOT blur:
+          // blurring would fire handleTitleBlur synchronously, before this revert
+          // re-renders, so it would still read the modified draft and commit it.
+          // Leaving the field focused with the restored title is both correct and
+          // re-editable.
           setTitleInput(currentTitle);
           setTitleError(null);
-          (active as HTMLElement).blur();
         } else {
           onClose();
         }

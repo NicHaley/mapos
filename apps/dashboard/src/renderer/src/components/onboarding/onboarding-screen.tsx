@@ -18,12 +18,9 @@ const PROGRESS_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   appearance: "Theme"
 };
 
-// Panels stay compact and centered. AI and Offline are a touch wider so their two-up cards and
-// map + list breathe.
-function maxWidthClass(step: Step): string {
-  if (step === "ai" || step === "offline") return "max-w-lg";
-  return "max-w-md";
-}
+// One consistent column width across every step — wide enough for the content-heavy steps (AI's
+// provider list, Offline's map + list) without varying the frame as the user advances.
+const PANEL_WIDTH_CLASS = "max-w-lg";
 
 export function OnboardingScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>("welcome");
@@ -46,10 +43,7 @@ export function OnboardingScreen(): React.JSX.Element {
       />
       <div className="flex flex-1 overflow-y-auto">
         <div
-          className={cn(
-            "mx-auto flex min-h-full w-full flex-col px-6 pb-12",
-            maxWidthClass(step)
-          )}
+          className={cn("mx-auto flex min-h-full w-full flex-col px-6 pb-12", PANEL_WIDTH_CLASS)}
         >
           {showStepper && (
             <nav

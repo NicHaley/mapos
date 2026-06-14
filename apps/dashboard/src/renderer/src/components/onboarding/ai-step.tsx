@@ -9,9 +9,16 @@ import { ProviderBadge } from "../settings/providers/provider-badge";
 import { CmdEnterHint } from "./cmd-enter-hint";
 
 /**
- * Onboarding's simplified take on the AI Models settings page: connect a seeded cloud provider inline
- * (the first listed model is auto-activated on connect). Local models are configured later via Pi's
- * custom-provider support in Settings.
+ * The marquee catalog providers offered inline during onboarding — mirrors `SEEDED_PROVIDERS` in
+ * main/ai.ts. Ensured present on mount so a stale `ai.json` (predating the current seed list) still
+ * shows the full set rather than just whatever happens to be stored.
+ */
+const MARQUEE_PROVIDERS = ["anthropic", "openai-codex", "github-copilot"] as const;
+
+/**
+ * Onboarding's simplified take on the AI Models settings page: connect a marquee cloud provider
+ * inline (the first listed model is auto-activated on connect). Custom and local endpoints (a
+ * self-hosted Ollama, LM Studio, a proxy) are configured later in Settings → AI Models, via Pi.
  */
 export function AiStep({
   onBack,
@@ -24,15 +31,33 @@ export function AiStep({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
-    void window.api.ai.getState().then(setState);
+    let active = true;
+
+    async function ensureMarqueeAndLoad(): Promise<void> {
+      const initial = await window.api.ai.getState();
+      const present = new Set(
+        initial.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
+      );
+      const missing = MARQUEE_PROVIDERS.filter((name) => !present.has(name));
+      for (const name of missing) await window.api.ai.addKnownProvider(name);
+      const next = missing.length > 0 ? await window.api.ai.getState() : initial;
+      if (active) setState(next);
+    }
+
+    void ensureMarqueeAndLoad();
     // Keep in sync with main-side changes (e.g. a connection auto-activating a model).
-    return window.api.ai.onChanged(() => {
-      void window.api.ai.getState().then(setState);
+    const off = window.api.ai.onChanged(() => {
+      void window.api.ai.getState().then((s) => {
+        if (active) setState(s);
+      });
     });
+    return () => {
+      active = false;
+      off();
+    };
   }, []);
 
   const knownProviders = state?.providers.filter((p) => !!p.knownProvider) ?? [];
-  const cloudConnected = knownProviders.some((p) => p.auth.configured);
   const active = state?.active ?? null;
 
   /** After connecting in the inline panel, auto-pick the provider's first listed model. */
@@ -49,15 +74,16 @@ export function AiStep({
     setState(await window.api.ai.getState());
   }
 
-  const primaryEnabled = cloudConnected;
+  // A model is active once a provider is connected; that's the real "ready to continue" signal.
+  const primaryEnabled = !!active;
   useCmdEnter(() => onNext(), primaryEnabled);
 
   return (
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Connect an AI provider</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Use Claude, GPT and more over the network. Sign in or paste an API key. You can add more
-        providers — including local endpoints — anytime in Settings.
+        Use Claude, GPT and more over the network — sign in or paste an API key. Need a custom or
+        local endpoint (Ollama, LM Studio, a proxy)? Add one anytime in Settings → AI Models.
       </p>
 
       <div className="mt-6 flex flex-col gap-2">
@@ -89,12 +115,16 @@ export function AiStep({
               </button>
               {expanded && (
                 <div className="border-t bg-muted/20">
-                  <KnownProviderAuth provider={p} onChanged={() => void handleProviderChanged(p.id)} />
+                  <KnownProviderAuth
+                    provider={p}
+                    onChanged={() => void handleProviderChanged(p.id)}
+                  />
                 </div>
               )}
             </div>
           );
         })}
+
         {active && (
           <p className="mt-1 flex items-center gap-1.5 text-muted-foreground text-xs">
             <CheckIcon className="size-3.5 text-emerald-500" />

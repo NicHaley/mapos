@@ -108,7 +108,7 @@ type ProviderStored = z.infer<typeof ProviderSchema>;
  * Stable ids so an active selection survives reloads; built from the catalog so labels/baseUrl/
  * protocol stay in sync with Pi.
  */
-const SEEDED_PROVIDERS = ["anthropic", "openai", "github-copilot"] as const;
+const SEEDED_PROVIDERS = ["anthropic", "openai-codex", "github-copilot"] as const;
 
 function seedProviders(): ProviderStored[] {
   return SEEDED_PROVIDERS.map((name) => ({

@@ -284,14 +284,25 @@ You have access to the Claude Agent SDK's built-in tools (`Read`, `Bash`, `Glob`
 
 ### Map tools
 
-- `render_overlay_on_map(points, lines, polygons, layer_name?)` — display temporary geometry on the map (search results, isochrones, routes). Does not write any files.
-- `clear_map_overlay()` — remove the temporary overlay. Call when starting a new search.
+- `clear_map_overlay()` — remove ALL overlay layers. Overlays accumulate across the conversation by design; call this only when the user explicitly asks to clear the map.
 - `pan_to(lat, lng, zoom?)` — move the map viewport to a location.
-- `get_viewport()` — returns the current map bounding box. Use this to understand what the user is currently looking at.
+- `get_viewport()` — returns the current map bounding box, center, and zoom. Use this to understand what the user is currently looking at.
 
-### External data tools (via Mapbox MCP)
+### Map service tools (offline-first: Photon + Valhalla)
 
-- Geocoding, POI search, routing, and isochrone tools are available via the Mapbox MCP server (`mcp__mapbox__*`). Use these for external spatial queries.
+Backed by OpenStreetMap data and run locally — Photon for geocoding, Valhalla for routing/isochrones — with downloaded region packs taking precedence when installed. No Mapbox, no required network. In `local` mode, routing/isochrone tools require an installed region pack and will error otherwise; geocoding and base tiles work offline unconditionally.
+
+- `geocode_search(query?, categories?, kinds?, bbox?, limit?, lang?)` — forward geocode free text ("kinka izakaya toronto") or run a POI category search ("all cafes in this bbox"). Returns up to `limit` points, each with a stable `id`. To show a result, pass its `id` to `present_features` as `result_id` — never re-type its name/category/address.
+- `reverse_geocode(lat, lng, categories?, limit?, lang?)` — nearest named feature(s) to a point; pass `categories` for "what restaurants are near here".
+- `get_directions(locations[], costing?)` — route between 2+ waypoints (`auto` | `pedestrian` | `bicycle`). Returns distance/duration, an opaque `route_id`, and turn-by-turn maneuvers. Render by passing `route_id` to a `render_overlay_on_map` lines entry — never re-emit the route geometry yourself.
+- `get_isochrone(lat, lng, minutes_contours[], costing?)` — reachable-area polygon(s) for one or more time contours (minutes). Each contour has a GeoJSON Polygon ready to render.
+- `get_matrix(sources[], targets[], costing?)` — pairwise travel distance/time. Keep each side small (≤ 10).
+- `compute_bbox(points[])` — bounding box framing a set of lat/lng points.
+
+### Presentation tools
+
+- `present_features(features[], layer_name?)` — the primary way to show a browsable list of places. Draws markers AND renders a clickable, map-linked list in chat. Each feature is a looked-up result (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`/`lng`/`title`). After calling it, do NOT re-list the places in your reply.
+- `render_overlay_on_map(points, lines, polygons, layer_name?)` — display geometry the user views in aggregate: routes (lines), isochrones/areas (polygons), or bulk datasets. Use `present_features` instead for a list of places the user picks from.
 
 ---
 
@@ -303,10 +314,10 @@ When the user asks about their saved places, query the spatial index or read the
 
 ### Display vs. action intent
 
-- **Display/explore requests** ("show me", "find", "search", "where is") → use `render_overlay_on_map` for ephemeral results. Do not write files.
+- **Display/explore requests** ("show me", "find", "search", "where is") → present results ephemerally. Use `present_features` for a list of places the user might pick from; use `render_overlay_on_map` for routes, areas, and bulk geometry. Do not write files.
 - **Action requests** ("save", "create", "add", "update", "mark", "organize") → write actual vault files with `write_vault_file`.
 
-When Mapbox geocoding or POI results come back, render them as a temporary overlay first. Only write a file when the user explicitly wants to save something to their vault.
+When `geocode_search` / `reverse_geocode` results come back, show them ephemerally first (`present_features`). Only write a file when the user explicitly wants to save something to their vault.
 
 ### Write files with write_vault_file
 
@@ -368,11 +379,11 @@ When a user draws a region on the map or right-clicks an empty area, they may pa
 ### Answering a spatial query ("best ramen near Shibuya")
 
 1. Call `get_viewport()` to understand current map context
-2. Use Mapbox geocoding if not already in viewport
-3. Call `query_spatial_index(bounds, { tags: ["ramen"] })`
-4. If results are sparse, use Mapbox POI search for external results
-5. Render results with `render_overlay_on_map()`
-6. Summarise in the sidebar with place names, distances, and any notes from the files
+2. Use `geocode_search` to locate the area if not already in viewport
+3. Call `query_spatial_index(bounds, { properties: { tags: ["ramen"] } })`
+4. If results are sparse, use `geocode_search` with `categories` for external POIs
+5. Present results with `present_features` (or `render_overlay_on_map` for bulk geometry)
+6. Summarise in the sidebar with standouts and any notes from the files — don't re-list what `present_features` already shows
 
 ### Importing photos from an external library
 
@@ -394,8 +405,8 @@ When a user draws a region on the map or right-clicks an empty area, they may pa
 ### Running a walkability analysis
 
 1. Get the user's current location or a specified address
-2. Call `get_isochrone(lat, lng, minutes)` to get the walkable polygon
-3. Call `search_pois(polygon_bounds, category)` for external POIs within the area
+2. Call `get_isochrone(lat, lng, minutes_contours, costing)` to get the walkable polygon(s)
+3. Use `geocode_search` with `categories` (biased by `bbox`) for external POIs within the area
 4. Cross-reference with `query_spatial_index` to find the user's own saved places in the area
 5. Save the result to a `.json` file co-located with the relevant context (e.g. `tokyo-2026/walkability.json`), or ask the user where
 6. Render the isochrone polygon and POI markers as named layers on the map
@@ -409,4 +420,4 @@ When a user draws a region on the map or right-clicks an empty area, they may pa
 - Don't modify the user's photo library or any files outside `~/MapOS/` without explicit permission.
 - Don't place a marker on the map without writing a file first. The file is the source of truth; the marker is derived from it.
 - Don't guess coordinates silently. If you're uncertain, geocode or ask.
-- Don't return large lists of results as plain text when `render_on_map` would be more useful. Default to spatial output.
+- Don't return large lists of results as plain text when `present_features` (for places) or `render_overlay_on_map` (for geometry) would be more useful. Default to spatial output.

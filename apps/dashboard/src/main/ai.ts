@@ -13,7 +13,6 @@ import { ANTHROPIC_MODELS, type AiProvider, type ModelCapabilities } from "../sh
 import {
   ANTHROPIC_CAPS,
   type AiState,
-  EMBEDDED_PROVIDER_ID,
   type FetchedModel,
   type KnownProviderOption,
   OPENAI_ASSUMED_CAPS,
@@ -31,7 +30,6 @@ import {
   knownProviderLabel,
   listKnownProviders as listKnownProvidersImpl
 } from "./ai-auth";
-import { resolveEmbeddedModel } from "./local-llm/models";
 
 const AI_FILENAME = "ai.json";
 const FETCH_TIMEOUT_MS = 6000;
@@ -60,8 +58,6 @@ export type ResolvedAiRequestConfig = {
    * `getModel(piProvider, model)` and its auth through the shared persistent AuthStorage.
    */
   piProvider?: string;
-  /** Embedded runtime: path to the selected GGUF. When set, inference runs in-process (no network). */
-  embeddedModelPath?: string;
 };
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -108,9 +104,9 @@ type ProviderStored = z.infer<typeof ProviderSchema>;
 /**
  * First-run convenience: pre-list the marquee OAuth-capable catalog providers as ordinary, removable
  * providers, each unconnected until the user signs in. If the user removes one (or edits the saved
- * config), it is not re-added. Local AI is the embedded runtime, surfaced as its own section; other
- * network runtimes are added from the catalog or "Custom endpoint". Stable ids so an active selection
- * survives reloads; built from the catalog so labels/baseUrl/protocol stay in sync with Pi.
+ * config), it is not re-added. Other providers are added from the catalog or "Custom endpoint".
+ * Stable ids so an active selection survives reloads; built from the catalog so labels/baseUrl/
+ * protocol stay in sync with Pi.
  */
 const SEEDED_PROVIDERS = ["anthropic", "openai", "github-copilot"] as const;
 
@@ -219,15 +215,6 @@ export function getAiState(): AiState {
   const st = load();
   const active = (() => {
     if (!st.active) return null;
-    // The embedded runtime isn't in the providers array — label it directly.
-    if (st.active.providerId === EMBEDDED_PROVIDER_ID) {
-      return {
-        providerId: st.active.providerId,
-        providerLabel: "Local AI",
-        model: st.active.model,
-        capabilities: st.active.capabilities
-      };
-    }
     const provider = st.providers.find((x) => x.id === st.active?.providerId);
     if (!provider) return null;
     return {
@@ -318,9 +305,7 @@ export function setActive(
   capabilities: ModelCapabilities
 ): { ok: true } | { ok: false; error: string } {
   const st = load();
-  if (providerId === EMBEDDED_PROVIDER_ID) {
-    if (!resolveEmbeddedModel(model)) return { ok: false, error: "That local model isn't downloaded." };
-  } else if (!st.providers.some((x) => x.id === providerId)) {
+  if (!st.providers.some((x) => x.id === providerId)) {
     return { ok: false, error: "Provider not found." };
   }
   write({ ...st, active: { providerId, model, capabilities } });
@@ -331,19 +316,6 @@ export function clearActive(): { ok: true } {
   const st = load();
   write({ ...st, active: null });
   return { ok: true };
-}
-
-/**
- * Clear the active selection if it points at the given embedded model, or if the embedded selection
- * no longer resolves at all (the model was dropped from the catalog or its file deleted — e.g. a
- * stale id left behind by a catalog update). Returns whether it cleared.
- */
-export function clearActiveIfEmbeddedModel(modelId: string): boolean {
-  const st = load();
-  if (st.active?.providerId !== EMBEDDED_PROVIDER_ID) return false;
-  if (st.active.model !== modelId && resolveEmbeddedModel(st.active.model)) return false;
-  write({ ...st, active: null });
-  return true;
 }
 
 // ── Model fetching ──────────────────────────────────────────────────────────
@@ -549,22 +521,8 @@ export function resolveActive(): ResolvedAiRequestConfig | null {
   const st = load();
   if (!st.active) return null;
 
-  // Embedded runtime: resolve the GGUF path + capabilities from the local catalog by model id.
-  // Returns null if the model was since deleted.
-  if (st.active.providerId === EMBEDDED_PROVIDER_ID) {
-    const m = resolveEmbeddedModel(st.active.model);
-    if (!m) return null;
-    return {
-      provider: "local",
-      baseUrl: "",
-      authToken: "",
-      apiKey: "",
-      model: m.id,
-      capabilities: m.capabilities,
-      embeddedModelPath: m.path
-    };
-  }
-
+  // A stale embedded ("local-embedded") selection no longer resolves — it falls through here, the
+  // provider lookup misses, and we return null so the user is prompted to pick a model.
   const provider = st.providers.find((x) => x.id === st.active?.providerId);
   if (!provider) return null;
   const capabilities = st.active.capabilities;

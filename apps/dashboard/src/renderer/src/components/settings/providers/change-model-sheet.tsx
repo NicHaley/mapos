@@ -1,12 +1,7 @@
 import { Input } from "@mapos/ui/components/input";
 import { cn } from "@mapos/ui/lib/utils";
 import type { ModelCapabilities } from "@shared/ai-models";
-import {
-  type AiState,
-  type CapabilitySource,
-  EMBEDDED_PROVIDER_ID,
-  type ProviderView
-} from "@shared/ai-providers";
+import type { AiState, CapabilitySource, ProviderView } from "@shared/ai-providers";
 import { CheckIcon, Loader2Icon, LockIcon, SearchIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
@@ -16,7 +11,7 @@ import { ProviderBadge } from "./provider-badge";
 type PickerModel = {
   /** Model id passed to setActive. */
   id: string;
-  /** What's shown to the user (raw id for cloud, friendly label for local). */
+  /** What's shown to the user (the raw model id). */
   display: string;
   capabilities: ModelCapabilities;
   source?: CapabilitySource;
@@ -28,17 +23,12 @@ type PickerModel = {
 type PickerGroup = {
   key: string;
   title: string;
-  /** Provider id used for setActive + active-match (EMBEDDED_PROVIDER_ID for local). */
+  /** Provider id used for setActive + active-match. */
   providerId: string;
   knownProvider: string | null;
-  local: boolean;
   connected: boolean;
   models: PickerModel[];
 };
-
-function formatGB(bytes: number): string {
-  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
-}
 
 /** Whether listing a provider's models is worthwhile: known providers ship a catalog; custom endpoints
  * only yield a list once they have a usable token. */
@@ -47,10 +37,9 @@ function shouldFetch(p: ProviderView): boolean {
 }
 
 /**
- * The single model selector. Aggregates every source — the embedded "On this Mac" catalog and each
- * configured provider's models — into one searchable list. Select-only: models from a not-connected
- * cloud provider or a not-yet-downloaded local model render locked/disabled. Connecting and
- * downloading happen in Sources, never here.
+ * The single model selector. Aggregates each configured provider's models into one searchable list.
+ * Select-only: models from a not-connected provider render locked/disabled. Connecting happens in
+ * Sources, never here.
  */
 export function ChangeModelSheet({
   open,
@@ -81,23 +70,6 @@ export function ChangeModelSheet({
     let cancelled = false;
     setGroups(null);
     void (async () => {
-      const local = await window.api.localLlm.listRecommended().catch(() => []);
-      const localGroup: PickerGroup = {
-        key: EMBEDDED_PROVIDER_ID,
-        title: "On this Mac",
-        providerId: EMBEDDED_PROVIDER_ID,
-        knownProvider: null,
-        local: true,
-        connected: true,
-        models: local.map((m) => ({
-          id: m.id,
-          display: m.label,
-          capabilities: m.capabilities,
-          selectable: m.installed,
-          detail: m.installed ? undefined : formatGB(m.sizeBytes)
-        }))
-      };
-
       const providerGroups = await Promise.all(
         state.providers.map(async (p): Promise<PickerGroup> => {
           const models = shouldFetch(p) ? await window.api.ai.listModels(p.id) : null;
@@ -116,14 +88,13 @@ export function ChangeModelSheet({
             title: p.label,
             providerId: p.id,
             knownProvider: p.knownProvider,
-            local: false,
             connected: p.auth.configured,
             models: rows
           };
         })
       );
 
-      if (!cancelled) setGroups([localGroup, ...providerGroups]);
+      if (!cancelled) setGroups(providerGroups);
     })();
     return () => {
       cancelled = true;
@@ -191,7 +162,7 @@ export function ChangeModelSheet({
         {filtered?.map((g) => (
           <div key={g.key} className="flex flex-col">
             <div className="flex items-center gap-2 px-1 py-1.5">
-              <ProviderBadge knownProvider={g.knownProvider} label={g.title} local={g.local} size="sm" />
+              <ProviderBadge knownProvider={g.knownProvider} label={g.title} size="sm" />
               <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
                 {g.title}
               </span>

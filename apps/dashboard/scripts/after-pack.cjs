@@ -75,10 +75,6 @@ module.exports = async function afterPack(context) {
     }
   }
 
-  // --- node-llama-cpp: drop the build-from-source git bundle (prebuilt binary
-  //     in @node-llama-cpp/<platform> is what we actually load at runtime). ---
-  rm(path.join(unpacked, 'node-llama-cpp', 'llama', 'gitRelease.bundle'), removed);
-
   if (removed.items.length) {
     console.log(
       `\n  • afterPack: pruned ${(removed.total / 1e6).toFixed(0)}MB of foreign-platform binaries ` +

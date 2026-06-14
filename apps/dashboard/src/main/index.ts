@@ -20,9 +20,6 @@ import {
   renameVaultInConfig,
   setActiveVaultInConfig
 } from "./mapos-config";
-import { disposeLlamaRuntime } from "./local-llm/engine";
-import { unloadAllModels } from "./local-llm/inference";
-import { registerLocalLlmIpc } from "./local-llm/ipc";
 import { registerMaposIpc } from "./mapos-ipc";
 import { registerRegionPacksIpc } from "./region-packs";
 import {
@@ -171,7 +168,6 @@ app.whenReady().then(() => {
   registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);
   setupAppMenu();
-  registerLocalLlmIpc(mainWindow);
 
   // Vault management + onboarding IPCs are also vault-independent. They power both the
   // first-launch onboarding flow and the in-app vault switcher.
@@ -320,23 +316,15 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // Tear down everything before exit, then quit for real. The llama.cpp runtime in particular MUST
-  // finish disposing before native teardown at process exit, otherwise ggml-metal asserts. The old
-  // code raced disposal against a 2s timeout and then called app.quit() regardless — when a loaded
-  // model's dispose outran the timeout, app.quit() walked into native teardown mid-dispose, wedged
-  // the process, and left the app alive in the dock with its window closed. So: await disposal to
-  // completion on the normal path, and use a hard app.exit() (guaranteed OS-level termination, not a
-  // graceful quit into native teardown) only as a backstop for a genuinely hung dispose.
+  // Tear down vault state before exit, then quit for real. A hard app.exit() backstops a teardown
+  // that hangs (a wedged file handle shouldn't leave the app alive in the dock with no window).
   let quitting = false;
   app.on("before-quit", (event) => {
     if (quitting) return; // re-entry from the app.quit() below — let it proceed.
     quitting = true;
     event.preventDefault();
     const hardKill = setTimeout(() => app.exit(0), 5000);
-    void Promise.allSettled([
-      teardownVault(),
-      unloadAllModels().then(() => disposeLlamaRuntime())
-    ]).then(() => {
+    void teardownVault().finally(() => {
       clearTimeout(hardKill);
       app.quit();
     });

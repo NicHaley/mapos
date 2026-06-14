@@ -10,14 +10,13 @@ import {
 } from "@mapos/ui/components/alert-dialog";
 import { Button } from "@mapos/ui/components/button";
 import { cn } from "@mapos/ui/lib/utils";
-import { type AiState, EMBEDDED_PROVIDER_ID, type ProviderView } from "@shared/ai-providers";
+import type { AiState, ProviderView } from "@shared/ai-providers";
 import { ChevronDownIcon, Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { CapabilityBadges } from "./capability-badges";
 import { ChangeModelSheet } from "./change-model-sheet";
 import { KnownProviderAuth } from "./known-provider-auth";
-import { LocalAiSection } from "./local-ai-section";
 import { ProviderBadge } from "./provider-badge";
 import { ProviderEditorSheet } from "./provider-editor-sheet";
 
@@ -84,10 +83,9 @@ export function AiModelTab(): React.JSX.Element {
   }
 
   const active = state.active;
-  const activeProvider =
-    active && active.providerId !== EMBEDDED_PROVIDER_ID
-      ? state.providers.find((p) => p.id === active.providerId)
-      : undefined;
+  const activeProvider = active
+    ? state.providers.find((p) => p.id === active.providerId)
+    : undefined;
   const addedKnown = new Set(
     state.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
   );
@@ -109,7 +107,6 @@ export function AiModelTab(): React.JSX.Element {
               <ProviderBadge
                 knownProvider={activeProvider?.knownProvider}
                 label={active.providerLabel}
-                local={active.providerId === EMBEDDED_PROVIDER_ID}
                 size="lg"
               />
               <div className="min-w-0 flex-1">
@@ -147,8 +144,6 @@ export function AiModelTab(): React.JSX.Element {
             Add provider
           </Button>
         </div>
-
-        <LocalAiSection active={active} onActiveChanged={reload} />
 
         {state.providers.map((p) => {
           const expandable = !!p.knownProvider;

@@ -19,10 +19,6 @@ asarUnpack:
   # The Valhalla native addon (valhalla_node.node) dlopens sibling .dylibs by
   # path, so the whole package must live on disk, not inside the asar.
   - node_modules/@valhallajs/valhallajs/**
-  # node-llama-cpp's prebuilt llama.cpp binary (llama-addon.node) loads sibling
-  # libggml/libllama dylibs by path, so it too must live unpacked on disk.
-  - node_modules/node-llama-cpp/**
-  - node_modules/@node-llama-cpp/**
 # Global basemap glyphs/sprites copied to <app>/Resources/basemap-assets (process.resourcesPath).
 extraResources:
   - from: resources/basemap-assets

@@ -9,13 +9,6 @@
 
 import type { ModelCapabilities } from "./ai-models";
 
-/**
- * Reserved provider id for the embedded llama.cpp runtime. It is not a stored provider — it rides the
- * single `active` selection so local and network models share one "in use" source of truth. Its
- * models come from the local catalog (see shared/local-llm.ts), selected via `setActive`.
- */
-export const EMBEDDED_PROVIDER_ID = "local-embedded";
-
 /** Wire format / SDK adapter. `anthropic` = Messages API, `openai` = OpenAI-compatible completions. */
 export type ProviderProtocol = "anthropic" | "openai";
 

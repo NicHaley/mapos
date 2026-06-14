@@ -1,6 +1,6 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { useState } from "react";
-import { type AiChoice, AiStep } from "./ai-step";
+import { AiStep } from "./ai-step";
 import { AppearanceStep } from "./appearance-step";
 import { DoneStep } from "./done-step";
 import { OfflineStep } from "./offline-step";
@@ -29,7 +29,6 @@ export function OnboardingScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>("welcome");
   const [furthest, setFurthest] = useState<Step>("welcome");
   const [vaultDraft, setVaultDraft] = useState<VaultDraft | null>(null);
-  const [aiChoice, setAiChoice] = useState<AiChoice>(null);
 
   function goTo(next: Step): void {
     setStep(next);
@@ -94,12 +93,7 @@ export function OnboardingScreen(): React.JSX.Element {
               />
             )}
             {step === "ai" && (
-              <AiStep
-                choice={aiChoice}
-                onChoiceChange={setAiChoice}
-                onBack={() => setStep("vault")}
-                onNext={() => goTo("offline")}
-              />
+              <AiStep onBack={() => setStep("vault")} onNext={() => goTo("offline")} />
             )}
             {step === "offline" && (
               <OfflineStep onBack={() => setStep("ai")} onNext={() => goTo("appearance")} />

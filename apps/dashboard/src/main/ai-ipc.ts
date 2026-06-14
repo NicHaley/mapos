@@ -1,7 +1,7 @@
 /**
  * IPC surface for the AI provider model. Registered once for the window lifetime. Every mutation
  * broadcasts a single `ai:changed` event so the Providers settings tab and the chat composer both
- * refresh. The embedded-runtime IPC (local-llm/ipc.ts) reuses {@link broadcastAiChanged}.
+ * refresh.
  */
 
 import { type BrowserWindow, ipcMain, shell } from "electron";

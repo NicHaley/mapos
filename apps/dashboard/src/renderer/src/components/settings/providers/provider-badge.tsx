@@ -1,5 +1,5 @@
 import { cn } from "@mapos/ui/lib/utils";
-import { MonitorIcon, WrenchIcon } from "lucide-react";
+import { WrenchIcon } from "lucide-react";
 import type { IconType } from "react-icons";
 import { SiAnthropic, SiGithub, SiGoogle, SiOpenai } from "react-icons/si";
 
@@ -20,22 +20,18 @@ const SIZES = {
 } as const;
 
 /**
- * Glanceable provider glyph. The embedded runtime ("On this Mac") gets a monitor; recognised catalog
- * providers get their brand mark; unknown catalog providers fall back to a lettered chip; custom
- * endpoints get a wrench.
+ * Glanceable provider glyph. Recognised catalog providers get their brand mark; unknown catalog
+ * providers fall back to a lettered chip; custom endpoints get a wrench.
  */
 export function ProviderBadge({
   knownProvider,
   label,
-  local = false,
   size = "md"
 }: {
-  /** Pi catalog name (e.g. "anthropic"); null/undefined for local or custom providers. */
+  /** Pi catalog name (e.g. "anthropic"); null/undefined for custom providers. */
   knownProvider?: string | null;
   /** Provider label, used for the lettered fallback chip. */
   label?: string;
-  /** Render the embedded "On this Mac" runtime glyph. */
-  local?: boolean;
   size?: "sm" | "md" | "lg";
 }): React.JSX.Element {
   const s = SIZES[size];
@@ -43,10 +39,7 @@ export function ProviderBadge({
 
   let content: React.ReactNode;
   let styles: string;
-  if (local) {
-    content = <MonitorIcon className={s.icon} />;
-    styles = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
-  } else if (brand) {
+  if (brand) {
     content = <brand.Icon className={s.icon} />;
     styles = brand.styles;
   } else if (knownProvider) {

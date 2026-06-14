@@ -34,7 +34,6 @@ import {
 import { resolveCapabilities } from "../shared/ai-models";
 import { AiConfigError, loadAiConfigForRequest } from "./ai";
 import { getRuntimeAuthStorage } from "./ai-auth";
-import { registerEmbeddedModel } from "./local-llm/pi-provider";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
@@ -58,23 +57,6 @@ async function resolveModel(
   authStorage: AuthStorage,
   modelRegistry: ModelRegistry
 ): Promise<Model<Api>> {
-  // Embedded llama.cpp: run the selected GGUF in-process. Pi's agent loop is unchanged.
-  if (aiConfig.embeddedModelPath) {
-    const model = await registerEmbeddedModel(modelRegistry, {
-      id: aiConfig.model,
-      path: aiConfig.embeddedModelPath,
-      label: aiConfig.model,
-      capabilities: aiConfig.capabilities
-    });
-    if (!model) {
-      throw new AiConfigError(
-        "AI_NOT_CONFIGURED",
-        `Couldn't register the embedded model "${aiConfig.model}".`
-      );
-    }
-    return model;
-  }
-
   // POC v2: a known Pi catalog provider. Auth (API key or auto-refreshed OAuth) already lives in
   // the shared persistent AuthStorage under `piProvider`, so we just resolve the catalog model and
   // let Pi apply the right credentials and headers (incl. Anthropic's OAuth beta header).
@@ -273,7 +255,7 @@ export function setupChat(
   }
 
   function configKeyFor(aiConfig: ReturnType<typeof loadAiConfigForRequest>): string {
-    return `${aiConfig.provider}|${aiConfig.model}|${aiConfig.embeddedModelPath || aiConfig.apiKey || aiConfig.authToken || aiConfig.baseUrl}`;
+    return `${aiConfig.provider}|${aiConfig.model}|${aiConfig.apiKey || aiConfig.authToken || aiConfig.baseUrl}`;
   }
 
   async function ensureSessionForConv(

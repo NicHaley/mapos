@@ -20,7 +20,9 @@ import {
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
 import {
+  queryNear,
   querySpatialIndex,
+  queryWithinPolygon,
   rebuildIndexFromPlaces,
   removeFeaturePropertiesForFile,
   removeFeatures,
@@ -117,6 +119,13 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
+To search the user's own indexed places spatially (\`query_spatial_index\` only takes a rectangle):
+
+- \`find_near\` — places nearest a point, sorted nearest-first with \`distance_m\` (geodesic meters). Pass \`radius_m\` to cap to a circle ("cafes within 500 m"), or omit it for the K nearest overall. Combine with \`filters\` (tags/category/folder) for "nearest ramen".
+- \`query_within_polygon\` — the user's places that fall inside a polygon region (a drawn area, or an isochrone from \`get_isochrone\`). Pass rings as \`[[[lng, lat], ...]]\`.
+
+Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
+
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
 - \`spatial_sql\` — run a single read-only SELECT against the local spatial index. Tables: \`features(file_path, geometry_type, geometry, color, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (use \`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
@@ -210,6 +219,13 @@ export function buildMaposCustomTools(
 
   const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
   const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
+
+  // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
+  // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
+  const spatialFilters = Type.Object({
+    folderPath: Type.Optional(Type.String()),
+    properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
+  });
 
   const renderOverlayOnMap = defineTool({
     name: "render_overlay_on_map",
@@ -530,16 +546,70 @@ export function buildMaposCustomTools(
         east: Type.Number(),
         west: Type.Number()
       }),
-      filters: Type.Optional(
-        Type.Object({
-          folderPath: Type.Optional(Type.String()),
-          properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
-        })
-      )
+      filters: Type.Optional(spatialFilters)
     }),
     execute: async (_id, args) => {
       const results = querySpatialIndex(args.bounds, args.filters);
       return TEXT_RESULT(JSON.stringify(results));
+    }
+  });
+
+  const findNear = defineTool({
+    name: "find_near",
+    label: "Find nearby places",
+    description:
+      "Find indexed places near a point, sorted nearest-first. Returns the same records as " +
+      "query_spatial_index plus `distance_m` (geodesic meters). Pass `radius_m` to cap results " +
+      "to a circle (e.g. 'cafes within 500 m'), or omit it for the K nearest overall. Combine " +
+      "with `filters` for 'nearest ramen' etc. Distance is to each feature's representative " +
+      "point (exact for point places). Returned file paths can be passed to present_features.",
+    parameters: Type.Object({
+      lat: Type.Number(),
+      lng: Type.Number(),
+      radius_m: Type.Optional(
+        Type.Number({ exclusiveMinimum: 0, description: "Optional cap, in meters" })
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 20 })),
+      filters: Type.Optional(spatialFilters)
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = queryNear(
+          { lat: args.lat, lng: args.lng, radiusM: args.radius_m, limit: args.limit ?? 20 },
+          args.filters
+        );
+        return TEXT_RESULT(JSON.stringify(results));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const queryWithinPolygonTool = defineTool({
+    name: "query_within_polygon",
+    label: "Query within polygon",
+    description:
+      "Find indexed places that fall inside a polygon region (e.g. a neighborhood the user drew " +
+      "or an isochrone). Returns the same records as query_spatial_index. A place is included if " +
+      "any part of it intersects the region. Use this instead of query_spatial_index when the " +
+      "area is not a rectangle. Returned file paths can be passed to present_features.",
+    parameters: Type.Object({
+      coordinates: Type.Array(
+        Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
+        {
+          description:
+            "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed)."
+        }
+      ),
+      filters: Type.Optional(spatialFilters)
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = queryWithinPolygon(args.coordinates as number[][][], args.filters);
+        return TEXT_RESULT(JSON.stringify(results));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
     }
   });
 
@@ -1028,6 +1098,8 @@ export function buildMaposCustomTools(
     renderOverlayOnMap,
     clearMapOverlay,
     querySpatialIndexTool,
+    findNear,
+    queryWithinPolygonTool,
     spatialSql,
     indexFile,
     rebuildIndex,

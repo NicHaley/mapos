@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bbox } from "@turf/bbox";
+import { booleanIntersects } from "@turf/boolean-intersects";
+import { centroid } from "@turf/centroid";
+import { distance } from "@turf/distance";
+import { point, polygon } from "@turf/helpers";
 import Database from "better-sqlite3";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -330,24 +334,29 @@ export function removeFeatures(filePaths: string[]): void {
   db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
-export function querySpatialIndex(
-  bounds: Bounds,
-  filters?: { properties?: Record<string, string[]>; folderPath?: string }
-): FeatureRecord[] {
-  const sqlite = getSqlite();
+export type SpatialFilters = { properties?: Record<string, string[]>; folderPath?: string };
 
-  let sqlStr = `
-    SELECT f.file_path, f.geometry_type, f.geometry, f.color
-    FROM features f
-    JOIN features_rtree r ON r.id = f.rowid
-    WHERE r.min_lat <= ? AND r.max_lat >= ?
-      AND r.min_lng <= ? AND r.max_lng >= ?
-  `;
-  const params: unknown[] = [bounds.north, bounds.south, bounds.east, bounds.west];
+/**
+ * Shared candidate selection for all spatial queries: an optional rtree bbox prefilter plus
+ * the folder/property attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
+ * from their radius/polygon and then refine the result in JS with Turf. With `bounds === null`
+ * there is no spatial prefilter (the filtered set is scanned).
+ */
+function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): FeatureRecord[] {
+  const sqlite = getSqlite();
+  const where: string[] = [];
+  const params: unknown[] = [];
+  let from = "FROM features f";
+
+  if (bounds) {
+    from += " JOIN features_rtree r ON r.id = f.rowid";
+    where.push("r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?");
+    params.push(bounds.north, bounds.south, bounds.east, bounds.west);
+  }
 
   if (filters?.folderPath) {
     const prefix = filters.folderPath.endsWith("/") ? filters.folderPath : `${filters.folderPath}/`;
-    sqlStr += " AND f.file_path LIKE ?";
+    where.push("f.file_path LIKE ?");
     params.push(`${prefix}%`);
   }
 
@@ -355,19 +364,95 @@ export function querySpatialIndex(
     for (const [key, values] of Object.entries(filters.properties)) {
       if (!values.length) continue;
       const placeholders = values.map(() => "?").join(",");
-      sqlStr += ` AND (SELECT COUNT(DISTINCT value) FROM feature_properties WHERE feature_id = f.file_path AND key = ? AND value IN (${placeholders})) = ?`;
+      where.push(
+        `(SELECT COUNT(DISTINCT value) FROM feature_properties WHERE feature_id = f.file_path AND key = ? AND value IN (${placeholders})) = ?`
+      );
       params.push(key, ...values, values.length);
     }
   }
 
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color ${from} ${whereSql}`;
   const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
   }>;
-
   return rows.map((r) => ({ ...r }));
+}
+
+export function querySpatialIndex(bounds: Bounds, filters?: SpatialFilters): FeatureRecord[] {
+  return selectCandidates(bounds, filters);
+}
+
+export interface NearResult extends FeatureRecord {
+  distance_m: number;
+}
+
+/**
+ * Features nearest to a point, sorted ascending by geodesic distance (meters). When `radiusM`
+ * is given it is used both as an rtree bbox prefilter (a conservative degree box) and as a hard
+ * cutoff after the exact Turf distance refine; without it the whole filtered set is ranked.
+ * Distance is measured to each feature's centroid — exact for points, a representative-point
+ * approximation for the rare line/polygon place.
+ */
+export function queryNear(
+  origin: { lat: number; lng: number; radiusM?: number; limit?: number },
+  filters?: SpatialFilters
+): NearResult[] {
+  const { lat, lng, radiusM, limit = 20 } = origin;
+
+  let bounds: Bounds | null = null;
+  if (radiusM != null) {
+    const dLat = radiusM / 111320;
+    const dLng = radiusM / (111320 * Math.max(Math.cos((lat * Math.PI) / 180), 1e-6));
+    bounds = { north: lat + dLat, south: lat - dLat, east: lng + dLng, west: lng - dLng };
+  }
+
+  const from = point([lng, lat]);
+  const scored: NearResult[] = [];
+  for (const c of selectCandidates(bounds, filters)) {
+    try {
+      const d = distance(from, centroid(JSON.parse(c.geometry)), { units: "meters" });
+      if (radiusM != null && d > radiusM) continue;
+      scored.push({ ...c, distance_m: Math.round(d) });
+    } catch {
+      // skip unparseable geometry
+    }
+  }
+  scored.sort((a, b) => a.distance_m - b.distance_m);
+  return scored.slice(0, limit);
+}
+
+/**
+ * Features that intersect a polygon region. The polygon's bbox is the rtree prefilter; each
+ * candidate is then refined with `booleanIntersects`, which is correct for point/line/polygon
+ * features alike. Open rings are closed automatically.
+ */
+export function queryWithinPolygon(
+  coordinates: number[][][],
+  filters?: SpatialFilters
+): FeatureRecord[] {
+  const rings = coordinates.map((ring) => {
+    if (ring.length < 2) return ring;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!first || !last) return ring;
+    const closed = first[0] === last[0] && first[1] === last[1];
+    return closed ? ring : [...ring, first];
+  });
+  const poly = polygon(rings);
+  const [minLng, minLat, maxLng, maxLat] = bbox(poly);
+  const bounds: Bounds = { north: maxLat, south: minLat, east: maxLng, west: minLng };
+
+  return selectCandidates(bounds, filters).filter((c) => {
+    try {
+      return booleanIntersects(JSON.parse(c.geometry), poly);
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function queryFolderAll(folderPath: string): FeatureRecord[] {

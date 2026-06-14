@@ -24,6 +24,7 @@ import {
   rebuildIndexFromPlaces,
   removeFeaturePropertiesForFile,
   removeFeatures,
+  runReadonlyQuery,
   syncFeatureForFile
 } from "./db";
 import { parsePlaceFile } from "./watcher";
@@ -115,6 +116,10 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
+
+For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
+
+- \`spatial_sql\` — run a single read-only SELECT against the local spatial index. Tables: \`features(file_path, geometry_type, geometry, color, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (use \`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
 
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
@@ -535,6 +540,37 @@ export function buildMaposCustomTools(
     execute: async (_id, args) => {
       const results = querySpatialIndex(args.bounds, args.filters);
       return TEXT_RESULT(JSON.stringify(results));
+    }
+  });
+
+  const spatialSql = defineTool({
+    name: "spatial_sql",
+    label: "Spatial SQL",
+    description:
+      "Run a single read-only SELECT against the local spatial index (SQLite) for analytical " +
+      "questions query_spatial_index can't express — counts, GROUP BY, faceting, sorting, joins. " +
+      "For placing markers on the map, prefer query_spatial_index.\n\n" +
+      "Tables:\n" +
+      "- features(rowid, file_path UNIQUE, geometry_type, geometry, color, indexed_at). " +
+      "`geometry` is a GeoJSON STRING — there are NO ST_* spatial functions; don't select it " +
+      "unless you need raw coordinates (it can be large/costly). `geometry_type` is a lowercased " +
+      "GeoJSON type (point, polygon, …).\n" +
+      "- feature_properties(feature_id, key, value, type) — EAV, one row per value (multi-select " +
+      "fields produce several rows). `feature_id` = features.file_path (NOT rowid). All values are " +
+      "TEXT: use CAST(value AS REAL) to compare numbers.\n" +
+      "- features_rtree(id, min_lat, max_lat, min_lng, max_lng) — bounding boxes; `id` = features.rowid.\n\n" +
+      "Rules: exactly one SELECT statement (no writes, PRAGMA, ATTACH, or multiple statements — " +
+      "all are rejected). List explicit columns, never SELECT *. Results are capped at 1000 rows " +
+      "and large cells are truncated. Runs synchronously, so avoid unindexed cross joins.",
+    parameters: Type.Object({
+      query: Type.String({ description: "A single read-only SELECT statement." })
+    }),
+    execute: async (_id, args) => {
+      try {
+        return TEXT_RESULT(JSON.stringify(runReadonlyQuery(args.query)));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
     }
   });
 
@@ -992,6 +1028,7 @@ export function buildMaposCustomTools(
     renderOverlayOnMap,
     clearMapOverlay,
     querySpatialIndexTool,
+    spatialSql,
     indexFile,
     rebuildIndex,
     getViewport,

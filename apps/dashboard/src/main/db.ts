@@ -92,9 +92,16 @@ function applyMigrations(sqlite: Database.Database): void {
 
 let _sqlite: Database.Database | null = null;
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+// Separate read-only connection used by `runReadonlyQuery` (the agent's spatial_sql
+// tool). Lazily opened, and torn down on every init/close so it can never stay pinned
+// to a previous vault's index.db (initDb runs on vault switch WITHOUT a preceding closeDb).
+let _sqliteRO: Database.Database | null = null;
 
 /** @param appStateDir Electron `app.getPath("userData")` (MapOS app data), not the vault root. */
 export function initDb(appStateDir: string): void {
+  // Drop any RO connection from a prior vault before swapping the write connection.
+  _sqliteRO?.close();
+  _sqliteRO = null;
   if (!existsSync(appStateDir)) mkdirSync(appStateDir, { recursive: true });
   const dbPath = join(appStateDir, "index.db");
   _sqlite = new Database(dbPath);
@@ -105,7 +112,9 @@ export function initDb(appStateDir: string): void {
 
 export function closeDb(): void {
   _sqlite?.close();
+  _sqliteRO?.close();
   _sqlite = null;
+  _sqliteRO = null;
   _db = null;
 }
 
@@ -117,6 +126,65 @@ function getDb(): ReturnType<typeof drizzle<typeof schema>> {
 function getSqlite(): Database.Database {
   if (!_sqlite) throw new Error("DB not initialised — call initDb() first");
   return _sqlite;
+}
+
+/**
+ * Dedicated read-only connection to the same index.db as the write connection.
+ * The `readonly` flag is the real guarantee — any write/DDL fails with SQLITE_READONLY
+ * regardless of how the SQL parses. `query_only` + `trusted_schema = OFF` are defence in
+ * depth. The path comes from the live write connection so it always matches the active vault.
+ */
+function getSqliteRO(): Database.Database {
+  if (_sqliteRO) return _sqliteRO;
+  const ro = new Database(getSqlite().name, { readonly: true, timeout: 3000 });
+  ro.pragma("query_only = ON");
+  ro.pragma("trusted_schema = OFF");
+  _sqliteRO = ro;
+  return ro;
+}
+
+export interface ReadonlyQueryResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  truncated: boolean;
+}
+
+const CELL_CHAR_CAP = 2000;
+
+/** Keep cell values JSON-safe and bounded. Table columns are already string|number|null;
+ *  this guards against expressions producing a BigInt/BLOB and against a large `geometry`
+ *  GeoJSON string blowing up the agent's context. */
+function sanitizeCell(v: unknown): unknown {
+  if (typeof v === "bigint") return v.toString();
+  if (v instanceof Uint8Array) return `<blob ${v.length} bytes>`;
+  if (typeof v === "string" && v.length > CELL_CHAR_CAP) {
+    return `${v.slice(0, CELL_CHAR_CAP)}…[truncated, ${v.length} chars]`;
+  }
+  return v;
+}
+
+/**
+ * Run a single read-only SELECT against the spatial index on a dedicated read-only
+ * connection (see `getSqliteRO`). `prepare` throws on multi-statement input, and a
+ * non-read-only statement (ATTACH/PRAGMA-write) is rejected early. Output rows and
+ * per-cell size are capped to keep the payload bounded.
+ */
+export function runReadonlyQuery(query: string, rowCap = 1000): ReadonlyQueryResult {
+  const stmt = getSqliteRO().prepare(query);
+  if (!stmt.readonly) throw new Error("Only read-only SELECT queries are allowed.");
+
+  const rows: Record<string, unknown>[] = [];
+  let truncated = false;
+  for (const row of stmt.iterate() as IterableIterator<Record<string, unknown>>) {
+    if (rows.length >= rowCap) {
+      truncated = true;
+      break;
+    }
+    const clean: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(row)) clean[k] = sanitizeCell(val);
+    rows.push(clean);
+  }
+  return { rows, rowCount: rows.length, truncated };
 }
 
 export type Bounds = { north: number; south: number; east: number; west: number };

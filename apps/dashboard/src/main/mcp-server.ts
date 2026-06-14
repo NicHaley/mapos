@@ -13,6 +13,7 @@ import { Type } from "typebox";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { computeBbox } from "./bbox";
+import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
 import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
 import {
@@ -20,10 +21,13 @@ import {
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
 import {
+  queryNear,
   querySpatialIndex,
+  queryWithinPolygon,
   rebuildIndexFromPlaces,
   removeFeaturePropertiesForFile,
   removeFeatures,
+  runReadonlyQuery,
   syncFeatureForFile
 } from "./db";
 import { parsePlaceFile } from "./watcher";
@@ -116,6 +120,21 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
+To search the user's own indexed places spatially (\`query_spatial_index\` only takes a rectangle):
+
+- \`find_near\` — places nearest a point, sorted nearest-first with \`distance_m\` (geodesic meters). Pass \`radius_m\` to cap to a circle ("cafes within 500 m"), or omit it for the K nearest overall. Combine with \`filters\` (tags/category/folder) for "nearest ramen".
+- \`query_within_polygon\` — the user's places that fall inside a polygon region (a drawn area, or an isochrone from \`get_isochrone\`). Pass rings as \`[[[lng, lat], ...]]\`.
+
+Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
+
+For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
+
+- \`spatial_sql\` — run a single read-only SELECT against the local spatial index. Tables: \`features(file_path, geometry_type, geometry, color, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (use \`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
+
+To COMPUTE geometry (as opposed to selecting places), use:
+
+- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is inline GeoJSON (\`geometry\`/\`geometry_b\`) or \`feature_paths\` resolved from the index (preferred for saved features — don't re-send their geometry). Output is GeoJSON you can pass straight to \`render_overlay_on_map\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect → render.
+
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
 - a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
@@ -205,6 +224,13 @@ export function buildMaposCustomTools(
 
   const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
   const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
+
+  // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
+  // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
+  const spatialFilters = Type.Object({
+    folderPath: Type.Optional(Type.String()),
+    properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
+  });
 
   const renderOverlayOnMap = defineTool({
     name: "render_overlay_on_map",
@@ -525,16 +551,178 @@ export function buildMaposCustomTools(
         east: Type.Number(),
         west: Type.Number()
       }),
-      filters: Type.Optional(
-        Type.Object({
-          folderPath: Type.Optional(Type.String()),
-          properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
-        })
-      )
+      filters: Type.Optional(spatialFilters)
     }),
     execute: async (_id, args) => {
       const results = querySpatialIndex(args.bounds, args.filters);
       return TEXT_RESULT(JSON.stringify(results));
+    }
+  });
+
+  const findNear = defineTool({
+    name: "find_near",
+    label: "Find nearby places",
+    description:
+      "Find indexed places near a point, sorted nearest-first. Returns the same records as " +
+      "query_spatial_index plus `distance_m` (geodesic meters). Pass `radius_m` to cap results " +
+      "to a circle (e.g. 'cafes within 500 m'), or omit it for the K nearest overall. Combine " +
+      "with `filters` for 'nearest ramen' etc. Distance is to each feature's representative " +
+      "point (exact for point places). Returned file paths can be passed to present_features.",
+    parameters: Type.Object({
+      lat: Type.Number(),
+      lng: Type.Number(),
+      radius_m: Type.Optional(
+        Type.Number({ exclusiveMinimum: 0, description: "Optional cap, in meters" })
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 20 })),
+      filters: Type.Optional(spatialFilters)
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = queryNear(
+          { lat: args.lat, lng: args.lng, radiusM: args.radius_m, limit: args.limit ?? 20 },
+          args.filters
+        );
+        return TEXT_RESULT(JSON.stringify(results));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const queryWithinPolygonTool = defineTool({
+    name: "query_within_polygon",
+    label: "Query within polygon",
+    description:
+      "Find indexed places that fall inside a polygon region (e.g. a neighborhood the user drew " +
+      "or an isochrone). Returns the same records as query_spatial_index. A place is included if " +
+      "any part of it intersects the region. Use this instead of query_spatial_index when the " +
+      "area is not a rectangle. Returned file paths can be passed to present_features.",
+    parameters: Type.Object({
+      coordinates: Type.Array(
+        Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
+        {
+          description:
+            "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed)."
+        }
+      ),
+      filters: Type.Optional(spatialFilters)
+    }),
+    execute: async (_id, args) => {
+      try {
+        const results = queryWithinPolygon(args.coordinates as number[][][], args.filters);
+        return TEXT_RESULT(JSON.stringify(results));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const spatialSql = defineTool({
+    name: "spatial_sql",
+    label: "Spatial SQL",
+    description:
+      "Run a single read-only SELECT against the local spatial index (SQLite) for analytical " +
+      "questions query_spatial_index can't express — counts, GROUP BY, faceting, sorting, joins. " +
+      "For placing markers on the map, prefer query_spatial_index.\n\n" +
+      "Tables:\n" +
+      "- features(rowid, file_path UNIQUE, geometry_type, geometry, color, indexed_at). " +
+      "`geometry` is a GeoJSON STRING — there are NO ST_* spatial functions; don't select it " +
+      "unless you need raw coordinates (it can be large/costly). `geometry_type` is a lowercased " +
+      "GeoJSON type (point, polygon, …).\n" +
+      "- feature_properties(feature_id, key, value, type) — EAV, one row per value (multi-select " +
+      "fields produce several rows). `feature_id` = features.file_path (NOT rowid). All values are " +
+      "TEXT: use CAST(value AS REAL) to compare numbers.\n" +
+      "- features_rtree(id, min_lat, max_lat, min_lng, max_lng) — bounding boxes; `id` = features.rowid.\n\n" +
+      "Rules: exactly one SELECT statement (no writes, PRAGMA, ATTACH, or multiple statements — " +
+      "all are rejected). List explicit columns, never SELECT *. Results are capped at 1000 rows " +
+      "and large cells are truncated. Runs synchronously, so avoid unindexed cross joins.",
+    parameters: Type.Object({
+      query: Type.String({ description: "A single read-only SELECT statement." })
+    }),
+    execute: async (_id, args) => {
+      try {
+        return TEXT_RESULT(JSON.stringify(runReadonlyQuery(args.query)));
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
+  const geoCompute = defineTool({
+    name: "geo_compute",
+    label: "Compute geometry",
+    description:
+      "Run a single offline geometry operation (Turf). Inputs and outputs are GeoJSON in the " +
+      "same format as the index `geometry` column and get_isochrone contours, so a geometry " +
+      "result can be passed straight to render_overlay_on_map. Provide the input inline via " +
+      "`geometry` (a GeoJSON geometry, Feature, or FeatureCollection), or as `feature_paths` to " +
+      "pull geometry from the index by vault file path (preferred for already-saved features — " +
+      "avoids re-sending large geometry). Operations:\n" +
+      "- buffer — expand a shape by `params.radius_m` meters → Polygon.\n" +
+      "- area — square meters of a polygon (returns { area_m2 }).\n" +
+      "- length — meters of a line (returns { length_m }).\n" +
+      "- centroid — center point → Feature<Point>.\n" +
+      "- bbox — bounding box (returns { bbox, bounds }).\n" +
+      "- convex_hull — tightest polygon around the input points/features.\n" +
+      "- simplify — reduce vertices (`params.tolerance` in degrees, default 0.001).\n" +
+      "- union / intersect — merge or intersect polygons; needs ≥2 polygons (via feature_paths, " +
+      "or `geometry` + `geometry_b`).\n" +
+      "- clusters_dbscan — cluster points within `params.max_distance_m` meters (adds a `cluster` property to each point).\n" +
+      "Use find_near / query_within_polygon to SELECT places; use this to COMPUTE geometry.",
+    parameters: Type.Object({
+      operation: Type.Union(
+        [
+          Type.Literal("buffer"),
+          Type.Literal("area"),
+          Type.Literal("length"),
+          Type.Literal("centroid"),
+          Type.Literal("bbox"),
+          Type.Literal("convex_hull"),
+          Type.Literal("simplify"),
+          Type.Literal("union"),
+          Type.Literal("intersect"),
+          Type.Literal("clusters_dbscan")
+        ],
+        { description: "The geometry operation to run" }
+      ),
+      geometry: Type.Optional(
+        Type.Unknown({ description: "Inline GeoJSON geometry, Feature, or FeatureCollection" })
+      ),
+      geometry_b: Type.Optional(
+        Type.Unknown({ description: "Second GeoJSON operand (e.g. the other polygon for intersect)" })
+      ),
+      feature_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Vault file paths to resolve geometry from the index instead of inlining it"
+        })
+      ),
+      params: Type.Optional(
+        Type.Object({
+          radius_m: Type.Optional(Type.Number({ description: "buffer distance, meters" })),
+          tolerance: Type.Optional(Type.Number({ description: "simplify tolerance, degrees" })),
+          max_distance_m: Type.Optional(
+            Type.Number({ description: "clusters_dbscan neighbor distance, meters" })
+          )
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        return TEXT_RESULT(
+          JSON.stringify(
+            runGeoCompute({
+              operation: args.operation as GeoOperation,
+              geometry: args.geometry,
+              geometryB: args.geometry_b,
+              featurePaths: args.feature_paths,
+              params: args.params
+            })
+          )
+        );
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
     }
   });
 
@@ -992,6 +1180,10 @@ export function buildMaposCustomTools(
     renderOverlayOnMap,
     clearMapOverlay,
     querySpatialIndexTool,
+    findNear,
+    queryWithinPolygonTool,
+    spatialSql,
+    geoCompute,
     indexFile,
     rebuildIndex,
     getViewport,

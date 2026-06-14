@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bbox } from "@turf/bbox";
+import { booleanIntersects } from "@turf/boolean-intersects";
+import { centroid } from "@turf/centroid";
+import { distance } from "@turf/distance";
+import { point, polygon } from "@turf/helpers";
 import Database from "better-sqlite3";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -92,9 +96,16 @@ function applyMigrations(sqlite: Database.Database): void {
 
 let _sqlite: Database.Database | null = null;
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+// Separate read-only connection used by `runReadonlyQuery` (the agent's spatial_sql
+// tool). Lazily opened, and torn down on every init/close so it can never stay pinned
+// to a previous vault's index.db (initDb runs on vault switch WITHOUT a preceding closeDb).
+let _sqliteRO: Database.Database | null = null;
 
 /** @param appStateDir Electron `app.getPath("userData")` (MapOS app data), not the vault root. */
 export function initDb(appStateDir: string): void {
+  // Drop any RO connection from a prior vault before swapping the write connection.
+  _sqliteRO?.close();
+  _sqliteRO = null;
   if (!existsSync(appStateDir)) mkdirSync(appStateDir, { recursive: true });
   const dbPath = join(appStateDir, "index.db");
   _sqlite = new Database(dbPath);
@@ -105,7 +116,9 @@ export function initDb(appStateDir: string): void {
 
 export function closeDb(): void {
   _sqlite?.close();
+  _sqliteRO?.close();
   _sqlite = null;
+  _sqliteRO = null;
   _db = null;
 }
 
@@ -117,6 +130,65 @@ function getDb(): ReturnType<typeof drizzle<typeof schema>> {
 function getSqlite(): Database.Database {
   if (!_sqlite) throw new Error("DB not initialised — call initDb() first");
   return _sqlite;
+}
+
+/**
+ * Dedicated read-only connection to the same index.db as the write connection.
+ * The `readonly` flag is the real guarantee — any write/DDL fails with SQLITE_READONLY
+ * regardless of how the SQL parses. `query_only` + `trusted_schema = OFF` are defence in
+ * depth. The path comes from the live write connection so it always matches the active vault.
+ */
+function getSqliteRO(): Database.Database {
+  if (_sqliteRO) return _sqliteRO;
+  const ro = new Database(getSqlite().name, { readonly: true, timeout: 3000 });
+  ro.pragma("query_only = ON");
+  ro.pragma("trusted_schema = OFF");
+  _sqliteRO = ro;
+  return ro;
+}
+
+export interface ReadonlyQueryResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  truncated: boolean;
+}
+
+const CELL_CHAR_CAP = 2000;
+
+/** Keep cell values JSON-safe and bounded. Table columns are already string|number|null;
+ *  this guards against expressions producing a BigInt/BLOB and against a large `geometry`
+ *  GeoJSON string blowing up the agent's context. */
+function sanitizeCell(v: unknown): unknown {
+  if (typeof v === "bigint") return v.toString();
+  if (v instanceof Uint8Array) return `<blob ${v.length} bytes>`;
+  if (typeof v === "string" && v.length > CELL_CHAR_CAP) {
+    return `${v.slice(0, CELL_CHAR_CAP)}…[truncated, ${v.length} chars]`;
+  }
+  return v;
+}
+
+/**
+ * Run a single read-only SELECT against the spatial index on a dedicated read-only
+ * connection (see `getSqliteRO`). `prepare` throws on multi-statement input, and a
+ * non-read-only statement (ATTACH/PRAGMA-write) is rejected early. Output rows and
+ * per-cell size are capped to keep the payload bounded.
+ */
+export function runReadonlyQuery(query: string, rowCap = 1000): ReadonlyQueryResult {
+  const stmt = getSqliteRO().prepare(query);
+  if (!stmt.readonly) throw new Error("Only read-only SELECT queries are allowed.");
+
+  const rows: Record<string, unknown>[] = [];
+  let truncated = false;
+  for (const row of stmt.iterate() as IterableIterator<Record<string, unknown>>) {
+    if (rows.length >= rowCap) {
+      truncated = true;
+      break;
+    }
+    const clean: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(row)) clean[k] = sanitizeCell(val);
+    rows.push(clean);
+  }
+  return { rows, rowCount: rows.length, truncated };
 }
 
 export type Bounds = { north: number; south: number; east: number; west: number };
@@ -262,24 +334,29 @@ export function removeFeatures(filePaths: string[]): void {
   db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
-export function querySpatialIndex(
-  bounds: Bounds,
-  filters?: { properties?: Record<string, string[]>; folderPath?: string }
-): FeatureRecord[] {
-  const sqlite = getSqlite();
+export type SpatialFilters = { properties?: Record<string, string[]>; folderPath?: string };
 
-  let sqlStr = `
-    SELECT f.file_path, f.geometry_type, f.geometry, f.color
-    FROM features f
-    JOIN features_rtree r ON r.id = f.rowid
-    WHERE r.min_lat <= ? AND r.max_lat >= ?
-      AND r.min_lng <= ? AND r.max_lng >= ?
-  `;
-  const params: unknown[] = [bounds.north, bounds.south, bounds.east, bounds.west];
+/**
+ * Shared candidate selection for all spatial queries: an optional rtree bbox prefilter plus
+ * the folder/property attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
+ * from their radius/polygon and then refine the result in JS with Turf. With `bounds === null`
+ * there is no spatial prefilter (the filtered set is scanned).
+ */
+function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): FeatureRecord[] {
+  const sqlite = getSqlite();
+  const where: string[] = [];
+  const params: unknown[] = [];
+  let from = "FROM features f";
+
+  if (bounds) {
+    from += " JOIN features_rtree r ON r.id = f.rowid";
+    where.push("r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?");
+    params.push(bounds.north, bounds.south, bounds.east, bounds.west);
+  }
 
   if (filters?.folderPath) {
     const prefix = filters.folderPath.endsWith("/") ? filters.folderPath : `${filters.folderPath}/`;
-    sqlStr += " AND f.file_path LIKE ?";
+    where.push("f.file_path LIKE ?");
     params.push(`${prefix}%`);
   }
 
@@ -287,19 +364,107 @@ export function querySpatialIndex(
     for (const [key, values] of Object.entries(filters.properties)) {
       if (!values.length) continue;
       const placeholders = values.map(() => "?").join(",");
-      sqlStr += ` AND (SELECT COUNT(DISTINCT value) FROM feature_properties WHERE feature_id = f.file_path AND key = ? AND value IN (${placeholders})) = ?`;
+      where.push(
+        `(SELECT COUNT(DISTINCT value) FROM feature_properties WHERE feature_id = f.file_path AND key = ? AND value IN (${placeholders})) = ?`
+      );
       params.push(key, ...values, values.length);
     }
   }
 
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color ${from} ${whereSql}`;
   const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
   }>;
-
   return rows.map((r) => ({ ...r }));
+}
+
+export function querySpatialIndex(bounds: Bounds, filters?: SpatialFilters): FeatureRecord[] {
+  return selectCandidates(bounds, filters);
+}
+
+export interface NearResult extends FeatureRecord {
+  distance_m: number;
+}
+
+/**
+ * Features nearest to a point, sorted ascending by geodesic distance (meters). When `radiusM`
+ * is given it is used both as an rtree bbox prefilter (a conservative degree box) and as a hard
+ * cutoff after the exact Turf distance refine; without it the whole filtered set is ranked.
+ * Distance is measured to each feature's centroid — exact for points, a representative-point
+ * approximation for the rare line/polygon place.
+ */
+export function queryNear(
+  origin: { lat: number; lng: number; radiusM?: number; limit?: number },
+  filters?: SpatialFilters
+): NearResult[] {
+  const { lat, lng, radiusM, limit = 20 } = origin;
+
+  let bounds: Bounds | null = null;
+  if (radiusM != null) {
+    const dLat = radiusM / 111320;
+    const dLng = radiusM / (111320 * Math.max(Math.cos((lat * Math.PI) / 180), 1e-6));
+    bounds = { north: lat + dLat, south: lat - dLat, east: lng + dLng, west: lng - dLng };
+  }
+
+  const from = point([lng, lat]);
+  const scored: NearResult[] = [];
+  for (const c of selectCandidates(bounds, filters)) {
+    try {
+      const d = distance(from, centroid(JSON.parse(c.geometry)), { units: "meters" });
+      if (radiusM != null && d > radiusM) continue;
+      scored.push({ ...c, distance_m: Math.round(d) });
+    } catch {
+      // skip unparseable geometry
+    }
+  }
+  scored.sort((a, b) => a.distance_m - b.distance_m);
+  return scored.slice(0, limit);
+}
+
+/**
+ * Features that intersect a polygon region. The polygon's bbox is the rtree prefilter; each
+ * candidate is then refined with `booleanIntersects`, which is correct for point/line/polygon
+ * features alike. Open rings are closed automatically.
+ */
+export function queryWithinPolygon(
+  coordinates: number[][][],
+  filters?: SpatialFilters
+): FeatureRecord[] {
+  const rings = coordinates.map((ring) => {
+    if (ring.length < 2) return ring;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!first || !last) return ring;
+    const closed = first[0] === last[0] && first[1] === last[1];
+    return closed ? ring : [...ring, first];
+  });
+  const poly = polygon(rings);
+  const [minLng, minLat, maxLng, maxLat] = bbox(poly);
+  const bounds: Bounds = { north: maxLat, south: minLat, east: maxLng, west: minLng };
+
+  return selectCandidates(bounds, filters).filter((c) => {
+    try {
+      return booleanIntersects(JSON.parse(c.geometry), poly);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Stored GeoJSON-string geometry for the given vault file paths (for by-reference geometry ops). */
+export function getFeatureGeometries(
+  filePaths: string[]
+): Array<{ file_path: string; geometry: string }> {
+  if (filePaths.length === 0) return [];
+  const sqlite = getSqlite();
+  const placeholders = filePaths.map(() => "?").join(",");
+  return sqlite
+    .prepare(`SELECT file_path, geometry FROM features WHERE file_path IN (${placeholders})`)
+    .all(...filePaths) as Array<{ file_path: string; geometry: string }>;
 }
 
 export function queryFolderAll(folderPath: string): FeatureRecord[] {

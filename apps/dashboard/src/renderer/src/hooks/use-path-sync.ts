@@ -2,6 +2,12 @@ import { useCallback } from "react";
 import type { PlaceRecord } from "../components/map-view";
 import { type NavEntry, type NavState, navReducer, type useNavTabs } from "./use-nav-tabs";
 
+type GeoJsonLayer = {
+  filePath: string;
+  data: Record<string, unknown>;
+  bbox: [number, number, number, number];
+};
+
 export function usePathSync({
   nav,
   dispatchNav,
@@ -9,6 +15,7 @@ export function usePathSync({
   selectedFolder,
   setSelectedFolder,
   setSelectedPlace,
+  setActiveGeoJsonLayers,
   openEntry,
   clearPlace,
   onNavEmpty
@@ -19,6 +26,7 @@ export function usePathSync({
   selectedFolder: string | null;
   setSelectedFolder: React.Dispatch<React.SetStateAction<string | null>>;
   setSelectedPlace: React.Dispatch<React.SetStateAction<PlaceRecord | null>>;
+  setActiveGeoJsonLayers: React.Dispatch<React.SetStateAction<GeoJsonLayer[]>>;
   openEntry: (entry: NavEntry) => void;
   clearPlace: () => void;
   onNavEmpty: () => void;
@@ -76,8 +84,22 @@ export function usePathSync({
         }
         return prev;
       });
+
+      setActiveGeoJsonLayers((prev) =>
+        prev.map((layer) => {
+          const fp = layer.filePath;
+          if (!isDirectory) {
+            return fp === oldPath ? { ...layer, filePath: newPath } : layer;
+          }
+          if (fp === oldPath) return { ...layer, filePath: newPath };
+          if (fp.startsWith(`${oldPath}/`) || fp.startsWith(`${oldPath}\\`)) {
+            return { ...layer, filePath: newPath + fp.slice(oldPath.length) };
+          }
+          return layer;
+        })
+      );
     },
-    [dispatchNav, setSelectedFolder, setSelectedPlace]
+    [dispatchNav, setSelectedFolder, setSelectedPlace, setActiveGeoJsonLayers]
   );
 
   const handleDeletedPath = useCallback(

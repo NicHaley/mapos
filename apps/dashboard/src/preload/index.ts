@@ -1,10 +1,10 @@
+import { electronAPI } from "@electron-toolkit/preload";
 import type {
   GeocodeForwardRequest,
   GeocodeResult,
   GeocodeReverseRequest,
   TileStyleRequest
 } from "@mapos/contracts";
-import { electronAPI } from "@electron-toolkit/preload";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type {
@@ -28,6 +28,9 @@ import type {
 
 // Custom APIs for renderer
 const api = {
+  app: {
+    getVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>
+  },
   places: {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
     queryBounds: (bounds: { north: number; south: number; east: number; west: number }) =>
@@ -154,8 +157,7 @@ const api = {
     }
   },
   onboarding: {
-    getState: () =>
-      ipcRenderer.invoke("onboarding:get-state") as Promise<{ pending: boolean }>,
+    getState: () => ipcRenderer.invoke("onboarding:get-state") as Promise<{ pending: boolean }>,
     pickCreateLocation: (name: string) =>
       ipcRenderer.invoke("onboarding:pick-create-location", name) as Promise<
         | { canceled: true }
@@ -291,9 +293,12 @@ const api = {
   updater: {
     install: () => ipcRenderer.invoke("updater:install") as Promise<void>,
     retry: () => ipcRenderer.invoke("updater:retry") as Promise<void>,
-    onAvailable: (
-      cb: (data: { version: string; releaseDate: string }) => void
-    ): (() => void) => {
+    check: () =>
+      ipcRenderer.invoke("updater:check") as Promise<
+        | { ok: true; current: string; latest: string; available: boolean }
+        | { ok: false; current: string; error: string }
+      >,
+    onAvailable: (cb: (data: { version: string; releaseDate: string }) => void): (() => void) => {
       const listener = (_e: unknown, data: { version: string; releaseDate: string }): void =>
         cb(data);
       ipcRenderer.on("updater:available", listener);
@@ -324,8 +329,7 @@ const api = {
     }
   },
   chat: {
-    send: (convId: string, message: string) =>
-      ipcRenderer.send("chat:send", { convId, message }),
+    send: (convId: string, message: string) => ipcRenderer.send("chat:send", { convId, message }),
     abort: (convId: string) => ipcRenderer.send("chat:abort", { convId }),
     loadConversation: (convId: string) => ipcRenderer.invoke("chat:load-conversation", convId),
     listConversations: () => ipcRenderer.invoke("chat:list-conversations"),

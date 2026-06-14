@@ -25,9 +25,10 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
-import { GlobeIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
+import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
+import { AboutTab } from "./settings/about-tab";
 import { OfflineTab } from "./settings/offline-tab";
 import { AiModelTab } from "./settings/providers/ai-model-tab";
 import { ThemePicker } from "./theme-picker";
@@ -48,7 +49,7 @@ export function useSettingsSheetSlot(): HTMLDivElement | null {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SettingsPage = "general" | "appearance" | "ai" | "offline";
+type SettingsPage = "general" | "appearance" | "ai" | "offline" | "about";
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
@@ -211,7 +212,8 @@ const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] 
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
   { id: "ai", label: "AI Models", icon: LayersIcon },
-  { id: "offline", label: "Offline", icon: GlobeIcon }
+  { id: "offline", label: "Offline", icon: GlobeIcon },
+  { id: "about", label: "About", icon: InfoIcon }
 ];
 
 // ── Main dialog ───────────────────────────────────────────────────────────────
@@ -295,6 +297,7 @@ export function SettingsDialog({
                   {page === "appearance" && <AppearancePage />}
                   {page === "ai" && <AiModelTab />}
                   {page === "offline" && <OfflineTab />}
+                  {page === "about" && <AboutTab />}
                 </div>
                 {/* Sheets and other floating panels portal into this slot so they
                     stay bounded to the Settings dialog body. */}

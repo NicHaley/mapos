@@ -1,10 +1,10 @@
+import type { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   GeocodeForwardRequest,
   GeocodeResult,
   GeocodeReverseRequest,
   TileStyleRequest
 } from "@mapos/contracts";
-import type { ElectronAPI } from "@electron-toolkit/preload";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type {
   AiState,
@@ -47,6 +47,9 @@ declare global {
   interface Window {
     electron: ElectronAPI;
     api: {
+      app: {
+        getVersion: () => Promise<string>;
+      };
       places: {
         requestInitial: () => void;
         queryBounds: (bounds: {
@@ -142,7 +145,9 @@ declare global {
         setFolderAsVault: () => Promise<
           { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
         >;
-        createNewVault: (name: string) => Promise<
+        createNewVault: (
+          name: string
+        ) => Promise<
           | { canceled: true }
           | { ok: false; error: string }
           | { ok: true; path: string; vaults: string[] }
@@ -194,9 +199,7 @@ declare global {
           provider: string,
           key: string
         ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        oauthLogin: (
-          provider: string
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+        oauthLogin: (provider: string) => Promise<{ ok: true } | { ok: false; error: string }>;
         oauthCancel: () => Promise<{ ok: true }>;
         disconnect: (provider: string) => Promise<{ ok: true }>;
         /** Returns a cleanup function. */
@@ -209,6 +212,10 @@ declare global {
       updater: {
         install: () => Promise<void>;
         retry: () => Promise<void>;
+        check: () => Promise<
+          | { ok: true; current: string; latest: string; available: boolean }
+          | { ok: false; current: string; error: string }
+        >;
         /** Returns a cleanup function. */
         onAvailable: (cb: (data: { version: string; releaseDate: string }) => void) => () => void;
         /** Returns a cleanup function. */
@@ -227,9 +234,7 @@ declare global {
         onChunk: (cb: (data: ChatChunkPayload) => void) => void;
         onThinkingChunk: (cb: (data: ChatChunkPayload) => void) => void;
         onDone: (cb: (data: ChatDonePayload) => void) => void;
-        undo: (
-          convId: string
-        ) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
+        undo: (convId: string) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
         onError: (cb: (data: ChatErrorPayload) => void) => void;
         onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
         onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;

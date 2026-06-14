@@ -1,12 +1,5 @@
 import { is } from "@electron-toolkit/utils";
-import {
-  type BrowserWindow,
-  Menu,
-  app,
-  dialog,
-  ipcMain,
-  nativeImage
-} from "electron";
+import { type BrowserWindow, Menu, app, dialog, ipcMain, nativeImage } from "electron";
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-updater";
 
 const { autoUpdater } = electronUpdater;
@@ -175,6 +168,28 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   // manual-check dialog/menu side effects don't fire — the banner UI owns the feedback.
   ipcMain.handle("updater:retry", () => autoUpdater.checkForUpdates());
 
+  // About-page check: returns a structured result instead of firing a native
+  // dialog. An available update still flows through the `update-available`
+  // listener above (banner + download), so this only reports status to the UI.
+  ipcMain.handle("updater:check", async () => {
+    const current = app.getVersion();
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return {
+        ok: true as const,
+        current,
+        latest: result?.updateInfo.version ?? current,
+        available: result?.isUpdateAvailable ?? false
+      };
+    } catch (err) {
+      return {
+        ok: false as const,
+        current,
+        error: err instanceof Error ? err.message : String(err)
+      };
+    }
+  });
+
   // Skip auto-check in dev: there's no signed build to install, and the placeholder URL
   // returns 404 noise. Devs can still trigger via the menu.
   if (!is.dev) {
@@ -188,6 +203,7 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   return () => {
     ipcMain.removeHandler("updater:install");
     ipcMain.removeHandler("updater:retry");
+    ipcMain.removeHandler("updater:check");
     autoUpdater.removeAllListeners();
     activeWindow = null;
     clearManualCheck();

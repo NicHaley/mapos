@@ -106,6 +106,8 @@ app.whenReady().then(() => {
 
   ipcMain.on("ping", () => console.log("pong"));
 
+  ipcMain.handle("app:get-version", () => app.getVersion());
+
   ipcMain.handle("window:is-fullscreen", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win?.isFullScreen() ?? false;

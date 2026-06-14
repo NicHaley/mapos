@@ -449,16 +449,6 @@ function App(): React.JSX.Element {
     return off;
   }, [activeGeoJsonLayers]);
 
-  const handlePlaceRename = useCallback(
-    (oldPath: string, newPath: string) => {
-      dispatchNav({ type: "relocate_path", oldPath, newPath, isDirectory: false });
-      setActiveGeoJsonLayers((prev) =>
-        prev.map((layer) => (layer.filePath === oldPath ? { ...layer, filePath: newPath } : layer))
-      );
-    },
-    [dispatchNav]
-  );
-
   const handleNewChat = useCallback(() => {
     const convId = crypto.randomUUID();
     const entry: NavEntry = { kind: "chat", convId, title: "New Chat" };
@@ -702,10 +692,11 @@ function App(): React.JSX.Element {
         setSelectedPlace(place);
         setPlaceMode("full");
         setFeatureScreenPos(null);
+        dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
         mapRef.current?.fitToPlace(place, getMapPadding(true));
       }
     },
-    [selectedFolder, getMapPadding]
+    [selectedFolder, getMapPadding, dispatchNav]
   );
 
   const handleGeocodeSearchResult = useCallback(
@@ -884,10 +875,18 @@ function App(): React.JSX.Element {
     selectedFolder,
     setSelectedFolder,
     setSelectedPlace,
+    setActiveGeoJsonLayers,
     openEntry,
     clearPlace,
     onNavEmpty
   });
+
+  // Place-card title renames are always single files; route them through the one
+  // relocation function so every path-holding store stays in sync.
+  const handlePlaceRename = useCallback(
+    (oldPath: string, newPath: string) => handlePathRelocated(oldPath, newPath, false),
+    [handlePathRelocated]
+  );
 
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";

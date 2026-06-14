@@ -716,9 +716,9 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, getMapPadding(false));
+      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
     },
-    [getMapPadding]
+    [getMapPadding, activeChatConvId]
   );
 
   // Flattened view of the indexed vault for the search popover's "Files" group.

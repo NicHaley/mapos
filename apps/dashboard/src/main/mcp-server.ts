@@ -13,6 +13,7 @@ import { Type } from "typebox";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { computeBbox } from "./bbox";
+import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
 import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
 import {
@@ -129,6 +130,10 @@ Both return the same records as \`query_spatial_index\` (file paths to feed \`pr
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
 - \`spatial_sql\` — run a single read-only SELECT against the local spatial index. Tables: \`features(file_path, geometry_type, geometry, color, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (use \`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
+
+To COMPUTE geometry (as opposed to selecting places), use:
+
+- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is inline GeoJSON (\`geometry\`/\`geometry_b\`) or \`feature_paths\` resolved from the index (preferred for saved features — don't re-send their geometry). Output is GeoJSON you can pass straight to \`render_overlay_on_map\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect → render.
 
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
@@ -644,6 +649,83 @@ export function buildMaposCustomTools(
     }
   });
 
+  const geoCompute = defineTool({
+    name: "geo_compute",
+    label: "Compute geometry",
+    description:
+      "Run a single offline geometry operation (Turf). Inputs and outputs are GeoJSON in the " +
+      "same format as the index `geometry` column and get_isochrone contours, so a geometry " +
+      "result can be passed straight to render_overlay_on_map. Provide the input inline via " +
+      "`geometry` (a GeoJSON geometry, Feature, or FeatureCollection), or as `feature_paths` to " +
+      "pull geometry from the index by vault file path (preferred for already-saved features — " +
+      "avoids re-sending large geometry). Operations:\n" +
+      "- buffer — expand a shape by `params.radius_m` meters → Polygon.\n" +
+      "- area — square meters of a polygon (returns { area_m2 }).\n" +
+      "- length — meters of a line (returns { length_m }).\n" +
+      "- centroid — center point → Feature<Point>.\n" +
+      "- bbox — bounding box (returns { bbox, bounds }).\n" +
+      "- convex_hull — tightest polygon around the input points/features.\n" +
+      "- simplify — reduce vertices (`params.tolerance` in degrees, default 0.001).\n" +
+      "- union / intersect — merge or intersect polygons; needs ≥2 polygons (via feature_paths, " +
+      "or `geometry` + `geometry_b`).\n" +
+      "- clusters_dbscan — cluster points within `params.max_distance_m` meters (adds a `cluster` property to each point).\n" +
+      "Use find_near / query_within_polygon to SELECT places; use this to COMPUTE geometry.",
+    parameters: Type.Object({
+      operation: Type.Union(
+        [
+          Type.Literal("buffer"),
+          Type.Literal("area"),
+          Type.Literal("length"),
+          Type.Literal("centroid"),
+          Type.Literal("bbox"),
+          Type.Literal("convex_hull"),
+          Type.Literal("simplify"),
+          Type.Literal("union"),
+          Type.Literal("intersect"),
+          Type.Literal("clusters_dbscan")
+        ],
+        { description: "The geometry operation to run" }
+      ),
+      geometry: Type.Optional(
+        Type.Unknown({ description: "Inline GeoJSON geometry, Feature, or FeatureCollection" })
+      ),
+      geometry_b: Type.Optional(
+        Type.Unknown({ description: "Second GeoJSON operand (e.g. the other polygon for intersect)" })
+      ),
+      feature_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Vault file paths to resolve geometry from the index instead of inlining it"
+        })
+      ),
+      params: Type.Optional(
+        Type.Object({
+          radius_m: Type.Optional(Type.Number({ description: "buffer distance, meters" })),
+          tolerance: Type.Optional(Type.Number({ description: "simplify tolerance, degrees" })),
+          max_distance_m: Type.Optional(
+            Type.Number({ description: "clusters_dbscan neighbor distance, meters" })
+          )
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      try {
+        return TEXT_RESULT(
+          JSON.stringify(
+            runGeoCompute({
+              operation: args.operation as GeoOperation,
+              geometry: args.geometry,
+              geometryB: args.geometry_b,
+              featurePaths: args.feature_paths,
+              params: args.params
+            })
+          )
+        );
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+    }
+  });
+
   const indexFile = defineTool({
     name: "index_file",
     label: "Index file",
@@ -1101,6 +1183,7 @@ export function buildMaposCustomTools(
     findNear,
     queryWithinPolygonTool,
     spatialSql,
+    geoCompute,
     indexFile,
     rebuildIndex,
     getViewport,

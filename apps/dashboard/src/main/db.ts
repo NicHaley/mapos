@@ -455,6 +455,18 @@ export function queryWithinPolygon(
   });
 }
 
+/** Stored GeoJSON-string geometry for the given vault file paths (for by-reference geometry ops). */
+export function getFeatureGeometries(
+  filePaths: string[]
+): Array<{ file_path: string; geometry: string }> {
+  if (filePaths.length === 0) return [];
+  const sqlite = getSqlite();
+  const placeholders = filePaths.map(() => "?").join(",");
+  return sqlite
+    .prepare(`SELECT file_path, geometry FROM features WHERE file_path IN (${placeholders})`)
+    .all(...filePaths) as Array<{ file_path: string; geometry: string }>;
+}
+
 export function queryFolderAll(folderPath: string): FeatureRecord[] {
   const sqlite = getSqlite();
   const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;

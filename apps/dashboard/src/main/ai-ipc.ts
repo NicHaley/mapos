@@ -23,6 +23,7 @@ import {
   listKnownProviders,
   removeProvider,
   setActive,
+  testProvider,
   updateProvider
 } from "./ai";
 
@@ -35,6 +36,7 @@ const HANDLE_CHANNELS = [
   "ai:set-active",
   "ai:clear-active",
   "ai:list-models",
+  "ai:test-provider",
   "ai:list-known-providers",
   "ai:add-known-provider",
   "ai:set-api-key",
@@ -88,6 +90,10 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
   });
 
   ipcMain.handle("ai:list-models", (_e, args: { providerId: string }) => fetchModels(args.providerId));
+
+  ipcMain.handle("ai:test-provider", (_e, args: { input: ProviderInput; providerId?: string }) =>
+    testProvider(args.input, args.providerId)
+  );
 
   ipcMain.handle("ai:list-known-providers", () => listKnownProviders());
 

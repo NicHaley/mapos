@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, safeStorage } from "electron";
 import { z } from "zod";
-import { ANTHROPIC_MODELS, type AiProvider, type ModelCapabilities } from "../shared/ai-models";
+import type { AiProvider, ModelCapabilities } from "../shared/ai-models";
 import {
   ANTHROPIC_CAPS,
   type AiState,
@@ -347,17 +347,11 @@ async function fetchAnthropicModels(
   baseUrl: string,
   apiKey: string | null
 ): Promise<{ ok: true; models: FetchedModel[] } | { ok: false; error: string }> {
-  // No key yet — fall back to the known catalog so the picker still shows something. These are
-  // "assumed" (we didn't confirm them against the live account).
+  // Without a key we can't ask the account which models it can actually reach. Don't fabricate a
+  // list from a bundled catalog — the picker should only ever show models the endpoint really
+  // returns, so prompt for a key instead.
   if (!apiKey) {
-    return {
-      ok: true,
-      models: ANTHROPIC_MODELS.map((m) => ({
-        id: m.id,
-        capabilities: m.capabilities,
-        capabilitySource: "assumed" as const
-      }))
-    };
+    return { ok: false, error: "Add an API key to list this provider's models." };
   }
   const { signal, done } = withTimeout();
   try {
@@ -511,6 +505,45 @@ export async function fetchModels(
     return fetchAnthropicModels(provider.baseUrl, secret);
   }
   return fetchOpenAiModels(provider.baseUrl, secret);
+}
+
+/**
+ * Probe an unsaved (or being-edited) provider so the user can verify the endpoint, protocol, and
+ * auth before committing. Reuses the same model-listing path so a successful test guarantees the
+ * picker will populate. When editing and the secret field was left blank, falls back to the saved
+ * secret so testing an unchanged key works.
+ */
+export async function testProvider(
+  input: ProviderInput,
+  providerId?: string
+): Promise<{ ok: true; modelCount: number } | { ok: false; error: string }> {
+  const protocol: ProviderProtocol = input.protocol ?? "openai";
+  const baseUrl = input.baseUrl?.trim() ?? "";
+  if (!baseUrl) return { ok: false, error: "Base URL is required." };
+  const authKind: ProviderAuthKind = input.authKind ?? "none";
+
+  let secret: string | null = null;
+  if (authKind !== "none") {
+    if (typeof input.secret === "string" && input.secret.trim().length > 0) {
+      secret = input.secret.trim();
+    } else if (providerId) {
+      const stored = load().providers.find((x) => x.id === providerId);
+      if (stored?.encryptedSecret) {
+        try {
+          secret = decrypt(stored.encryptedSecret);
+        } catch {
+          return { ok: false, error: "Couldn't decrypt the saved secret." };
+        }
+      }
+    }
+  }
+
+  const result =
+    protocol === "anthropic"
+      ? await fetchAnthropicModels(baseUrl, secret)
+      : await fetchOpenAiModels(baseUrl, secret);
+  if (!result.ok) return result;
+  return { ok: true, modelCount: result.models.length };
 }
 
 /**

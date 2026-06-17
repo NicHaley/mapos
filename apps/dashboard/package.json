@@ -38,6 +38,7 @@
     "@turf/clusters-dbscan": "^7.3.5",
     "@turf/convex": "^7.3.5",
     "@turf/distance": "^7.3.5",
+    "@turf/helpers": "^7.3.5",
     "@turf/intersect": "^7.3.5",
     "@turf/length": "^7.3.5",
     "@turf/simplify": "^7.3.5",

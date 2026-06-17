@@ -9,12 +9,21 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue
 } from "@mapos/ui/components/select";
+import { cn } from "@mapos/ui/lib/utils";
 import type { ProviderAuthKind, ProviderProtocol, ProviderView } from "@shared/ai-providers";
-import { EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyRoundIcon,
+  Loader2Icon,
+  PlugZapIcon
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 
@@ -54,6 +63,8 @@ export function ProviderEditorSheet({
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const isEdit = !!provider;
 
@@ -69,6 +80,47 @@ export function ProviderEditorSheet({
     setError(null);
   }, [open, provider]);
 
+  // A test result only describes the values that produced it — invalidate it as soon as any of
+  // those inputs change so we never show a stale "Connected" against an edited endpoint.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on the tested inputs
+  useEffect(() => {
+    setTestResult(null);
+  }, [protocol, baseUrl, authKind, secret]);
+
+  function buildInput(): {
+    label: string;
+    protocol: ProviderProtocol;
+    baseUrl: string;
+    authKind: ProviderAuthKind;
+    secret?: string;
+  } {
+    return {
+      label: label.trim(),
+      protocol,
+      baseUrl: baseUrl.trim(),
+      authKind,
+      // Only send the secret when the user typed one; an empty field leaves the saved one intact.
+      ...(secret.trim().length > 0 ? { secret: secret.trim() } : {})
+    };
+  }
+
+  async function handleTest(): Promise<void> {
+    if (!baseUrl.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    setError(null);
+    const result = await window.api.ai.testProvider(buildInput(), provider?.id);
+    setTesting(false);
+    setTestResult(
+      result.ok
+        ? {
+            ok: true,
+            message: `${result.modelCount} model${result.modelCount === 1 ? "" : "s"} available`
+          }
+        : { ok: false, message: result.error }
+    );
+  }
+
   async function handleSave(): Promise<void> {
     const trimmedBase = baseUrl.trim();
     if (!trimmedBase) {
@@ -77,14 +129,7 @@ export function ProviderEditorSheet({
     }
     setBusy(true);
     setError(null);
-    const input = {
-      label: label.trim(),
-      protocol,
-      baseUrl: trimmedBase,
-      authKind,
-      // Only send the secret when the user typed one; an empty field leaves the saved one intact.
-      ...(secret.trim().length > 0 ? { secret: secret.trim() } : {})
-    };
+    const input = buildInput();
     const result = provider
       ? await window.api.ai.updateProvider(provider.id, input)
       : await window.api.ai.addProvider(input);
@@ -104,8 +149,28 @@ export function ProviderEditorSheet({
       title={isEdit ? "Edit provider" : "Add provider"}
       description="A provider is a protocol, an endpoint, and how it authenticates. Models are fetched live from it."
       footer={
-        <div className="flex items-center justify-end gap-2">
-          {error && <span className="mr-auto text-xs text-destructive">{error}</span>}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleTest()}
+            disabled={busy || testing || baseUrl.trim().length === 0}
+          >
+            {testing ? <Loader2Icon className="size-4 animate-spin" /> : <PlugZapIcon className="size-4" />}
+            Test
+          </Button>
+          <div className="min-w-0 flex-1">
+            {(testResult || error) && (
+              <span
+                className={cn(
+                  "flex min-w-0 items-center gap-1 text-xs",
+                  testResult?.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                )}
+              >
+                {testResult?.ok && <CheckCircle2Icon className="size-3.5 shrink-0" />}
+                <span className="min-w-0 truncate">{testResult ? testResult.message : error}</span>
+              </span>
+            )}
+          </div>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
@@ -126,13 +191,19 @@ export function ProviderEditorSheet({
         </Field>
 
         <Field label="Protocol">
-          <Select value={protocol} onValueChange={(v) => setProtocol(v as ProviderProtocol)}>
+          <Select
+            items={PROTOCOL_LABELS}
+            value={protocol}
+            onValueChange={(v) => setProtocol(v as ProviderProtocol)}
+          >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="anthropic">{PROTOCOL_LABELS.anthropic}</SelectItem>
-              <SelectItem value="openai">{PROTOCOL_LABELS.openai}</SelectItem>
+              <SelectGroup>
+                <SelectItem value="anthropic">{PROTOCOL_LABELS.anthropic}</SelectItem>
+                <SelectItem value="openai">{PROTOCOL_LABELS.openai}</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>
@@ -148,14 +219,20 @@ export function ProviderEditorSheet({
         </Field>
 
         <Field label="Authentication">
-          <Select value={authKind} onValueChange={(v) => setAuthKind(v as ProviderAuthKind)}>
+          <Select
+            items={AUTH_LABELS}
+            value={authKind}
+            onValueChange={(v) => setAuthKind(v as ProviderAuthKind)}
+          >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">{AUTH_LABELS.none}</SelectItem>
-              <SelectItem value="api-key">{AUTH_LABELS["api-key"]}</SelectItem>
-              <SelectItem value="bearer">{AUTH_LABELS.bearer}</SelectItem>
+              <SelectGroup>
+                <SelectItem value="none">{AUTH_LABELS.none}</SelectItem>
+                <SelectItem value="api-key">{AUTH_LABELS["api-key"]}</SelectItem>
+                <SelectItem value="bearer">{AUTH_LABELS.bearer}</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>

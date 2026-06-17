@@ -253,6 +253,10 @@ const api = {
       ipcRenderer.invoke("ai:list-models", { providerId }) as Promise<
         { ok: true; models: FetchedModel[] } | { ok: false; error: string }
       >,
+    testProvider: (input: ProviderInput, providerId?: string) =>
+      ipcRenderer.invoke("ai:test-provider", { input, providerId }) as Promise<
+        { ok: true; modelCount: number } | { ok: false; error: string }
+      >,
     listKnownProviders: () =>
       ipcRenderer.invoke("ai:list-known-providers") as Promise<KnownProviderOption[]>,
     addKnownProvider: (provider: string) =>

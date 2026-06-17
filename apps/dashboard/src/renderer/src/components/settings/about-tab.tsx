@@ -1,5 +1,4 @@
 import { Button, buttonVariants } from "@mapos/ui/components/button";
-import { cn } from "@mapos/ui/lib/utils";
 import { GlobeIcon, MailIcon, MegaphoneIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import maposLogo from "../../assets/mapos.svg";
@@ -89,21 +88,21 @@ export function AboutTab() {
             <p className="text-xs text-destructive">Couldn't check for updates: {check.message}</p>
           )}
         </div>
+      </div>
 
-        <div className="flex flex-col items-stretch gap-1.5">
-          {LINKS.map(({ label, href, icon: Icon }) => (
-            <a
-              key={label}
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "justify-start")}
-            >
-              <Icon />
-              <span>{label}</span>
-            </a>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-6">
+        {LINKS.map(({ label, href, icon: Icon }) => (
+          <a
+            key={label}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            <Icon />
+            <span>{label}</span>
+          </a>
+        ))}
       </div>
 
       <div className="flex flex-col items-center gap-2 pt-6 text-center">

@@ -394,7 +394,7 @@ export function FileTreeNode({
           )}
         </div>
         {open && node.children && node.children.length > 0 && (
-          <SidebarMenuSub className="translate-x-0">
+          <SidebarMenuSub className="mr-0 translate-x-0 pr-0">
             {node.children.map((child) => (
               <FileTreeNode
                 key={child.path}

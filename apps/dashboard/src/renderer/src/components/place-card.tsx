@@ -51,6 +51,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
+import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { PropertiesPanel } from "./properties-panel";
 
@@ -352,6 +353,7 @@ export function PlaceCard({
   onExpand,
   onNavigate,
   onSaveSearchToVault,
+  defaultParentFolderPath = null,
   onCommitPointLocation,
   onClearPointLocation,
   onRename,
@@ -362,8 +364,10 @@ export function PlaceCard({
   mode?: "mini" | "full";
   onExpand?: () => void;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
-  /** When set with a search preview, shows Save (+) to create a place file in the active folder. */
-  onSaveSearchToVault?: () => Promise<void>;
+  /** When set with a search preview, shows Save (+) to create a place file in a chosen folder. */
+  onSaveSearchToVault?: (folderPath: string | null) => Promise<void>;
+  /** Folder highlighted as the default in the save picker. `null` = vault root. */
+  defaultParentFolderPath?: string | null;
   /** Persist a point to the vault file; return whether the write succeeded. */
   onCommitPointLocation?: (filePath: string, lat: number, lng: number) => Promise<boolean>;
   /** Remove `geometry` from the vault file. */
@@ -380,6 +384,7 @@ export function PlaceCard({
       : { kind: "loading" }
   );
   const [savingSearch, setSavingSearch] = useState(false);
+  const [saveToVaultOpen, setSaveToVaultOpen] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [addLocationOpen, setAddLocationOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -602,25 +607,35 @@ export function PlaceCard({
             </ErrorTooltip>
           </div>
           {place.previewMarkdown !== undefined && onSaveSearchToVault && (
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={savingSearch}
-              onClick={() => {
+            <FolderPickerPopover
+              open={saveToVaultOpen}
+              onOpenChange={setSaveToVaultOpen}
+              defaultParentFolderPath={defaultParentFolderPath}
+              title="Save place to folder"
+              side="bottom"
+              align="end"
+              onSelect={(folderPath) => {
                 void (async () => {
                   setSavingSearch(true);
                   try {
-                    await onSaveSearchToVault();
+                    await onSaveSearchToVault(folderPath);
                   } finally {
                     setSavingSearch(false);
                   }
                 })();
               }}
-              aria-label="Save place to vault"
-              title="Save to active folder"
-            >
-              <PlusIcon />
-            </Button>
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={savingSearch}
+                  aria-label="Save place to vault"
+                  title="Save to folder"
+                >
+                  <PlusIcon />
+                </Button>
+              }
+            />
           )}
           {mode === "mini" && onExpand && (
             <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">

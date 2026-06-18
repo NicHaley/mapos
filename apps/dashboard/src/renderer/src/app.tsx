@@ -792,14 +792,16 @@ function App(): React.JSX.Element {
   );
 
   const savePreviewPlaceToVault = useCallback(
-    async (place: PlaceRecord | null) => {
+    async (place: PlaceRecord | null, folderPathOverride?: string | null) => {
       if (place?.previewMarkdown === undefined || !place.geometry) return;
       // Preserve the feature's geometry type: points save as lat/lng, lines and
       // polygons as WKT — otherwise a selected polygon would be flattened to a point.
       const geometryArgs = geometryJsonToCreateArgs(place.geometry);
       if (!geometryArgs) return;
+      const parentFolderPath =
+        folderPathOverride !== undefined ? folderPathOverride : parentFolderForNewFiles;
       const create = await window.api.fs.createNoteFile({
-        parentFolderPath: parentFolderForNewFiles,
+        parentFolderPath,
         ...geometryArgs,
         includePlaceFrontmatterDefaults: false
       });
@@ -855,9 +857,12 @@ function App(): React.JSX.Element {
     [parentFolderForNewFiles, selectedFolder, getMapPadding, dispatchNav]
   );
 
-  const handleSaveSearchToVault = useCallback(async () => {
-    await savePreviewPlaceToVault(selectedPlace);
-  }, [selectedPlace, savePreviewPlaceToVault]);
+  const handleSaveSearchToVault = useCallback(
+    async (folderPath: string | null) => {
+      await savePreviewPlaceToVault(selectedPlace, folderPath);
+    },
+    [selectedPlace, savePreviewPlaceToVault]
+  );
 
   const { addLayerToVault } = useOverlayVaultSync();
   /** Add a result layer's features to the vault. The overlay stays on the map so the
@@ -1091,6 +1096,7 @@ function App(): React.JSX.Element {
               onSaveSearchToVault={
                 selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
               }
+              defaultParentFolderPath={parentFolderForNewFiles}
               onExpand={
                 selectedPlace.previewMarkdown !== undefined
                   ? undefined
@@ -1133,11 +1139,12 @@ function App(): React.JSX.Element {
               onClearPointLocation={clearVaultPointLocation}
               onSaveSearchToVault={
                 mapPeekPlace.previewMarkdown !== undefined
-                  ? async () => {
-                      await savePreviewPlaceToVault(mapPeekPlace);
+                  ? async (folderPath) => {
+                      await savePreviewPlaceToVault(mapPeekPlace, folderPath);
                     }
                   : undefined
               }
+              defaultParentFolderPath={parentFolderForNewFiles}
               onExpand={
                 mapPeekPlace.previewMarkdown !== undefined
                   ? undefined

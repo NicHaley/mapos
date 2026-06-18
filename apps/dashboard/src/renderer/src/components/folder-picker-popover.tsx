@@ -40,7 +40,9 @@ export function FolderPickerPopover({
   trigger,
   defaultParentFolderPath,
   onSelect,
-  title = "Save to folder"
+  title = "Save to folder",
+  side = "top",
+  align = "end"
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,6 +52,8 @@ export function FolderPickerPopover({
   /** Called with the chosen folder path; `null` means vault root. */
   onSelect: (folderPath: string | null) => void;
   title?: string;
+  side?: "top" | "bottom" | "left" | "right";
+  align?: "start" | "center" | "end";
 }): React.JSX.Element {
   const [folders, setFolders] = useState<FolderEntry[]>([]);
 
@@ -77,7 +81,7 @@ export function FolderPickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange} modal={false}>
       <PopoverTrigger render={trigger} />
-      <PopoverContent className="w-72 p-0" align="end" side="top" sideOffset={6}>
+      <PopoverContent className="w-72 p-0" align={align} side={side} sideOffset={6}>
         <PopoverTitle className="sr-only">{title}</PopoverTitle>
         <Command>
           <CommandInput placeholder="Search folders…" />

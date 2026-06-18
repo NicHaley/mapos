@@ -275,11 +275,23 @@ const api = {
     disconnect: (provider: string) =>
       ipcRenderer.invoke("ai:disconnect", { provider }) as Promise<{ ok: true }>,
     onOAuthProgress: (
-      cb: (data: { provider: string; status: string; url?: string }) => void
+      cb: (data: {
+        provider: string;
+        status: string;
+        url?: string;
+        userCode?: string;
+        verificationUri?: string;
+      }) => void
     ): (() => void) => {
       const listener = (
         _e: unknown,
-        data: { provider: string; status: string; url?: string }
+        data: {
+          provider: string;
+          status: string;
+          url?: string;
+          userCode?: string;
+          verificationUri?: string;
+        }
       ): void => cb(data);
       ipcRenderer.on("ai:oauth-progress", listener);
       return () => {

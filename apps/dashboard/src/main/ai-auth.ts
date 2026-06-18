@@ -192,9 +192,9 @@ export function knownProviderConfigured(name: string): boolean {
 }
 
 /**
- * One in-flight OAuth login at a time. The Anthropic flow binds a fixed local port (53692) for its
- * callback server, so concurrent or abandoned logins collide with EADDRINUSE. We track the active
- * login so we can (a) reject a second attempt and (b) cancel a stuck one.
+ * One in-flight OAuth login at a time. Callback-server flows bind a fixed local port (Anthropic
+ * 53692, OpenAI Codex 1455), so concurrent or abandoned logins collide with EADDRINUSE. We track the
+ * active login so we can (a) reject a second attempt and (b) cancel a stuck one.
  */
 let pendingLogin: { provider: string; cancel: (reason: string) => void } | null = null;
 
@@ -204,14 +204,23 @@ export function cancelOauthLogin(): void {
 }
 
 /**
- * Run an OAuth login for a known provider. `onAuthUrl` carries the authorize URL so the UI can open
- * the system browser. We pass `onManualCodeInput` not to collect a pasted code but as a cancellation
- * channel: rejecting it makes Pi's flow call `cancelWait()`, which lets its `finally` close the
- * callback server and release the port. Without it, an abandoned login leaks the port until restart.
+ * Run an OAuth login for a known provider. Two flow shapes are supported:
+ *
+ * - **Callback-server** (Anthropic): `onAuthUrl` carries the authorize URL so the UI opens the
+ *   system browser, and the local callback server completes the exchange. We pass `onManualCodeInput`
+ *   not to collect a pasted code but as a cancellation channel: rejecting it makes Pi call
+ *   `cancelWait()`, whose `finally` closes the callback server and frees port 53692.
+ * - **Device-code** (GitHub Copilot): there's no callback server. Pi first calls `onPrompt` for an
+ *   optional GitHub Enterprise domain (we default to github.com), then `onDeviceCode` with a user
+ *   code + verification URL the user enters in the browser. Cancellation rides the `AbortSignal`.
  */
 export async function oauthLogin(
   name: string,
-  hooks: { onAuthUrl: (url: string) => void; onProgress?: (message: string) => void }
+  hooks: {
+    onAuthUrl: (url: string) => void;
+    onProgress?: (message: string) => void;
+    onDeviceCode?: (info: { userCode: string; verificationUri: string }) => void;
+  }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!oauthAvailable(name)) {
     return { ok: false, error: `No OAuth sign-in available for ${name}.` };
@@ -229,17 +238,33 @@ export async function oauthLogin(
   });
   // The channel only ever rejects (on cancel); swallow so it's never an unhandled rejection.
   manualChannel.catch(() => {});
-  pendingLogin = { provider: name, cancel: (reason) => rejectManual?.(new Error(reason)) };
+  // Device-code flows have no callback server to tear down; they cancel by aborting their poll.
+  const abort = new AbortController();
+  pendingLogin = {
+    provider: name,
+    cancel: (reason) => {
+      rejectManual?.(new Error(reason));
+      abort.abort(new Error(reason));
+    }
+  };
 
   const callbacks: OAuthLoginCallbacks = {
     onAuth: (info) => hooks.onAuthUrl(info.url),
     onProgress: (m) => hooks.onProgress?.(m),
-    onDeviceCode: () => {},
-    onPrompt: async () => {
+    onDeviceCode: (info) =>
+      hooks.onDeviceCode?.({ userCode: info.userCode, verificationUri: info.verificationUri }),
+    // The only built-in prompt is GitHub Copilot's optional Enterprise domain (allowEmpty) — answer
+    // it with "" to use github.com. Anything else (e.g. a code paste) we genuinely can't service here.
+    onPrompt: async (prompt) => {
+      if (prompt.allowEmpty) return "";
       throw new Error("Manual code entry isn't supported.");
     },
     onManualCodeInput: () => manualChannel,
-    onSelect: async () => undefined
+    // A provider (OpenAI Codex) may offer a choice of login methods. We can't pop an interactive
+    // picker from here, so take the provider's default — Pi lists it first (e.g. "Browser login
+    // (default)"), and that browser flow reuses the same callback-server path as Anthropic.
+    onSelect: async (prompt) => prompt.options[0]?.id,
+    signal: abort.signal
   };
   try {
     await getRuntimeAuthStorage().login(name, callbacks);
@@ -249,7 +274,7 @@ export async function oauthLogin(
     if (msg.includes("EADDRINUSE")) {
       return {
         ok: false,
-        error: "The sign-in callback port (53692) is busy — a previous attempt may be stuck. Restart MapOS and try again."
+        error: "The sign-in callback port is busy — a previous attempt may be stuck. Restart MapOS and try again."
       };
     }
     return { ok: false, error: msg };

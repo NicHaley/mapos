@@ -9,14 +9,13 @@ import {
   AlertDialogTitle
 } from "@mapos/ui/components/alert-dialog";
 import { Button } from "@mapos/ui/components/button";
-import { cn } from "@mapos/ui/lib/utils";
 import type { AiState, ProviderView } from "@shared/ai-providers";
-import { ChevronDownIcon, Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { CapabilityBadges } from "./capability-badges";
 import { ChangeModelSheet } from "./change-model-sheet";
-import { KnownProviderAuth } from "./known-provider-auth";
+import { KnownProviderAuthSheet } from "./known-provider-auth-sheet";
 import { ProviderBadge } from "./provider-badge";
 import { ProviderEditorSheet } from "./provider-editor-sheet";
 
@@ -41,11 +40,12 @@ function ProviderStatus({ p }: { p: ProviderView }): React.JSX.Element {
 export function AiModelTab(): React.JSX.Element {
   const [state, setState] = useState<AiState | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorProvider, setEditorProvider] = useState<ProviderView | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authProviderId, setAuthProviderId] = useState<string | null>(null);
 
   const [pendingDelete, setPendingDelete] = useState<ProviderView | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -89,6 +89,10 @@ export function AiModelTab(): React.JSX.Element {
   const addedKnown = new Set(
     state.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
   );
+  // Derive the auth-sheet target from live state so it reflects connect/disconnect without staleness.
+  const authProvider = authProviderId
+    ? (state.providers.find((p) => p.id === authProviderId) ?? null)
+    : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -145,84 +149,45 @@ export function AiModelTab(): React.JSX.Element {
           </Button>
         </div>
 
-        {state.providers.map((p) => {
-          const expandable = !!p.knownProvider;
-          const expanded = expandedId === p.id;
-          const toggle = (): void => setExpandedId((cur) => (cur === p.id ? null : p.id));
-          return (
-            <div key={p.id} className="overflow-hidden rounded-lg border">
-              <div
-                role={expandable ? "button" : undefined}
-                tabIndex={expandable ? 0 : undefined}
-                onClick={expandable ? toggle : undefined}
-                onKeyDown={
-                  expandable
-                    ? (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          toggle();
-                        }
-                      }
-                    : undefined
-                }
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 transition-colors",
-                  expandable && "cursor-pointer hover:bg-accent/40"
-                )}
-              >
-                <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-sm">{p.label}</div>
-                  {!p.knownProvider && (
-                    <div className="truncate text-muted-foreground text-xs">{p.baseUrl}</div>
-                  )}
-                </div>
-                <ProviderStatus p={p} />
-                {!p.knownProvider && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Edit provider"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditorProvider(p);
-                      setEditorOpen(true);
-                    }}
-                  >
-                    <PencilIcon className="size-4" />
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Delete provider"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteError(null);
-                    setPendingDelete(p);
-                  }}
-                >
-                  <Trash2Icon className="size-4" />
-                </Button>
-                {expandable && (
-                  <ChevronDownIcon
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground/60 transition-transform",
-                      expanded && "rotate-180"
-                    )}
-                    aria-hidden
-                  />
-                )}
-              </div>
-
-              {expandable && expanded && (
-                <div className="border-t bg-muted/20">
-                  <KnownProviderAuth provider={p} onChanged={() => void reload()} />
-                </div>
+        {state.providers.map((p) => (
+          <div key={p.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+            <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-sm">{p.label}</div>
+              {!p.knownProvider && (
+                <div className="truncate text-muted-foreground text-xs">{p.baseUrl}</div>
               )}
             </div>
-          );
-        })}
+            <ProviderStatus p={p} />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={p.knownProvider ? "Manage connection" : "Edit provider"}
+              onClick={() => {
+                if (p.knownProvider) {
+                  setAuthProviderId(p.id);
+                  setAuthOpen(true);
+                } else {
+                  setEditorProvider(p);
+                  setEditorOpen(true);
+                }
+              }}
+            >
+              <PencilIcon className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Delete provider"
+              onClick={() => {
+                setDeleteError(null);
+                setPendingDelete(p);
+              }}
+            >
+              <Trash2Icon className="size-4" />
+            </Button>
+          </div>
+        ))}
       </div>
 
       <ChangeModelSheet
@@ -241,7 +206,8 @@ export function AiModelTab(): React.JSX.Element {
           await reload();
           if (result.ok) {
             setAddOpen(false);
-            setExpandedId(result.id);
+            setAuthProviderId(result.id);
+            setAuthOpen(true);
           }
         }}
         onChooseCustom={() => {
@@ -256,6 +222,13 @@ export function AiModelTab(): React.JSX.Element {
         onOpenChange={setEditorOpen}
         provider={editorProvider}
         onSaved={() => void reload()}
+      />
+
+      <KnownProviderAuthSheet
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+        provider={authProvider}
+        onChanged={() => void reload()}
       />
 
       <AlertDialog

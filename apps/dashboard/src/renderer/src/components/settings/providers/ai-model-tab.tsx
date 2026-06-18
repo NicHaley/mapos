@@ -32,9 +32,11 @@ const POPULAR_PROVIDERS: { name: string; label: string }[] = [
  */
 function ProvidersEmptyState({
   onAdd,
+  onCustom,
   onBrowseAll
 }: {
   onAdd: (name: string) => Promise<void>;
+  onCustom: () => void;
   onBrowseAll: () => void;
 }): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
@@ -65,6 +67,15 @@ function ProvidersEmptyState({
             <span className="text-xs font-medium leading-tight">{p.label}</span>
           </button>
         ))}
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={onCustom}
+          className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-50"
+        >
+          <ProviderBadge label="Custom" size="lg" />
+          <span className="text-xs font-medium leading-tight">Custom</span>
+        </button>
       </div>
       <Button variant="link" size="sm" className="mt-4" onClick={onBrowseAll}>
         See all providers
@@ -218,7 +229,14 @@ export function AiModelTab(): React.JSX.Element {
         </div>
 
         {state.providers.length === 0 ? (
-          <ProvidersEmptyState onAdd={addKnownAndConnect} onBrowseAll={() => setAddOpen(true)} />
+          <ProvidersEmptyState
+            onAdd={addKnownAndConnect}
+            onCustom={() => {
+              setEditorProvider(null);
+              setEditorOpen(true);
+            }}
+            onBrowseAll={() => setAddOpen(true)}
+          />
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-lg border">
             {state.providers.map((p) => (

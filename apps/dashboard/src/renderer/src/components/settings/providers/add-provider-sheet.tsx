@@ -46,7 +46,7 @@ export function AddProviderSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Add provider"
-      description="Pick a provider from the catalog — models and protocol come built in — or add a custom endpoint."
+      description="Pick a provider from the catalog or add a custom endpoint."
     >
       <div className="flex flex-col gap-4">
         <button
@@ -58,7 +58,7 @@ export function AddProviderSheet({
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">Custom endpoint</div>
             <div className="text-xs text-muted-foreground">
-              Any OpenAI-compatible URL — a local runtime on a custom port, LiteLLM, a proxy.
+              Use to configure local AI or proxies.
             </div>
           </div>
         </button>

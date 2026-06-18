@@ -880,7 +880,7 @@ export function ChatPane({
                   <span className="text-sm font-medium">Connect AI to start chatting</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Bring your own Anthropic key or run a local model with Ollama.
+                  Setup a cloud provider or run AI locally.
                 </p>
                 <Button size="sm" onClick={openAiSettings}>
                   Open AI settings

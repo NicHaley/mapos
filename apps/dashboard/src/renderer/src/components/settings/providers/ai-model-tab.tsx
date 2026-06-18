@@ -19,6 +19,60 @@ import { KnownProviderAuthSheet } from "./known-provider-auth-sheet";
 import { ProviderBadge } from "./provider-badge";
 import { ProviderEditorSheet } from "./provider-editor-sheet";
 
+/** The popular catalog providers offered in the zero-provider empty state. */
+const POPULAR_PROVIDERS: { name: string; label: string }[] = [
+  { name: "anthropic", label: "Anthropic" },
+  { name: "openai-codex", label: "Codex" },
+  { name: "github-copilot", label: "Copilot" }
+];
+
+/**
+ * Shown when no providers are configured yet — a guided path that quick-adds the popular catalog
+ * providers (one each, or all at once) so the Sources list never dead-ends on an empty box.
+ */
+function ProvidersEmptyState({
+  onAdd,
+  onBrowseAll
+}: {
+  onAdd: (name: string) => Promise<void>;
+  onBrowseAll: () => void;
+}): React.JSX.Element {
+  const [busy, setBusy] = useState<string | null>(null);
+  const run = (key: string, fn: () => Promise<void>): void => {
+    setBusy(key);
+    void fn().finally(() => setBusy(null));
+  };
+  return (
+    <div className="rounded-lg border border-dashed p-6 text-center">
+      <div className="font-medium text-sm">No providers yet</div>
+      <p className="mt-0.5 text-muted-foreground text-xs">Add a provider to pick a model.</p>
+      <div className="mt-5 flex items-start justify-center gap-2">
+        {POPULAR_PROVIDERS.map((p) => (
+          <button
+            key={p.name}
+            type="button"
+            disabled={busy !== null}
+            onClick={() => run(p.name, () => onAdd(p.name))}
+            className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-50"
+          >
+            {busy === p.name ? (
+              <span className="flex size-11 items-center justify-center text-muted-foreground">
+                <Loader2Icon className="size-5 animate-spin" />
+              </span>
+            ) : (
+              <ProviderBadge knownProvider={p.name} label={p.label} size="lg" />
+            )}
+            <span className="text-xs font-medium leading-tight">{p.label}</span>
+          </button>
+        ))}
+      </div>
+      <Button variant="link" size="sm" className="mt-4" onClick={onBrowseAll}>
+        See all providers
+      </Button>
+    </div>
+  );
+}
+
 /** A glanceable connection-status label for a Sources row. */
 function ProviderStatus({ p }: { p: ProviderView }): React.JSX.Element {
   const ok = "font-medium text-emerald-600 text-xs dark:text-emerald-400";
@@ -54,6 +108,20 @@ export function AiModelTab(): React.JSX.Element {
   const reload = useCallback(async () => {
     setState(await window.api.ai.getState());
   }, []);
+
+  // Add a known provider, then open its auth sheet so the user can sign in / set a key right away.
+  const addKnownAndConnect = useCallback(
+    async (name: string): Promise<void> => {
+      const result = await window.api.ai.addKnownProvider(name);
+      await reload();
+      if (result.ok) {
+        setAddOpen(false);
+        setAuthProviderId(result.id);
+        setAuthOpen(true);
+      }
+    },
+    [reload]
+  );
 
   useEffect(() => {
     void reload();
@@ -138,9 +206,9 @@ export function AiModelTab(): React.JSX.Element {
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-medium text-sm">Sources</h3>
+            <h3 className="font-medium text-sm">Providers</h3>
             <p className="text-muted-foreground text-xs">
-              Downloads & connected accounts. Powered by Pi.
+              Downloads and connected accounts. Powered by Pi.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -149,7 +217,9 @@ export function AiModelTab(): React.JSX.Element {
           </Button>
         </div>
 
-        {state.providers.length > 0 && (
+        {state.providers.length === 0 ? (
+          <ProvidersEmptyState onAdd={addKnownAndConnect} onBrowseAll={() => setAddOpen(true)} />
+        ) : (
           <div className="divide-y divide-border overflow-hidden rounded-lg border">
             {state.providers.map((p) => (
               <div
@@ -208,15 +278,7 @@ export function AiModelTab(): React.JSX.Element {
         open={addOpen}
         onOpenChange={setAddOpen}
         addedKnownProviders={addedKnown}
-        onAddKnown={async (name) => {
-          const result = await window.api.ai.addKnownProvider(name);
-          await reload();
-          if (result.ok) {
-            setAddOpen(false);
-            setAuthProviderId(result.id);
-            setAuthOpen(true);
-          }
-        }}
+        onAddKnown={addKnownAndConnect}
         onChooseCustom={() => {
           setAddOpen(false);
           setEditorProvider(null);

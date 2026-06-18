@@ -16,6 +16,7 @@ import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import type { PlaceRecord } from "./map-view";
 import { CollapsibleGroupLabel } from "./project-sidebar/collapsible-group-label";
 import {
+  type DragItem,
   MAPOS_DRAG_MIME,
   parentDir,
   parseDragPayload,
@@ -229,52 +230,59 @@ export function ProjectSidebar({
     return () => window.removeEventListener("dragend", clear);
   }, []);
 
-  const runMove = useCallback(
-    async (sourcePath: string, sourceType: FileNode["type"], destinationFolderPath: string) => {
-      if (!vaultRoot) return;
-      if (sourcePath === destinationFolderPath) return;
+  // Returns the item's current path after the attempted move: the new path on
+  // success, or the unchanged path if the move was a no-op or failed.
+  const runMoveOne = useCallback(
+    async (item: DragItem, destinationFolderPath: string): Promise<string> => {
+      const { path: sourcePath, type: sourceType } = item;
+      if (sourcePath === destinationFolderPath) return sourcePath;
       const parent = parentDir(sourcePath);
-      if (parent === destinationFolderPath) return;
+      if (parent === destinationFolderPath) return sourcePath;
       if (sourceType === "directory") {
         const slash = sourcePath.includes("\\") ? "\\" : "/";
         const prefix = sourcePath + slash;
         if (destinationFolderPath === sourcePath || destinationFolderPath.startsWith(prefix))
-          return;
+          return sourcePath;
       }
       const result = await window.api.fs.moveInto(sourcePath, destinationFolderPath);
       if (!result.success) {
         setMoveError(result.error);
         window.setTimeout(() => setMoveError(null), 4000);
-        return;
+        return sourcePath;
       }
       if (result.newPath !== sourcePath) {
         onMoved?.(sourcePath, result.newPath, sourceType === "directory");
       }
+      return result.newPath;
     },
-    [vaultRoot, onMoved]
+    [onMoved]
   );
 
-  const dndBridge = useMemo<SidebarDndBridge | undefined>(() => {
-    if (!vaultRoot) return undefined;
-    return {
-      dragOverTarget,
-      onDragStartNode: (e, path, type) => {
-        e.dataTransfer.setData(MAPOS_DRAG_MIME, JSON.stringify({ path, type }));
-        e.dataTransfer.effectAllowed = "move";
-      },
-      onDragEnd: () => setDragOverTarget(null),
-      onFolderDragOver: (_e, folderPath) => {
-        setDragOverTarget(folderPath);
-      },
-      onFolderDragLeave: () => {},
-      onFolderDrop: (e, folderPath) => {
-        setDragOverTarget(null);
-        const payload = parseDragPayload(e);
-        if (!payload) return;
-        void runMove(payload.path, payload.type, folderPath);
+  const runMove = useCallback(
+    async (items: DragItem[], destinationFolderPath: string) => {
+      if (!vaultRoot || items.length === 0) return;
+      // Drop items nested inside another moved folder — they travel with the
+      // parent, and moving the parent first would invalidate their paths.
+      const movedDirs = items.filter((it) => it.type === "directory").map((it) => it.path);
+      const top = items.filter(
+        (item) =>
+          !movedDirs.some(
+            (dir) =>
+              dir !== item.path &&
+              item.path.startsWith(dir + (dir.includes("\\") ? "\\" : "/"))
+          )
+      );
+      // Sequential so the index/undo stack stay in sync between moves.
+      const newPaths: string[] = [];
+      for (const item of top) {
+        newPaths.push(await runMoveOne(item, destinationFolderPath));
       }
-    };
-  }, [vaultRoot, dragOverTarget, runMove]);
+      // Keep the moved items selected at their new locations.
+      setSelectedPaths(new Set(newPaths));
+      setPathAnchor(newPaths.length === 1 ? newPaths[0] : null);
+    },
+    [vaultRoot, runMoveOne]
+  );
 
   const flatVisiblePaths = useCallback((): { path: string; type: FileNode["type"] }[] => {
     const out: { path: string; type: FileNode["type"] }[] = [];
@@ -302,6 +310,32 @@ export function ProjectSidebar({
     },
     [tree]
   );
+
+  const dndBridge = useMemo<SidebarDndBridge | undefined>(() => {
+    if (!vaultRoot) return undefined;
+    return {
+      dragOverTarget,
+      onDragStartNode: (e, path, type) => {
+        // If the dragged node is part of a multi-selection, move the whole
+        // selection; otherwise move just this node.
+        const items: DragItem[] =
+          selectedPaths.has(path) && selectedPaths.size > 1
+            ? collectNodesByPaths(selectedPaths).map((n) => ({ path: n.path, type: n.type }))
+            : [{ path, type }];
+        e.dataTransfer.setData(MAPOS_DRAG_MIME, JSON.stringify({ items }));
+        e.dataTransfer.effectAllowed = "move";
+      },
+      onDragEnd: () => setDragOverTarget(null),
+      onFolderDragOver: (_e, folderPath) => {
+        setDragOverTarget(folderPath);
+      },
+      onFolderDragLeave: () => {},
+      onFolderDrop: (e, folderPath) => {
+        setDragOverTarget(null);
+        void runMove(parseDragPayload(e), folderPath);
+      }
+    };
+  }, [vaultRoot, dragOverTarget, runMove, selectedPaths, collectNodesByPaths]);
 
   const openPath = useCallback(
     async (node: FileNode, newTab: boolean) => {
@@ -667,9 +701,7 @@ export function ProjectSidebar({
                         onDrop={(e) => {
                           e.preventDefault();
                           setDragOverTarget(null);
-                          const payload = parseDragPayload(e);
-                          if (!payload) return;
-                          void runMove(payload.path, payload.type, vaultRoot);
+                          void runMove(parseDragPayload(e), vaultRoot);
                         }}
                       />
                     ) : null}

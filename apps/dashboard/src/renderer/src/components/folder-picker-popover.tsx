@@ -84,8 +84,12 @@ export function FolderPickerPopover({
           <CommandList>
             <CommandEmpty>No folders found.</CommandEmpty>
             <CommandGroup heading="Save to">
-              <CommandItem value="vault root" onSelect={() => handleSelect(null)}>
-                <HomeIcon />
+              <CommandItem
+                className="rounded-md"
+                value="vault root"
+                onSelect={() => handleSelect(null)}
+              >
+                <HomeIcon className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">Vault root</span>
                 {isDefaultRoot && (
                   <span className="ml-auto text-xs text-muted-foreground">Default</span>
@@ -96,11 +100,12 @@ export function FolderPickerPopover({
                 return (
                   <CommandItem
                     key={f.path}
+                    className="rounded-md"
                     value={f.relPath}
                     onSelect={() => handleSelect(f.path)}
                   >
                     <span style={{ width: f.depth * 12 }} aria-hidden />
-                    <FolderIcon />
+                    <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
                     <span className="truncate">{f.relPath.split(/[/\\]/).pop()}</span>
                     {isDefault && (
                       <span className="ml-auto text-xs text-muted-foreground">Default</span>

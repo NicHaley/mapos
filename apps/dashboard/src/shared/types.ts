@@ -9,6 +9,8 @@ export type PlaceRecord = {
   filePath: string;
   /** When set, PlaceCard shows preview content without reading the file; no save/rename. */
   previewMarkdown?: string;
+  /** Transient: a just-created file, so PlaceCard opens with the title selected for renaming. */
+  justCreated?: boolean;
   /**
    * Structured details for a preview place (search result / chat feature), rendered
    * read-only in the place card by the same properties system and persisted verbatim

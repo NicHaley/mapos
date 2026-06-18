@@ -478,15 +478,16 @@ export function ProjectSidebar({
     if (!parentPath) return;
     const result = await window.api.fs.createNoteFile({ parentFolderPath: parentPath });
     if (result.success) {
-      setPendingRenamePath(result.filePath);
+      // The note opens in the panel with its title selected (justCreated), so we
+      // don't also start an inline rename in the tree — two focus targets conflict.
       const filePath = result.filePath;
       const title = (filePath.split(/[/\\]/).pop() ?? "Untitled.md").replace(/\.md$/i, "");
-      const place = (await window.api.places.getByPath(filePath)) ?? {
+      const place: PlaceRecord = (await window.api.places.getByPath(filePath)) ?? {
         title,
         type: "note",
         filePath
       };
-      onSelectPlace?.(place);
+      onSelectPlace?.({ ...place, justCreated: true });
     }
   }
 

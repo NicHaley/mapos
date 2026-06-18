@@ -481,6 +481,16 @@ export function PlaceCard({
     if (place.geometry) setAddLocationOpen(false);
   }, [place.geometry]);
 
+  // A freshly created file opens with its title focused and selected so the
+  // user can rename it immediately. Editable (non-preview) places only.
+  useEffect(() => {
+    if (!place.justCreated || place.previewMarkdown !== undefined) return;
+    const el = titleInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [place.justCreated, place.previewMarkdown]);
+
   const handleAddLocationOpenChange = useCallback((open: boolean) => {
     setAddLocationOpen(open);
   }, []);

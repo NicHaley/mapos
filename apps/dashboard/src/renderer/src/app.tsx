@@ -681,7 +681,8 @@ function App(): React.JSX.Element {
 
   // New place file created from map context menu
   const handleCreatePlace = useCallback(
-    (place: PlaceRecord) => {
+    (rawPlace: PlaceRecord) => {
+      const place: PlaceRecord = { ...rawPlace, justCreated: true };
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       if (selectedFolder) {

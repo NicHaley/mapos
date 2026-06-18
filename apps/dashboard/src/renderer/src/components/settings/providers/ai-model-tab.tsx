@@ -149,45 +149,52 @@ export function AiModelTab(): React.JSX.Element {
           </Button>
         </div>
 
-        {state.providers.map((p) => (
-          <div key={p.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-            <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-sm">{p.label}</div>
-              {!p.knownProvider && (
-                <div className="truncate text-muted-foreground text-xs">{p.baseUrl}</div>
-              )}
-            </div>
-            <ProviderStatus p={p} />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={p.knownProvider ? "Manage connection" : "Edit provider"}
-              onClick={() => {
-                if (p.knownProvider) {
-                  setAuthProviderId(p.id);
-                  setAuthOpen(true);
-                } else {
-                  setEditorProvider(p);
-                  setEditorOpen(true);
-                }
-              }}
-            >
-              <PencilIcon className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Delete provider"
-              onClick={() => {
-                setDeleteError(null);
-                setPendingDelete(p);
-              }}
-            >
-              <Trash2Icon className="size-4" />
-            </Button>
+        {state.providers.length > 0 && (
+          <div className="divide-y divide-border overflow-hidden rounded-lg border">
+            {state.providers.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
+              >
+                <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-sm">{p.label}</div>
+                  {!p.knownProvider && (
+                    <div className="truncate text-muted-foreground text-xs">{p.baseUrl}</div>
+                  )}
+                </div>
+                <ProviderStatus p={p} />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={p.knownProvider ? "Manage connection" : "Edit provider"}
+                  onClick={() => {
+                    if (p.knownProvider) {
+                      setAuthProviderId(p.id);
+                      setAuthOpen(true);
+                    } else {
+                      setEditorProvider(p);
+                      setEditorOpen(true);
+                    }
+                  }}
+                >
+                  <PencilIcon className="size-4 text-muted-foreground" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete provider"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setPendingDelete(p);
+                  }}
+                >
+                  <Trash2Icon className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
 
       <ChangeModelSheet

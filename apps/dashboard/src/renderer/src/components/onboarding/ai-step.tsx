@@ -5,6 +5,7 @@ import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, Loader2Icon } from "lucide-r
 import { useEffect, useState } from "react";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { KnownProviderAuth } from "../settings/providers/known-provider-auth";
+import { ModelSwitcher } from "../settings/providers/model-switcher";
 import { ProviderBadge } from "../settings/providers/provider-badge";
 import { CmdEnterHint } from "./cmd-enter-hint";
 
@@ -17,8 +18,8 @@ const MARQUEE_PROVIDERS = ["anthropic", "openai-codex", "github-copilot"] as con
 
 /**
  * Onboarding's simplified take on the AI Models settings page: connect a marquee cloud provider
- * inline (the first listed model is auto-activated on connect). Custom and local endpoints (a
- * self-hosted Ollama, LM Studio, a proxy) are configured later in Settings → AI Models, via Pi.
+ * inline, then pick a model from the same switcher used in chat and settings. Custom and local
+ * endpoints (a self-hosted Ollama, LM Studio, a proxy) are configured later in Settings → AI Models.
  */
 export function AiStep({
   onBack,
@@ -59,18 +60,9 @@ export function AiStep({
 
   const knownProviders = state?.providers.filter((p) => !!p.knownProvider) ?? [];
   const active = state?.active ?? null;
+  const hasConnected = state?.providers.some((p) => p.auth.configured) ?? false;
 
-  /** After connecting in the inline panel, auto-pick the provider's first listed model. */
-  async function handleProviderChanged(providerId: string): Promise<void> {
-    const next = await window.api.ai.getState();
-    setState(next);
-    if (next.active) return;
-    const p = next.providers.find((x) => x.id === providerId);
-    if (!p?.auth.configured) return;
-    const result = await window.api.ai.listModels(p.id);
-    if (!result.ok || result.models.length === 0) return;
-    const m = result.models[0];
-    await window.api.ai.setActive(p.id, m.id, m.capabilities);
+  async function reload(): Promise<void> {
     setState(await window.api.ai.getState());
   }
 
@@ -115,21 +107,30 @@ export function AiStep({
               </button>
               {expanded && (
                 <div className="border-t bg-muted/20">
-                  <KnownProviderAuth
-                    provider={p}
-                    onChanged={() => void handleProviderChanged(p.id)}
-                  />
+                  <KnownProviderAuth provider={p} onChanged={() => void reload()} />
                 </div>
               )}
             </div>
           );
         })}
 
-        {active && (
-          <p className="mt-1 flex items-center gap-1.5 text-muted-foreground text-xs">
-            <CheckIcon className="size-3.5 text-emerald-500" />
-            Using <span className="font-mono">{active.model}</span> — switch anytime in Settings.
-          </p>
+        {state && hasConnected && (
+          <div className="mt-1 flex items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="min-w-0">
+              <div className="font-medium text-sm">Model</div>
+              <div className="text-muted-foreground text-xs">
+                {active ? (
+                  <span className="flex items-center gap-1.5">
+                    <CheckIcon className="size-3.5 text-emerald-500" />
+                    Switch anytime in chat or Settings.
+                  </span>
+                ) : (
+                  "Pick a model to finish setup."
+                )}
+              </div>
+            </div>
+            <ModelSwitcher state={state} onSelected={() => void reload()} />
+          </div>
         )}
       </div>
 

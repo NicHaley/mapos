@@ -134,6 +134,18 @@ export function AiModelTab(): React.JSX.Element {
     [reload]
   );
 
+  // After a provider connects (auth saved / custom endpoint saved), prompt model selection if none
+  // is set yet — the second half of the "configure provider → select model" flow. We don't curate a
+  // default model; we just open the picker so the user makes the choice explicitly.
+  const reloadAndPromptModel = useCallback(async (): Promise<void> => {
+    const next = await window.api.ai.getState();
+    setState(next);
+    if (!next.active && next.providers.some((p) => p.auth.configured)) {
+      setAuthOpen(false);
+      setPickerOpen(true);
+    }
+  }, []);
+
   useEffect(() => {
     void reload();
     return window.api.ai.onChanged(() => void reload());
@@ -165,6 +177,7 @@ export function AiModelTab(): React.JSX.Element {
   const activeProvider = active
     ? state.providers.find((p) => p.id === active.providerId)
     : undefined;
+  const hasConnectedProvider = state.providers.some((p) => p.auth.configured);
   const addedKnown = new Set(
     state.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
   );
@@ -201,7 +214,7 @@ export function AiModelTab(): React.JSX.Element {
             <div className="my-3 border-t" />
             <CapabilityBadges caps={active.capabilities} />
           </div>
-        ) : (
+        ) : hasConnectedProvider ? (
           <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-4">
             <div className="min-w-0">
               <div className="font-medium text-sm">No model selected</div>
@@ -210,6 +223,19 @@ export function AiModelTab(): React.JSX.Element {
               </div>
             </div>
             <Button onClick={() => setPickerOpen(true)}>Choose a model</Button>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/30 p-4">
+            <div className="min-w-0">
+              <div className="font-medium text-sm">Add a provider to choose a model</div>
+              <div className="text-muted-foreground text-sm">
+                Connect a provider below — you'll pick a model right after.
+              </div>
+            </div>
+            <Button onClick={() => setAddOpen(true)}>
+              <PlusIcon className="size-4" />
+              Add provider
+            </Button>
           </div>
         )}
       </div>
@@ -308,14 +334,14 @@ export function AiModelTab(): React.JSX.Element {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         provider={editorProvider}
-        onSaved={() => void reload()}
+        onSaved={() => void reloadAndPromptModel()}
       />
 
       <KnownProviderAuthSheet
         open={authOpen}
         onOpenChange={setAuthOpen}
         provider={authProvider}
-        onChanged={() => void reload()}
+        onChanged={() => void reloadAndPromptModel()}
       />
 
       <AlertDialog
@@ -331,8 +357,8 @@ export function AiModelTab(): React.JSX.Element {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this provider?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.label || "This provider"} will be removed from MapOS. No remote data is
-              affected.
+              {pendingDelete?.label || "This provider"} will be removed from MapOS. No remote data
+              is affected.
             </AlertDialogDescription>
             {deleteError ? (
               <AlertDialogDescription className="text-destructive">

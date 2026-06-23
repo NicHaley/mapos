@@ -34,6 +34,7 @@ import {
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import type { AiState } from "@shared/ai-providers";
 import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import type { ChatStatus } from "ai";
 import { diffLines } from "diff";
@@ -58,6 +59,7 @@ import { FeatureResolverProvider, useFeatureResolver } from "../contexts/feature
 import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
 import { FeatureList } from "./feature-list";
 import { FolderPickerPopover } from "./folder-picker-popover";
+import { ModelSwitcher } from "./settings/providers/model-switcher";
 
 const STREAMDOWN_FEATURES_COMPONENTS = { features: FeatureList };
 const STREAMDOWN_FEATURES_ALLOWED_TAGS = { features: ["refs"] };
@@ -687,21 +689,27 @@ export function ChatPane({
   const { featureCalls: streamingFeatureCalls, otherCalls: streamingOtherCalls } =
     splitFeatureCalls(activeToolCalls);
 
-  /** undefined while loading; null when configured. */
-  const [aiConfigured, setAiConfigured] = useState<boolean | undefined>(undefined);
+  // null while loading; drives both the in-composer model switcher and the connect-AI prompt.
+  const [aiState, setAiState] = useState<AiState | null>(null);
 
-  const refreshAiStatus = useCallback(async () => {
-    const status = await window.api.ai.getStatus();
-    setAiConfigured(status.configured);
+  const refreshAiState = useCallback(async () => {
+    setAiState(await window.api.ai.getState());
   }, []);
 
   useEffect(() => {
-    void refreshAiStatus();
-    // Refresh whenever the AI selection changes in Settings.
+    void refreshAiState();
+    // Refresh whenever the AI selection changes (Settings, onboarding, or the in-chat switcher).
     return window.api.ai.onChanged(() => {
-      void refreshAiStatus();
+      void refreshAiState();
     });
-  }, [refreshAiStatus]);
+  }, [refreshAiState]);
+
+  // Mirror getAiStatus's "usable" check: a selection exists and its provider is still connected.
+  const activeAiProvider = aiState?.active
+    ? aiState.providers.find((p) => p.id === aiState.active?.providerId)
+    : undefined;
+  const aiConfigured: boolean | undefined =
+    aiState === null ? undefined : !!aiState.active && !!activeAiProvider?.auth.configured;
 
   function openAiSettings(): void {
     window.dispatchEvent(new CustomEvent("mapos:open-settings", { detail: { section: "ai" } }));
@@ -1043,7 +1051,15 @@ export function ChatPane({
               disabled={loading || aiConfigured === false}
             />
             <PromptInputFooter>
-              <div />
+              {aiState ? (
+                <ModelSwitcher
+                  state={aiState}
+                  onSelected={refreshAiState}
+                  onConfigure={openAiSettings}
+                />
+              ) : (
+                <div />
+              )}
               <PromptInputSubmit status={chatStatus} onStop={onAbort} />
             </PromptInputFooter>
           </PromptInput>

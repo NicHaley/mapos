@@ -22,7 +22,7 @@ export function ChangeModelSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Change model"
-      description="Search every model — local & cloud"
+      description="Search models for your connected providers"
       width={460}
     >
       {/* Mount the list only while open so it fetches fresh each time the sheet is shown. The

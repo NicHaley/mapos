@@ -6,26 +6,26 @@ import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 
 /**
- * "Add provider" chooser. Two sources: Pi's bundled cloud catalog (one click — no URL/protocol
- * typing) and a "Custom endpoint" escape hatch for anything else (a self-hosted runtime like Ollama
- * or LM Studio, LiteLLM, a corporate proxy). The embedded local runtime lives in its own section.
+ * "Add provider" chooser. Two sources: Pi's bundled cloud catalog (no URL/protocol typing) and a
+ * "Custom endpoint" escape hatch for anything else (a self-hosted runtime like Ollama or LM Studio,
+ * LiteLLM, a corporate proxy). Picking a catalog provider opens the connect drawer — nothing is
+ * persisted until the user actually connects there.
  */
 export function AddProviderSheet({
   open,
   onOpenChange,
   addedKnownProviders,
-  onAddKnown,
+  onPickKnown,
   onChooseCustom
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Catalog names already added, so we don't offer duplicates. */
   addedKnownProviders: Set<string>;
-  onAddKnown: (name: string) => Promise<void>;
+  onPickKnown: (option: KnownProviderOption) => void;
   onChooseCustom: () => void;
 }): React.JSX.Element {
   const [known, setKnown] = useState<KnownProviderOption[] | null>(null);
-  const [adding, setAdding] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -34,12 +34,6 @@ export function AddProviderSheet({
   }, [open]);
 
   const available = known?.filter((k) => !addedKnownProviders.has(k.name)) ?? null;
-
-  async function add(name: string): Promise<void> {
-    setAdding(name);
-    await onAddKnown(name);
-    setAdding(null);
-  }
 
   return (
     <SettingsSheet
@@ -86,13 +80,7 @@ export function AddProviderSheet({
                     </div>
                     <div className="text-xs text-muted-foreground">{k.modelCount} models</div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void add(k.name)}
-                    disabled={adding !== null}
-                  >
-                    {adding === k.name ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                  <Button variant="outline" size="sm" onClick={() => onPickKnown(k)}>
                     Add
                   </Button>
                 </div>

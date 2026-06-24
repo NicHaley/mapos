@@ -10,7 +10,7 @@ import {
 } from "@mapos/ui/components/alert-dialog";
 import { Button } from "@mapos/ui/components/button";
 import type { AiState, KnownProviderOption, ProviderView } from "@shared/ai-providers";
-import { Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { Loader2Icon, PlusIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { CapabilityBadges } from "./capability-badges";
@@ -18,79 +18,11 @@ import { ChangeModelSheet } from "./change-model-sheet";
 import { type ConnectTarget, KnownProviderAuthSheet } from "./known-provider-auth-sheet";
 import { ProviderBadge } from "./provider-badge";
 import { ProviderEditorSheet } from "./provider-editor-sheet";
+import { ProviderRow } from "./provider-row";
+import { ProvidersEmptyState } from "./providers-empty-state";
 
 /** How a connect drawer is opened: a not-yet-persisted catalog entry, or an existing row by id. */
 type ConnectState = { kind: "new"; name: string; label: string } | { kind: "existing"; id: string };
-
-/** The popular catalog providers offered in the zero-provider empty state. */
-const POPULAR_PROVIDERS: { name: string; label: string }[] = [
-  { name: "anthropic", label: "Anthropic" },
-  { name: "openai-codex", label: "Codex" },
-  { name: "github-copilot", label: "Copilot" }
-];
-
-/**
- * Shown when no providers are configured yet — a guided path that opens the connect drawer for a
- * popular catalog provider (or a custom endpoint) so the list never dead-ends on an empty box.
- */
-function ProvidersEmptyState({
-  onPick,
-  onCustom,
-  onBrowseAll
-}: {
-  onPick: (name: string, label: string) => void;
-  onCustom: () => void;
-  onBrowseAll: () => void;
-}): React.JSX.Element {
-  return (
-    <div className="rounded-lg border border-dashed p-6 text-center">
-      <div className="font-medium text-sm">No providers yet</div>
-      <p className="mt-0.5 text-muted-foreground text-xs">Add a provider to pick a model.</p>
-      <div className="mt-5 flex items-start justify-center gap-2">
-        {POPULAR_PROVIDERS.map((p) => (
-          <button
-            key={p.name}
-            type="button"
-            onClick={() => onPick(p.name, p.label)}
-            className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40"
-          >
-            <ProviderBadge knownProvider={p.name} label={p.label} size="lg" />
-            <span className="text-xs font-medium leading-tight">{p.label}</span>
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={onCustom}
-          className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40"
-        >
-          <ProviderBadge label="Custom" size="lg" />
-          <span className="text-xs font-medium leading-tight">Custom</span>
-        </button>
-      </div>
-      <Button variant="link" size="sm" className="mt-4" onClick={onBrowseAll}>
-        See all providers
-      </Button>
-    </div>
-  );
-}
-
-/** A glanceable connection-status label for a Sources row. */
-function ProviderStatus({ p }: { p: ProviderView }): React.JSX.Element {
-  const ok = "font-medium text-emerald-600 text-xs dark:text-emerald-400";
-  const muted = "text-muted-foreground text-xs";
-  if (p.knownProvider) {
-    if (p.auth.configured) {
-      return <span className={ok}>{p.auth.method === "oauth" ? "Signed in" : "API key set"}</span>;
-    }
-    return <span className={muted}>Not connected</span>;
-  }
-  if (p.auth.method === "none") return <span className={muted}>No auth</span>;
-  return p.auth.configured ? (
-    <span className={ok}>Connected</span>
-  ) : (
-    <span className={muted}>No token</span>
-  );
-}
 
 export function AiModelTab(): React.JSX.Element {
   const [state, setState] = useState<AiState | null>(null);
@@ -259,45 +191,22 @@ export function AiModelTab(): React.JSX.Element {
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-lg border">
             {state.providers.map((p) => (
-              <div
+              <ProviderRow
                 key={p.id}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
-              >
-                <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-sm">{p.label}</div>
-                  {!p.knownProvider && (
-                    <div className="truncate text-muted-foreground text-xs">{p.baseUrl}</div>
-                  )}
-                </div>
-                <ProviderStatus p={p} />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={p.knownProvider ? "Manage connection" : "Edit provider"}
-                  onClick={() => {
-                    if (p.knownProvider) {
-                      openExistingConnect(p.id);
-                    } else {
-                      setEditorProvider(p);
-                      setEditorOpen(true);
-                    }
-                  }}
-                >
-                  <PencilIcon className="size-4 text-muted-foreground" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Delete provider"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setPendingDelete(p);
-                  }}
-                >
-                  <Trash2Icon className="size-4 text-muted-foreground" />
-                </Button>
-              </div>
+                provider={p}
+                onEdit={() => {
+                  if (p.knownProvider) {
+                    openExistingConnect(p.id);
+                  } else {
+                    setEditorProvider(p);
+                    setEditorOpen(true);
+                  }
+                }}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setPendingDelete(p);
+                }}
+              />
             ))}
           </div>
         )}

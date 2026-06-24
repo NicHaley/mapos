@@ -41,7 +41,7 @@ import { ThemePicker } from "./theme-picker";
  * from an edge without escaping into the parent app — and so the underlying tab
  * content stays visible behind them rather than being hidden under another modal.
  */
-const SettingsSheetSlotContext = createContext<HTMLDivElement | null>(null);
+export const SettingsSheetSlotContext = createContext<HTMLDivElement | null>(null);
 
 export function useSettingsSheetSlot(): HTMLDivElement | null {
   return useContext(SettingsSheetSlotContext);

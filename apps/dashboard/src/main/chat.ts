@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Api, Message, Model, UserMessage } from "@earendil-works/pi-ai";
-import { getBuiltinModel as getModel } from "@earendil-works/pi-ai/providers/all";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import {
   type AgentSession,
   type AgentSessionEvent,

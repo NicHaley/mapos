@@ -35,7 +35,7 @@ export function ChangeModelSheet({
       {open && (
         <ModelPickerList
           state={state}
-          className="size-full bg-transparent p-0 [&_[data-slot=command-group]]:px-4 [&_[data-slot=command-input-wrapper]]:px-4 [&_[data-slot=command-input-wrapper]]:pt-3"
+          className="size-full bg-transparent p-0 [&_[data-slot=command-group]]:px-4 [&_[data-slot=command-group]]:py-2 [&_[data-slot=command-input-wrapper]]:px-4 [&_[data-slot=command-input-wrapper]]:pt-4"
           listClassName="max-h-none min-h-0 flex-1"
           onSelected={async () => {
             await onSelected();

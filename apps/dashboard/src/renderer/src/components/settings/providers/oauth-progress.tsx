@@ -21,7 +21,7 @@ export function OauthProgress({ connect }: { connect: KnownProviderConnect }): R
               rel="noreferrer noopener"
               className="inline-flex items-center gap-1 text-foreground hover:underline"
             >
-              Open browser <ExternalLinkIcon className="size-3" />
+              Open <ExternalLinkIcon className="size-3" />
             </a>
           )}
           <button

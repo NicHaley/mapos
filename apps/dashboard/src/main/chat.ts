@@ -1,23 +1,21 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { Api, Message, Model, UserMessage } from "@earendil-works/pi-ai";
+import { getBuiltinModel as getModel } from "@earendil-works/pi-ai/providers/all";
 import {
   type AgentSession,
   type AgentSessionEvent,
   AuthStorage,
-  createAgentSession,
   ModelRegistry,
-  SessionManager
+  SessionManager,
+  createAgentSession
 } from "@earendil-works/pi-coding-agent";
-import {
-  getModel,
-  type Api,
-  type Message,
-  type Model,
-  type UserMessage
-} from "@earendil-works/pi-ai";
-import { type BrowserWindow, ipcMain } from "electron";
 import type { GeocodeResult } from "@mapos/contracts";
+import { type BrowserWindow, ipcMain } from "electron";
+import { resolveCapabilities } from "../shared/ai-models";
 import type { PlaceRecord, UndoEntry } from "../shared/types";
+import { AiConfigError, loadAiConfigForRequest } from "./ai";
+import { getRuntimeAuthStorage } from "./ai-auth";
 import {
   type ActiveConversation,
   appendMessages,
@@ -31,9 +29,6 @@ import {
   saveConvState,
   setConversationsDir
 } from "./conversations";
-import { resolveCapabilities } from "../shared/ai-models";
-import { AiConfigError, loadAiConfigForRequest } from "./ai";
-import { getRuntimeAuthStorage } from "./ai-auth";
 import { removeFeatures, syncFeatureForFile } from "./db";
 import { vaultDotDir } from "./mapos-config";
 import { BUILTIN_TOOL_NAMES, buildMaposCustomTools, buildMaposSystemPrompt } from "./mcp-server";
@@ -110,7 +105,8 @@ async function resolveModel(
   // Prefer the capabilities resolved with this request (the v2 path captures the model's real
   // context window at selection time); fall back to the legacy per-model lookup.
   const contextWindow =
-    aiConfig.capabilities?.contextWindow ?? resolveCapabilities("local", aiConfig.model).contextWindow;
+    aiConfig.capabilities?.contextWindow ??
+    resolveCapabilities("local", aiConfig.model).contextWindow;
 
   modelRegistry.registerProvider(LOCAL_PROVIDER_KEY, {
     name: baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") ? "Local" : "Custom",

@@ -38,9 +38,7 @@ export function VaultStep({
   onNext: () => void;
 }): React.JSX.Element {
   const [mode, setMode] = useState<Mode>(draft?.kind === "existing" ? "existing" : "create");
-  const [name, setName] = useState(
-    draft?.kind === "create" ? draft.name : DEFAULT_VAULT_NAME
-  );
+  const [name, setName] = useState(draft?.kind === "create" ? draft.name : DEFAULT_VAULT_NAME);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,9 +99,7 @@ export function VaultStep({
 
   // ⌘↵ drives whatever the primary button currently does: advance when a vault is picked,
   // otherwise open the relevant folder picker.
-  const primaryEnabled = matchingDraft
-    ? true
-    : !busy && !(mode === "create" && !name.trim());
+  const primaryEnabled = matchingDraft ? true : !busy && !(mode === "create" && !name.trim());
   function primaryAction(): void {
     if (matchingDraft) onNext();
     else if (mode === "create") void pickCreateLocation();
@@ -115,8 +111,7 @@ export function VaultStep({
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Set up your vault</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        All your places, files, and notes live in one folder. You can rename it or move
-        it later.
+        Select where your files are stored. You can rename it or move it later.
       </p>
 
       <ItemGroup className="mt-6 grid grid-cols-2 gap-3">
@@ -152,10 +147,7 @@ export function VaultStep({
 
       {mode === "create" && (
         <div className="mt-6 flex flex-col gap-2">
-          <label
-            htmlFor="vault-name"
-            className="text-xs font-medium text-muted-foreground"
-          >
+          <label htmlFor="vault-name" className="text-xs font-medium text-muted-foreground">
             Vault name
           </label>
           <InputGroup className="bg-background">
@@ -181,13 +173,6 @@ export function VaultStep({
         </div>
       )}
 
-      {mode === "existing" && (
-        <p className="mt-6 text-sm text-muted-foreground">
-          Pick a folder you already have. MapOS will index its contents but won't move or
-          rename anything.
-        </p>
-      )}
-
       {matchingDraft && (
         <Alert className="mt-4 has-[>svg]:grid-cols-[auto_minmax(0,1fr)]">
           <FolderIcon />
@@ -196,15 +181,9 @@ export function VaultStep({
           </AlertTitle>
           <AlertDescription
             className="truncate font-mono"
-            title={
-              matchingDraft.kind === "create"
-                ? matchingDraft.targetPath
-                : matchingDraft.path
-            }
+            title={matchingDraft.kind === "create" ? matchingDraft.targetPath : matchingDraft.path}
           >
-            {matchingDraft.kind === "create"
-              ? matchingDraft.targetPath
-              : matchingDraft.path}
+            {matchingDraft.kind === "create" ? matchingDraft.targetPath : matchingDraft.path}
           </AlertDescription>
           <AlertAction className="top-1/2 -translate-y-1/2">
             <Button

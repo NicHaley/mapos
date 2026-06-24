@@ -74,8 +74,7 @@ export function AiStep({
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Connect an AI provider</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Use Claude, GPT and more over the network — sign in or paste an API key. Need a custom or
-        local endpoint (Ollama, LM Studio, a proxy)? Add one anytime in Settings → AI Models.
+        Configure your AI provider. You can add more later in Settings.
       </p>
 
       <div className="mt-6 flex flex-col gap-2">

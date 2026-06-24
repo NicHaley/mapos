@@ -43,19 +43,18 @@ export function AddProviderSheet({
       description="Pick a provider from the catalog or add a custom endpoint."
     >
       <div className="flex flex-col gap-4">
-        <button
-          type="button"
-          onClick={onChooseCustom}
-          className="flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
-        >
-          <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
+        <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+          <SlidersHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">Custom endpoint</div>
             <div className="text-xs text-muted-foreground">
               Use to configure local AI or proxies.
             </div>
           </div>
-        </button>
+          <Button variant="outline" size="sm" onClick={onChooseCustom}>
+            Add
+          </Button>
+        </div>
 
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">From catalog</span>

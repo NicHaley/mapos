@@ -1,24 +1,23 @@
 import { Button } from "@mapos/ui/components/button";
-import { cn } from "@mapos/ui/lib/utils";
-import type { AiState, ProviderView } from "@shared/ai-providers";
-import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, Loader2Icon } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { KnownProviderOption } from "@shared/ai-providers";
+import { ArrowLeftIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
-import { KnownProviderAuth } from "../settings/providers/known-provider-auth";
-import { ProviderBadge } from "../settings/providers/provider-badge";
+import { AddProviderSheet } from "../settings/providers/add-provider-sheet";
+import { DeleteProviderDialog } from "../settings/providers/delete-provider-dialog";
+import { KnownProviderAuthSheet } from "../settings/providers/known-provider-auth-sheet";
+import { ModelSwitcher } from "../settings/providers/model-switcher";
+import { ProviderEditorSheet } from "../settings/providers/provider-editor-sheet";
+import { ProviderRow } from "../settings/providers/provider-row";
+import { ProvidersEmptyState } from "../settings/providers/providers-empty-state";
+import { useProviderManager } from "../settings/providers/use-provider-manager";
 import { CmdEnterHint } from "./cmd-enter-hint";
 
 /**
- * The marquee catalog providers offered inline during onboarding — mirrors `SEEDED_PROVIDERS` in
- * main/ai.ts. Ensured present on mount so a stale `ai.json` (predating the current seed list) still
- * shows the full set rather than just whatever happens to be stored.
- */
-const MARQUEE_PROVIDERS = ["anthropic", "openai-codex", "github-copilot"] as const;
-
-/**
- * Onboarding's simplified take on the AI Models settings page: connect a marquee cloud provider
- * inline (the first listed model is auto-activated on connect). Custom and local endpoints (a
- * self-hosted Ollama, LM Studio, a proxy) are configured later in Settings → AI Models, via Pi.
+ * Onboarding's take on the AI Models settings page: it reuses the same provider-management state
+ * ({@link useProviderManager}), empty-state picker, connect drawers, and provider row so the two
+ * surfaces stay consistent. Pared down for first-run — only one provider is added (no "Add provider"
+ * button), and model selection uses the compact switcher rather than the settings hero. Additional
+ * or custom/local endpoints are managed later in Settings.
  */
 export function AiStep({
   onBack,
@@ -27,52 +26,8 @@ export function AiStep({
   onBack: () => void;
   onNext: () => void;
 }): React.JSX.Element {
-  const [state, setState] = useState<AiState | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    async function ensureMarqueeAndLoad(): Promise<void> {
-      const initial = await window.api.ai.getState();
-      const present = new Set(
-        initial.providers.map((p) => p.knownProvider).filter((n): n is string => !!n)
-      );
-      const missing = MARQUEE_PROVIDERS.filter((name) => !present.has(name));
-      for (const name of missing) await window.api.ai.addKnownProvider(name);
-      const next = missing.length > 0 ? await window.api.ai.getState() : initial;
-      if (active) setState(next);
-    }
-
-    void ensureMarqueeAndLoad();
-    // Keep in sync with main-side changes (e.g. a connection auto-activating a model).
-    const off = window.api.ai.onChanged(() => {
-      void window.api.ai.getState().then((s) => {
-        if (active) setState(s);
-      });
-    });
-    return () => {
-      active = false;
-      off();
-    };
-  }, []);
-
-  const knownProviders = state?.providers.filter((p) => !!p.knownProvider) ?? [];
-  const active = state?.active ?? null;
-
-  /** After connecting in the inline panel, auto-pick the provider's first listed model. */
-  async function handleProviderChanged(providerId: string): Promise<void> {
-    const next = await window.api.ai.getState();
-    setState(next);
-    if (next.active) return;
-    const p = next.providers.find((x) => x.id === providerId);
-    if (!p?.auth.configured) return;
-    const result = await window.api.ai.listModels(p.id);
-    if (!result.ok || result.models.length === 0) return;
-    const m = result.models[0];
-    await window.api.ai.setActive(p.id, m.id, m.capabilities);
-    setState(await window.api.ai.getState());
-  }
+  const pm = useProviderManager();
+  const { state, active } = pm;
 
   // A model is active once a provider is connected; that's the real "ready to continue" signal.
   const primaryEnabled = !!active;
@@ -87,49 +42,48 @@ export function AiStep({
       </p>
 
       <div className="mt-6 flex flex-col gap-2">
-        {!state && (
+        {!state ? (
           <div className="flex items-center gap-2 py-2 text-muted-foreground text-xs">
             <Loader2Icon className="size-3.5 animate-spin" />
             Loading providers…
           </div>
+        ) : state.providers.length === 0 ? (
+          <ProvidersEmptyState
+            showHeading={false}
+            onPick={pm.openNewConnect}
+            onCustom={pm.openCustomEditor}
+            onBrowseAll={() => pm.setAddOpen(true)}
+          />
+        ) : (
+          <div className="divide-y divide-border overflow-hidden rounded-lg border">
+            {state.providers.map((p) => (
+              <ProviderRow
+                key={p.id}
+                provider={p}
+                onEdit={() => pm.editProvider(p)}
+                onDelete={() => pm.requestDelete(p)}
+              />
+            ))}
+          </div>
         )}
-        {knownProviders.map((p) => {
-          const expanded = expandedId === p.id;
-          return (
-            <div key={p.id} className="overflow-hidden rounded-lg border">
-              <button
-                type="button"
-                onClick={() => setExpandedId((cur) => (cur === p.id ? null : p.id))}
-                className="flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
-              >
-                <ProviderBadge knownProvider={p.knownProvider} label={p.label} />
-                <span className="min-w-0 flex-1 truncate font-medium text-sm">{p.label}</span>
-                <ProviderConnState p={p} />
-                <ChevronDownIcon
-                  className={cn(
-                    "size-4 shrink-0 text-muted-foreground/60 transition-transform",
-                    expanded && "rotate-180"
-                  )}
-                  aria-hidden
-                />
-              </button>
-              {expanded && (
-                <div className="border-t bg-muted/20">
-                  <KnownProviderAuth
-                    provider={p}
-                    onChanged={() => void handleProviderChanged(p.id)}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
 
-        {active && (
-          <p className="mt-1 flex items-center gap-1.5 text-muted-foreground text-xs">
-            <CheckIcon className="size-3.5 text-emerald-500" />
-            Using <span className="font-mono">{active.model}</span> — switch anytime in Settings.
-          </p>
+        {state && pm.hasConnected && (
+          <div className="mt-1 flex items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="min-w-0">
+              <div className="font-medium text-sm">Model</div>
+              <div className="text-muted-foreground text-xs">
+                {active ? (
+                  <span className="flex items-center gap-1.5">
+                    <CheckIcon className="size-3.5 text-emerald-500" />
+                    Switch anytime in chat or Settings.
+                  </span>
+                ) : (
+                  "Pick a model to finish setup."
+                )}
+              </div>
+            </div>
+            <ModelSwitcher state={state} onSelected={() => void pm.reload()} />
+          </div>
         )}
       </div>
 
@@ -148,18 +102,37 @@ export function AiStep({
           </Button>
         </div>
       </div>
+
+      <AddProviderSheet
+        open={pm.addOpen}
+        onOpenChange={pm.setAddOpen}
+        addedKnownProviders={pm.addedKnown}
+        onPickKnown={(option: KnownProviderOption) => pm.openNewConnect(option.name, option.label)}
+        onChooseCustom={pm.openCustomEditor}
+      />
+
+      <ProviderEditorSheet
+        open={pm.editorOpen}
+        onOpenChange={pm.setEditorOpen}
+        provider={pm.editorProvider}
+        onSaved={() => void pm.reload()}
+      />
+
+      <KnownProviderAuthSheet
+        open={pm.authOpen}
+        onOpenChange={pm.setAuthOpen}
+        target={pm.connectDrawerTarget}
+        onChanged={() => void pm.reload()}
+        onConnected={() => void pm.reload()}
+      />
+
+      <DeleteProviderDialog
+        pendingDelete={pm.pendingDelete}
+        deleting={pm.deleting}
+        deleteError={pm.deleteError}
+        onCancel={pm.cancelDelete}
+        onConfirm={() => void pm.confirmDelete()}
+      />
     </div>
   );
-}
-
-/** Glanceable connection status for an inline provider row (mirrors Settings → Sources). */
-function ProviderConnState({ p }: { p: ProviderView }): React.JSX.Element {
-  if (p.auth.configured) {
-    return (
-      <span className="shrink-0 font-medium text-emerald-600 text-xs dark:text-emerald-400">
-        {p.auth.method === "oauth" ? "Signed in" : "API key set"}
-      </span>
-    );
-  }
-  return <span className="shrink-0 text-muted-foreground text-xs">Not connected</span>;
 }

@@ -101,29 +101,6 @@ const AiSchema = z
 type AiStored = z.infer<typeof AiSchema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
 
-/**
- * First-run convenience: pre-list the marquee OAuth-capable catalog providers as ordinary, removable
- * providers, each unconnected until the user signs in. If the user removes one (or edits the saved
- * config), it is not re-added. Other providers are added from the catalog or "Custom endpoint".
- * Stable ids so an active selection survives reloads; built from the catalog so labels/baseUrl/
- * protocol stay in sync with Pi.
- */
-const SEEDED_PROVIDERS = ["anthropic", "openai-codex", "github-copilot"] as const;
-
-function seedProviders(): ProviderStored[] {
-  return SEEDED_PROVIDERS.map((name) => ({
-    id: `default-${name}`,
-    label: knownProviderLabel(name),
-    // anthropic-messages models map to our "anthropic" protocol; everything else routes as openai-ish.
-    protocol: catalogModels(name)[0]?.api === "anthropic-messages" ? "anthropic" : "openai",
-    baseUrl: catalogBaseUrl(name),
-    authKind: "api-key",
-    encryptedSecret: null,
-    knownProvider: name,
-    preset: null
-  }));
-}
-
 function configPath(): string {
   return join(app.getPath("userData"), AI_FILENAME);
 }
@@ -133,17 +110,17 @@ function write(state: AiStored): void {
   writeFileSync(configPath(), `${JSON.stringify(state, null, 2)}\n`, "utf-8");
 }
 
-/** Load, seeding a first-run (or corrupt) config with the default Anthropic provider. */
+/** Load. A first-run (or corrupt) config starts empty — the user adds providers from the UI. */
 function load(): AiStored {
   const p = configPath();
   if (existsSync(p)) {
     try {
       return AiSchema.parse(JSON.parse(readFileSync(p, "utf-8")));
     } catch {
-      /* corrupt — fall through to reseed a fresh default */
+      /* corrupt — fall through to a fresh empty config */
     }
   }
-  const seeded: AiStored = { providers: seedProviders(), active: null };
+  const seeded: AiStored = { providers: [], active: null };
   write(seeded);
   return seeded;
 }

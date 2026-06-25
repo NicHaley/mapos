@@ -6,26 +6,26 @@ import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 
 /**
- * "Add provider" chooser. Two sources: Pi's bundled cloud catalog (one click — no URL/protocol
- * typing) and a "Custom endpoint" escape hatch for anything else (a self-hosted runtime like Ollama
- * or LM Studio, LiteLLM, a corporate proxy). The embedded local runtime lives in its own section.
+ * "Add provider" chooser. Two sources: Pi's bundled cloud catalog (no URL/protocol typing) and a
+ * "Custom endpoint" escape hatch for anything else (a self-hosted runtime like Ollama or LM Studio,
+ * LiteLLM, a corporate proxy). Picking a catalog provider opens the connect drawer — nothing is
+ * persisted until the user actually connects there.
  */
 export function AddProviderSheet({
   open,
   onOpenChange,
   addedKnownProviders,
-  onAddKnown,
+  onPickKnown,
   onChooseCustom
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Catalog names already added, so we don't offer duplicates. */
   addedKnownProviders: Set<string>;
-  onAddKnown: (name: string) => Promise<void>;
+  onPickKnown: (option: KnownProviderOption) => void;
   onChooseCustom: () => void;
 }): React.JSX.Element {
   const [known, setKnown] = useState<KnownProviderOption[] | null>(null);
-  const [adding, setAdding] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -35,33 +35,26 @@ export function AddProviderSheet({
 
   const available = known?.filter((k) => !addedKnownProviders.has(k.name)) ?? null;
 
-  async function add(name: string): Promise<void> {
-    setAdding(name);
-    await onAddKnown(name);
-    setAdding(null);
-  }
-
   return (
     <SettingsSheet
       open={open}
       onOpenChange={onOpenChange}
       title="Add provider"
-      description="Pick a provider from the catalog — models and protocol come built in — or add a custom endpoint."
+      description="Pick a provider from the catalog or add a custom endpoint."
     >
       <div className="flex flex-col gap-4">
-        <button
-          type="button"
-          onClick={onChooseCustom}
-          className="flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
-        >
-          <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
+        <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+          <SlidersHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">Custom endpoint</div>
             <div className="text-xs text-muted-foreground">
-              Any OpenAI-compatible URL — a local runtime on a custom port, LiteLLM, a proxy.
+              Use to configure local AI or proxies.
             </div>
           </div>
-        </button>
+          <Button variant="outline" size="sm" onClick={onChooseCustom}>
+            Add
+          </Button>
+        </div>
 
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">From catalog</span>
@@ -86,13 +79,7 @@ export function AddProviderSheet({
                     </div>
                     <div className="text-xs text-muted-foreground">{k.modelCount} models</div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void add(k.name)}
-                    disabled={adding !== null}
-                  >
-                    {adding === k.name ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                  <Button variant="outline" size="sm" onClick={() => onPickKnown(k)}>
                     Add
                   </Button>
                 </div>

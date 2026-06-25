@@ -109,20 +109,31 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
     return result;
   });
 
-  // Runs the OAuth flow (opens the system browser, awaits the local callback). Progress and the
-  // authorize URL are streamed to the renderer via `ai:oauth-progress` so it can show status and a
-  // manual "open browser" link.
+  // Runs the OAuth flow. Two shapes stream over `ai:oauth-progress`: a callback-server flow
+  // (Anthropic) reports `awaiting-browser` with the authorize URL, while a device-code flow (GitHub
+  // Copilot) reports `device-code` with a user code the renderer shows for entry in the browser.
   ipcMain.handle("ai:oauth-login", async (_e, args: { provider: string }) => {
-    const emit = (status: string, url?: string): void => {
+    const emit = (
+      status: string,
+      extra?: { url?: string; userCode?: string; verificationUri?: string }
+    ): void => {
       if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("ai:oauth-progress", { provider: args.provider, status, url });
+        mainWindow.webContents.send("ai:oauth-progress", {
+          provider: args.provider,
+          status,
+          ...extra
+        });
       }
     };
     emit("starting");
     const result = await oauthLogin(args.provider, {
       onAuthUrl: (url) => {
         void shell.openExternal(url);
-        emit("awaiting-browser", url);
+        emit("awaiting-browser", { url });
+      },
+      onDeviceCode: ({ userCode, verificationUri }) => {
+        void shell.openExternal(verificationUri);
+        emit("device-code", { userCode, verificationUri });
       },
       onProgress: (m) => emit(m)
     });

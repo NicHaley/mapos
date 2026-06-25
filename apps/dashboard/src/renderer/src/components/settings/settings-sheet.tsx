@@ -21,7 +21,8 @@ export function SettingsSheet({
   children,
   footer,
   side = "right",
-  width = 360
+  width = 360,
+  bodyClassName
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +32,9 @@ export function SettingsSheet({
   footer?: React.ReactNode;
   side?: "right" | "left";
   width?: number;
+  /** Override the body wrapper classes (default: padded + own scroll). Pass a flush, self-scrolling
+   * layout when the child manages its own scroll area (e.g. a Command list filling the drawer). */
+  bodyClassName?: string;
 }): React.JSX.Element | null {
   const slot = useSettingsSheetSlot();
   const titleId = useId();
@@ -117,7 +121,7 @@ export function SettingsSheet({
             <XIcon className="size-4" />
           </Button>
         </header>
-        <div className="flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        <div className={cn("flex-1 overflow-y-auto px-4 py-4", bodyClassName)}>{children}</div>
         {footer && <div className="border-t px-4 py-3">{footer}</div>}
       </div>
     </>,

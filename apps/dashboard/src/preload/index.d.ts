@@ -204,7 +204,13 @@ declare global {
         disconnect: (provider: string) => Promise<{ ok: true }>;
         /** Returns a cleanup function. */
         onOAuthProgress: (
-          cb: (data: { provider: string; status: string; url?: string }) => void
+          cb: (data: {
+            provider: string;
+            status: string;
+            url?: string;
+            userCode?: string;
+            verificationUri?: string;
+          }) => void
         ) => () => void;
         /** Returns a cleanup function. */
         onChanged: (cb: () => void) => () => void;

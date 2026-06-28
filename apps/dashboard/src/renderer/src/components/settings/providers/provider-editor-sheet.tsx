@@ -22,7 +22,8 @@ import {
   EyeOffIcon,
   KeyRoundIcon,
   Loader2Icon,
-  PlugZapIcon
+  PlugZapIcon,
+  Trash2Icon
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
@@ -47,13 +48,16 @@ export function ProviderEditorSheet({
   open,
   onOpenChange,
   provider,
-  onSaved
+  onSaved,
+  onRequestDelete
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** null = create a new provider; otherwise edit this one. */
   provider: ProviderView | null;
   onSaved: (createdId?: string) => void;
+  /** When editing, fires a removal request (closes the sheet; the host confirms + deletes). */
+  onRequestDelete?: () => void;
 }): React.JSX.Element {
   const [label, setLabel] = useState("");
   const [protocol, setProtocol] = useState<ProviderProtocol>("openai");
@@ -150,12 +154,30 @@ export function ProviderEditorSheet({
       description="A provider is a protocol, an endpoint, and how it authenticates. Models are fetched live from it."
       footer={
         <div className="flex items-center gap-2">
+          {isEdit && onRequestDelete && (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={busy}
+              onClick={() => {
+                onOpenChange(false);
+                onRequestDelete();
+              }}
+            >
+              <Trash2Icon className="size-4" />
+              Remove
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => void handleTest()}
             disabled={busy || testing || baseUrl.trim().length === 0}
           >
-            {testing ? <Loader2Icon className="size-4 animate-spin" /> : <PlugZapIcon className="size-4" />}
+            {testing ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <PlugZapIcon className="size-4" />
+            )}
             Test
           </Button>
           <div className="min-w-0 flex-1">

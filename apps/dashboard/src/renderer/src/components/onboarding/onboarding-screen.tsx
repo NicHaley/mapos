@@ -46,9 +46,9 @@ export function OnboardingScreen(): React.JSX.Element {
           className="h-[34px] shrink-0"
           style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         />
-        <div className="flex flex-1 overflow-y-auto">
+        <div className="flex flex-1 flex-col overflow-y-auto">
           <div
-            className={cn("mx-auto flex min-h-full w-full flex-col px-6 pb-12", PANEL_WIDTH_CLASS)}
+            className={cn("mx-auto flex min-h-full w-full flex-col px-6 py-12", PANEL_WIDTH_CLASS)}
           >
             {showStepper && (
               <nav

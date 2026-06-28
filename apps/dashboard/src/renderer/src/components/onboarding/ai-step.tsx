@@ -1,13 +1,12 @@
 import { Button } from "@mapos/ui/components/button";
 import type { KnownProviderOption } from "@shared/ai-providers";
-import { ArrowLeftIcon, CheckIcon, Loader2Icon } from "lucide-react";
+import { ArrowLeftIcon, Loader2Icon } from "lucide-react";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { AddProviderSheet } from "../settings/providers/add-provider-sheet";
 import { DeleteProviderDialog } from "../settings/providers/delete-provider-dialog";
 import { KnownProviderAuthSheet } from "../settings/providers/known-provider-auth-sheet";
-import { ModelSwitcher } from "../settings/providers/model-switcher";
 import { ProviderEditorSheet } from "../settings/providers/provider-editor-sheet";
-import { ProviderRow } from "../settings/providers/provider-row";
+import { ProviderModelsList } from "../settings/providers/provider-models-list";
 import { ProvidersEmptyState } from "../settings/providers/providers-empty-state";
 import { useProviderManager } from "../settings/providers/use-provider-manager";
 import { CmdEnterHint } from "./cmd-enter-hint";
@@ -27,7 +26,9 @@ export function AiStep({
   onNext: () => void;
 }): React.JSX.Element {
   const pm = useProviderManager();
-  const { state, active } = pm;
+  const { state, active, editorProvider } = pm;
+  const editingExisting =
+    pm.connectDrawerTarget?.kind === "existing" ? pm.connectDrawerTarget.provider : null;
 
   // A model is active once a provider is connected; that's the real "ready to continue" signal.
   const primaryEnabled = !!active;
@@ -37,8 +38,7 @@ export function AiStep({
     <div className="flex flex-col">
       <h1 className="text-2xl font-semibold tracking-tight">Connect an AI provider</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Use Claude, GPT and more over the network — sign in or paste an API key. Need a custom or
-        local endpoint (Ollama, LM Studio, a proxy)? Add one anytime in Settings → AI Models.
+        Connect MapOS to local or cloud AI providers.
       </p>
 
       <div className="mt-6 flex flex-col gap-2">
@@ -55,35 +55,11 @@ export function AiStep({
             onBrowseAll={() => pm.setAddOpen(true)}
           />
         ) : (
-          <div className="divide-y divide-border overflow-hidden rounded-lg border">
-            {state.providers.map((p) => (
-              <ProviderRow
-                key={p.id}
-                provider={p}
-                onEdit={() => pm.editProvider(p)}
-                onDelete={() => pm.requestDelete(p)}
-              />
-            ))}
-          </div>
-        )}
-
-        {state && pm.hasConnected && (
-          <div className="mt-1 flex items-center justify-between gap-3 rounded-lg border p-3">
-            <div className="min-w-0">
-              <div className="font-medium text-sm">Model</div>
-              <div className="text-muted-foreground text-xs">
-                {active ? (
-                  <span className="flex items-center gap-1.5">
-                    <CheckIcon className="size-3.5 text-emerald-500" />
-                    Switch anytime in chat or Settings.
-                  </span>
-                ) : (
-                  "Pick a model to finish setup."
-                )}
-              </div>
-            </div>
-            <ModelSwitcher state={state} onSelected={() => void pm.reload()} />
-          </div>
+          <ProviderModelsList
+            state={state}
+            onEditProvider={pm.editProvider}
+            onSelected={pm.reload}
+          />
         )}
       </div>
 
@@ -114,8 +90,9 @@ export function AiStep({
       <ProviderEditorSheet
         open={pm.editorOpen}
         onOpenChange={pm.setEditorOpen}
-        provider={pm.editorProvider}
+        provider={editorProvider}
         onSaved={() => void pm.reload()}
+        onRequestDelete={editorProvider ? () => pm.requestDelete(editorProvider) : undefined}
       />
 
       <KnownProviderAuthSheet
@@ -124,6 +101,7 @@ export function AiStep({
         target={pm.connectDrawerTarget}
         onChanged={() => void pm.reload()}
         onConnected={() => void pm.reload()}
+        onRequestDelete={editingExisting ? () => pm.requestDelete(editingExisting) : undefined}
       />
 
       <DeleteProviderDialog

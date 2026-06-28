@@ -6,7 +6,14 @@ import {
   InputGroupInput
 } from "@mapos/ui/components/input-group";
 import type { ProviderView } from "@shared/ai-providers";
-import { CheckCircle2Icon, EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyRoundIcon,
+  Loader2Icon,
+  Trash2Icon
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
 import { OauthProgress } from "./oauth-progress";
@@ -30,7 +37,8 @@ export function KnownProviderAuthSheet({
   onOpenChange,
   target,
   onChanged,
-  onConnected
+  onConnected,
+  onRequestDelete
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,6 +48,8 @@ export function KnownProviderAuthSheet({
   onChanged: () => void;
   /** Fired only after a successful connect, so the host can prompt a model selection. */
   onConnected: () => void;
+  /** For an existing row, fires a removal request (closes the sheet; the host confirms + deletes). */
+  onRequestDelete?: () => void;
 }): React.JSX.Element {
   const name = target
     ? target.kind === "existing"
@@ -89,21 +99,36 @@ export function KnownProviderAuthSheet({
     }
   }
 
-  const footer = !target ? null : configured ? (
-    <div className="flex items-center justify-end gap-2">
-      <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={connect.busy}>
-        Close
+  // Removal lives in the footer for an existing row; the X / backdrop already handle dismissal.
+  const removeButton =
+    target?.kind === "existing" && onRequestDelete ? (
+      <Button
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        disabled={connect.busy}
+        onClick={() => {
+          onOpenChange(false);
+          onRequestDelete();
+        }}
+      >
+        <Trash2Icon className="size-4" />
+        Remove
       </Button>
+    ) : (
+      <span />
+    );
+
+  const footer = !target ? null : configured ? (
+    <div className="flex items-center justify-between gap-2">
+      {removeButton}
       <Button variant="outline" onClick={() => void connect.disconnect()} disabled={connect.busy}>
         {connect.busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
         Disconnect
       </Button>
     </div>
   ) : (
-    <div className="flex items-center justify-end gap-2">
-      <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={connect.busy}>
-        Cancel
-      </Button>
+    <div className="flex items-center justify-between gap-2">
+      {removeButton}
       <Button
         onClick={() => void primaryConnect()}
         disabled={connect.busy || resolving || (keyEntry && !connect.canSaveKey)}

@@ -47,8 +47,14 @@ export function OnboardingScreen(): React.JSX.Element {
           style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         />
         <div className="flex flex-1 flex-col overflow-y-auto">
+          {/* shrink-0 so the panel keeps its full content height instead of being shrunk to the
+              scroll container — otherwise overflowing content bleeds past the panel's box and the
+              bottom py-12 never shows when scrolled to the end. */}
           <div
-            className={cn("mx-auto flex min-h-full w-full flex-col px-6 py-12", PANEL_WIDTH_CLASS)}
+            className={cn(
+              "mx-auto flex min-h-full w-full shrink-0 flex-col px-6 py-12",
+              PANEL_WIDTH_CLASS
+            )}
           >
             {showStepper && (
               <nav

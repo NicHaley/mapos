@@ -1,16 +1,17 @@
 import { Button } from "@mapos/ui/components/button";
+import { formatContextWindow, formatTokenPrice } from "@shared/ai-models";
 import type { FetchedModel, ProviderView } from "@shared/ai-providers";
 import { CheckIcon, Loader2Icon } from "lucide-react";
 import { useState } from "react";
 import { SettingsSheet } from "../settings-sheet";
-import { CapabilityBadges } from "./capability-badges";
 import { ProviderBadge } from "./provider-badge";
 
 /**
- * Detail drawer for a single model: provider, capabilities, and the "make default" action. Opened
- * from a model row in {@link ProviderModelsList} (the chevron affordance). Selecting sets the global
- * active model via the same `setActive` path the chat switcher uses. Locked when the provider isn't
- * connected — connecting happens through the group's Edit action, not here.
+ * Detail drawer for a single model: its capabilities and metadata (provider, context window,
+ * pricing) laid out as basic tables, plus the "make default" action. Opened from a model row in
+ * {@link ProviderModelsList}. Selecting sets the global active model via the same `setActive` path
+ * the chat switcher uses. Locked when the provider isn't connected — connecting happens through the
+ * group's Edit action, not here.
  */
 export function ModelDetailSheet({
   open,
@@ -60,32 +61,66 @@ export function ModelDetailSheet({
       </Button>
     );
 
+  const caps = model?.capabilities;
+  const capabilityRows: InfoRow[] = caps
+    ? [
+        { label: "Tools", value: caps.supportsTools ? "Yes" : "No" },
+        { label: "Vision", value: caps.supportsImages ? "Yes" : "No" },
+        { label: "Thinking", value: caps.thinking === "off" ? "No" : capitalize(caps.thinking) }
+      ]
+    : [];
+
+  const aboutRows: InfoRow[] =
+    provider && model
+      ? [
+          {
+            label: "Provider",
+            value: (
+              <span className="flex items-center justify-end gap-1.5">
+                <ProviderBadge
+                  knownProvider={provider.knownProvider}
+                  label={provider.label}
+                  size="sm"
+                />
+                {provider.label}
+              </span>
+            )
+          },
+          { label: "Model ID", value: <span className="font-mono text-xs">{model.id}</span> },
+          { label: "Context window", value: formatContextWindow(caps?.contextWindow ?? 0) },
+          ...(model.maxTokens
+            ? [{ label: "Max output", value: formatContextWindow(model.maxTokens) }]
+            : [])
+        ]
+      : [];
+
+  const pricingRows: InfoRow[] = model?.cost
+    ? [
+        { label: "Input", value: formatTokenPrice(model.cost.input) },
+        { label: "Output", value: formatTokenPrice(model.cost.output) },
+        { label: "Cache read", value: formatTokenPrice(model.cost.cacheRead) },
+        { label: "Cache write", value: formatTokenPrice(model.cost.cacheWrite) }
+      ]
+    : [];
+
   return (
     <SettingsSheet
       open={open}
       onOpenChange={onOpenChange}
-      title="Model"
-      description={provider ? `via ${provider.label}` : undefined}
+      title={model?.name ?? model?.id ?? "Model"}
+      description={provider?.label}
       footer={footer}
     >
       {provider && model && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-3">
-            <ProviderBadge
-              knownProvider={provider.knownProvider}
-              label={provider.label}
-              size="lg"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="break-all font-mono text-base">{model.id}</div>
-              <div className="text-muted-foreground text-sm">{provider.label}</div>
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 font-medium text-muted-foreground text-xs">Capabilities</div>
-            <CapabilityBadges caps={model.capabilities} source={model.capabilitySource} />
-          </div>
+        <div className="flex flex-col gap-5">
+          <InfoTable heading="Capabilities" rows={capabilityRows} />
+          {model.capabilitySource === "assumed" && (
+            <p className="-mt-3 text-muted-foreground text-xs">
+              Capabilities couldn't be fetched and are assumed.
+            </p>
+          )}
+          <InfoTable heading="About" rows={aboutRows} />
+          {pricingRows.length > 0 && <InfoTable heading="Pricing" rows={pricingRows} />}
 
           {!connected && (
             <p className="text-muted-foreground text-xs">
@@ -96,4 +131,30 @@ export function ModelDetailSheet({
       )}
     </SettingsSheet>
   );
+}
+
+type InfoRow = { label: string; value: React.ReactNode };
+
+function InfoTable({ heading, rows }: { heading: string; rows: InfoRow[] }): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="font-medium text-muted-foreground text-xs">{heading}</div>
+      <div className="overflow-hidden rounded-lg border">
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-border">
+            {rows.map((r) => (
+              <tr key={r.label}>
+                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.label}</td>
+                <td className="px-3 py-2 text-right">{r.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

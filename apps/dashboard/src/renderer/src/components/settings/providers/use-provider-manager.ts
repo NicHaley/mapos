@@ -9,6 +9,9 @@ export type ProviderManager = {
   state: AiState | null;
   /** Refetch and return the latest state, so callers can act on it without a second fetch. */
   reload: () => Promise<AiState>;
+  /** After a connect/add, pick a sensible default model (the newest of the first connected provider
+   * that returns any) — but only when no default is set yet. No-op otherwise. */
+  ensureDefaultModel: () => Promise<void>;
 
   // Add / edit / connect drawers.
   addOpen: boolean;
@@ -68,6 +71,22 @@ export function useProviderManager(): ProviderManager {
     return next;
   }, []);
 
+  const ensureDefaultModel = useCallback(async () => {
+    const next = await window.api.ai.getState();
+    setState(next);
+    if (next.active) return; // a default is already set — never override the user's choice
+    for (const p of next.providers) {
+      if (!p.auth.configured) continue;
+      const res = await window.api.ai.listModels(p.id);
+      if (!res.ok || res.models.length === 0) continue;
+      // Providers list models oldest-first; the newest (top of the reversed UI list) is last.
+      const newest = res.models[res.models.length - 1];
+      const set = await window.api.ai.setActive(p.id, newest.id, newest.capabilities);
+      if (set.ok) await reload();
+      return;
+    }
+  }, [reload]);
+
   useEffect(() => {
     void reload();
     return window.api.ai.onChanged(() => void reload());
@@ -124,6 +143,9 @@ export function useProviderManager(): ProviderManager {
       return;
     }
     setPendingDelete(null);
+    // The provider is gone, so close any edit/connect drawer that was open for it.
+    setAuthOpen(false);
+    setEditorOpen(false);
     await reload();
   }, [pendingDelete, reload]);
 
@@ -148,6 +170,7 @@ export function useProviderManager(): ProviderManager {
   return {
     state,
     reload,
+    ensureDefaultModel,
     addOpen,
     setAddOpen,
     editorOpen,

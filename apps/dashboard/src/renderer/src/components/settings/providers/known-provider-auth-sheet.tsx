@@ -106,10 +106,7 @@ export function KnownProviderAuthSheet({
         variant="ghost"
         className="text-destructive hover:text-destructive"
         disabled={connect.busy}
-        onClick={() => {
-          onOpenChange(false);
-          onRequestDelete();
-        }}
+        onClick={onRequestDelete}
       >
         <Trash2Icon className="size-4" />
         Remove

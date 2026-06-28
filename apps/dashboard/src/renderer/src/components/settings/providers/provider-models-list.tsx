@@ -55,7 +55,7 @@ export function ProviderModelsList({
 
       {onAddProvider && (
         <div className="flex justify-center">
-          <Button variant="ghost" size="sm" onClick={onAddProvider}>
+          <Button variant="ghost" onClick={onAddProvider}>
             <PlusIcon className="size-4" />
             Add provider
           </Button>
@@ -168,7 +168,7 @@ function ProviderModelGroup({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="w-full px-3 py-2.5 text-center font-medium text-muted-foreground text-sm transition-colors hover:bg-accent/40"
+              className="w-full px-3 py-1.5 text-center font-medium text-muted-foreground text-sm transition-colors hover:bg-accent/40"
             >
               {expanded ? "Show less" : "Show all"}
             </button>

@@ -91,7 +91,7 @@ export function AiStep({
         open={pm.editorOpen}
         onOpenChange={pm.setEditorOpen}
         provider={editorProvider}
-        onSaved={() => void pm.reload()}
+        onSaved={() => void pm.ensureDefaultModel()}
         onRequestDelete={editorProvider ? () => pm.requestDelete(editorProvider) : undefined}
       />
 
@@ -100,7 +100,7 @@ export function AiStep({
         onOpenChange={pm.setAuthOpen}
         target={pm.connectDrawerTarget}
         onChanged={() => void pm.reload()}
-        onConnected={() => void pm.reload()}
+        onConnected={() => void pm.ensureDefaultModel()}
         onRequestDelete={editingExisting ? () => pm.requestDelete(editingExisting) : undefined}
       />
 

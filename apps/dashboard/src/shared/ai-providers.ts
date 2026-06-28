@@ -7,7 +7,7 @@
  * `/api/show`) and fall back to a per-protocol default.
  */
 
-import type { ModelCapabilities } from "./ai-models";
+import type { ModelCapabilities, ModelCost } from "./ai-models";
 
 /** Wire format / SDK adapter. `anthropic` = Messages API, `openai` = OpenAI-compatible completions. */
 export type ProviderProtocol = "anthropic" | "openai";
@@ -70,6 +70,13 @@ export type FetchedModel = {
   id: string;
   capabilities: ModelCapabilities;
   capabilitySource: CapabilitySource;
+  /** Friendly display name from the catalog (e.g. "Claude Sonnet 4.5"); absent for HTTP-listed
+   * endpoints that only return ids. */
+  name?: string;
+  /** Max output tokens, when the catalog reports it. */
+  maxTokens?: number;
+  /** Per-1M-token pricing, when the catalog reports it (catalog providers only). */
+  cost?: ModelCost;
 };
 
 /** The single active provider+model selection, with capabilities captured at selection time. */

@@ -79,12 +79,15 @@ export function ModelPickerList({
           const models = shouldFetch(p) ? await window.api.ai.listModels(p.id) : null;
           const rows: PickerModel[] =
             models?.ok === true
-              ? models.models.map((m) => ({
-                  id: m.id,
-                  capabilities: m.capabilities,
-                  source: m.capabilitySource,
-                  selectable: p.auth.configured
-                }))
+              ? // Providers return models oldest-first; reverse so the newest are at the top.
+                models.models
+                  .map((m) => ({
+                    id: m.id,
+                    capabilities: m.capabilities,
+                    source: m.capabilitySource,
+                    selectable: p.auth.configured
+                  }))
+                  .reverse()
               : [];
           return {
             key: p.id,

@@ -452,7 +452,10 @@ function catalogToFetched(name: string): FetchedModel[] {
       supportsTools: true,
       thinking: m.reasoning ? "high" : "off"
     },
-    capabilitySource: "fetched" as const
+    capabilitySource: "fetched" as const,
+    name: m.name,
+    maxTokens: m.maxTokens,
+    cost: m.cost
   }));
 }
 

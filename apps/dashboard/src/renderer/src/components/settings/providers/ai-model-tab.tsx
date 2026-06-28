@@ -1,6 +1,5 @@
 import type { KnownProviderOption } from "@shared/ai-providers";
 import { Loader2Icon } from "lucide-react";
-import { useCallback } from "react";
 import { AddProviderSheet } from "./add-provider-sheet";
 import { DeleteProviderDialog } from "./delete-provider-dialog";
 import { KnownProviderAuthSheet } from "./known-provider-auth-sheet";
@@ -11,11 +10,6 @@ import { useProviderManager } from "./use-provider-manager";
 
 export function AiModelTab(): React.JSX.Element {
   const pm = useProviderManager();
-
-  // After a provider connects, refresh so its models appear inline under the new group.
-  const reloadAfterConnect = useCallback(async (): Promise<void> => {
-    await pm.reload();
-  }, [pm.reload]);
 
   if (!pm.state) {
     return (
@@ -65,7 +59,7 @@ export function AiModelTab(): React.JSX.Element {
         open={pm.editorOpen}
         onOpenChange={pm.setEditorOpen}
         provider={editorProvider}
-        onSaved={() => void reloadAfterConnect()}
+        onSaved={() => void pm.ensureDefaultModel()}
         onRequestDelete={editorProvider ? () => pm.requestDelete(editorProvider) : undefined}
       />
 
@@ -74,7 +68,7 @@ export function AiModelTab(): React.JSX.Element {
         onOpenChange={pm.setAuthOpen}
         target={pm.connectDrawerTarget}
         onChanged={() => void pm.reload()}
-        onConnected={() => void reloadAfterConnect()}
+        onConnected={() => void pm.ensureDefaultModel()}
         onRequestDelete={editingExisting ? () => pm.requestDelete(editingExisting) : undefined}
       />
 

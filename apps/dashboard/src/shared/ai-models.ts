@@ -43,6 +43,19 @@ export function formatContextWindow(tokens: number): string {
   return `${Math.round(tokens / 1_000)}K`;
 }
 
+/** Per-token pricing in USD per 1M tokens, as reported by the provider catalog. */
+export type ModelCost = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+/** Display label for a USD-per-1M-tokens price, e.g. 3 → "$3.00 / 1M tokens". */
+export function formatTokenPrice(usdPerMillion: number): string {
+  return `$${usdPerMillion.toFixed(2)} / 1M tokens`;
+}
+
 export type AnthropicModel = {
   id: string;
   label: string;

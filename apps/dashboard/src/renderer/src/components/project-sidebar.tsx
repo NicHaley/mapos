@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { useLocalStorage } from "../lib/use-local-storage";
 import type { PlaceRecord } from "./map-view";
 import { CollapsibleGroupLabel } from "./project-sidebar/collapsible-group-label";
 import {
@@ -71,6 +72,14 @@ import {
 } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 
+// Shared empty initial value — the hook only reads it and callers always build
+// new Sets, so it is never mutated.
+const EMPTY_PATH_SET: Set<string> = new Set();
+const SET_STORAGE = {
+  serialize: (s: Set<string>) => JSON.stringify([...s]),
+  deserialize: (raw: string) => new Set<string>(JSON.parse(raw))
+};
+
 export function ProjectSidebar({
   selectedFilePath,
   selectedFolderPath,
@@ -120,10 +129,14 @@ export function ProjectSidebar({
   >("general");
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
   const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
-  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
-  // Tracks top-level dir paths we've auto-opened at least once. Lets the watcher
-  // reload the tree without re-opening folders the user has manually collapsed.
-  const seenTopLevelRef = useRef<Set<string>>(new Set());
+  // Folders the user has expanded, persisted per vault. Folders default closed
+  // (Obsidian / Finder behavior); the key is null until the vault root resolves,
+  // so the hook stays in-memory until then.
+  const [openFolders, setOpenFolders] = useLocalStorage<Set<string>>(
+    vaultRoot ? `mapos-open-folders:${vaultRoot}` : null,
+    EMPTY_PATH_SET,
+    SET_STORAGE
+  );
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [pathAnchor, setPathAnchor] = useState<string | null>(null);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
@@ -185,34 +198,23 @@ export function ProjectSidebar({
     [commitRenameConv, cancelRenameConv]
   );
 
-  const setFolderOpen = useCallback((path: string, open: boolean) => {
-    setOpenFolders((prev) => {
-      const wasOpen = prev.has(path);
-      if (wasOpen === open) return prev;
-      const next = new Set(prev);
-      if (open) next.add(path);
-      else next.delete(path);
-      return next;
-    });
-  }, []);
+  const setFolderOpen = useCallback(
+    (path: string, open: boolean) => {
+      setOpenFolders((prev) => {
+        const wasOpen = prev.has(path);
+        if (wasOpen === open) return prev;
+        const next = new Set(prev);
+        if (open) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+    },
+    [setOpenFolders]
+  );
 
   const load = useCallback(async () => {
     const nodes = await window.api.fs.listDir();
     setTree(nodes);
-    const newTopLevelDirs: string[] = [];
-    for (const n of nodes) {
-      if (n.type === "directory" && !seenTopLevelRef.current.has(n.path)) {
-        newTopLevelDirs.push(n.path);
-        seenTopLevelRef.current.add(n.path);
-      }
-    }
-    if (newTopLevelDirs.length > 0) {
-      setOpenFolders((prev) => {
-        const next = new Set(prev);
-        for (const p of newTopLevelDirs) next.add(p);
-        return next;
-      });
-    }
   }, []);
 
   useEffect(() => {

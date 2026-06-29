@@ -20,6 +20,10 @@ const MENU_ITEM_ID = "check-for-updates";
 let manualCheckInFlight = false;
 let manualCheckTimeoutId: NodeJS.Timeout | null = null;
 let activeWindow: BrowserWindow | null = null;
+// Set once an update has finished downloading. The quit path force-exits (a graceful
+// app.quit() hangs once native modules are loaded), which skips the `will-quit` hook
+// that `autoInstallOnAppQuit` relies on — so installs are triggered explicitly instead.
+let updateDownloaded = false;
 
 // Guard against silent hangs: electron-updater's `checkForUpdates()` can resolve
 // without firing any lifecycle event (e.g. network stalls). Without a ceiling
@@ -148,9 +152,10 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   autoUpdater.on("download-progress", (p: ProgressInfo) =>
     send(mainWindow, "updater:progress", { percent: p.percent })
   );
-  autoUpdater.on("update-downloaded", (info: UpdateInfo) =>
-    send(mainWindow, "updater:downloaded", { version: info.version })
-  );
+  autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+    updateDownloaded = true;
+    send(mainWindow, "updater:downloaded", { version: info.version });
+  });
   autoUpdater.on("error", (err: Error) => {
     send(mainWindow, "updater:error", { message: err.message });
     if (manualCheckInFlight) {
@@ -208,4 +213,16 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
     activeWindow = null;
     clearManualCheck();
   };
+}
+
+/**
+ * Called from the quit path. If an update finished downloading, hand off to
+ * electron-updater to install and relaunch, and report that we did so; otherwise
+ * return false so the caller can force-exit. The quit path can't rely on
+ * `autoInstallOnAppQuit` (its `will-quit` hook never runs when we force-exit).
+ */
+export function installDownloadedUpdateOnQuit(): boolean {
+  if (!updateDownloaded) return false;
+  autoUpdater.quitAndInstall();
+  return true;
 }

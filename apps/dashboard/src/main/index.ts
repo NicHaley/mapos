@@ -29,7 +29,7 @@ import {
 } from "./region-protocol";
 import { registerServicesIpc } from "./services-ipc";
 import { invalidateServiceClient } from "./services/client";
-import { setupUpdater } from "./updater";
+import { installDownloadedUpdateOnQuit, setupUpdater } from "./updater";
 import { setupPlacesWatcher } from "./watcher";
 
 // Privileged-scheme registration must happen before app `ready`, so it runs at
@@ -323,20 +323,25 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // Tear down vault state before exit, then quit for real. A hard app.exit() backstops a teardown
-  // that hangs (a wedged file handle shouldn't leave the app alive in the dock with no window).
+  // A graceful app.quit() never completes once the Valhalla native addon has been loaded —
+  // its threadpool is never released (the Actor exposes no dispose), so the process would
+  // otherwise hang in the Dock with no window. teardownVault() already flushes everything we
+  // care about (DB checkpoint, watcher, chat sessions), so once it's done we exit directly
+  // rather than wait on a quit that will hang. The one case that needs a real quit is
+  // installing a downloaded update — hand that off explicitly, with a force-exit backstop
+  // in case the hand-off itself stalls on the same native modules.
   let quitting = false;
   app.on("before-quit", (event) => {
-    if (quitting) return; // re-entry from the app.quit() below — let it proceed.
+    if (quitting) return; // re-entry from quitAndInstall()'s own quit — let it proceed.
     quitting = true;
     event.preventDefault();
-    // Force-exit backstop. Do NOT clear this on the happy path: app.quit() itself can
-    // hang when a lazily-opened native module (Valhalla Actor, geocode SQLite, pmtiles
-    // fds) hasn't released, which would otherwise leave the app alive in the Dock with
-    // no window. If app.quit() succeeds first, the process is already gone and this
-    // timer never fires.
-    setTimeout(() => app.exit(0), 5000);
-    void teardownVault().finally(() => app.quit());
+    void teardownVault().finally(() => {
+      if (installDownloadedUpdateOnQuit()) {
+        setTimeout(() => app.exit(0), 5000);
+      } else {
+        app.exit(0);
+      }
+    });
   });
 });
 

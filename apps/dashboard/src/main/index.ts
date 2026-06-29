@@ -28,6 +28,7 @@ import {
   registerRegionProtocol
 } from "./region-protocol";
 import { registerServicesIpc } from "./services-ipc";
+import { invalidateServiceClient } from "./services/client";
 import { setupUpdater } from "./updater";
 import { setupPlacesWatcher } from "./watcher";
 
@@ -153,6 +154,10 @@ app.whenReady().then(() => {
     stopChat();
     await stopWatcher();
     closeDb();
+    // Release the offline service handles too — Valhalla Actors, geocode SQLite,
+    // pmtiles fds. These are created lazily on first map/search/route interaction
+    // and were never torn down here, so they kept the process alive on quit.
+    invalidateServiceClient();
     vaultActive = false;
   }
 
@@ -325,11 +330,13 @@ app.whenReady().then(() => {
     if (quitting) return; // re-entry from the app.quit() below — let it proceed.
     quitting = true;
     event.preventDefault();
-    const hardKill = setTimeout(() => app.exit(0), 5000);
-    void teardownVault().finally(() => {
-      clearTimeout(hardKill);
-      app.quit();
-    });
+    // Force-exit backstop. Do NOT clear this on the happy path: app.quit() itself can
+    // hang when a lazily-opened native module (Valhalla Actor, geocode SQLite, pmtiles
+    // fds) hasn't released, which would otherwise leave the app alive in the Dock with
+    // no window. If app.quit() succeeds first, the process is already gone and this
+    // timer never fires.
+    setTimeout(() => app.exit(0), 5000);
+    void teardownVault().finally(() => app.quit());
   });
 });
 

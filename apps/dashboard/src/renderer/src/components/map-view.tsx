@@ -125,7 +125,8 @@ function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
     title: p.title || "Place",
     type: "Preview",
     geometry: JSON.stringify({ type: "Point", coordinates: [p.lng, p.lat] }),
-    previewMarkdown: p.preview_markdown ?? ""
+    previewMarkdown: p.preview_markdown ?? "",
+    ...(p.properties && Object.keys(p.properties).length > 0 ? { properties: p.properties } : {})
   };
 }
 

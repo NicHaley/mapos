@@ -71,25 +71,35 @@ const POI_KEYS = ["amenity", "shop", "tourism", "leisure", "office", "historic"]
 
 const STREET_BASE = 0.35;
 const POI_BASE = 0.3;
+// Below every named tier: an exact street address is a weak match next to a named
+// place/POI, so it only surfaces when the query actually looks like an address.
+const ADDRESS_BASE = 0.1;
 
 type Tags = Record<string, string>;
 type Classified = { kind: string; cls: string; base: number };
 
 function classify(tags: Tags): Classified | null {
-  if (!tags.name) return null;
+  if (tags.name) {
+    const place = tags.place;
+    if (place && place in PLACE_WEIGHTS) {
+      return { kind: "place", cls: place, base: PLACE_WEIGHTS[place] };
+    }
 
-  const place = tags.place;
-  if (place && place in PLACE_WEIGHTS) {
-    return { kind: "place", cls: place, base: PLACE_WEIGHTS[place] };
+    const highway = tags.highway;
+    if (highway && ROAD_TYPES.has(highway)) {
+      return { kind: "street", cls: highway, base: STREET_BASE };
+    }
+
+    for (const key of POI_KEYS) {
+      if (tags[key]) return { kind: "poi", cls: `${key}:${tags[key]}`, base: POI_BASE };
+    }
   }
 
-  const highway = tags.highway;
-  if (highway && ROAD_TYPES.has(highway)) {
-    return { kind: "street", cls: highway, base: STREET_BASE };
-  }
-
-  for (const key of POI_KEYS) {
-    if (tags[key]) return { kind: "poi", cls: `${key}:${tags[key]}`, base: POI_BASE };
+  // Address fallback: a self-tagged street address, even with no name (residential
+  // buildings and addr:housenumber nodes). The address line becomes the searchable
+  // name — so "123 Main St" resolves — but ranks below any named feature.
+  if (tags["addr:street"]?.trim() && tags["addr:housenumber"]?.trim()) {
+    return { kind: "address", cls: "address", base: ADDRESS_BASE };
   }
 
   return null;
@@ -103,7 +113,7 @@ function altNames(tags: Tags): string | null {
   // brand is an alternative identity ("BNP" for "BNP Paribas Agence Centrale"),
   // searchable like a translated name. Skip it when the name already contains it.
   const brand = tags.brand?.trim();
-  if (brand && !tags.name.toLowerCase().includes(brand.toLowerCase())) out.push(brand);
+  if (brand && !(tags.name ?? "").toLowerCase().includes(brand.toLowerCase())) out.push(brand);
   return out.length ? out.join("\n") : null;
 }
 
@@ -186,12 +196,31 @@ function summarizeGeometry(geom: Geometry): GeomSummary | null {
 
 // --- self-tagged street address ------------------------------------------------
 
-/** A street line from the feature's OWN addr:* tags (no geocoding). null when absent. */
-function addressLine(tags: Tags): string | null {
+// House-number placement is country convention, not something OSM tags per address.
+// Most of the world (incl. all of North America, France, UK, Ireland, ANZ) writes the
+// number first — "4668 Rue Saint-Hubert". A band of mostly European countries writes
+// it after the street — "Skalitzer Straße 12". Default number-first; list the
+// street-first countries explicitly (matched against the pack's --country).
+const STREET_FIRST_COUNTRIES = new Set([
+  "germany", "austria", "switzerland", "liechtenstein", "netherlands", "belgium",
+  "luxembourg", "denmark", "norway", "sweden", "finland", "iceland", "czechia",
+  "czech republic", "poland", "slovakia", "hungary", "croatia", "slovenia", "estonia",
+  "latvia", "lithuania", "spain", "italy", "portugal", "greece", "turkey", "romania",
+  "bulgaria", "serbia", "ukraine", "russia"
+]);
+
+/**
+ * A street line from the feature's OWN addr:* tags (no geocoding), ordered by the
+ * pack's country convention. null when the feature carries no street.
+ */
+function addressLine(tags: Tags, country: string | null): string | null {
   const street = tags["addr:street"]?.trim();
   if (!street) return null;
   const num = tags["addr:housenumber"]?.trim();
-  return num ? `${street} ${num}` : street;
+  if (!num) return street;
+  return country && STREET_FIRST_COUNTRIES.has(country.toLowerCase())
+    ? `${street} ${num}`
+    : `${num} ${street}`;
 }
 
 // --- admin hierarchy (point-in-polygon) ----------------------------------------
@@ -404,9 +433,9 @@ try {
 
   const insert = db.prepare(
     `INSERT INTO features
-       (osm_type, osm_id, name, alt_names, kind, class, category, category_terms, importance, population, admin_context, address, lat, lng,
+       (osm_type, osm_id, name, alt_names, kind, class, category, category_terms, importance, population, admin_context, address, wikidata, lat, lng,
         bbox_min_lng, bbox_min_lat, bbox_max_lng, bbox_max_lat)
-     VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @category, @category_terms, @importance, @population, @admin_context, @address, @lat, @lng,
+     VALUES (@osm_type, @osm_id, @name, @alt_names, @kind, @cls, @category, @category_terms, @importance, @population, @admin_context, @address, @wikidata, @lat, @lng,
         @bbox_min_lng, @bbox_min_lat, @bbox_max_lng, @bbox_max_lat)`
   );
 
@@ -447,7 +476,11 @@ try {
     // extractor) feed this the same {name, name:en} shape, so the rule lives here only.
     const localName = tags.name;
     const enName = tags["name:en"]?.trim();
-    const primaryName = enName || localName;
+    // Address features have no name; their address line stands in as the searchable,
+    // displayable primary label. Skip anything that ends up with nothing to show.
+    const primaryName =
+      enName || localName || (c.kind === "address" ? addressLine(tags, country) : null);
+    if (!primaryName) continue;
     const alts = altNames(tags);
     insert.run({
       osm_type: tags["@type"] ?? "",
@@ -478,7 +511,12 @@ try {
         country,
         maxCityLevel
       }),
-      address: addressLine(tags),
+      // For an address feature the line is already the name, so leave the address
+      // column null (the client then shows just the admin context as the secondary).
+      address: c.kind === "address" ? null : addressLine(tags, country),
+      // Wikidata QID kept for the client to expose (and link to wikidata.org); also
+      // already folded into `importance` above as a fame proxy.
+      wikidata: tags.wikidata?.trim() || null,
       lng: geom.lng,
       lat: geom.lat,
       bbox_min_lng: geom.minLng,
@@ -546,10 +584,34 @@ try {
       "DELETE FROM features WHERE kind = 'poi' AND id NOT IN (SELECT keep_id FROM poi_merge)"
     )
     .run().changes;
-  console.error(
-    `  merged ${Number(droppedStreets).toLocaleString()} street segments, ${Number(droppedPois).toLocaleString()} duplicate POIs`
+
+  // Addresses: the same house is often both an addr:housenumber node and its building
+  // outline. Dedupe per (name, ~55 m grid) — name is the address line here — preferring
+  // the node and keeping the union extent. Distinct homes sharing a street+number fall
+  // in different cells and both survive.
+  db.exec(
+    `CREATE TEMP TABLE address_merge AS
+       SELECT coalesce(min(CASE WHEN osm_type = 'node' THEN id END), min(id)) AS keep_id,
+              min(bbox_min_lng) AS min_lng, min(bbox_min_lat) AS min_lat,
+              max(bbox_max_lng) AS max_lng, max(bbox_max_lat) AS max_lat
+       FROM features
+       WHERE kind = 'address'
+       GROUP BY name, round(lat * 2000), round(lng * 2000);
+     UPDATE features SET
+       bbox_min_lng = m.min_lng, bbox_min_lat = m.min_lat,
+       bbox_max_lng = m.max_lng, bbox_max_lat = m.max_lat
+     FROM address_merge AS m
+     WHERE features.id = m.keep_id;`
   );
-  finalCount = count - Number(droppedStreets) - Number(droppedPois);
+  const droppedAddresses = db
+    .prepare(
+      "DELETE FROM features WHERE kind = 'address' AND id NOT IN (SELECT keep_id FROM address_merge)"
+    )
+    .run().changes;
+  console.error(
+    `  merged ${Number(droppedStreets).toLocaleString()} street segments, ${Number(droppedPois).toLocaleString()} duplicate POIs, ${Number(droppedAddresses).toLocaleString()} duplicate addresses`
+  );
+  finalCount = count - Number(droppedStreets) - Number(droppedPois) - Number(droppedAddresses);
 
   console.error("Populating FTS5 + R-tree...");
   db.exec(

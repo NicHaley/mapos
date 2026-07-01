@@ -49,6 +49,7 @@ type FeatureRow = {
   kind: string;
   admin_context: string | null;
   address: string | null;
+  wikidata: string | null;
   lat: number;
   lng: number;
   bbox_min_lng: number | null;
@@ -61,6 +62,26 @@ type FeatureRow = {
 const FEATURE_COLS =
   "f.id, f.osm_type, f.osm_id, f.name, f.class, f.category, f.kind, f.admin_context, f.address, f.lat, f.lng, " +
   "f.bbox_min_lng, f.bbox_min_lat, f.bbox_max_lng, f.bbox_max_lat";
+
+// `wikidata` landed in schema v3. A new client can still read an older installed
+// pack, so probe each DB once and only SELECT the column where it exists — otherwise
+// the query throws and the per-pack try/catch would drop that whole pack's results.
+const wikidataColumn = new Map<string, boolean>();
+
+function hasWikidataColumn(path: string): boolean {
+  let has = wikidataColumn.get(path);
+  if (has === undefined) {
+    const cols = getDb(path).prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+    has = cols.some((c) => c.name === "wikidata");
+    wikidataColumn.set(path, has);
+  }
+  return has;
+}
+
+/** Feature column list for a pack, adding `wikidata` only when that pack carries it. */
+function featureCols(path: string): string {
+  return hasWikidataColumn(path) ? `${FEATURE_COLS}, f.wikidata` : FEATURE_COLS;
+}
 
 /** OSM element type as our enum, accepting both full words and Photon's N/W/R. */
 function normalizeOsmType(raw: string | null): "node" | "way" | "relation" | undefined {
@@ -95,6 +116,7 @@ function getDb(path: string): Database.Database {
 export function closeOfflineGeocodeConnections(): void {
   for (const db of connections.values()) db.close();
   connections.clear();
+  wikidataColumn.clear();
 }
 
 /**
@@ -166,6 +188,8 @@ function rowToResult(row: FeatureRow, region: string): GeocodeResult {
     result.osmType = osmType;
     result.osmId = row.osm_id;
   }
+  // Only present on v3+ packs (older packs don't select the column at all).
+  if (row.wikidata) result.wikidataId = row.wikidata;
   // Geometry extent for zoom-to-fit; skip degenerate (point-feature) boxes.
   if (
     row.bbox_min_lng != null &&
@@ -231,7 +255,6 @@ async function forward(
   // `score` is selected (not just ordered by) so we can merge-rank across packs —
   // lower is better. Each DB returns its own top `limit`, which is enough to
   // contain the global top `limit`.
-  let sql: string;
   if (match) {
     params.match = match;
     // Exact-name boost: the normalised whole query (same tokenisation as buildMatch,
@@ -239,7 +262,11 @@ async function forward(
     // bonus so the canonical place ("Berlin") beats partial-token matches ("Berliner
     // Straße") — including across packs, where raw bm25 scores aren't comparable.
     params.exact = ((req.query ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
-    sql = `SELECT ${FEATURE_COLS},
+  }
+  // Built per pack (the SELECT column list varies with the pack's schema version).
+  const buildSql = (cols: string): string =>
+    match
+      ? `SELECT ${cols},
        (bm25(features_fts) - f.importance * 4.0
          - (CASE WHEN lower(f.name) = @exact THEN 8.0 ELSE 0 END)
          ${distanceTerm}) AS score
@@ -247,24 +274,23 @@ async function forward(
      JOIN features f ON f.id = features_fts.rowid
      WHERE features_fts MATCH @match${filterSql}
      ORDER BY score
-     LIMIT @limit`;
-  } else {
-    // Pure structured search (no text): FTS5 MATCH needs a query, so rank the
-    // filtered set by importance + viewport proximity instead. The saturating
-    // distance term (cap 8) dominates POI importance (~1.2), so with a bbox this
-    // is effectively "nearest matching POIs"; without one it's "most important".
-    sql = `SELECT ${FEATURE_COLS},
+     LIMIT @limit`
+      : // Pure structured search (no text): FTS5 MATCH needs a query, so rank the
+        // filtered set by importance + viewport proximity instead. The saturating
+        // distance term (cap 8) dominates POI importance (~1.2), so with a bbox this
+        // is effectively "nearest matching POIs"; without one it's "most important".
+        `SELECT ${cols},
        (- f.importance * 4.0 ${distanceTerm}) AS score
      FROM features f
      WHERE 1=1${filterSql}
      ORDER BY score
      LIMIT @limit`;
-  }
 
   const merged: Array<{ row: FeatureRow & { score: number }; region: string }> = [];
   for (const r of regions) {
     try {
-      const rows = getDb(r.geocode as string).prepare(sql).all(params) as Array<
+      const path = r.geocode as string;
+      const rows = getDb(path).prepare(buildSql(featureCols(path))).all(params) as Array<
         FeatureRow & { score: number }
       >;
       for (const row of rows) merged.push({ row, region: r.region });
@@ -316,7 +342,7 @@ async function reverse(
     inFilter("f.category", req.categories, "cat", params) +
     inFilter("f.kind", req.kinds, "kind", params);
 
-  const sql = `SELECT ${FEATURE_COLS},
+  const buildSql = (cols: string): string => `SELECT ${cols},
        ((f.lat - @lat)*(f.lat - @lat) + (f.lng - @lng)*(f.lng - @lng)) AS dist
      FROM features_rtree r
      JOIN features f ON f.id = r.id
@@ -328,7 +354,8 @@ async function reverse(
   const merged: Array<{ row: FeatureRow & { dist: number }; region: string }> = [];
   for (const r of candidates) {
     try {
-      const rows = getDb(r.geocode as string).prepare(sql).all(params) as Array<
+      const path = r.geocode as string;
+      const rows = getDb(path).prepare(buildSql(featureCols(path))).all(params) as Array<
         FeatureRow & { dist: number }
       >;
       for (const row of rows) merged.push({ row, region: r.region });

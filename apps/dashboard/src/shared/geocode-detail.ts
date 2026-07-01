@@ -25,14 +25,16 @@ export function normalizeCategoryToken(raw: string): string {
 /**
  * Detail properties derived from a geocoder result, in canonical order. The fields
  * are already clean at the contract boundary — `category` is a normalized vocabulary
- * token (no stripping needed) and `osmType`/`osmId` are the real source identity —
- * so this is a faithful copy, not a normalization step. Wikidata isn't stored yet.
+ * token (no stripping needed), `osmType`/`osmId` are the real source identity, and
+ * `wikidataId` is a QID straight from the pack — so this is a faithful copy, not a
+ * normalization step.
  */
 export function detailPropertiesFromGeocodeResult(r: GeocodeResult): Record<string, string> {
   return orderDetailProperties({
     ...(r.category ? { category: r.category } : {}),
     ...(r.secondaryLabel ? { address: r.secondaryLabel } : {}),
-    ...(r.osmType && r.osmId ? { osm_id: `${r.osmType}/${r.osmId}` } : {})
+    ...(r.osmType && r.osmId ? { osm_id: `${r.osmType}/${r.osmId}` } : {}),
+    ...(r.wikidataId ? { wikidata_id: r.wikidataId } : {})
   });
 }
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BBoxSchema, LatLngSchema } from "../primitives";
 
-export const GeocodeFeatureKindSchema = z.enum(["place", "poi", "street"]);
+export const GeocodeFeatureKindSchema = z.enum(["place", "poi", "street", "address"]);
 export type GeocodeFeatureKind = z.infer<typeof GeocodeFeatureKindSchema>;
 
 export const GeocodeForwardRequestSchema = z.object({
@@ -50,6 +50,8 @@ export const GeocodeResultSchema = z.object({
   /** OSM element type of the source feature, when known. */
   osmType: z.enum(["node", "way", "relation"]).optional(),
   /** OSM element id of the source feature, when known. Pair with osmType for a URL. */
-  osmId: z.number().optional()
+  osmId: z.number().optional(),
+  /** Wikidata QID (e.g. "Q64"), links to wikidata.org. Offline packs only for now. */
+  wikidataId: z.string().optional()
 });
 export type GeocodeResult = z.infer<typeof GeocodeResultSchema>;

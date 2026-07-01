@@ -6,7 +6,7 @@
 -- client (haversine in SQL or JS), NOT baked in here, to keep the file portable.
 
 -- Schema version (bump when the layout changes so clients can detect old packs).
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 CREATE TABLE IF NOT EXISTS features (
   id             INTEGER PRIMARY KEY,
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS features (
   population     INTEGER,
   admin_context  TEXT,                        -- "Shibuya, Tokyo, Japan" (admin hierarchy)
   address        TEXT,                        -- "Skalitzer Str. 12" (self-tagged addr:*)
+  wikidata       TEXT,                        -- Wikidata QID ("Q64"), returned not searched
   lat            REAL    NOT NULL,
   lng            REAL    NOT NULL,
   -- Geometry extent (degenerate = point feature). Lets the client zoom-to-fit

@@ -122,7 +122,7 @@ const MAP_OVERLAY_PREFIX = "map-overlay:";
 function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
   return {
     filePath: `${MAP_OVERLAY_PREFIX}${p.id}`,
-    title: p.title || "Place",
+    title: p.title || "Overlay feature",
     type: "Preview",
     geometry: JSON.stringify({ type: "Point", coordinates: [p.lng, p.lat] }),
     previewMarkdown: p.preview_markdown ?? "",

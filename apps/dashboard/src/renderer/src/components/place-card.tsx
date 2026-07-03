@@ -8,6 +8,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@mapos/ui/components/alert-dialog";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from "@mapos/ui/components/breadcrumb";
 import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
@@ -55,7 +63,15 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
@@ -382,7 +398,8 @@ export function PlaceCard({
   onCommitPointLocation,
   onClearPointLocation,
   onRename,
-  onDelete
+  onDelete,
+  onOpenFolder
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -401,6 +418,8 @@ export function PlaceCard({
   onRename?: (oldPath: string, newPath: string) => void;
   /** Called after the place file has been deleted on disk. */
   onDelete?: (filePath: string) => void;
+  /** Open a vault folder (breadcrumb click). Receives the absolute folder path. */
+  onOpenFolder?: (folderPath: string) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   const [doc, setDoc] = useState<LoadedDoc>(() =>
@@ -435,6 +454,24 @@ export function PlaceCard({
   const onEditorReady = useCallback((ed: Editor | null) => {
     editorRef.current = ed;
   }, []);
+
+  // Ancestor folders for the top-bar breadcrumb. Previews aren't on disk yet,
+  // so they get no folder trail (just the title crumb).
+  const [vaultRoot, setVaultRoot] = useState<string | null>(null);
+  useEffect(() => {
+    void window.api.fs.getVaultRoot().then(setVaultRoot);
+  }, []);
+  const breadcrumbFolders = useMemo(() => {
+    if (place.previewMarkdown !== undefined || !vaultRoot) return [];
+    if (currentFilePath !== vaultRoot && !currentFilePath.startsWith(vaultRoot)) return [];
+    const sep = currentFilePath.includes("\\") ? "\\" : "/";
+    const rel = currentFilePath.slice(vaultRoot.length).replace(/^[/\\]/, "");
+    const segments = rel.split(/[/\\]/).slice(0, -1);
+    return segments.map((name, i) => ({
+      name,
+      path: `${vaultRoot}${sep}${segments.slice(0, i + 1).join(sep)}`
+    }));
+  }, [place.previewMarkdown, vaultRoot, currentFilePath]);
 
   const coverPath = doc.kind === "vault" ? doc.cover : undefined;
   // Bumped when the cover file's bytes change on disk so the <img> re-fetches
@@ -685,11 +722,122 @@ export function PlaceCard({
     }
   }
 
-  const showSaveAction = place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault);
-  const showExpandAction = mode === "mini" && Boolean(onExpand);
-  const showMenuAction = mode === "full" && place.previewMarkdown === undefined;
-  const actionCount =
-    1 + Number(showSaveAction) + Number(showExpandAction) + Number(showMenuAction);
+  // Mini mode keeps the actions pinned over the content (old compact styling);
+  // full mode puts them in the ChatPane-style top bar.
+  const miniActionCount =
+    1 +
+    Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) +
+    Number(Boolean(onExpand));
+
+  const actionButtons = (
+    <>
+      {place.previewMarkdown !== undefined && onSaveSearchToVault && (
+        <FolderPickerPopover
+          open={saveToVaultOpen}
+          onOpenChange={setSaveToVaultOpen}
+          defaultParentFolderPath={defaultParentFolderPath}
+          title="Save place to folder"
+          side="bottom"
+          align="end"
+          onSelect={(folderPath) => {
+            void (async () => {
+              setSavingSearch(true);
+              try {
+                await onSaveSearchToVault(folderPath);
+              } finally {
+                setSavingSearch(false);
+              }
+            })();
+          }}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={savingSearch}
+              aria-label="Save place to vault"
+              title="Save to folder"
+            >
+              <PlusIcon />
+            </Button>
+          }
+        />
+      )}
+      {mode === "mini" && onExpand && (
+        <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
+          <Maximize2Icon />
+        </Button>
+      )}
+      {mode === "full" && place.previewMarkdown === undefined && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon" aria-label="More actions" />}
+          >
+            <EllipsisIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            finalFocus={() => {
+              if (renameRequestedRef.current) {
+                renameRequestedRef.current = false;
+                // Focus + select all once the menu has finished closing, so
+                // the whole title is highlighted ready to overtype.
+                requestAnimationFrame(() => {
+                  titleInputRef.current?.focus({ preventScroll: true });
+                  titleInputRef.current?.select();
+                });
+                return false; // we manage focus ourselves for rename
+              }
+              return true;
+            }}
+          >
+            <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+              <PlusIcon />
+              Open in New Tab
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
+              <FolderOpenIcon />
+              Reveal in Finder
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                renameRequestedRef.current = true;
+              }}
+            >
+              <PencilIcon />
+              Rename
+            </DropdownMenuItem>
+            {doc.kind === "vault" && (
+              <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
+                <ImageIcon />
+                {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+              </DropdownMenuItem>
+            )}
+            {doc.kind === "vault" && coverPath && (
+              <DropdownMenuItem onClick={() => void handleRemoveCover()}>
+                <ImageOffIcon />
+                Remove Cover Photo
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                setDeleteError(null);
+                setDeleteOpen(true);
+              }}
+            >
+              <Trash2Icon />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+        <XIcon />
+      </Button>
+    </>
+  );
 
   return (
     <div
@@ -707,121 +855,45 @@ export function PlaceCard({
         className={cn(
           "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
-            ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
+            ? "rounded-lg border border-sidebar-border shadow-lg max-h-72"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
         )}
       >
-        {/* Pinned top-right; everything else (cover included) scrolls beneath. */}
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
-          {place.previewMarkdown !== undefined && onSaveSearchToVault && (
-            <FolderPickerPopover
-              open={saveToVaultOpen}
-              onOpenChange={setSaveToVaultOpen}
-              defaultParentFolderPath={defaultParentFolderPath}
-              title="Save place to folder"
-              side="bottom"
-              align="end"
-              onSelect={(folderPath) => {
-                void (async () => {
-                  setSavingSearch(true);
-                  try {
-                    await onSaveSearchToVault(folderPath);
-                  } finally {
-                    setSavingSearch(false);
-                  }
-                })();
-              }}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={savingSearch}
-                  aria-label="Save place to vault"
-                  title="Save to folder"
-                >
-                  <PlusIcon />
-                </Button>
-              }
-            />
-          )}
-          {mode === "mini" && onExpand && (
-            <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
-              <Maximize2Icon />
-            </Button>
-          )}
-          {mode === "full" && place.previewMarkdown === undefined && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={<Button variant="ghost" size="icon" aria-label="More actions" />}
-              >
-                <EllipsisIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side="bottom"
-                align="end"
-                finalFocus={() => {
-                  if (renameRequestedRef.current) {
-                    renameRequestedRef.current = false;
-                    // Focus + select all once the menu has finished closing, so
-                    // the whole title is highlighted ready to overtype.
-                    requestAnimationFrame(() => {
-                      titleInputRef.current?.focus({ preventScroll: true });
-                      titleInputRef.current?.select();
-                    });
-                    return false; // we manage focus ourselves for rename
-                  }
-                  return true;
-                }}
-              >
-                <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
-                  <PlusIcon />
-                  Open in New Tab
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => void window.api.fs.revealInFinder(currentFilePath)}
-                >
-                  <FolderOpenIcon />
-                  Reveal in Finder
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    renameRequestedRef.current = true;
-                  }}
-                >
-                  <PencilIcon />
-                  Rename
-                </DropdownMenuItem>
-                {doc.kind === "vault" && (
-                  <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
-                    <ImageIcon />
-                    {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
-                  </DropdownMenuItem>
-                )}
-                {doc.kind === "vault" && coverPath && (
-                  <DropdownMenuItem onClick={() => void handleRemoveCover()}>
-                    <ImageOffIcon />
-                    Remove Cover Photo
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setDeleteOpen(true);
-                  }}
-                >
-                  <Trash2Icon />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <XIcon />
-          </Button>
-        </div>
-        <ScrollArea className={cn("overflow-y-auto", mode === "full" && "flex-1 min-h-0")}>
+        {mode === "mini" ? (
+          /* Compact popup: actions pinned top-right over the content. */
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+            {actionButtons}
+          </div>
+        ) : (
+          /* Static top bar (mirrors ChatPane): breadcrumb left, actions right.
+          Everything else — cover included — scrolls beneath it. */
+          <div className="flex min-h-12 shrink-0 items-center justify-between gap-1 p-2">
+            <Breadcrumb className="min-w-0 flex-1 px-2">
+              <BreadcrumbList className="flex-nowrap gap-1 sm:gap-1.5">
+                {breadcrumbFolders.map((folder) => (
+                  <Fragment key={folder.path}>
+                    <BreadcrumbItem className="min-w-0">
+                      <BreadcrumbLink
+                        className="truncate"
+                        render={
+                          <button type="button" onClick={() => onOpenFolder?.(folder.path)} />
+                        }
+                      >
+                        {folder.name}
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator />
+                  </Fragment>
+                ))}
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="truncate">{currentTitle}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            <div className="flex items-center gap-1">{actionButtons}</div>
+          </div>
+        )}
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
           <div className={cn("flex flex-col", mode === "full" && "min-h-full")}>
             {coverVisible && (
               <button
@@ -840,10 +912,16 @@ export function PlaceCard({
               </button>
             )}
             {/* Header */}
-            <div className="flex min-h-12 items-start px-3 py-2 shrink-0">
+            <div className="flex items-start px-3 py-2 shrink-0">
               <div
                 className="flex-1 min-w-0 pt-1"
-                style={coverVisible ? undefined : { paddingRight: actionCount * 36 }}
+                // In mini mode the pinned actions overlay the title row unless a
+                // cover pushes it down — reserve their width.
+                style={
+                  mode === "mini" && !coverVisible
+                    ? { paddingRight: miniActionCount * 36 }
+                    : undefined
+                }
               >
                 <ErrorTooltip error={titleError}>
                   <AutoSizeTextArea

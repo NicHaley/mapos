@@ -1038,6 +1038,7 @@ function App(): React.JSX.Element {
                 onCommitPointLocation={commitVaultPointLocation}
                 onClearPointLocation={clearVaultPointLocation}
                 onDelete={(filePath) => handleDeletedPath(filePath, "file")}
+                onOpenFolder={handleSelectFolder}
               />
             )}
             {activeChatConvId && (
@@ -1112,6 +1113,7 @@ function App(): React.JSX.Element {
                 selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
               }
               defaultParentFolderPath={parentFolderForNewFiles}
+              onOpenFolder={handleSelectFolder}
               onExpand={
                 selectedPlace.previewMarkdown !== undefined
                   ? undefined
@@ -1160,6 +1162,7 @@ function App(): React.JSX.Element {
                   : undefined
               }
               defaultParentFolderPath={parentFolderForNewFiles}
+              onOpenFolder={handleSelectFolder}
               onExpand={
                 mapPeekPlace.previewMarkdown !== undefined
                   ? undefined

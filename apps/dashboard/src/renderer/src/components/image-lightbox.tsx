@@ -1,6 +1,6 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { XIcon } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 // The lightbox overlays the app's draggable titlebar strip; without no-drag,
@@ -10,18 +10,16 @@ const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 export type LightboxData = {
   /** Full-size display URL (protocol URL for vault files, https for remote). */
   src: string;
-  artist?: string;
-  license?: string;
-  licenseUrl?: string;
   /** Source page (e.g. the Wikimedia Commons file page). */
   pageUrl?: string;
-  pageLabel?: string;
 };
 
 /**
  * Full-screen image viewer, Wikipedia Media Viewer-style: the image large in
- * the center with the attribution/credit line rendered beneath it. This is
- * where Commons attribution lives — the card heroes stay clean.
+ * the center with a "Source" link beneath it pointing at the provenance page
+ * (the Commons file page carries the full author/license credit). This works
+ * offline for saved covers — the link comes from the `cover_source`
+ * frontmatter, no attribution fetch needed.
  */
 export function ImageLightbox({
   image,
@@ -47,39 +45,6 @@ export function ImageLightbox({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
-
-  const credit: React.ReactNode[] = [];
-  if (image.artist) credit.push(<span key="artist">© {image.artist}</span>);
-  if (image.license) {
-    credit.push(
-      image.licenseUrl ? (
-        <a
-          key="license"
-          href={image.licenseUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2 hover:text-white transition-colors"
-        >
-          {image.license}
-        </a>
-      ) : (
-        <span key="license">{image.license}</span>
-      )
-    );
-  }
-  if (image.pageUrl) {
-    credit.push(
-      <a
-        key="page"
-        href={image.pageUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="underline underline-offset-2 hover:text-white transition-colors"
-      >
-        {image.pageLabel ?? "Source"}
-      </a>
-    );
-  }
 
   const dpr = window.devicePixelRatio || 1;
 
@@ -126,15 +91,16 @@ export function ImageLightbox({
           }
         />
       </div>
-      {credit.length > 0 && (
+      {image.pageUrl && (
         <div className="relative shrink-0 px-6 pb-5 text-center text-xs text-white/70">
-          {credit.map((part, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static ordered fragments
-            <Fragment key={i}>
-              {i > 0 && " · "}
-              {part}
-            </Fragment>
-          ))}
+          <a
+            href={image.pageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-white transition-colors"
+          >
+            Source
+          </a>
         </div>
       )}
     </div>,

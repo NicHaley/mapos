@@ -810,7 +810,7 @@ export function ChatPane({
   return (
     <FeatureResolverProvider value={featureResolverValue}>
       <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
-        <div className="flex min-h-12 items-center justify-between gap-1 px-3 py-2">
+        <div className="flex min-h-12 items-center justify-between gap-1 p-2">
           {renaming ? (
             <ErrorTooltip error={renameError}>
               <input

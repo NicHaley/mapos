@@ -396,9 +396,6 @@ const api = {
         thumbUrl: string;
         fileName: string;
         pageUrl: string;
-        artist?: string;
-        license?: string;
-        licenseUrl?: string;
       } | null>,
     importImage: (qid: string) =>
       ipcRenderer.invoke("wiki:import-image", qid) as Promise<

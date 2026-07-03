@@ -15,9 +15,6 @@ export type WikiImage = {
   fileName: string;
   /** Commons file page — the attribution/license landing page. */
   pageUrl: string;
-  artist?: string;
-  license?: string;
-  licenseUrl?: string;
 };
 
 const QID_RE = /^Q\d+$/;
@@ -51,41 +48,6 @@ function imageFileNameFromClaims(data: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Best-effort artist + license from the Commons extmetadata for a file. */
-async function fetchAttribution(
-  fileName: string
-): Promise<{ artist?: string; license?: string; licenseUrl?: string }> {
-  try {
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&prop=imageinfo&iiprop=extmetadata&format=json&titles=${encodeURIComponent(`File:${fileName}`)}`;
-    const data = (await fetchJson(url)) as {
-      query?: { pages?: Record<string, { imageinfo?: Array<{ extmetadata?: unknown }> }> };
-    };
-    const pages = data.query?.pages ?? {};
-    const meta = Object.values(pages)[0]?.imageinfo?.[0]?.extmetadata as
-      | Record<string, { value?: unknown }>
-      | undefined;
-    const rawArtist = meta?.Artist?.value;
-    const rawLicense = meta?.LicenseShortName?.value;
-    const rawLicenseUrl = meta?.LicenseUrl?.value;
-    const artist = typeof rawArtist === "string" ? stripHtml(rawArtist).slice(0, 60) : undefined;
-    const license = typeof rawLicense === "string" ? stripHtml(rawLicense) : undefined;
-    const licenseUrl =
-      typeof rawLicenseUrl === "string" && /^https?:/.test(rawLicenseUrl)
-        ? rawLicenseUrl
-        : undefined;
-    return { artist: artist || undefined, license: license || undefined, licenseUrl };
-  } catch {
-    return {};
-  }
-}
-
 /** Resolve a Wikidata QID to its P18 Commons image, or null if none/unreachable. */
 export async function lookupWikidataImage(qid: string): Promise<WikiImage | null> {
   if (!QID_RE.test(qid)) return null;
@@ -99,12 +61,10 @@ export async function lookupWikidataImage(qid: string): Promise<WikiImage | null
     const fileName = imageFileNameFromClaims(data);
     if (fileName) {
       const encoded = encodeURIComponent(fileName);
-      const attribution = await fetchAttribution(fileName);
       result = {
         thumbUrl: `https://commons.wikimedia.org/wiki/Special:FilePath/${encoded}?width=${THUMB_WIDTH}`,
         fileName,
-        pageUrl: `https://commons.wikimedia.org/wiki/File:${encoded}`,
-        ...attribution
+        pageUrl: `https://commons.wikimedia.org/wiki/File:${encoded}`
       };
     }
   } catch {

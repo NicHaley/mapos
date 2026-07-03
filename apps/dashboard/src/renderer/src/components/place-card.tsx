@@ -457,9 +457,6 @@ export function PlaceCard({
   const [remoteCover, setRemoteCover] = useState<{
     thumbUrl: string;
     pageUrl: string;
-    artist?: string;
-    license?: string;
-    licenseUrl?: string;
   } | null>(null);
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   useEffect(() => {
@@ -675,18 +672,13 @@ export function PlaceCard({
           : undefined;
       setLightbox({
         src: vaultImageUrl(vaultCover, coverRev),
-        pageUrl: coverSource,
-        pageLabel: coverSource ? "Source" : undefined
+        pageUrl: coverSource
       });
     } else if (remoteCover) {
       setLightbox({
         // The hero thumb is card-sized; ask Commons for a larger render.
         src: remoteCover.thumbUrl.replace(/width=\d+/, "width=1600"),
-        artist: remoteCover.artist,
-        license: remoteCover.license,
-        licenseUrl: remoteCover.licenseUrl,
-        pageUrl: remoteCover.pageUrl,
-        pageLabel: "Wikimedia Commons"
+        pageUrl: remoteCover.pageUrl
       });
     }
   }

@@ -19,7 +19,7 @@ const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "resources", "ba
 
 // The three stacks the @protomaps/basemaps style references.
 const STACKS = ["Noto Sans Regular", "Noto Sans Medium", "Noto Sans Italic"];
-const SPRITE_FLAVORS = ["light", "black"];
+const SPRITE_FLAVORS = ["light", "dark"];
 
 // 256-codepoint blocks. Default covers Latin, IPA, Greek, Cyrillic, accents and
 // common punctuation/symbols — enough for Western/European labels. --all grabs

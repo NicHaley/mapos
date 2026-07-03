@@ -258,6 +258,9 @@ importers:
       '@mapos/service-adapters':
         specifier: workspace:*
         version: link:../../packages/service-adapters
+      '@protomaps/basemaps':
+        specifier: ^5.7.2
+        version: 5.7.2
       hono:
         specifier: ^4.6.14
         version: 4.12.18

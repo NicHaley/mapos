@@ -108,9 +108,15 @@ type StyleLayer = {
 };
 
 function styleResponse(regionsDir: string, theme: "light" | "dark"): Response {
-  // The app's online dark variant is "black".
-  const flavorName = theme === "dark" ? "black" : "light";
-  const flavor = namedFlavor(flavorName);
+  // Dark mode is the "black" flavor, but black defines no POI colors (so
+  // `layers()` would emit no pois layer) and its sprite sheet ships no POI
+  // icons. Graft the dark flavor's POI palette onto black and use the dark
+  // sprite sheet — a superset of black's icons, drawn for dark backdrops.
+  const flavor =
+    theme === "dark"
+      ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
+      : namedFlavor("light");
+  const spriteName = theme === "dark" ? "dark" : "light";
 
   // World backdrop (z0–6, overzoomed by MapLibre to cover all higher zooms). Its
   // symbols stop at z7 so region labels take over without colliding. Host is the
@@ -158,7 +164,7 @@ function styleResponse(regionsDir: string, theme: "light" | "dark"): Response {
   const style = {
     version: 8,
     glyphs: `${ASSET_SCHEME}://fonts/{fontstack}/{range}.pbf`,
-    sprite: `${ASSET_SCHEME}://sprites/${flavorName}`,
+    sprite: `${ASSET_SCHEME}://sprites/${spriteName}`,
     sources,
     layers: [...worldLayers, ...regionLayers]
   };

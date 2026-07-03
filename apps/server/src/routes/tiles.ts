@@ -1,4 +1,5 @@
 import { TileStyleRequestSchema } from "@mapos/contracts";
+import { layers, namedFlavor } from "@protomaps/basemaps";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { loadEnv } from "../env";
@@ -22,8 +23,8 @@ import { handleContractPost } from "../route-helpers";
 
 const StyleUrlResponseSchema = z.object({ url: z.string().url() });
 
-function variantFromQuery(raw: string | undefined): "light" | "black" {
-  return raw === "dark" || raw === "black" ? "black" : "light";
+function variantFromQuery(raw: string | undefined): "light" | "dark" {
+  return raw === "dark" || raw === "black" ? "dark" : "light";
 }
 
 function publicBaseUrl(reqUrl: string): string {
@@ -41,15 +42,23 @@ export function registerTiles(app: Hono): void {
     })
   );
 
-  // Proxied style JSON. Fetches upstream Protomaps style with the API key, then
-  // rewrites the tile source URLs to point back at this server so the API key
-  // never reaches the client.
+  // Proxied style JSON. Light fetches the upstream Protomaps style with the API
+  // key and rewrites its tile-source URLs to point back at this server so the
+  // key never reaches the client. Dark can't be proxied: the hosted "black"
+  // flavor defines no POI colors or icons, so its style has no pois layer at
+  // all. Instead the dark style is generated here with @protomaps/basemaps —
+  // black flavor plus the dark flavor's POI palette and sprite sheet — matching
+  // the offline path (see the dashboard's region-protocol.ts).
   app.get("/v1/tiles/style.json", async (c) => {
     const env = loadEnv(c.env);
     if (!env.PROTOMAPS_API_KEY) {
       return errorResponse(c, "server_misconfigured", "PROTOMAPS_API_KEY is required for tiles");
     }
     const variant = variantFromQuery(c.req.query("variant"));
+    const proxyBase = `${publicBaseUrl(c.req.url)}/v1/tiles`;
+    if (variant === "dark") {
+      return c.json(darkStyle(proxyBase));
+    }
     const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/${variant}/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
     const res = await fetch(upstream, { signal: c.req.raw.signal });
     if (!res.ok) {
@@ -60,7 +69,7 @@ export function registerTiles(app: Hono): void {
       );
     }
     const style = (await res.json()) as Record<string, unknown>;
-    rewriteStyleSources(style, `${publicBaseUrl(c.req.url)}/v1/tiles`);
+    rewriteStyleSources(style, proxyBase);
     return c.json(style);
   });
 
@@ -116,6 +125,34 @@ export function registerTiles(app: Hono): void {
     }
     return out;
   });
+}
+
+const ASSETS_BASE = "https://protomaps.github.io/basemaps-assets";
+const ATTRIBUTION =
+  '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
+
+/**
+ * Dark style, generated rather than proxied. Black flavor with the dark
+ * flavor's POI palette grafted on; the dark sprite sheet is a superset of
+ * black's icons and is drawn for dark backdrops. Glyphs/sprites come from the
+ * public Protomaps assets CDN (no API key), tiles from this server's proxy.
+ */
+function darkStyle(proxyBase: string): Record<string, unknown> {
+  const flavor = { ...namedFlavor("black"), pois: namedFlavor("dark").pois };
+  return {
+    version: 8,
+    glyphs: `${ASSETS_BASE}/fonts/{fontstack}/{range}.pbf`,
+    sprite: `${ASSETS_BASE}/sprites/v4/dark`,
+    sources: {
+      protomaps: {
+        type: "vector",
+        tiles: [`${proxyBase}/{z}/{x}/{y}.mvt`],
+        maxzoom: 15,
+        attribution: ATTRIBUTION
+      }
+    },
+    layers: layers("protomaps", flavor, { lang: "en" })
+  };
 }
 
 /**

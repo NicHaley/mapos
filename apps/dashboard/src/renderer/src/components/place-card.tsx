@@ -102,6 +102,8 @@ type LoadedDoc =
       keys: Array<{ key: string; type: PropertyType }>;
       /** Vault-relative path of the hero image (reserved `cover` frontmatter key). */
       cover?: string;
+      /** Provenance URL for the cover (reserved `cover_source` frontmatter key). */
+      coverSource?: string;
     }
   | { kind: "preview"; body: string }
   | {
@@ -479,7 +481,9 @@ export function PlaceCard({
         relPath
       );
       if (result.success) {
-        setDoc((d) => (d.kind === "vault" ? { ...d, cover: relPath } : d));
+        // A manually chosen cover has no Commons provenance — drop any stale link.
+        await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover_source", null);
+        setDoc((d) => (d.kind === "vault" ? { ...d, cover: relPath, coverSource: undefined } : d));
       }
     },
     [currentFilePath]
@@ -488,7 +492,8 @@ export function PlaceCard({
   async function handleRemoveCover() {
     const result = await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover", null);
     if (result.success) {
-      setDoc((d) => (d.kind === "vault" ? { ...d, cover: undefined } : d));
+      await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover_source", null);
+      setDoc((d) => (d.kind === "vault" ? { ...d, cover: undefined, coverSource: undefined } : d));
     }
   }
 
@@ -547,7 +552,8 @@ export function PlaceCard({
         body: result.body,
         frontmatter: result.frontmatter,
         keys: vaultKeys,
-        cover: result.cover
+        cover: result.cover,
+        coverSource: result.coverSource
       });
     });
     return () => {
@@ -666,13 +672,9 @@ export function PlaceCard({
 
   function openCoverLightbox(): void {
     if (vaultCover) {
-      const coverSource =
-        doc.kind === "vault" && typeof doc.frontmatter.cover_source === "string"
-          ? doc.frontmatter.cover_source
-          : undefined;
       setLightbox({
         src: vaultImageUrl(vaultCover, coverRev),
-        pageUrl: coverSource
+        pageUrl: doc.kind === "vault" ? doc.coverSource : undefined
       });
     } else if (remoteCover) {
       setLightbox({

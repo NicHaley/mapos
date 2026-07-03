@@ -79,7 +79,13 @@ const api = {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
     readFile: (filePath: string) =>
       ipcRenderer.invoke("fs:read-file", filePath) as Promise<
-        | { raw: string; body: string; frontmatter: Record<string, unknown>; cover?: string }
+        | {
+            raw: string;
+            body: string;
+            frontmatter: Record<string, unknown>;
+            cover?: string;
+            coverSource?: string;
+          }
         | { error: string }
       >,
     writeFile: (filePath: string, content: string) =>

@@ -78,10 +78,14 @@ declare global {
       };
       fs: {
         listDir: () => Promise<FileNode[]>;
-        readFile: (
-          filePath: string
-        ) => Promise<
-          | { raw: string; body: string; frontmatter: Record<string, unknown>; cover?: string }
+        readFile: (filePath: string) => Promise<
+          | {
+              raw: string;
+              body: string;
+              frontmatter: Record<string, unknown>;
+              cover?: string;
+              coverSource?: string;
+            }
           | { error: string }
         >;
         writeFile: (

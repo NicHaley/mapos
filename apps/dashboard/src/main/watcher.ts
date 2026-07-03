@@ -458,10 +458,12 @@ export function setupPlacesWatcher(
           frontmatter[key] = val;
         }
       }
-      // `cover` is reserved (hidden from the generic grid) but the card renders
-      // it as the hero image, so surface it as its own field.
+      // `cover`/`cover_source` are reserved (hidden from the generic grid) but
+      // the card renders the hero image and its provenance link from them, so
+      // surface each as its own field.
       const cover = typeof data.cover === "string" ? data.cover : undefined;
-      return { raw, body: content.trimStart(), frontmatter, cover };
+      const coverSource = typeof data.cover_source === "string" ? data.cover_source : undefined;
+      return { raw, body: content.trimStart(), frontmatter, cover, coverSource };
     } catch (err) {
       return { error: String(err) };
     }

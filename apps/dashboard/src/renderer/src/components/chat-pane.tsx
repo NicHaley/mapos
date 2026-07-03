@@ -667,7 +667,8 @@ export function ChatPane({
     streamingThinking,
     activeToolCalls,
     assistantPending,
-    canUndo
+    canUndo,
+    loaded
   } = convState;
 
   /** Build once per render so AssistantBubble can pair each ToolCall block with its result. */
@@ -879,7 +880,11 @@ export function ChatPane({
           </div>
         </div>
 
-        <Conversation className="min-h-0">
+        {/* `initial="instant"` jumps to the bottom without animating when a conversation
+            opens with its messages already in the store. The `key` remount handles the
+            lazy-load path: messages arriving after mount would otherwise be a "resize"
+            (smooth-scrolled); remounting on `loaded` makes them the initial layout instead. */}
+        <Conversation key={loaded ? "loaded" : "loading"} className="min-h-0" initial="instant">
           <ConversationContent>
             {aiConfigured === false && messages.length === 0 && (
               <div className="mx-2 my-3 flex flex-col items-start gap-3 rounded-lg border border-dashed bg-sidebar-accent/30 px-4 py-5">

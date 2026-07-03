@@ -423,6 +423,13 @@ export function PlaceCard({
   onOpenFolder?: (folderPath: string) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
+  // With a rename-stable mount key, a relocation initiated outside this card
+  // arrives as a filePath prop change rather than a remount; adopt the new path.
+  const [prevPlacePath, setPrevPlacePath] = useState(place.filePath);
+  if (place.filePath !== prevPlacePath) {
+    setPrevPlacePath(place.filePath);
+    setCurrentFilePath(place.filePath);
+  }
   const [doc, setDoc] = useState<LoadedDoc>(() =>
     place.previewMarkdown !== undefined
       ? { kind: "preview", body: place.previewMarkdown ?? "" }
@@ -440,6 +447,9 @@ export function PlaceCard({
   // Set when "Rename" is chosen so the menu returns focus to the title input
   // (instead of its trigger) once it closes.
   const renameRequestedRef = useRef(false);
+  // Set when this card renames its own file, so the load effect can skip the
+  // reload the filePath change would otherwise trigger — content is unchanged.
+  const selfRenamedToRef = useRef<string | null>(null);
   const isDark = useDarkMode();
 
   const filePathBaseName =
@@ -451,6 +461,18 @@ export function PlaceCard({
   const [titleInput, setTitleInput] = useState(currentTitle);
 
   const loading = doc.kind === "loading";
+
+  // Local reads resolve in a few ms; an immediate indicator just flashes.
+  // Defer it so fast loads render nothing briefly and slow loads get feedback.
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShowLoadingIndicator(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowLoadingIndicator(true), 200);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   const onEditorReady = useCallback((ed: Editor | null) => {
     editorRef.current = ed;
@@ -549,6 +571,10 @@ export function PlaceCard({
 
   useEffect(() => {
     void place.geometry;
+    if (selfRenamedToRef.current === place.filePath) {
+      selfRenamedToRef.current = null;
+      return;
+    }
     if (place.previewMarkdown !== undefined) {
       setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
       return;
@@ -673,6 +699,7 @@ export function PlaceCard({
     }
     const result = await window.api.fs.renameFile(currentFilePath, newName);
     if (result.success) {
+      selfRenamedToRef.current = result.newPath;
       onRename?.(currentFilePath, result.newPath);
       setCurrentFilePath(result.newPath);
       setTitleError(null);
@@ -1043,7 +1070,7 @@ export function PlaceCard({
               })()}
 
             {/* Body content */}
-            {loading && (
+            {loading && showLoadingIndicator && (
               <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>
             )}
             {doc.kind === "error" && (

@@ -903,11 +903,24 @@ function App(): React.JSX.Element {
   });
 
   // Place-card title renames are always single files; route them through the one
-  // relocation function so every path-holding store stays in sync.
+  // relocation function so every path-holding store stays in sync. Remember the
+  // rename so the card's mount key stays stable — remounting on a title change
+  // flashes the whole card.
+  const [renameKeyAlias, setRenameKeyAlias] = useState<{ path: string; key: string } | null>(null);
   const handlePlaceRename = useCallback(
-    (oldPath: string, newPath: string) => handlePathRelocated(oldPath, newPath, false),
+    (oldPath: string, newPath: string) => {
+      setRenameKeyAlias((prev) => ({
+        path: newPath,
+        key: prev && prev.path === oldPath ? prev.key : oldPath
+      }));
+      handlePathRelocated(oldPath, newPath, false);
+    },
     [handlePathRelocated]
   );
+  const selectedPlaceCardKey =
+    selectedPlace && renameKeyAlias?.path === selectedPlace.filePath
+      ? renameKeyAlias.key
+      : selectedPlace?.filePath;
 
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
@@ -1029,7 +1042,7 @@ function App(): React.JSX.Element {
           >
             {isFull && selectedPlace && (
               <PlaceCard
-                key={selectedPlace.filePath}
+                key={selectedPlaceCardKey}
                 place={selectedPlace}
                 mode="full"
                 onClose={handlePlaceCardClose}
@@ -1101,7 +1114,7 @@ function App(): React.JSX.Element {
             }}
           >
             <PlaceCard
-              key={selectedPlace.filePath}
+              key={selectedPlaceCardKey}
               place={selectedPlace}
               mode="mini"
               onClose={handlePlaceCardClose}

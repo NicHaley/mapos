@@ -79,7 +79,8 @@ const api = {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
     readFile: (filePath: string) =>
       ipcRenderer.invoke("fs:read-file", filePath) as Promise<
-        { raw: string; body: string; frontmatter: Record<string, unknown> } | { error: string }
+        | { raw: string; body: string; frontmatter: Record<string, unknown>; cover?: string }
+        | { error: string }
       >,
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke("fs:write-file", filePath, content) as Promise<{
@@ -133,6 +134,10 @@ const api = {
     createFolder: (args: { parentFolderPath: string; folderName: string }) =>
       ipcRenderer.invoke("fs:create-folder", args) as Promise<
         { success: true; folderPath: string } | { success: false; error: string }
+      >,
+    importAttachment: (args: { suggestedName?: string; bytes: Uint8Array }) =>
+      ipcRenderer.invoke("fs:import-attachment", args) as Promise<
+        { success: true; relPath: string; absPath: string } | { success: false; error: string }
       >,
     readGeoJson: (filePath: string) =>
       ipcRenderer.invoke("fs:read-geojson", filePath) as Promise<Record<string, unknown> | null>,

@@ -30,6 +30,7 @@
     "@mapos/service-adapters": "workspace:*",
     "@mapos/ui": "workspace:*",
     "@protomaps/basemaps": "^5.7.2",
+    "@tiptap/extension-image": "^3.27.1",
     "@turf/area": "^7.3.5",
     "@turf/bbox": "^7.3.4",
     "@turf/boolean-intersects": "^7.3.5",

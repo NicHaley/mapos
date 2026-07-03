@@ -81,7 +81,8 @@ declare global {
         readFile: (
           filePath: string
         ) => Promise<
-          { raw: string; body: string; frontmatter: Record<string, unknown> } | { error: string }
+          | { raw: string; body: string; frontmatter: Record<string, unknown>; cover?: string }
+          | { error: string }
         >;
         writeFile: (
           filePath: string,
@@ -128,6 +129,12 @@ declare global {
           parentFolderPath: string;
           folderName: string;
         }) => Promise<{ success: true; folderPath: string } | { success: false; error: string }>;
+        importAttachment: (args: {
+          suggestedName?: string;
+          bytes: Uint8Array;
+        }) => Promise<
+          { success: true; relPath: string; absPath: string } | { success: false; error: string }
+        >;
         readGeoJson: (filePath: string) => Promise<Record<string, unknown> | null>;
         geoJsonFilesInFolder: (folderPath: string) => Promise<string[]>;
         writeGeoJsonProperty: (

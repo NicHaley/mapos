@@ -246,7 +246,7 @@ export type RegionDownloadProgress = {
 
 export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
 /** Frontmatter keys managed by the map; not shown as generic properties. */
-export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
+export const RESERVED_PROPERTY_KEYS = ["geometry", "color", "cover"] as const;
 
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {

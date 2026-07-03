@@ -51,6 +51,7 @@ export function buildCsp(): string {
     "blob:",
     "mapos-region:",
     "mapos-asset:",
+    "mapos-vault:",
     ...ALWAYS_ALLOWED_CDN_ORIGINS
   ]);
 

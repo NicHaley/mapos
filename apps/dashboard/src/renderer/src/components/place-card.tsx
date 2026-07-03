@@ -26,6 +26,11 @@ import {
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import {
+  VaultImage,
+  isVaultRelativePath,
+  vaultImageUrl
+} from "@renderer/extensions/vault-image-extension";
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
@@ -38,6 +43,8 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   EllipsisIcon,
   FolderOpenIcon,
+  ImageIcon,
+  ImageOffIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
@@ -92,6 +99,8 @@ type LoadedDoc =
       body: string;
       frontmatter: Record<string, unknown>;
       keys: Array<{ key: string; type: PropertyType }>;
+      /** Vault-relative path of the hero image (reserved `cover` frontmatter key). */
+      cover?: string;
     }
   | { kind: "preview"; body: string }
   | {
@@ -171,6 +180,9 @@ function PlaceCardMarkdownPane({
       }),
       Markdown,
       TabIndent,
+      // inline: markdown image tokens are inline (inside paragraphs); a block-level
+      // image node can't be placed there and the token would fall back to raw text.
+      VaultImage.configure({ allowBase64: false, inline: true }),
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {
           const item = vaultFilesRef.current.find((f) => f.title === title);
@@ -269,7 +281,7 @@ function PlaceCardMarkdownPane({
   }
 
   return (
-    <ScrollArea className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
+    <div className={cn("px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
       {editor && (
         <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
           {showLinkInput ? (
@@ -342,7 +354,7 @@ function PlaceCardMarkdownPane({
         </BubbleMenu>
       )}
       <EditorContent editor={editor} className={cn("h-full", isDark && "dark")} />
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -411,6 +423,52 @@ export function PlaceCard({
     editorRef.current = ed;
   }, []);
 
+  const coverPath = doc.kind === "vault" ? doc.cover : undefined;
+  // Bumped when the cover file's bytes change on disk so the <img> re-fetches
+  // past the protocol's no-cache response (?v= param).
+  const [coverRev, setCoverRev] = useState(0);
+  useEffect(() => {
+    if (!coverPath) return;
+    return window.api.fs.onFileContentChanged(({ filePath }) => {
+      if (filePath.replaceAll("\\", "/").endsWith(`/${coverPath}`)) {
+        setCoverRev((r) => r + 1);
+      }
+    });
+  }, [coverPath]);
+
+  const handleSetCover = useCallback(
+    async (relPath: string) => {
+      const result = await window.api.fs.writeFrontmatterProperty(
+        currentFilePath,
+        "cover",
+        relPath
+      );
+      if (result.success) {
+        setDoc((d) => (d.kind === "vault" ? { ...d, cover: relPath } : d));
+      }
+    },
+    [currentFilePath]
+  );
+
+  async function handleRemoveCover() {
+    const result = await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover", null);
+    if (result.success) {
+      setDoc((d) => (d.kind === "vault" ? { ...d, cover: undefined } : d));
+    }
+  }
+
+  const coverInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleCoverFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires a change event.
+    e.target.value = "";
+    if (!file) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await window.api.fs.importAttachment({ suggestedName: file.name, bytes });
+    if (result.success) await handleSetCover(result.relPath);
+  }
+
   useEffect(() => {
     void place.geometry;
     if (place.previewMarkdown !== undefined) {
@@ -453,7 +511,8 @@ export function PlaceCard({
         kind: "vault",
         body: result.body,
         frontmatter: result.frontmatter,
-        keys: vaultKeys
+        keys: vaultKeys,
+        cover: result.cover
       });
     });
     return () => {
@@ -567,45 +626,35 @@ export function PlaceCard({
     }
   }
 
+  const coverVisible = Boolean(coverPath && isVaultRelativePath(coverPath));
+  const showSaveAction = place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault);
+  const showExpandAction = mode === "mini" && Boolean(onExpand);
+  const showMenuAction = mode === "full" && place.previewMarkdown === undefined;
+  const actionCount =
+    1 + Number(showSaveAction) + Number(showExpandAction) + Number(showMenuAction);
+
   return (
     <div
       className={cn("pointer-events-auto", mode === "full" ? "h-full" : undefined)}
       style={mode === "mini" ? { width: 272 } : undefined}
     >
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(e) => void handleCoverFileChosen(e)}
+      />
       <div
         className={cn(
-          "bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
+          "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
         )}
       >
-        {/* Header */}
-        <div className="flex min-h-12 items-start gap-1 px-3 py-2 shrink-0">
-          <div className="flex-1 min-w-0 pt-1">
-            <ErrorTooltip error={titleError}>
-              <AutoSizeTextArea
-                inputRef={titleInputRef}
-                aria-label="Place name"
-                className={cn(
-                  "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
-                  place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
-                  titleError && "ring-2 ring-inset ring-destructive"
-                )}
-                onBlur={handleTitleBlur}
-                onChange={(v) => {
-                  const singleLine = v.replace(/\r?\n/g, " ");
-                  setTitleInput(singleLine);
-                  setTitleError(validateTitle(singleLine));
-                }}
-                onEnter={handleTitleEnter}
-                onTab={handleTitleEnter}
-                placeholder=""
-                readOnly={place.previewMarkdown !== undefined}
-                value={titleInput}
-              />
-            </ErrorTooltip>
-          </div>
+        {/* Pinned top-right; everything else (cover included) scrolls beneath. */}
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
           {place.previewMarkdown !== undefined && onSaveSearchToVault && (
             <FolderPickerPopover
               open={saveToVaultOpen}
@@ -685,6 +734,18 @@ export function PlaceCard({
                   <PencilIcon />
                   Rename
                 </DropdownMenuItem>
+                {doc.kind === "vault" && (
+                  <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
+                    <ImageIcon />
+                    {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+                  </DropdownMenuItem>
+                )}
+                {doc.kind === "vault" && coverPath && (
+                  <DropdownMenuItem onClick={() => void handleRemoveCover()}>
+                    <ImageOffIcon />
+                    Remove Cover Photo
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={() => {
@@ -702,123 +763,171 @@ export function PlaceCard({
             <XIcon />
           </Button>
         </div>
-
-        {place.previewMarkdown === undefined &&
-          place.type !== "GeoJsonLayer" &&
-          onCommitPointLocation && (
-            <div className="px-2 pb-4 shrink-0">
-              <Popover
-                open={addLocationOpen}
-                onOpenChange={handleAddLocationOpenChange}
-                modal={false}
+        <ScrollArea className={cn("overflow-y-auto", mode === "full" && "flex-1 min-h-0")}>
+          <div className={cn("flex flex-col", mode === "full" && "min-h-full")}>
+            {coverPath && isVaultRelativePath(coverPath) && (
+              <img
+                src={vaultImageUrl(coverPath, coverRev)}
+                alt=""
+                draggable={false}
+                className={cn("w-full shrink-0 object-cover", mode === "mini" ? "h-28" : "h-40")}
+              />
+            )}
+            {/* Header */}
+            <div className="flex min-h-12 items-start px-3 py-2 shrink-0">
+              <div
+                className="flex-1 min-w-0 pt-1"
+                style={coverVisible ? undefined : { paddingRight: actionCount * 36 }}
               >
-                <PopoverTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
-                    >
-                      {place.geometry ? (
-                        <MapPinIcon className="size-4 shrink-0" />
-                      ) : (
-                        <MapPinPlus className="size-4 shrink-0" />
-                      )}
-                      <span className="truncate">
-                        {place.geometry
-                          ? formatPointLocationShort(place.geometry)
-                          : "Add a location"}
-                      </span>
-                    </button>
-                  }
-                />
-                <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
-                  <PopoverTitle className="sr-only">
-                    {place.geometry ? "Change location" : "Add a location"}
-                  </PopoverTitle>
-                  <GeocodeSearchPanel
-                    active={addLocationOpen}
-                    placeholder="Search for a location"
-                    onSelectResult={handleAddLocationSearchSelect}
-                    inputEndSlot={
-                      place.geometry && onClearPointLocation ? (
-                        <InputGroupButton
-                          type="button"
-                          size="sm"
-                          onClick={() => void handleClearLocation()}
-                        >
-                          Clear
-                        </InputGroupButton>
-                      ) : null
-                    }
+                <ErrorTooltip error={titleError}>
+                  <AutoSizeTextArea
+                    inputRef={titleInputRef}
+                    aria-label="Place name"
+                    className={cn(
+                      "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
+                      place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
+                      titleError && "ring-2 ring-inset ring-destructive"
+                    )}
+                    onBlur={handleTitleBlur}
+                    onChange={(v) => {
+                      const singleLine = v.replace(/\r?\n/g, " ");
+                      setTitleInput(singleLine);
+                      setTitleError(validateTitle(singleLine));
+                    }}
+                    onEnter={handleTitleEnter}
+                    onTab={handleTitleEnter}
+                    placeholder=""
+                    readOnly={place.previewMarkdown !== undefined}
+                    value={titleInput}
                   />
-                </PopoverContent>
-              </Popover>
+                </ErrorTooltip>
+              </div>
             </div>
-          )}
 
-        {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
-        {place.previewMarkdown === undefined && doc.kind === "vault" && (
-          <PropertiesPanel
-            filePath={currentFilePath}
-            frontmatter={doc.frontmatter}
-            allVaultKeyTypes={doc.keys}
-          />
-        )}
-        {/* Preview place (search result / chat feature): the same properties grid,
-            read-only, so it looks exactly like the vault file it becomes on save. */}
-        {place.previewMarkdown !== undefined &&
-          place.properties &&
-          Object.keys(place.properties).length > 0 && (
-            <PropertiesPanel
-              readOnly
-              filePath={currentFilePath}
-              frontmatter={place.properties}
-              allVaultKeyTypes={[]}
-            />
-          )}
-        {doc.kind === "geojson-layer" &&
-          (() => {
-            const GJ_EXCLUDED = new Set(["name", "description"]);
-            const gjFrontmatter = Object.fromEntries(
-              Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
-            );
-            return (
+            {place.previewMarkdown === undefined &&
+              place.type !== "GeoJsonLayer" &&
+              onCommitPointLocation && (
+                <div className="px-2 pb-4 shrink-0">
+                  <Popover
+                    open={addLocationOpen}
+                    onOpenChange={handleAddLocationOpenChange}
+                    modal={false}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                        >
+                          {place.geometry ? (
+                            <MapPinIcon className="size-4 shrink-0" />
+                          ) : (
+                            <MapPinPlus className="size-4 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {place.geometry
+                              ? formatPointLocationShort(place.geometry)
+                              : "Add a location"}
+                          </span>
+                        </button>
+                      }
+                    />
+                    <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                      <PopoverTitle className="sr-only">
+                        {place.geometry ? "Change location" : "Add a location"}
+                      </PopoverTitle>
+                      <GeocodeSearchPanel
+                        active={addLocationOpen}
+                        placeholder="Search for a location"
+                        onSelectResult={handleAddLocationSearchSelect}
+                        inputEndSlot={
+                          place.geometry && onClearPointLocation ? (
+                            <InputGroupButton
+                              type="button"
+                              size="sm"
+                              onClick={() => void handleClearLocation()}
+                            >
+                              Clear
+                            </InputGroupButton>
+                          ) : null
+                        }
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+            {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
+            {place.previewMarkdown === undefined && doc.kind === "vault" && (
               <PropertiesPanel
                 filePath={currentFilePath}
-                frontmatter={gjFrontmatter}
-                allVaultKeyTypes={[]}
-                onWriteProperty={async (key, value) => {
-                  await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
-                }}
-                reorderable={false}
+                frontmatter={doc.frontmatter}
+                allVaultKeyTypes={doc.keys}
               />
-            );
-          })()}
+            )}
+            {/* Preview place (search result / chat feature): the same properties grid,
+            read-only, so it looks exactly like the vault file it becomes on save. */}
+            {place.previewMarkdown !== undefined &&
+              place.properties &&
+              Object.keys(place.properties).length > 0 && (
+                <PropertiesPanel
+                  readOnly
+                  filePath={currentFilePath}
+                  frontmatter={place.properties}
+                  allVaultKeyTypes={[]}
+                />
+              )}
+            {doc.kind === "geojson-layer" &&
+              (() => {
+                const GJ_EXCLUDED = new Set(["name", "description"]);
+                const gjFrontmatter = Object.fromEntries(
+                  Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
+                );
+                return (
+                  <PropertiesPanel
+                    filePath={currentFilePath}
+                    frontmatter={gjFrontmatter}
+                    allVaultKeyTypes={[]}
+                    onWriteProperty={async (key, value) => {
+                      await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+                    }}
+                    reorderable={false}
+                  />
+                );
+              })()}
 
-        {/* Body content */}
-        {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
-        {doc.kind === "error" && (
-          <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
-        )}
-        {!loading && doc.kind !== "error" && (
-          <PlaceCardMarkdownPane
-            filePath={currentFilePath}
-            initialMarkdown={
-              doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
-            }
-            isPreview={doc.kind === "preview"}
-            mode={mode}
-            isDark={isDark}
-            onNavigate={onNavigate}
-            onEditorReady={onEditorReady}
-            onPersist={
-              doc.kind === "geojson-layer"
-                ? (content) =>
-                    void window.api.fs.writeGeoJsonProperty(currentFilePath, "description", content)
-                : undefined
-            }
-          />
-        )}
+            {/* Body content */}
+            {loading && (
+              <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>
+            )}
+            {doc.kind === "error" && (
+              <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
+            )}
+            {!loading && doc.kind !== "error" && (
+              <PlaceCardMarkdownPane
+                filePath={currentFilePath}
+                initialMarkdown={
+                  doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
+                }
+                isPreview={doc.kind === "preview"}
+                mode={mode}
+                isDark={isDark}
+                onNavigate={onNavigate}
+                onEditorReady={onEditorReady}
+                onPersist={
+                  doc.kind === "geojson-layer"
+                    ? (content) =>
+                        void window.api.fs.writeGeoJsonProperty(
+                          currentFilePath,
+                          "description",
+                          content
+                        )
+                    : undefined
+                }
+              />
+            )}
+          </div>
+        </ScrollArea>
       </div>
       <AlertDialog
         open={deleteOpen}

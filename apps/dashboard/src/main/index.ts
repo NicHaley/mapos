@@ -30,6 +30,7 @@ import {
 import { registerServicesIpc } from "./services-ipc";
 import { invalidateServiceClient } from "./services/client";
 import { installDownloadedUpdateOnQuit, setupUpdater } from "./updater";
+import { registerVaultProtocol } from "./vault-protocol";
 import { setupPlacesWatcher } from "./watcher";
 
 // Privileged-scheme registration must happen before app `ready`, so it runs at
@@ -130,6 +131,8 @@ app.whenReady().then(() => {
   // global glyphs/sprites + world basemap bundled with the app.
   registerRegionProtocol(join(appStateDir, "regions"), worldPmtilesPath());
   registerAssetProtocol(basemapAssetsDir());
+  // Reads `vaultRoot` per-request so vault switches/renames need no re-registration.
+  registerVaultProtocol(() => vaultRoot);
 
   // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user
   // completes the flow; `bootVault()` populates them and is also reused by switch/rename/delete.

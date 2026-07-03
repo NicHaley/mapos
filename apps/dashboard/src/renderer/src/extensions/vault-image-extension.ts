@@ -157,7 +157,9 @@ export const VaultImage = Image.extend<VaultImageOptions>({
             // dragged from inside the vault is still copied into attachments/.
             const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
             void (async () => {
-              for (const file of files) await importAndInsert(file, pos);
+              // Every insert lands at the same pos, pushing earlier inserts
+              // rightward — iterate reversed so the document ends up in drop order.
+              for (const file of files.toReversed()) await importAndInsert(file, pos);
             })();
             return true;
           }

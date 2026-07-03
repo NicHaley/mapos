@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import { protocol } from "electron";
+import { SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import { CORS, serveFile } from "./protocol-serve";
 
 /**
@@ -15,7 +16,7 @@ import { CORS, serveFile } from "./protocol-serve";
 export const VAULT_SCHEME = "mapos-vault";
 export const VAULT_URL_HOST = "vault";
 
-const SERVABLE_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const SERVABLE_IMAGE_EXTS = new Set<string>(SERVABLE_IMAGE_EXTENSIONS);
 
 function forbidden(): Response {
   return new Response("forbidden", { status: 403, headers: CORS });

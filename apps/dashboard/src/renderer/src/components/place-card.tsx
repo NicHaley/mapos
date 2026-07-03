@@ -73,7 +73,12 @@ import {
   useRef,
   useState
 } from "react";
-import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
+import {
+  type FileNode,
+  type PlaceRecord,
+  type PropertyType,
+  isServableImageFile
+} from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
@@ -520,6 +525,9 @@ export function PlaceCard({
     thumbUrl: string;
     pageUrl: string;
   } | null>(null);
+  // Display URL of a vault cover that failed to load (stale path, unreadable
+  // file). Keyed by src, so a rewrite of the cover file (new ?v=) retries.
+  const [failedCoverSrc, setFailedCoverSrc] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   useEffect(() => {
     setRemoteCover(null);
@@ -533,29 +541,22 @@ export function PlaceCard({
     };
   }, [wikidataQid]);
 
-  const handleSetCover = useCallback(
-    async (relPath: string) => {
-      const result = await window.api.fs.writeFrontmatterProperty(
-        currentFilePath,
-        "cover",
-        relPath
-      );
+  /** Set (relPath) or remove (null) the cover in one atomic frontmatter write.
+   *  Either way any stale Commons provenance link is dropped with it. */
+  const applyCover = useCallback(
+    async (relPath: string | null) => {
+      const result = await window.api.fs.writeFrontmatterProperties(currentFilePath, {
+        cover: relPath,
+        cover_source: null
+      });
       if (result.success) {
-        // A manually chosen cover has no Commons provenance — drop any stale link.
-        await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover_source", null);
-        setDoc((d) => (d.kind === "vault" ? { ...d, cover: relPath, coverSource: undefined } : d));
+        setDoc((d) =>
+          d.kind === "vault" ? { ...d, cover: relPath ?? undefined, coverSource: undefined } : d
+        );
       }
     },
     [currentFilePath]
   );
-
-  async function handleRemoveCover() {
-    const result = await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover", null);
-    if (result.success) {
-      await window.api.fs.writeFrontmatterProperty(currentFilePath, "cover_source", null);
-      setDoc((d) => (d.kind === "vault" ? { ...d, cover: undefined, coverSource: undefined } : d));
-    }
-  }
 
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -566,7 +567,7 @@ export function PlaceCard({
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     const result = await window.api.fs.importAttachment({ suggestedName: file.name, bytes });
-    if (result.success) await handleSetCover(result.relPath);
+    if (result.success) await applyCover(result.relPath);
   }
 
   useEffect(() => {
@@ -732,8 +733,14 @@ export function PlaceCard({
     }
   }
 
-  const vaultCover = coverPath && isVaultRelativePath(coverPath) ? coverPath : undefined;
-  const coverVisible = Boolean(vaultCover) || remoteCover !== null;
+  // `cover` is free-form frontmatter: only treat it as a hero when it plausibly
+  // names an image the vault protocol will serve.
+  const vaultCover =
+    coverPath && isVaultRelativePath(coverPath) && isServableImageFile(coverPath)
+      ? coverPath
+      : undefined;
+  const coverSrc = vaultCover ? vaultImageUrl(vaultCover, coverRev) : remoteCover?.thumbUrl;
+  const coverVisible = Boolean(coverSrc) && coverSrc !== failedCoverSrc;
 
   function openCoverLightbox(): void {
     if (vaultCover) {
@@ -844,7 +851,7 @@ export function PlaceCard({
               </DropdownMenuItem>
             )}
             {doc.kind === "vault" && coverPath && (
-              <DropdownMenuItem onClick={() => void handleRemoveCover()}>
+              <DropdownMenuItem onClick={() => void applyCover(null)}>
                 <ImageOffIcon />
                 Remove Cover Photo
               </DropdownMenuItem>
@@ -932,10 +939,12 @@ export function PlaceCard({
                 className="block w-full shrink-0 cursor-zoom-in"
               >
                 <img
-                  src={vaultCover ? vaultImageUrl(vaultCover, coverRev) : remoteCover?.thumbUrl}
+                  src={coverSrc}
                   alt=""
                   draggable={false}
-                  onError={vaultCover ? undefined : () => setRemoteCover(null)}
+                  onError={() =>
+                    vaultCover ? setFailedCoverSrc(coverSrc ?? null) : setRemoteCover(null)
+                  }
                   className={cn("w-full object-cover", mode === "mini" ? "h-28" : "h-40")}
                 />
               </button>

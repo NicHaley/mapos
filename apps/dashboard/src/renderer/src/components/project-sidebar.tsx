@@ -42,7 +42,7 @@ import {
   TooltipTrigger
 } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import type { ConversationMeta, FileNode } from "@shared/types";
+import { type ConversationMeta, type FileNode, isServableImageFile } from "@shared/types";
 import {
   EllipsisIcon,
   FolderPlusIcon,
@@ -58,7 +58,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
-import { isServableImageFile } from "../lib/file-icons";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";

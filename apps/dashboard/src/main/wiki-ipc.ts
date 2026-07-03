@@ -22,7 +22,7 @@ export function registerWikiIpc(getVaultRoot: () => string): void {
     if (!vaultRoot) return { success: false as const, error: "No vault open" };
     const downloaded = await downloadWikidataImage(qid);
     if (!downloaded) return { success: false as const, error: "No image available" };
-    const imported = importAttachmentToVault(vaultRoot, {
+    const imported = await importAttachmentToVault(vaultRoot, {
       suggestedName: downloaded.fileName,
       bytes: downloaded.bytes
     });

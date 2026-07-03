@@ -20,7 +20,7 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import type { FileNode } from "@shared/types";
+import { type FileNode, isServableImageFile } from "@shared/types";
 import {
   ChevronRightIcon,
   EllipsisIcon,
@@ -33,7 +33,7 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { iconForFilename, isServableImageFile } from "../../lib/file-icons";
+import { iconForFilename } from "../../lib/file-icons";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
 function fileIcon(name: string) {

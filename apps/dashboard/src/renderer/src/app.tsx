@@ -818,6 +818,11 @@ function App(): React.JSX.Element {
       // Persist the previewed details as frontmatter (canonical order, empties dropped)
       // so the saved file matches the preview card exactly.
       const properties = orderDetailProperties(place.properties);
+      // Keep the previewed Wikimedia photo: kick the download off now so it
+      // overlaps the file writes below. Best-effort — offline or imageless QIDs skip.
+      const qid = properties.wikidata_id;
+      const coverImport =
+        typeof qid === "string" && /^Q\d+$/.test(qid) ? window.api.wiki.importImage(qid) : null;
       if (Object.keys(properties).length > 0) {
         const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
         if (!wp.success) console.error("[save search] write properties", wp.error);
@@ -826,20 +831,26 @@ function App(): React.JSX.Element {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
         if (!w.success) console.error("[save search] write body", w.error);
       }
-      // Keep the previewed Wikimedia photo: download into attachments/ and set as
-      // cover before the card opens. Best-effort — offline or imageless QIDs skip.
-      const qid = properties.wikidata_id;
-      if (typeof qid === "string" && /^Q\d+$/.test(qid)) {
-        const img = await window.api.wiki.importImage(qid);
-        if (img.success) {
+      if (coverImport) {
+        const writeCover = async (img: Awaited<typeof coverImport>) => {
+          if (!img.success) return;
           const wc = await window.api.fs.writeFrontmatterProperties(renamed.filePath, {
             cover: img.relPath,
-            // Ordinary (non-reserved) property: visible, clickable attribution
-            // that travels with the file.
+            // Reserved key: hidden from the properties grid, surfaced as the
+            // lightbox "Source" attribution link.
             cover_source: img.pageUrl
           });
           if (!wc.success) console.error("[save search] write cover", wc.error);
-        }
+        };
+        // Wait briefly so the fast path opens the card with its cover already
+        // set; on a slow network stop blocking the card open and let the write
+        // land in the background (the cover shows the next time the card opens).
+        const img = await Promise.race([
+          coverImport,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+        ]);
+        if (img) await writeCover(img);
+        else void coverImport.then(writeCover);
       }
       const created =
         (await window.api.places.getByPath(renamed.filePath)) ??
@@ -917,6 +928,12 @@ function App(): React.JSX.Element {
     },
     [handlePathRelocated]
   );
+  // The alias only needs to outlive the rename while that place stays selected.
+  // Drop it once selection moves off the path so a different place later
+  // occupying it (delete + recreate) can't collide with the old mount key.
+  if (renameKeyAlias && selectedPlace?.filePath !== renameKeyAlias.path) {
+    setRenameKeyAlias(null);
+  }
   const selectedPlaceCardKey =
     selectedPlace && renameKeyAlias?.path === selectedPlace.filePath
       ? renameKeyAlias.key

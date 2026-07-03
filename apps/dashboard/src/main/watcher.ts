@@ -8,13 +8,13 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import chokidar from "chokidar";
 import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
 import type { PlaceRecord } from "../shared/types";
-import { RESERVED_PROPERTY_KEYS } from "../shared/types";
+import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import {
   closeDb,
   getAllPropertyKeysWithTypes,
@@ -126,10 +126,12 @@ function sniffImageType(bytes: Uint8Array): { ext: string; mime: string } | null
  * Write image bytes into the vault's attachments folder. Shared by the renderer
  * import IPC (paste/drop/file picker) and main-process importers (wiki images).
  */
-export function importAttachmentToVault(
+export async function importAttachmentToVault(
   vaultRoot: string,
   args: { suggestedName?: string; bytes: Uint8Array }
-): { success: true; relPath: string; absPath: string } | { success: false; error: string } {
+): Promise<
+  { success: true; relPath: string; absPath: string } | { success: false; error: string }
+> {
   if (args.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
     return { success: false as const, error: "Image exceeds the 25 MB attachment limit" };
   }
@@ -152,7 +154,10 @@ export function importAttachmentToVault(
     const dir = join(vaultRoot, ATTACHMENTS_DIR_NAME);
     mkdirSync(dir, { recursive: true });
     const absPath = uniquePathInDir(dir, finalName, false);
-    writeFileSync(absPath, Buffer.from(args.bytes));
+    // Async so a large image doesn't block the main event loop; `wx` turns the
+    // pick-name→write race (name looked free, created meanwhile) into an error
+    // instead of an overwrite.
+    await writeFile(absPath, Buffer.from(args.bytes), { flag: "wx" });
     // Posix-style so the path is portable inside markdown regardless of OS.
     const relPath = relative(vaultRoot, absPath).split(sep).join("/");
     return { success: true as const, relPath, absPath };
@@ -215,14 +220,10 @@ type FileNode = {
 };
 
 /** Non-directory entries shown in the vault tree (ProjectSidebar / `fs:list-dir`). */
-const VAULT_TREE_LISTED_EXTENSIONS = new Set([
+const VAULT_TREE_LISTED_EXTENSIONS = new Set<string>([
   ".md",
   ".geojson",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp"
+  ...SERVABLE_IMAGE_EXTENSIONS
 ]);
 
 function isVaultTreeListedFile(filename: string): boolean {
@@ -338,7 +339,8 @@ export function setupPlacesWatcher(
    * so the file tree stays live when files are dropped in or removed externally.
    * No `change` handler: content edits don't affect what the tree shows.
    */
-  const nonPlaceWatcher = chokidar.watch(`${vaultRoot}/**/*.{geojson,png,jpg,jpeg,gif,webp}`, {
+  const nonPlaceGlobExts = ["geojson", ...SERVABLE_IMAGE_EXTENSIONS.map((e) => e.slice(1))];
+  const nonPlaceWatcher = chokidar.watch(`${vaultRoot}/**/*.{${nonPlaceGlobExts.join(",")}}`, {
     ignoreInitial: true, // startup listing is covered by readDirTree
     ignored: /(^|[/\\])(\.|node_modules)/,
     ...(process.versions.electron ? { useFsEvents: false as const } : {})
@@ -546,9 +548,10 @@ export function setupPlacesWatcher(
   );
 
   // Merge several frontmatter properties in one round-trip, preserving existing keys
-  // and the body. New keys are appended in the object's iteration order; empty/blank
-  // values are skipped. Used when saving a preview place (search/chat) to the vault so
-  // the file isn't rewritten once per property.
+  // and the body. New keys are appended in the object's iteration order; blank values
+  // are skipped and null/undefined deletes the key (matching the singular handler).
+  // Used when saving a preview place (search/chat) to the vault so the file isn't
+  // rewritten once per property.
   ipcMain.handle(
     "fs:write-frontmatter-properties",
     async (_event, filePath: string, properties: Record<string, unknown>) => {
@@ -561,8 +564,9 @@ export function setupPlacesWatcher(
         // Clone before mutating — see fs:write-frontmatter-property.
         const data: Record<string, unknown> = { ...parsed.data };
         for (const [key, value] of Object.entries(properties)) {
-          if (value === null || value === undefined || value === "") continue;
-          data[key] = value;
+          if (value === "") continue;
+          if (value === null || value === undefined) delete data[key];
+          else data[key] = value;
         }
         writeVaultFile(filePath, matter.stringify(parsed.content, data));
         const rec = data;

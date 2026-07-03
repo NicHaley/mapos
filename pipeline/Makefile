@@ -271,10 +271,13 @@ manifest: dist-guard
 # Order matters: upload artifacts, prune superseded versions, flip manifest.json
 # last — a client must never see a manifest pointing at a version that isn't
 # fully uploaded (or was just pruned).
+#
+# Scoped to just this region's version dir. A whole-tree `rclone copy $(DIST_DIR)/`
+# would list every prior region on R2 to reconcile — cheap once, but ruinous in a
+# batch that re-invokes `make upload` per region (hundreds of full-bucket scans).
 upload: manifest
-	rclone copy $(DIST_DIR)/ $(R2_REMOTE)/ --progress --s3-no-check-bucket \
-	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude "manifest.json" \
-	  --exclude ".sha-cache.json" --exclude "**/.no-routing"
+	rclone copy $(DIST)/ $(R2_REMOTE)/$(REGION)/$(VERSION)/ --progress --s3-no-check-bucket \
+	  --exclude "**/.DS_Store" --exclude ".DS_Store" --exclude ".no-routing"
 	$(MAKE) prune
 	rclone copyto $(DIST_DIR)/manifest.json $(R2_REMOTE)/manifest.json --s3-no-check-bucket
 

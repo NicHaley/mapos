@@ -12,6 +12,8 @@ export type LightboxData = {
   src: string;
   /** Source page (e.g. the Wikimedia Commons file page). */
   pageUrl?: string;
+  /** Label shown beneath the image (e.g. the filename for vault images with no provenance page). */
+  caption?: string;
 };
 
 /**
@@ -91,16 +93,20 @@ export function ImageLightbox({
           }
         />
       </div>
-      {image.pageUrl && (
+      {(image.caption || image.pageUrl) && (
         <div className="relative shrink-0 px-6 pb-5 text-center text-xs text-white/70">
-          <a
-            href={image.pageUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2 hover:text-white transition-colors"
-          >
-            Source
-          </a>
+          {image.caption && <span>{image.caption}</span>}
+          {image.caption && image.pageUrl && <span className="mx-1.5">·</span>}
+          {image.pageUrl && (
+            <a
+              href={image.pageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-white transition-colors"
+            >
+              Source
+            </a>
+          )}
         </div>
       )}
     </div>,

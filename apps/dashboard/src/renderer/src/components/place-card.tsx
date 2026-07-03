@@ -37,6 +37,7 @@ import { cn } from "@mapos/ui/lib/utils";
 import {
   VaultImage,
   isVaultRelativePath,
+  relPathFromVaultUrl,
   vaultImageUrl
 } from "@renderer/extensions/vault-image-extension";
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
@@ -711,7 +712,8 @@ export function PlaceCard({
     if (vaultCover) {
       setLightbox({
         src: vaultImageUrl(vaultCover, coverRev),
-        pageUrl: doc.kind === "vault" ? doc.coverSource : undefined
+        pageUrl: doc.kind === "vault" ? doc.coverSource : undefined,
+        caption: vaultCover.split("/").pop()
       });
     } else if (remoteCover) {
       setLightbox({
@@ -1068,7 +1070,11 @@ export function PlaceCard({
                         )
                     : undefined
                 }
-                onImageClick={(src) => setLightbox({ src })}
+                onImageClick={(src) =>
+                  // Vault images get their filename as the caption; remote
+                  // image URLs carry no meaningful name.
+                  setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
+                }
               />
             )}
           </div>

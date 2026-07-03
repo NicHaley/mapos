@@ -1,18 +1,3 @@
-import { cn } from "@mapos/ui/lib/utils";
-import type { FileNode } from "@shared/types";
-import {
-  ChevronRightIcon,
-  EllipsisIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  FolderPlusIcon,
-  PencilIcon,
-  PlusIcon,
-  SquarePenIcon,
-  Trash2Icon
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { iconForFilename } from "../../lib/file-icons";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -34,7 +19,22 @@ import {
   SidebarMenuSub
 } from "@mapos/ui/components/sidebar";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
-import { parentDir, type SidebarDndBridge } from "./dnd";
+import { cn } from "@mapos/ui/lib/utils";
+import type { FileNode } from "@shared/types";
+import {
+  ChevronRightIcon,
+  EllipsisIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+  PencilIcon,
+  PlusIcon,
+  SquarePenIcon,
+  Trash2Icon
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { iconForFilename, isServableImageFile } from "../../lib/file-icons";
+import { type SidebarDndBridge, parentDir } from "./dnd";
 
 function fileIcon(name: string) {
   const Icon = iconForFilename(name);
@@ -171,12 +171,17 @@ export function FileTreeNode({
     </div>
   );
 
+  // Images open in the lightbox, not a tab — the new-tab action doesn't apply.
+  const isImage = node.type === "file" && isServableImageFile(node.name);
+
   const menuItems = (
     <>
-      <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
-        <PlusIcon />
-        Open in New Tab
-      </ContextMenuItem>
+      {!isImage && (
+        <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
+          <PlusIcon />
+          Open in New Tab
+        </ContextMenuItem>
+      )}
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         <FolderOpenIcon />
         Reveal in Finder
@@ -195,10 +200,12 @@ export function FileTreeNode({
 
   const dropdownMenuItems = (
     <>
-      <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
-        <PlusIcon />
-        Open in New Tab
-      </DropdownMenuItem>
+      {!isImage && (
+        <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
+          <PlusIcon />
+          Open in New Tab
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
         <FolderOpenIcon />
         Reveal in Finder
@@ -284,9 +291,7 @@ export function FileTreeNode({
 
   if (node.type === "directory") {
     const isActive =
-      selectedPaths.size > 1
-        ? selectedPaths.has(node.path)
-        : node.path === selectedFolderPath;
+      selectedPaths.size > 1 ? selectedPaths.has(node.path) : node.path === selectedFolderPath;
     const folderDropZone = Boolean(dnd && dnd.dragOverTarget === node.path);
     return (
       <li className={cn("relative", folderDropZone && "rounded-md bg-sidebar-accent")}>

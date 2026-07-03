@@ -258,6 +258,21 @@ declare global {
         geocodingReverse: (req: GeocodeReverseRequest) => Promise<GeocodeResult[]>;
         tilesStyleUrl: (req: TileStyleRequest) => Promise<string>;
       };
+      wiki: {
+        imageLookup: (qid: string) => Promise<{
+          thumbUrl: string;
+          fileName: string;
+          pageUrl: string;
+          artist?: string;
+          license?: string;
+          licenseUrl?: string;
+        } | null>;
+        importImage: (
+          qid: string
+        ) => Promise<
+          { success: true; relPath: string; pageUrl: string } | { success: false; error: string }
+        >;
+      };
       regions: {
         getManifest: (force?: boolean) => Promise<RegionManifest>;
         listLocal: () => Promise<InstalledRegionPack[]>;

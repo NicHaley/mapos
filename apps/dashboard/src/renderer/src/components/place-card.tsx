@@ -60,6 +60,7 @@ import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types"
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
+import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import { PropertiesPanel } from "./properties-panel";
 
 function formatPointLocationShort(geometryJson: string | undefined): string {
@@ -120,6 +121,8 @@ type PlaceCardMarkdownPaneProps = {
   onEditorReady: (editor: Editor | null) => void;
   /** Override the default writePlaceBody persistence. */
   onPersist?: (content: string) => void;
+  /** Called with the display URL when an inline image is clicked (opens the lightbox). */
+  onImageClick?: (src: string) => void;
 };
 
 const TabIndent = Extension.create({
@@ -150,9 +153,12 @@ function PlaceCardMarkdownPane({
   isDark,
   onNavigate,
   onEditorReady,
-  onPersist
+  onPersist,
+  onImageClick
 }: PlaceCardMarkdownPaneProps): React.JSX.Element {
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
+  const onImageClickRef = useRef(onImageClick);
+  onImageClickRef.current = onImageClick;
   const currentPathRef = useRef(filePath);
   currentPathRef.current = filePath;
   const onNavigateRef = useRef(onNavigate);
@@ -182,7 +188,12 @@ function PlaceCardMarkdownPane({
       TabIndent,
       // inline: markdown image tokens are inline (inside paragraphs); a block-level
       // image node can't be placed there and the token would fall back to raw text.
-      VaultImage.configure({ allowBase64: false, inline: true }),
+      VaultImage.configure({
+        allowBase64: false,
+        inline: true,
+        HTMLAttributes: { class: "cursor-zoom-in" },
+        onImageClick: (src: string) => onImageClickRef.current?.(src)
+      }),
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {
           const item = vaultFilesRef.current.find((f) => f.title === title);
@@ -436,6 +447,33 @@ export function PlaceCard({
     });
   }, [coverPath]);
 
+  // Search previews carry no cover file; when the result has a Wikidata id,
+  // resolve its Commons (P18) photo as a remote hero. Vault docs never use
+  // this — their only image source is the `cover` frontmatter key.
+  const wikidataQid =
+    place.previewMarkdown !== undefined && typeof place.properties?.wikidata_id === "string"
+      ? place.properties.wikidata_id
+      : undefined;
+  const [remoteCover, setRemoteCover] = useState<{
+    thumbUrl: string;
+    pageUrl: string;
+    artist?: string;
+    license?: string;
+    licenseUrl?: string;
+  } | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxData | null>(null);
+  useEffect(() => {
+    setRemoteCover(null);
+    if (!wikidataQid || !/^Q\d+$/.test(wikidataQid)) return;
+    let cancelled = false;
+    void window.api.wiki.imageLookup(wikidataQid).then((img) => {
+      if (!cancelled && img) setRemoteCover(img);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [wikidataQid]);
+
   const handleSetCover = useCallback(
     async (relPath: string) => {
       const result = await window.api.fs.writeFrontmatterProperty(
@@ -626,7 +664,33 @@ export function PlaceCard({
     }
   }
 
-  const coverVisible = Boolean(coverPath && isVaultRelativePath(coverPath));
+  const vaultCover = coverPath && isVaultRelativePath(coverPath) ? coverPath : undefined;
+  const coverVisible = Boolean(vaultCover) || remoteCover !== null;
+
+  function openCoverLightbox(): void {
+    if (vaultCover) {
+      const coverSource =
+        doc.kind === "vault" && typeof doc.frontmatter.cover_source === "string"
+          ? doc.frontmatter.cover_source
+          : undefined;
+      setLightbox({
+        src: vaultImageUrl(vaultCover, coverRev),
+        pageUrl: coverSource,
+        pageLabel: coverSource ? "Source" : undefined
+      });
+    } else if (remoteCover) {
+      setLightbox({
+        // The hero thumb is card-sized; ask Commons for a larger render.
+        src: remoteCover.thumbUrl.replace(/width=\d+/, "width=1600"),
+        artist: remoteCover.artist,
+        license: remoteCover.license,
+        licenseUrl: remoteCover.licenseUrl,
+        pageUrl: remoteCover.pageUrl,
+        pageLabel: "Wikimedia Commons"
+      });
+    }
+  }
+
   const showSaveAction = place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault);
   const showExpandAction = mode === "mini" && Boolean(onExpand);
   const showMenuAction = mode === "full" && place.previewMarkdown === undefined;
@@ -765,13 +829,21 @@ export function PlaceCard({
         </div>
         <ScrollArea className={cn("overflow-y-auto", mode === "full" && "flex-1 min-h-0")}>
           <div className={cn("flex flex-col", mode === "full" && "min-h-full")}>
-            {coverPath && isVaultRelativePath(coverPath) && (
-              <img
-                src={vaultImageUrl(coverPath, coverRev)}
-                alt=""
-                draggable={false}
-                className={cn("w-full shrink-0 object-cover", mode === "mini" ? "h-28" : "h-40")}
-              />
+            {coverVisible && (
+              <button
+                type="button"
+                onClick={openCoverLightbox}
+                aria-label="View image"
+                className="block w-full shrink-0 cursor-zoom-in"
+              >
+                <img
+                  src={vaultCover ? vaultImageUrl(vaultCover, coverRev) : remoteCover?.thumbUrl}
+                  alt=""
+                  draggable={false}
+                  onError={vaultCover ? undefined : () => setRemoteCover(null)}
+                  className={cn("w-full object-cover", mode === "mini" ? "h-28" : "h-40")}
+                />
+              </button>
             )}
             {/* Header */}
             <div className="flex min-h-12 items-start px-3 py-2 shrink-0">
@@ -924,11 +996,15 @@ export function PlaceCard({
                         )
                     : undefined
                 }
+                onImageClick={(src) => setLightbox({ src })}
               />
             )}
           </div>
         </ScrollArea>
       </div>
+      {lightbox && (
+        <ImageLightbox key={lightbox.src} image={lightbox} onClose={() => setLightbox(null)} />
+      )}
       <AlertDialog
         open={deleteOpen}
         onOpenChange={(open) => {

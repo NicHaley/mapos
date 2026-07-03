@@ -390,6 +390,21 @@ const api = {
     tilesStyleUrl: (req: TileStyleRequest) =>
       ipcRenderer.invoke("services:tiles-style-url", req) as Promise<string>
   },
+  wiki: {
+    imageLookup: (qid: string) =>
+      ipcRenderer.invoke("wiki:image-lookup", qid) as Promise<{
+        thumbUrl: string;
+        fileName: string;
+        pageUrl: string;
+        artist?: string;
+        license?: string;
+        licenseUrl?: string;
+      } | null>,
+    importImage: (qid: string) =>
+      ipcRenderer.invoke("wiki:import-image", qid) as Promise<
+        { success: true; relPath: string; pageUrl: string } | { success: false; error: string }
+      >
+  },
   regions: {
     getManifest: (force?: boolean) =>
       ipcRenderer.invoke("regions:get-manifest", force) as Promise<RegionManifest>,

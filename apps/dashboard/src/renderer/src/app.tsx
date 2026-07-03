@@ -3,14 +3,15 @@ import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
-import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatPane } from "./components/chat-pane";
+import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
   type MapSelectPlaceMeta,
   type MapViewHandle,
@@ -18,7 +19,6 @@ import MapView, {
   type SelectionPulseAnchor
 } from "./components/map-view";
 import { NavTabs } from "./components/nav-tabs";
-import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
@@ -33,8 +33,8 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
-import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
+import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
 
@@ -825,6 +825,21 @@ function App(): React.JSX.Element {
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
         if (!w.success) console.error("[save search] write body", w.error);
+      }
+      // Keep the previewed Wikimedia photo: download into attachments/ and set as
+      // cover before the card opens. Best-effort — offline or imageless QIDs skip.
+      const qid = properties.wikidata_id;
+      if (typeof qid === "string" && /^Q\d+$/.test(qid)) {
+        const img = await window.api.wiki.importImage(qid);
+        if (img.success) {
+          const wc = await window.api.fs.writeFrontmatterProperties(renamed.filePath, {
+            cover: img.relPath,
+            // Ordinary (non-reserved) property: visible, clickable attribution
+            // that travels with the file.
+            cover_source: img.pageUrl
+          });
+          if (!wc.success) console.error("[save search] write cover", wc.error);
+        }
       }
       const created =
         (await window.api.places.getByPath(renamed.filePath)) ??

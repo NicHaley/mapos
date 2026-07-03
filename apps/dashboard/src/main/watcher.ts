@@ -122,6 +122,45 @@ function sniffImageType(bytes: Uint8Array): { ext: string; mime: string } | null
   return null;
 }
 
+/**
+ * Write image bytes into the vault's attachments folder. Shared by the renderer
+ * import IPC (paste/drop/file picker) and main-process importers (wiki images).
+ */
+export function importAttachmentToVault(
+  vaultRoot: string,
+  args: { suggestedName?: string; bytes: Uint8Array }
+): { success: true; relPath: string; absPath: string } | { success: false; error: string } {
+  if (args.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    return { success: false as const, error: "Image exceeds the 25 MB attachment limit" };
+  }
+  const sniffed = sniffImageType(args.bytes);
+  if (!sniffed) {
+    return { success: false as const, error: "Unsupported image format" };
+  }
+  // basename + char strip defang traversal/hidden-file names; the sniffed
+  // extension always wins over whatever the sender's name claimed.
+  const cleaned = args.suggestedName
+    ? basename(args.suggestedName)
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars from filenames is the point
+        .replace(/[/\\\x00-\x1f]/g, "")
+        .replace(/^\.+/, "")
+        .trim()
+    : "";
+  const stem = cleaned ? cleaned.replace(/\.[^.]*$/, "") : "";
+  const finalName = `${stem || `Pasted image ${attachmentTimestamp(new Date())}`}${sniffed.ext}`;
+  try {
+    const dir = join(vaultRoot, ATTACHMENTS_DIR_NAME);
+    mkdirSync(dir, { recursive: true });
+    const absPath = uniquePathInDir(dir, finalName, false);
+    writeFileSync(absPath, Buffer.from(args.bytes));
+    // Posix-style so the path is portable inside markdown regardless of OS.
+    const relPath = relative(vaultRoot, absPath).split(sep).join("/");
+    return { success: true as const, relPath, absPath };
+  } catch (err) {
+    return { success: false as const, error: String(err) };
+  }
+}
+
 function collectPropertyKeysFromData(
   data: Record<string, unknown>,
   keyCollector: Set<string>
@@ -773,37 +812,8 @@ export function setupPlacesWatcher(
 
   ipcMain.handle(
     "fs:import-attachment",
-    (_event, args: { suggestedName?: string; bytes: Uint8Array }) => {
-      if (args.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-        return { success: false as const, error: "Image exceeds the 25 MB attachment limit" };
-      }
-      const sniffed = sniffImageType(args.bytes);
-      if (!sniffed) {
-        return { success: false as const, error: "Unsupported image format" };
-      }
-      // basename + char strip defang traversal/hidden-file names; the sniffed
-      // extension always wins over whatever the sender's name claimed.
-      const cleaned = args.suggestedName
-        ? basename(args.suggestedName)
-            // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars from filenames is the point
-            .replace(/[/\\\x00-\x1f]/g, "")
-            .replace(/^\.+/, "")
-            .trim()
-        : "";
-      const stem = cleaned ? cleaned.replace(/\.[^.]*$/, "") : "";
-      const finalName = `${stem || `Pasted image ${attachmentTimestamp(new Date())}`}${sniffed.ext}`;
-      try {
-        const dir = join(vaultRoot, ATTACHMENTS_DIR_NAME);
-        mkdirSync(dir, { recursive: true });
-        const absPath = uniquePathInDir(dir, finalName, false);
-        writeFileSync(absPath, Buffer.from(args.bytes));
-        // Posix-style so the path is portable inside markdown regardless of OS.
-        const relPath = relative(vaultRoot, absPath).split(sep).join("/");
-        return { success: true as const, relPath, absPath };
-      } catch (err) {
-        return { success: false as const, error: String(err) };
-      }
-    }
+    (_event, args: { suggestedName?: string; bytes: Uint8Array }) =>
+      importAttachmentToVault(vaultRoot, args)
   );
 
   ipcMain.handle(

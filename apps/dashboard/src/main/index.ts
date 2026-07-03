@@ -32,6 +32,7 @@ import { invalidateServiceClient } from "./services/client";
 import { installDownloadedUpdateOnQuit, setupUpdater } from "./updater";
 import { registerVaultProtocol } from "./vault-protocol";
 import { setupPlacesWatcher } from "./watcher";
+import { registerWikiIpc } from "./wiki-ipc";
 
 // Privileged-scheme registration must happen before app `ready`, so it runs at
 // module load. The handlers themselves are attached inside whenReady.
@@ -133,6 +134,7 @@ app.whenReady().then(() => {
   registerAssetProtocol(basemapAssetsDir());
   // Reads `vaultRoot` per-request so vault switches/renames need no re-registration.
   registerVaultProtocol(() => vaultRoot);
+  registerWikiIpc(() => vaultRoot);
 
   // Vault-bound state. When onboarding is pending these stay as no-op stubs until the user
   // completes the flow; `bootVault()` populates them and is also reused by switch/rename/delete.

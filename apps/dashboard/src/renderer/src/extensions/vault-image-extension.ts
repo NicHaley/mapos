@@ -1,6 +1,11 @@
 import { mergeAttributes } from "@tiptap/core";
-import Image from "@tiptap/extension-image";
+import Image, { type ImageOptions } from "@tiptap/extension-image";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+
+type VaultImageOptions = ImageOptions & {
+  /** Called with the resolved display URL when an image node is clicked (lightbox hook). */
+  onImageClick?: (src: string) => void;
+};
 
 /**
  * Vault-aware Tiptap image node.
@@ -45,7 +50,11 @@ function safeDecode(href: string): string {
   }
 }
 
-export const VaultImage = Image.extend({
+export const VaultImage = Image.extend<VaultImageOptions>({
+  addOptions() {
+    return { ...this.parent?.(), onImageClick: undefined };
+  },
+
   // CommonMark forbids raw spaces in image destinations, so markdown on disk
   // holds percent-encoded hrefs (`![](attachments/my%20photo.png)`, Obsidian's
   // convention) while node attrs hold the decoded vault path.
@@ -85,6 +94,8 @@ export const VaultImage = Image.extend({
 
   addProseMirrorPlugins() {
     const editor = this.editor;
+    const options = this.options;
+    const nodeName = this.name;
 
     const importAndInsert = async (file: File, insertAt?: number): Promise<void> => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -114,6 +125,16 @@ export const VaultImage = Image.extend({
       new Plugin({
         key: new PluginKey("vaultImageImport"),
         props: {
+          // Open the lightbox; returning false keeps ProseMirror's default node
+          // selection too, so editing (select-to-delete) still works.
+          handleClickOn: (_view, _pos, node, _nodePos, _event, direct) => {
+            if (!direct || node.type.name !== nodeName) return false;
+            const src = String(node.attrs.src ?? "");
+            if (src) {
+              options.onImageClick?.(isVaultRelativePath(src) ? vaultImageUrl(src) : src);
+            }
+            return false;
+          },
           handlePaste: (_view, event) => {
             if (!editor.isEditable) return false;
             const item = Array.from(event.clipboardData?.items ?? []).find((i) =>

@@ -26,7 +26,9 @@ const PhotonPropertiesSchema = z.object({
   osm_type: z.string().optional(),
   osm_id: z.number().optional(),
   // [west, north, east, south] per Photon
-  extent: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional()
+  extent: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+  // Present only when the Photon instance was imported with extra tags.
+  extra: z.record(z.string(), z.unknown()).optional()
 });
 
 const PhotonFeatureSchema = z.object({
@@ -101,6 +103,9 @@ function featureToResult(feature: PhotonFeature, index: number): GeocodeResult |
   if (osmType && typeof props.osm_id === "number") {
     result.osmType = osmType;
     result.osmId = props.osm_id;
+  }
+  if (typeof props.extra?.wikidata === "string" && props.extra.wikidata) {
+    result.wikidataId = props.extra.wikidata;
   }
   return result;
 }

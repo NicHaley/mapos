@@ -8,6 +8,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@mapos/ui/components/alert-dialog";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from "@mapos/ui/components/breadcrumb";
 import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
@@ -26,6 +34,12 @@ import {
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import {
+  VaultImage,
+  isVaultRelativePath,
+  relPathFromVaultUrl,
+  vaultImageUrl
+} from "@renderer/extensions/vault-image-extension";
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
@@ -38,6 +52,8 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   EllipsisIcon,
   FolderOpenIcon,
+  ImageIcon,
+  ImageOffIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
@@ -48,11 +64,25 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { FileNode, PlaceRecord, PropertyType } from "../../../shared/types";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import {
+  type FileNode,
+  type PlaceRecord,
+  type PropertyType,
+  isServableImageFile
+} from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
+import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import { PropertiesPanel } from "./properties-panel";
 
 function formatPointLocationShort(geometryJson: string | undefined): string {
@@ -92,6 +122,10 @@ type LoadedDoc =
       body: string;
       frontmatter: Record<string, unknown>;
       keys: Array<{ key: string; type: PropertyType }>;
+      /** Vault-relative path of the hero image (reserved `cover` frontmatter key). */
+      cover?: string;
+      /** Provenance URL for the cover (reserved `cover_source` frontmatter key). */
+      coverSource?: string;
     }
   | { kind: "preview"; body: string }
   | {
@@ -111,6 +145,8 @@ type PlaceCardMarkdownPaneProps = {
   onEditorReady: (editor: Editor | null) => void;
   /** Override the default writePlaceBody persistence. */
   onPersist?: (content: string) => void;
+  /** Called with the display URL when an inline image is clicked (opens the lightbox). */
+  onImageClick?: (src: string) => void;
 };
 
 const TabIndent = Extension.create({
@@ -141,9 +177,12 @@ function PlaceCardMarkdownPane({
   isDark,
   onNavigate,
   onEditorReady,
-  onPersist
+  onPersist,
+  onImageClick
 }: PlaceCardMarkdownPaneProps): React.JSX.Element {
   const vaultFilesRef = useRef<WikilinkItem[]>([]);
+  const onImageClickRef = useRef(onImageClick);
+  onImageClickRef.current = onImageClick;
   const currentPathRef = useRef(filePath);
   currentPathRef.current = filePath;
   const onNavigateRef = useRef(onNavigate);
@@ -171,6 +210,14 @@ function PlaceCardMarkdownPane({
       }),
       Markdown,
       TabIndent,
+      // inline: markdown image tokens are inline (inside paragraphs); a block-level
+      // image node can't be placed there and the token would fall back to raw text.
+      VaultImage.configure({
+        allowBase64: false,
+        inline: true,
+        HTMLAttributes: { class: "cursor-zoom-in" },
+        onImageClick: (src: string) => onImageClickRef.current?.(src)
+      }),
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {
           const item = vaultFilesRef.current.find((f) => f.title === title);
@@ -269,7 +316,7 @@ function PlaceCardMarkdownPane({
   }
 
   return (
-    <ScrollArea className={cn("overflow-y-auto px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
+    <div className={cn("px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
       {editor && (
         <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
           {showLinkInput ? (
@@ -342,7 +389,7 @@ function PlaceCardMarkdownPane({
         </BubbleMenu>
       )}
       <EditorContent editor={editor} className={cn("h-full", isDark && "dark")} />
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -357,7 +404,8 @@ export function PlaceCard({
   onCommitPointLocation,
   onClearPointLocation,
   onRename,
-  onDelete
+  onDelete,
+  onOpenFolder
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -376,8 +424,17 @@ export function PlaceCard({
   onRename?: (oldPath: string, newPath: string) => void;
   /** Called after the place file has been deleted on disk. */
   onDelete?: (filePath: string) => void;
+  /** Open a vault folder (breadcrumb click). Receives the absolute folder path. */
+  onOpenFolder?: (folderPath: string) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
+  // With a rename-stable mount key, a relocation initiated outside this card
+  // arrives as a filePath prop change rather than a remount; adopt the new path.
+  const [prevPlacePath, setPrevPlacePath] = useState(place.filePath);
+  if (place.filePath !== prevPlacePath) {
+    setPrevPlacePath(place.filePath);
+    setCurrentFilePath(place.filePath);
+  }
   const [doc, setDoc] = useState<LoadedDoc>(() =>
     place.previewMarkdown !== undefined
       ? { kind: "preview", body: place.previewMarkdown ?? "" }
@@ -395,6 +452,9 @@ export function PlaceCard({
   // Set when "Rename" is chosen so the menu returns focus to the title input
   // (instead of its trigger) once it closes.
   const renameRequestedRef = useRef(false);
+  // Set when this card renames its own file, so the load effect can skip the
+  // reload the filePath change would otherwise trigger — content is unchanged.
+  const selfRenamedToRef = useRef<string | null>(null);
   const isDark = useDarkMode();
 
   const filePathBaseName =
@@ -407,12 +467,115 @@ export function PlaceCard({
 
   const loading = doc.kind === "loading";
 
+  // Local reads resolve in a few ms; an immediate indicator just flashes.
+  // Defer it so fast loads render nothing briefly and slow loads get feedback.
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShowLoadingIndicator(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowLoadingIndicator(true), 200);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
   const onEditorReady = useCallback((ed: Editor | null) => {
     editorRef.current = ed;
   }, []);
 
+  // Ancestor folders for the top-bar breadcrumb. Previews aren't on disk yet,
+  // so they get no folder trail (just the title crumb).
+  const [vaultRoot, setVaultRoot] = useState<string | null>(null);
+  useEffect(() => {
+    void window.api.fs.getVaultRoot().then(setVaultRoot);
+  }, []);
+  const breadcrumbFolders = useMemo(() => {
+    if (place.previewMarkdown !== undefined || !vaultRoot) return [];
+    if (currentFilePath !== vaultRoot && !currentFilePath.startsWith(vaultRoot)) return [];
+    const sep = currentFilePath.includes("\\") ? "\\" : "/";
+    const rel = currentFilePath.slice(vaultRoot.length).replace(/^[/\\]/, "");
+    const segments = rel.split(/[/\\]/).slice(0, -1);
+    return segments.map((name, i) => ({
+      name,
+      path: `${vaultRoot}${sep}${segments.slice(0, i + 1).join(sep)}`
+    }));
+  }, [place.previewMarkdown, vaultRoot, currentFilePath]);
+
+  const coverPath = doc.kind === "vault" ? doc.cover : undefined;
+  // Bumped when the cover file's bytes change on disk so the <img> re-fetches
+  // past the protocol's no-cache response (?v= param).
+  const [coverRev, setCoverRev] = useState(0);
+  useEffect(() => {
+    if (!coverPath) return;
+    return window.api.fs.onFileContentChanged(({ filePath }) => {
+      if (filePath.replaceAll("\\", "/").endsWith(`/${coverPath}`)) {
+        setCoverRev((r) => r + 1);
+      }
+    });
+  }, [coverPath]);
+
+  // Search previews carry no cover file; when the result has a Wikidata id,
+  // resolve its Commons (P18) photo as a remote hero. Vault docs never use
+  // this — their only image source is the `cover` frontmatter key.
+  const wikidataQid =
+    place.previewMarkdown !== undefined && typeof place.properties?.wikidata_id === "string"
+      ? place.properties.wikidata_id
+      : undefined;
+  const [remoteCover, setRemoteCover] = useState<{
+    thumbUrl: string;
+    pageUrl: string;
+  } | null>(null);
+  // Display URL of a vault cover that failed to load (stale path, unreadable
+  // file). Keyed by src, so a rewrite of the cover file (new ?v=) retries.
+  const [failedCoverSrc, setFailedCoverSrc] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxData | null>(null);
+  useEffect(() => {
+    setRemoteCover(null);
+    if (!wikidataQid || !/^Q\d+$/.test(wikidataQid)) return;
+    let cancelled = false;
+    void window.api.wiki.imageLookup(wikidataQid).then((img) => {
+      if (!cancelled && img) setRemoteCover(img);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [wikidataQid]);
+
+  /** Set (relPath) or remove (null) the cover in one atomic frontmatter write.
+   *  Either way any stale Commons provenance link is dropped with it. */
+  const applyCover = useCallback(
+    async (relPath: string | null) => {
+      const result = await window.api.fs.writeFrontmatterProperties(currentFilePath, {
+        cover: relPath,
+        cover_source: null
+      });
+      if (result.success) {
+        setDoc((d) =>
+          d.kind === "vault" ? { ...d, cover: relPath ?? undefined, coverSource: undefined } : d
+        );
+      }
+    },
+    [currentFilePath]
+  );
+
+  const coverInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleCoverFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires a change event.
+    e.target.value = "";
+    if (!file) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await window.api.fs.importAttachment({ suggestedName: file.name, bytes });
+    if (result.success) await applyCover(result.relPath);
+  }
+
   useEffect(() => {
     void place.geometry;
+    if (selfRenamedToRef.current === place.filePath) {
+      selfRenamedToRef.current = null;
+      return;
+    }
     if (place.previewMarkdown !== undefined) {
       setDoc({ kind: "preview", body: place.previewMarkdown ?? "" });
       return;
@@ -453,7 +616,9 @@ export function PlaceCard({
         kind: "vault",
         body: result.body,
         frontmatter: result.frontmatter,
-        keys: vaultKeys
+        keys: vaultKeys,
+        cover: result.cover,
+        coverSource: result.coverSource
       });
     });
     return () => {
@@ -535,6 +700,7 @@ export function PlaceCard({
     }
     const result = await window.api.fs.renameFile(currentFilePath, newName);
     if (result.success) {
+      selfRenamedToRef.current = result.newPath;
       onRename?.(currentFilePath, result.newPath);
       setCurrentFilePath(result.newPath);
       setTitleError(null);
@@ -567,259 +733,392 @@ export function PlaceCard({
     }
   }
 
+  // `cover` is free-form frontmatter: only treat it as a hero when it plausibly
+  // names an image the vault protocol will serve.
+  const vaultCover =
+    coverPath && isVaultRelativePath(coverPath) && isServableImageFile(coverPath)
+      ? coverPath
+      : undefined;
+  const coverSrc = vaultCover ? vaultImageUrl(vaultCover, coverRev) : remoteCover?.thumbUrl;
+  const coverVisible = Boolean(coverSrc) && coverSrc !== failedCoverSrc;
+
+  function openCoverLightbox(): void {
+    if (vaultCover) {
+      setLightbox({
+        src: vaultImageUrl(vaultCover, coverRev),
+        pageUrl: doc.kind === "vault" ? doc.coverSource : undefined,
+        caption: vaultCover.split("/").pop()
+      });
+    } else if (remoteCover) {
+      setLightbox({
+        // The hero thumb is card-sized; ask Commons for a larger render.
+        src: remoteCover.thumbUrl.replace(/width=\d+/, "width=1600"),
+        pageUrl: remoteCover.pageUrl
+      });
+    }
+  }
+
+  // Mini mode keeps the actions pinned over the content (old compact styling);
+  // full mode puts them in the ChatPane-style top bar.
+  const miniActionCount =
+    1 +
+    Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) +
+    Number(Boolean(onExpand));
+
+  const actionButtons = (
+    <>
+      {place.previewMarkdown !== undefined && onSaveSearchToVault && (
+        <FolderPickerPopover
+          open={saveToVaultOpen}
+          onOpenChange={setSaveToVaultOpen}
+          defaultParentFolderPath={defaultParentFolderPath}
+          title="Save place to folder"
+          side="bottom"
+          align="end"
+          onSelect={(folderPath) => {
+            void (async () => {
+              setSavingSearch(true);
+              try {
+                await onSaveSearchToVault(folderPath);
+              } finally {
+                setSavingSearch(false);
+              }
+            })();
+          }}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={savingSearch}
+              aria-label="Save place to vault"
+              title="Save to folder"
+            >
+              <PlusIcon />
+            </Button>
+          }
+        />
+      )}
+      {mode === "mini" && onExpand && (
+        <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
+          <Maximize2Icon />
+        </Button>
+      )}
+      {mode === "full" && place.previewMarkdown === undefined && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon" aria-label="More actions" />}
+          >
+            <EllipsisIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            finalFocus={() => {
+              if (renameRequestedRef.current) {
+                renameRequestedRef.current = false;
+                // Focus + select all once the menu has finished closing, so
+                // the whole title is highlighted ready to overtype.
+                requestAnimationFrame(() => {
+                  titleInputRef.current?.focus({ preventScroll: true });
+                  titleInputRef.current?.select();
+                });
+                return false; // we manage focus ourselves for rename
+              }
+              return true;
+            }}
+          >
+            <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+              <PlusIcon />
+              Open in New Tab
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
+              <FolderOpenIcon />
+              Reveal in Finder
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                renameRequestedRef.current = true;
+              }}
+            >
+              <PencilIcon />
+              Rename
+            </DropdownMenuItem>
+            {doc.kind === "vault" && (
+              <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
+                <ImageIcon />
+                {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+              </DropdownMenuItem>
+            )}
+            {doc.kind === "vault" && coverPath && (
+              <DropdownMenuItem onClick={() => void applyCover(null)}>
+                <ImageOffIcon />
+                Remove Cover Photo
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                setDeleteError(null);
+                setDeleteOpen(true);
+              }}
+            >
+              <Trash2Icon />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+        <XIcon />
+      </Button>
+    </>
+  );
+
   return (
     <div
       className={cn("pointer-events-auto", mode === "full" ? "h-full" : undefined)}
       style={mode === "mini" ? { width: 272 } : undefined}
     >
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(e) => void handleCoverFileChosen(e)}
+      />
       <div
         className={cn(
-          "bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
+          "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
-            ? "rounded-lg border border-sidebar-border shadow-lg max-h-[calc(100vh-3.5rem)]"
+            ? "rounded-lg border border-sidebar-border shadow-lg max-h-72"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
         )}
       >
-        {/* Header */}
-        <div className="flex min-h-12 items-start gap-1 px-3 py-2 shrink-0">
-          <div className="flex-1 min-w-0 pt-1">
-            <ErrorTooltip error={titleError}>
-              <AutoSizeTextArea
-                inputRef={titleInputRef}
-                aria-label="Place name"
-                className={cn(
-                  "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
-                  place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
-                  titleError && "ring-2 ring-inset ring-destructive"
-                )}
-                onBlur={handleTitleBlur}
-                onChange={(v) => {
-                  const singleLine = v.replace(/\r?\n/g, " ");
-                  setTitleInput(singleLine);
-                  setTitleError(validateTitle(singleLine));
-                }}
-                onEnter={handleTitleEnter}
-                onTab={handleTitleEnter}
-                placeholder=""
-                readOnly={place.previewMarkdown !== undefined}
-                value={titleInput}
-              />
-            </ErrorTooltip>
+        {mode === "mini" ? (
+          /* Compact popup: actions pinned top-right over the content. */
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+            {actionButtons}
           </div>
-          {place.previewMarkdown !== undefined && onSaveSearchToVault && (
-            <FolderPickerPopover
-              open={saveToVaultOpen}
-              onOpenChange={setSaveToVaultOpen}
-              defaultParentFolderPath={defaultParentFolderPath}
-              title="Save place to folder"
-              side="bottom"
-              align="end"
-              onSelect={(folderPath) => {
-                void (async () => {
-                  setSavingSearch(true);
-                  try {
-                    await onSaveSearchToVault(folderPath);
-                  } finally {
-                    setSavingSearch(false);
-                  }
-                })();
-              }}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={savingSearch}
-                  aria-label="Save place to vault"
-                  title="Save to folder"
-                >
-                  <PlusIcon />
-                </Button>
-              }
-            />
-          )}
-          {mode === "mini" && onExpand && (
-            <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
-              <Maximize2Icon />
-            </Button>
-          )}
-          {mode === "full" && place.previewMarkdown === undefined && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={<Button variant="ghost" size="icon" aria-label="More actions" />}
-              >
-                <EllipsisIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side="bottom"
-                align="end"
-                finalFocus={() => {
-                  if (renameRequestedRef.current) {
-                    renameRequestedRef.current = false;
-                    // Focus + select all once the menu has finished closing, so
-                    // the whole title is highlighted ready to overtype.
-                    requestAnimationFrame(() => {
-                      titleInputRef.current?.focus({ preventScroll: true });
-                      titleInputRef.current?.select();
-                    });
-                    return false; // we manage focus ourselves for rename
-                  }
-                  return true;
-                }}
-              >
-                <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
-                  <PlusIcon />
-                  Open in New Tab
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => void window.api.fs.revealInFinder(currentFilePath)}
-                >
-                  <FolderOpenIcon />
-                  Reveal in Finder
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    renameRequestedRef.current = true;
-                  }}
-                >
-                  <PencilIcon />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setDeleteOpen(true);
-                  }}
-                >
-                  <Trash2Icon />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <XIcon />
-          </Button>
-        </div>
-
-        {place.previewMarkdown === undefined &&
-          place.type !== "GeoJsonLayer" &&
-          onCommitPointLocation && (
-            <div className="px-2 pb-4 shrink-0">
-              <Popover
-                open={addLocationOpen}
-                onOpenChange={handleAddLocationOpenChange}
-                modal={false}
-              >
-                <PopoverTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
-                    >
-                      {place.geometry ? (
-                        <MapPinIcon className="size-4 shrink-0" />
-                      ) : (
-                        <MapPinPlus className="size-4 shrink-0" />
-                      )}
-                      <span className="truncate">
-                        {place.geometry
-                          ? formatPointLocationShort(place.geometry)
-                          : "Add a location"}
-                      </span>
-                    </button>
-                  }
-                />
-                <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
-                  <PopoverTitle className="sr-only">
-                    {place.geometry ? "Change location" : "Add a location"}
-                  </PopoverTitle>
-                  <GeocodeSearchPanel
-                    active={addLocationOpen}
-                    placeholder="Search for a location"
-                    onSelectResult={handleAddLocationSearchSelect}
-                    inputEndSlot={
-                      place.geometry && onClearPointLocation ? (
-                        <InputGroupButton
-                          type="button"
-                          size="sm"
-                          onClick={() => void handleClearLocation()}
-                        >
-                          Clear
-                        </InputGroupButton>
-                      ) : null
-                    }
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-          )}
-
-        {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
-        {place.previewMarkdown === undefined && doc.kind === "vault" && (
-          <PropertiesPanel
-            filePath={currentFilePath}
-            frontmatter={doc.frontmatter}
-            allVaultKeyTypes={doc.keys}
-          />
+        ) : (
+          /* Static top bar (mirrors ChatPane): breadcrumb left, actions right.
+          Everything else — cover included — scrolls beneath it. */
+          <div className="flex min-h-12 shrink-0 items-center justify-between gap-1 p-2">
+            <Breadcrumb className="min-w-0 flex-1 px-2">
+              <BreadcrumbList className="flex-nowrap gap-1 sm:gap-1.5">
+                {breadcrumbFolders.map((folder) => (
+                  <Fragment key={folder.path}>
+                    <BreadcrumbItem className="min-w-0">
+                      <BreadcrumbLink
+                        className="truncate"
+                        render={
+                          <button type="button" onClick={() => onOpenFolder?.(folder.path)} />
+                        }
+                      >
+                        {folder.name}
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator />
+                  </Fragment>
+                ))}
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="truncate">{currentTitle}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            <div className="flex items-center gap-1">{actionButtons}</div>
+          </div>
         )}
-        {/* Preview place (search result / chat feature): the same properties grid,
-            read-only, so it looks exactly like the vault file it becomes on save. */}
-        {place.previewMarkdown !== undefined &&
-          place.properties &&
-          Object.keys(place.properties).length > 0 && (
-            <PropertiesPanel
-              readOnly
-              filePath={currentFilePath}
-              frontmatter={place.properties}
-              allVaultKeyTypes={[]}
-            />
-          )}
-        {doc.kind === "geojson-layer" &&
-          (() => {
-            const GJ_EXCLUDED = new Set(["name", "description"]);
-            const gjFrontmatter = Object.fromEntries(
-              Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
-            );
-            return (
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
+          <div className={cn("flex flex-col", mode === "full" && "min-h-full")}>
+            {coverVisible && (
+              <button
+                type="button"
+                onClick={openCoverLightbox}
+                aria-label="View image"
+                className="block w-full shrink-0 cursor-zoom-in"
+              >
+                <img
+                  src={coverSrc}
+                  alt=""
+                  draggable={false}
+                  onError={() =>
+                    vaultCover ? setFailedCoverSrc(coverSrc ?? null) : setRemoteCover(null)
+                  }
+                  className={cn("w-full object-cover", mode === "mini" ? "h-28" : "h-40")}
+                />
+              </button>
+            )}
+            {/* Header */}
+            <div className="flex items-start px-3 py-2 shrink-0">
+              <div
+                className="flex-1 min-w-0 pt-1"
+                // In mini mode the pinned actions overlay the title row unless a
+                // cover pushes it down — reserve their width.
+                style={
+                  mode === "mini" && !coverVisible
+                    ? { paddingRight: miniActionCount * 36 }
+                    : undefined
+                }
+              >
+                <ErrorTooltip error={titleError}>
+                  <AutoSizeTextArea
+                    inputRef={titleInputRef}
+                    aria-label="Place name"
+                    className={cn(
+                      "min-w-0 text-2xl font-semibold text-sidebar-foreground leading-snug rounded transition-colors",
+                      place.previewMarkdown !== undefined ? "cursor-default" : "cursor-text",
+                      titleError && "ring-2 ring-inset ring-destructive"
+                    )}
+                    onBlur={handleTitleBlur}
+                    onChange={(v) => {
+                      const singleLine = v.replace(/\r?\n/g, " ");
+                      setTitleInput(singleLine);
+                      setTitleError(validateTitle(singleLine));
+                    }}
+                    onEnter={handleTitleEnter}
+                    onTab={handleTitleEnter}
+                    placeholder=""
+                    readOnly={place.previewMarkdown !== undefined}
+                    value={titleInput}
+                  />
+                </ErrorTooltip>
+              </div>
+            </div>
+
+            {place.previewMarkdown === undefined &&
+              place.type !== "GeoJsonLayer" &&
+              onCommitPointLocation && (
+                <div className="px-2 pb-4 shrink-0">
+                  <Popover
+                    open={addLocationOpen}
+                    onOpenChange={handleAddLocationOpenChange}
+                    modal={false}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                        >
+                          {place.geometry ? (
+                            <MapPinIcon className="size-4 shrink-0" />
+                          ) : (
+                            <MapPinPlus className="size-4 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {place.geometry
+                              ? formatPointLocationShort(place.geometry)
+                              : "Add a location"}
+                          </span>
+                        </button>
+                      }
+                    />
+                    <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                      <PopoverTitle className="sr-only">
+                        {place.geometry ? "Change location" : "Add a location"}
+                      </PopoverTitle>
+                      <GeocodeSearchPanel
+                        active={addLocationOpen}
+                        placeholder="Search for a location"
+                        onSelectResult={handleAddLocationSearchSelect}
+                        inputEndSlot={
+                          place.geometry && onClearPointLocation ? (
+                            <InputGroupButton
+                              type="button"
+                              size="sm"
+                              onClick={() => void handleClearLocation()}
+                            >
+                              Clear
+                            </InputGroupButton>
+                          ) : null
+                        }
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+            {/* Properties (same loading gate as editor so metadata + frontmatter stay in sync) */}
+            {place.previewMarkdown === undefined && doc.kind === "vault" && (
               <PropertiesPanel
                 filePath={currentFilePath}
-                frontmatter={gjFrontmatter}
-                allVaultKeyTypes={[]}
-                onWriteProperty={async (key, value) => {
-                  await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
-                }}
-                reorderable={false}
+                frontmatter={doc.frontmatter}
+                allVaultKeyTypes={doc.keys}
               />
-            );
-          })()}
+            )}
+            {/* Preview place (search result / chat feature): the same properties grid,
+            read-only, so it looks exactly like the vault file it becomes on save. */}
+            {place.previewMarkdown !== undefined &&
+              place.properties &&
+              Object.keys(place.properties).length > 0 && (
+                <PropertiesPanel
+                  readOnly
+                  filePath={currentFilePath}
+                  frontmatter={place.properties}
+                  allVaultKeyTypes={[]}
+                />
+              )}
+            {doc.kind === "geojson-layer" &&
+              (() => {
+                const GJ_EXCLUDED = new Set(["name", "description"]);
+                const gjFrontmatter = Object.fromEntries(
+                  Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
+                );
+                return (
+                  <PropertiesPanel
+                    filePath={currentFilePath}
+                    frontmatter={gjFrontmatter}
+                    allVaultKeyTypes={[]}
+                    onWriteProperty={async (key, value) => {
+                      await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+                    }}
+                    reorderable={false}
+                  />
+                );
+              })()}
 
-        {/* Body content */}
-        {loading && <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>}
-        {doc.kind === "error" && (
-          <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
-        )}
-        {!loading && doc.kind !== "error" && (
-          <PlaceCardMarkdownPane
-            filePath={currentFilePath}
-            initialMarkdown={
-              doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
-            }
-            isPreview={doc.kind === "preview"}
-            mode={mode}
-            isDark={isDark}
-            onNavigate={onNavigate}
-            onEditorReady={onEditorReady}
-            onPersist={
-              doc.kind === "geojson-layer"
-                ? (content) =>
-                    void window.api.fs.writeGeoJsonProperty(currentFilePath, "description", content)
-                : undefined
-            }
-          />
-        )}
+            {/* Body content */}
+            {loading && showLoadingIndicator && (
+              <div className="px-4 pb-3 text-sm text-sidebar-foreground/50">Loading…</div>
+            )}
+            {doc.kind === "error" && (
+              <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
+            )}
+            {!loading && doc.kind !== "error" && (
+              <PlaceCardMarkdownPane
+                filePath={currentFilePath}
+                initialMarkdown={
+                  doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
+                }
+                isPreview={doc.kind === "preview"}
+                mode={mode}
+                isDark={isDark}
+                onNavigate={onNavigate}
+                onEditorReady={onEditorReady}
+                onPersist={
+                  doc.kind === "geojson-layer"
+                    ? (content) =>
+                        void window.api.fs.writeGeoJsonProperty(
+                          currentFilePath,
+                          "description",
+                          content
+                        )
+                    : undefined
+                }
+                onImageClick={(src) =>
+                  // Vault images get their filename as the caption; remote
+                  // image URLs carry no meaningful name.
+                  setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
+                }
+              />
+            )}
+          </div>
+        </ScrollArea>
       </div>
+      {lightbox && (
+        <ImageLightbox key={lightbox.src} image={lightbox} onClose={() => setLightbox(null)} />
+      )}
       <AlertDialog
         open={deleteOpen}
         onOpenChange={(open) => {

@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-alpha.17",
+  "version": "1.0.0-alpha.18",
   "description": "An Electron application with React and TypeScript",
   "type": "module",
   "main": "./out/main/index.js",
@@ -30,6 +30,7 @@
     "@mapos/service-adapters": "workspace:*",
     "@mapos/ui": "workspace:*",
     "@protomaps/basemaps": "^5.7.2",
+    "@tiptap/extension-image": "^3.27.1",
     "@turf/area": "^7.3.5",
     "@turf/bbox": "^7.3.4",
     "@turf/boolean-intersects": "^7.3.5",

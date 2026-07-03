@@ -3,14 +3,15 @@ import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
-import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { bbox } from "@turf/bbox";
 import { PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatPane } from "./components/chat-pane";
+import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
   type MapSelectPlaceMeta,
   type MapViewHandle,
@@ -18,7 +19,6 @@ import MapView, {
   type SelectionPulseAnchor
 } from "./components/map-view";
 import { NavTabs } from "./components/nav-tabs";
-import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
@@ -33,8 +33,8 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
-import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
+import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
 
@@ -818,6 +818,11 @@ function App(): React.JSX.Element {
       // Persist the previewed details as frontmatter (canonical order, empties dropped)
       // so the saved file matches the preview card exactly.
       const properties = orderDetailProperties(place.properties);
+      // Keep the previewed Wikimedia photo: kick the download off now so it
+      // overlaps the file writes below. Best-effort — offline or imageless QIDs skip.
+      const qid = properties.wikidata_id;
+      const coverImport =
+        typeof qid === "string" && /^Q\d+$/.test(qid) ? window.api.wiki.importImage(qid) : null;
       if (Object.keys(properties).length > 0) {
         const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
         if (!wp.success) console.error("[save search] write properties", wp.error);
@@ -825,6 +830,27 @@ function App(): React.JSX.Element {
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
         if (!w.success) console.error("[save search] write body", w.error);
+      }
+      if (coverImport) {
+        const writeCover = async (img: Awaited<typeof coverImport>) => {
+          if (!img.success) return;
+          const wc = await window.api.fs.writeFrontmatterProperties(renamed.filePath, {
+            cover: img.relPath,
+            // Reserved key: hidden from the properties grid, surfaced as the
+            // lightbox "Source" attribution link.
+            cover_source: img.pageUrl
+          });
+          if (!wc.success) console.error("[save search] write cover", wc.error);
+        };
+        // Wait briefly so the fast path opens the card with its cover already
+        // set; on a slow network stop blocking the card open and let the write
+        // land in the background (the cover shows the next time the card opens).
+        const img = await Promise.race([
+          coverImport,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+        ]);
+        if (img) await writeCover(img);
+        else void coverImport.then(writeCover);
       }
       const created =
         (await window.api.places.getByPath(renamed.filePath)) ??
@@ -888,11 +914,30 @@ function App(): React.JSX.Element {
   });
 
   // Place-card title renames are always single files; route them through the one
-  // relocation function so every path-holding store stays in sync.
+  // relocation function so every path-holding store stays in sync. Remember the
+  // rename so the card's mount key stays stable — remounting on a title change
+  // flashes the whole card.
+  const [renameKeyAlias, setRenameKeyAlias] = useState<{ path: string; key: string } | null>(null);
   const handlePlaceRename = useCallback(
-    (oldPath: string, newPath: string) => handlePathRelocated(oldPath, newPath, false),
+    (oldPath: string, newPath: string) => {
+      setRenameKeyAlias((prev) => ({
+        path: newPath,
+        key: prev && prev.path === oldPath ? prev.key : oldPath
+      }));
+      handlePathRelocated(oldPath, newPath, false);
+    },
     [handlePathRelocated]
   );
+  // The alias only needs to outlive the rename while that place stays selected.
+  // Drop it once selection moves off the path so a different place later
+  // occupying it (delete + recreate) can't collide with the old mount key.
+  if (renameKeyAlias && selectedPlace?.filePath !== renameKeyAlias.path) {
+    setRenameKeyAlias(null);
+  }
+  const selectedPlaceCardKey =
+    selectedPlace && renameKeyAlias?.path === selectedPlace.filePath
+      ? renameKeyAlias.key
+      : selectedPlace?.filePath;
 
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
@@ -1014,7 +1059,7 @@ function App(): React.JSX.Element {
           >
             {isFull && selectedPlace && (
               <PlaceCard
-                key={selectedPlace.filePath}
+                key={selectedPlaceCardKey}
                 place={selectedPlace}
                 mode="full"
                 onClose={handlePlaceCardClose}
@@ -1023,6 +1068,7 @@ function App(): React.JSX.Element {
                 onCommitPointLocation={commitVaultPointLocation}
                 onClearPointLocation={clearVaultPointLocation}
                 onDelete={(filePath) => handleDeletedPath(filePath, "file")}
+                onOpenFolder={handleSelectFolder}
               />
             )}
             {activeChatConvId && (
@@ -1085,7 +1131,7 @@ function App(): React.JSX.Element {
             }}
           >
             <PlaceCard
-              key={selectedPlace.filePath}
+              key={selectedPlaceCardKey}
               place={selectedPlace}
               mode="mini"
               onClose={handlePlaceCardClose}
@@ -1097,6 +1143,7 @@ function App(): React.JSX.Element {
                 selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
               }
               defaultParentFolderPath={parentFolderForNewFiles}
+              onOpenFolder={handleSelectFolder}
               onExpand={
                 selectedPlace.previewMarkdown !== undefined
                   ? undefined
@@ -1145,6 +1192,7 @@ function App(): React.JSX.Element {
                   : undefined
               }
               defaultParentFolderPath={parentFolderForNewFiles}
+              onOpenFolder={handleSelectFolder}
               onExpand={
                 mapPeekPlace.previewMarkdown !== undefined
                   ? undefined

@@ -246,7 +246,20 @@ export type RegionDownloadProgress = {
 
 export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
 /** Frontmatter keys managed by the map; not shown as generic properties. */
-export const RESERVED_PROPERTY_KEYS = ["geometry", "color"] as const;
+export const RESERVED_PROPERTY_KEYS = ["geometry", "color", "cover", "cover_source"] as const;
+
+/**
+ * Image formats the mapos-vault:// protocol serves. SVG is deliberately
+ * excluded (script-capable format on a privileged, fetch-capable scheme).
+ * Single source for the protocol allowlist, the vault tree listing/watcher,
+ * and renderer image affordances.
+ */
+export const SERVABLE_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"] as const;
+
+export function isServableImageFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SERVABLE_IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 /** Returned by chat:load-history and chat:switch-conversation. */
 export type ConversationLoadResult = {

@@ -78,10 +78,15 @@ declare global {
       };
       fs: {
         listDir: () => Promise<FileNode[]>;
-        readFile: (
-          filePath: string
-        ) => Promise<
-          { raw: string; body: string; frontmatter: Record<string, unknown> } | { error: string }
+        readFile: (filePath: string) => Promise<
+          | {
+              raw: string;
+              body: string;
+              frontmatter: Record<string, unknown>;
+              cover?: string;
+              coverSource?: string;
+            }
+          | { error: string }
         >;
         writeFile: (
           filePath: string,
@@ -128,6 +133,12 @@ declare global {
           parentFolderPath: string;
           folderName: string;
         }) => Promise<{ success: true; folderPath: string } | { success: false; error: string }>;
+        importAttachment: (args: {
+          suggestedName?: string;
+          bytes: Uint8Array;
+        }) => Promise<
+          { success: true; relPath: string; absPath: string } | { success: false; error: string }
+        >;
         readGeoJson: (filePath: string) => Promise<Record<string, unknown> | null>;
         geoJsonFilesInFolder: (folderPath: string) => Promise<string[]>;
         writeGeoJsonProperty: (
@@ -250,6 +261,18 @@ declare global {
         geocodingForward: (req: GeocodeForwardRequest) => Promise<GeocodeResult[]>;
         geocodingReverse: (req: GeocodeReverseRequest) => Promise<GeocodeResult[]>;
         tilesStyleUrl: (req: TileStyleRequest) => Promise<string>;
+      };
+      wiki: {
+        imageLookup: (qid: string) => Promise<{
+          thumbUrl: string;
+          fileName: string;
+          pageUrl: string;
+        } | null>;
+        importImage: (
+          qid: string
+        ) => Promise<
+          { success: true; relPath: string; pageUrl: string } | { success: false; error: string }
+        >;
       };
       regions: {
         getManifest: (force?: boolean) => Promise<RegionManifest>;

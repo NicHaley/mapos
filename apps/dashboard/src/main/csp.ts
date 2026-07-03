@@ -51,7 +51,12 @@ export function buildCsp(): string {
     "blob:",
     "mapos-region:",
     "mapos-asset:",
-    ...ALWAYS_ALLOWED_CDN_ORIGINS
+    "mapos-vault:",
+    ...ALWAYS_ALLOWED_CDN_ORIGINS,
+    // Wikimedia place photos on search preview cards. Special:FilePath on the
+    // commons host 302s to upload.wikimedia.org, so both origins are needed.
+    "https://commons.wikimedia.org",
+    "https://upload.wikimedia.org"
   ]);
 
   // Local mode is fully offline — only the always-allowed schemes/CDN above apply.

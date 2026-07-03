@@ -1,25 +1,16 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, sep } from "node:path";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { type BrowserWindow, ipcMain } from "electron";
-import { Type } from "typebox";
+import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
-import { computeBbox } from "./bbox";
-import { type GeoOperation, runGeoCompute } from "./geo-compute";
-import { getServiceClient } from "./services/client";
-import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
+import { type BrowserWindow, ipcMain } from "electron";
+import { Type } from "typebox";
 import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
+import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
+import { computeBbox } from "./bbox";
 import {
   queryNear,
   querySpatialIndex,
@@ -30,6 +21,8 @@ import {
   runReadonlyQuery,
   syncFeatureForFile
 } from "./db";
+import { type GeoOperation, runGeoCompute } from "./geo-compute";
+import { getServiceClient } from "./services/client";
 import { parsePlaceFile } from "./watcher";
 
 function errorPayload(err: unknown): string {
@@ -93,7 +86,7 @@ The agent working directory (cwd) for this session is set to that folder. The en
 
 ## Place files and frontmatter
 
-Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\` and \`color\` have special meaning to the map renderer — do not reuse those key names for other purposes.
+Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\`, \`color\`, and \`cover\` have special meaning to the map renderer — do not reuse those key names for other purposes. \`cover\` is a vault-relative path to an image file (e.g. \`cover: attachments/tower.jpg\`) shown as the place's hero photo; the body can also embed vault images with standard Markdown (\`![](attachments/tower.jpg)\`).
 
 Write frontmatter values using the correct YAML type so they round-trip properly:
 
@@ -402,10 +395,16 @@ export function buildMaposCustomTools(
             })
           ),
           lat: Type.Optional(
-            Type.Number({ description: "Latitude — set together with lng ONLY for an ad-hoc result (no result_id)" })
+            Type.Number({
+              description:
+                "Latitude — set together with lng ONLY for an ad-hoc result (no result_id)"
+            })
           ),
           lng: Type.Optional(
-            Type.Number({ description: "Longitude — set together with lat ONLY for an ad-hoc result (no result_id)" })
+            Type.Number({
+              description:
+                "Longitude — set together with lat ONLY for an ad-hoc result (no result_id)"
+            })
           ),
           preview_markdown: Type.Optional(
             Type.String({
@@ -416,11 +415,14 @@ export function buildMaposCustomTools(
           properties: Type.Optional(
             Type.Record(Type.String(), Type.String(), {
               description:
-                "Structured details for an AD-HOC feature only (with result_id the app supplies these from the source). Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. \"restaurant\", \"fast_food\"), `address` (street line), `source_url` (full URL). You may add extra keys (e.g. `cuisine`). Do NOT provide `osm_id`/`wikidata_id` — you have no reliable source for them and they will be dropped."
+                'Structured details for an AD-HOC feature only (with result_id the app supplies these from the source). Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. "restaurant", "fast_food"), `address` (street line), `source_url` (full URL). You may add extra keys (e.g. `cuisine`). Do NOT provide `osm_id`/`wikidata_id` — you have no reliable source for them and they will be dropped.'
             })
           )
         }),
-        { minItems: 1, description: "Ordered features to show; order is preserved in the rendered list" }
+        {
+          minItems: 1,
+          description: "Ordered features to show; order is preserved in the rendered list"
+        }
       ),
       layer_name: Type.Optional(
         Type.String({ default: "search-results", description: "Name for the overlay layer" })
@@ -599,13 +601,10 @@ export function buildMaposCustomTools(
       "any part of it intersects the region. Use this instead of query_spatial_index when the " +
       "area is not a rectangle. Returned file paths can be passed to present_features.",
     parameters: Type.Object({
-      coordinates: Type.Array(
-        Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
-        {
-          description:
-            "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed)."
-        }
-      ),
+      coordinates: Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
+        description:
+          "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed)."
+      }),
       filters: Type.Optional(spatialFilters)
     }),
     execute: async (_id, args) => {
@@ -690,7 +689,9 @@ export function buildMaposCustomTools(
         Type.Unknown({ description: "Inline GeoJSON geometry, Feature, or FeatureCollection" })
       ),
       geometry_b: Type.Optional(
-        Type.Unknown({ description: "Second GeoJSON operand (e.g. the other polygon for intersect)" })
+        Type.Unknown({
+          description: "Second GeoJSON operand (e.g. the other polygon for intersect)"
+        })
       ),
       feature_paths: Type.Optional(
         Type.Array(Type.String(), {
@@ -894,18 +895,14 @@ export function buildMaposCustomTools(
     description:
       "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
     parameters: Type.Object({
-      locations: Type.Array(
-        Type.Object({ lat: Type.Number(), lng: Type.Number() }),
-        {
-          minItems: 2,
-          description: "Ordered list of waypoints; must have at least two"
-        }
-      ),
+      locations: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
+        minItems: 2,
+        description: "Ordered list of waypoints; must have at least two"
+      }),
       costing: Type.Optional(
-        Type.Union(
-          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
-          { default: "pedestrian" }
-        )
+        Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
+          default: "pedestrian"
+        })
       )
     }),
     execute: async (_id, args) => {
@@ -943,10 +940,9 @@ export function buildMaposCustomTools(
         description: "Time contours in minutes, e.g. [5, 10, 15]"
       }),
       costing: Type.Optional(
-        Type.Union(
-          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
-          { default: "pedestrian" }
-        )
+        Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
+          default: "pedestrian"
+        })
       )
     }),
     execute: async (_id, args) => {
@@ -978,10 +974,9 @@ export function buildMaposCustomTools(
         maxItems: 25
       }),
       costing: Type.Optional(
-        Type.Union(
-          [Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")],
-          { default: "pedestrian" }
-        )
+        Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
+          default: "pedestrian"
+        })
       )
     }),
     execute: async (_id, args) => {
@@ -1010,12 +1005,7 @@ export function buildMaposCustomTools(
       ),
       recency: Type.Optional(
         Type.Union(
-          [
-            Type.Literal("day"),
-            Type.Literal("week"),
-            Type.Literal("month"),
-            Type.Literal("year")
-          ],
+          [Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")],
           { description: "Restrict results to a recency window relative to now" }
         )
       )

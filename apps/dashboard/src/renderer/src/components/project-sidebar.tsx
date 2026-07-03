@@ -1,32 +1,3 @@
-import type { ConversationMeta, FileNode } from "@shared/types";
-import {
-  EllipsisIcon,
-  FolderPlusIcon,
-  MessageCircleIcon,
-  MessageCirclePlusIcon,
-  PencilIcon,
-  PlusIcon,
-  SettingsIcon,
-  SquareIcon,
-  SquarePenIcon,
-  Trash2Icon
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
-import { useLocalStorage } from "../lib/use-local-storage";
-import type { PlaceRecord } from "./map-view";
-import { CollapsibleGroupLabel } from "./project-sidebar/collapsible-group-label";
-import {
-  type DragItem,
-  MAPOS_DRAG_MIME,
-  parentDir,
-  parseDragPayload,
-  type SidebarDndBridge
-} from "./project-sidebar/dnd";
-import { FileTreeNode } from "./project-sidebar/file-tree-node";
-import { describePendingDelete, type PendingDelete } from "./project-sidebar/pending-delete";
-import { VaultSwitcher } from "./project-sidebar/vault-switcher";
-import { SettingsDialog } from "./settings-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +42,37 @@ import {
   TooltipTrigger
 } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
+import { type ConversationMeta, type FileNode, isServableImageFile } from "@shared/types";
+import {
+  EllipsisIcon,
+  FolderPlusIcon,
+  MessageCircleIcon,
+  MessageCirclePlusIcon,
+  PencilIcon,
+  PlusIcon,
+  SettingsIcon,
+  SquareIcon,
+  SquarePenIcon,
+  Trash2Icon
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { vaultImageUrl } from "../extensions/vault-image-extension";
+import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { useLocalStorage } from "../lib/use-local-storage";
+import { ImageLightbox, type LightboxData } from "./image-lightbox";
+import type { PlaceRecord } from "./map-view";
+import { CollapsibleGroupLabel } from "./project-sidebar/collapsible-group-label";
+import {
+  type DragItem,
+  MAPOS_DRAG_MIME,
+  type SidebarDndBridge,
+  parentDir,
+  parseDragPayload
+} from "./project-sidebar/dnd";
+import { FileTreeNode } from "./project-sidebar/file-tree-node";
+import { type PendingDelete, describePendingDelete } from "./project-sidebar/pending-delete";
+import { VaultSwitcher } from "./project-sidebar/vault-switcher";
+import { SettingsDialog } from "./settings-dialog";
 
 // Shared empty initial value — the hook only reads it and callers always build
 // new Sets, so it is never mutated.
@@ -123,10 +125,11 @@ export function ProjectSidebar({
   const [pendingRenamePath, setPendingRenamePath] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialPage, setSettingsInitialPage] = useState<
-    "general" | "appearance" | "ai"
-  >("general");
+  const [settingsInitialPage, setSettingsInitialPage] = useState<"general" | "appearance" | "ai">(
+    "general"
+  );
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
   const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
   // Folders the user has expanded, persisted per vault. Folders default closed
@@ -270,8 +273,7 @@ export function ProjectSidebar({
         (item) =>
           !movedDirs.some(
             (dir) =>
-              dir !== item.path &&
-              item.path.startsWith(dir + (dir.includes("\\") ? "\\" : "/"))
+              dir !== item.path && item.path.startsWith(dir + (dir.includes("\\") ? "\\" : "/"))
           )
       );
       // Sequential so the index/undo stack stay in sync between moves.
@@ -349,10 +351,20 @@ export function ProjectSidebar({
         onSelectGeoJson?.(node.path);
         return;
       }
+      // Images aren't places — peek them in the lightbox (same interaction as
+      // inline note images), regardless of the new-tab modifier.
+      if (isServableImageFile(node.name) && vaultRoot && node.path.startsWith(vaultRoot)) {
+        const rel = node.path
+          .slice(vaultRoot.length)
+          .replace(/^[/\\]+/, "")
+          .replaceAll("\\", "/");
+        setLightbox({ src: vaultImageUrl(rel), caption: node.name });
+        return;
+      }
       const place = await window.api.places.getByPath(node.path);
       if (place) onSelectPlace?.(place, newTab);
     },
-    [onSelectFolder, onSelectGeoJson, onSelectPlace]
+    [onSelectFolder, onSelectGeoJson, onSelectPlace, vaultRoot]
   );
 
   const handlePathClick = useCallback(
@@ -819,9 +831,7 @@ export function ProjectSidebar({
                             )}
                           </ContextMenuTrigger>
                           <ContextMenuContent>
-                            <ContextMenuItem
-                              onClick={() => onSelectChat?.(conv.id, title, true)}
-                            >
+                            <ContextMenuItem onClick={() => onSelectChat?.(conv.id, title, true)}>
                               <PlusIcon />
                               Open in New Tab
                             </ContextMenuItem>
@@ -857,9 +867,7 @@ export function ProjectSidebar({
                             }
                           />
                           <DropdownMenuContent side="right" align="start" className="w-auto">
-                            <DropdownMenuItem
-                              onClick={() => onSelectChat?.(conv.id, title, true)}
-                            >
+                            <DropdownMenuItem onClick={() => onSelectChat?.(conv.id, title, true)}>
                               <PlusIcon />
                               Open in New Tab
                             </DropdownMenuItem>
@@ -954,6 +962,9 @@ export function ProjectSidebar({
         onOpenChange={setSettingsOpen}
         initialPage={settingsInitialPage}
       />
+      {lightbox && (
+        <ImageLightbox key={lightbox.src} image={lightbox} onClose={() => setLightbox(null)} />
+      )}
     </Sidebar>
   );
 }

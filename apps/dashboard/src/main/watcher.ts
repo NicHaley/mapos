@@ -8,13 +8,13 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import chokidar from "chokidar";
 import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
 import type { PlaceRecord } from "../shared/types";
-import { RESERVED_PROPERTY_KEYS } from "../shared/types";
+import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import {
   closeDb,
   getAllPropertyKeysWithTypes,
@@ -79,6 +79,93 @@ function uniquePathInDir(
   return candidate;
 }
 
+/** Vault folder that paste/drag-drop imports land in (future per-vault config point). */
+const ATTACHMENTS_DIR_NAME = "attachments";
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+// Hand-rolled on purpose: importing date-fns into the main bundle flips the
+// commonjs transform so chokidar's optional `fsevents` require gets inlined as
+// a top-level native chunk, crashing the ESM main process at boot.
+function attachmentTimestamp(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/**
+ * Magic-byte sniff of the formats the vault protocol serves. The sniffed type —
+ * never the sender-supplied name — decides the written file's extension, so a
+ * renamed non-image can't land in the vault as a servable `.png`.
+ */
+function sniffImageType(bytes: Uint8Array): { ext: string; mime: string } | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) {
+    return { ext: ".png", mime: "image/png" };
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { ext: ".jpg", mime: "image/jpeg" };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+    return { ext: ".gif", mime: "image/gif" };
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return { ext: ".webp", mime: "image/webp" };
+  }
+  return null;
+}
+
+/**
+ * Write image bytes into the vault's attachments folder. Shared by the renderer
+ * import IPC (paste/drop/file picker) and main-process importers (wiki images).
+ */
+export async function importAttachmentToVault(
+  vaultRoot: string,
+  args: { suggestedName?: string; bytes: Uint8Array }
+): Promise<
+  { success: true; relPath: string; absPath: string } | { success: false; error: string }
+> {
+  if (args.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    return { success: false as const, error: "Image exceeds the 25 MB attachment limit" };
+  }
+  const sniffed = sniffImageType(args.bytes);
+  if (!sniffed) {
+    return { success: false as const, error: "Unsupported image format" };
+  }
+  // basename + char strip defang traversal/hidden-file names; the sniffed
+  // extension always wins over whatever the sender's name claimed.
+  const cleaned = args.suggestedName
+    ? basename(args.suggestedName)
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars from filenames is the point
+        .replace(/[/\\\x00-\x1f]/g, "")
+        .replace(/^\.+/, "")
+        .trim()
+    : "";
+  const stem = cleaned ? cleaned.replace(/\.[^.]*$/, "") : "";
+  const finalName = `${stem || `Pasted image ${attachmentTimestamp(new Date())}`}${sniffed.ext}`;
+  try {
+    const dir = join(vaultRoot, ATTACHMENTS_DIR_NAME);
+    mkdirSync(dir, { recursive: true });
+    const absPath = uniquePathInDir(dir, finalName, false);
+    // Async so a large image doesn't block the main event loop; `wx` turns the
+    // pick-name→write race (name looked free, created meanwhile) into an error
+    // instead of an overwrite.
+    await writeFile(absPath, Buffer.from(args.bytes), { flag: "wx" });
+    // Posix-style so the path is portable inside markdown regardless of OS.
+    const relPath = relative(vaultRoot, absPath).split(sep).join("/");
+    return { success: true as const, relPath, absPath };
+  } catch (err) {
+    return { success: false as const, error: String(err) };
+  }
+}
+
 function collectPropertyKeysFromData(
   data: Record<string, unknown>,
   keyCollector: Set<string>
@@ -133,7 +220,11 @@ type FileNode = {
 };
 
 /** Non-directory entries shown in the vault tree (ProjectSidebar / `fs:list-dir`). */
-const VAULT_TREE_LISTED_EXTENSIONS = new Set([".md", ".geojson", ".png", ".jpg", ".jpeg", ".gif"]);
+const VAULT_TREE_LISTED_EXTENSIONS = new Set<string>([
+  ".md",
+  ".geojson",
+  ...SERVABLE_IMAGE_EXTENSIONS
+]);
 
 function isVaultTreeListedFile(filename: string): boolean {
   return VAULT_TREE_LISTED_EXTENSIONS.has(extname(filename).toLowerCase());
@@ -248,7 +339,8 @@ export function setupPlacesWatcher(
    * so the file tree stays live when files are dropped in or removed externally.
    * No `change` handler: content edits don't affect what the tree shows.
    */
-  const nonPlaceWatcher = chokidar.watch(`${vaultRoot}/**/*.{geojson,png,jpg,jpeg,gif}`, {
+  const nonPlaceGlobExts = ["geojson", ...SERVABLE_IMAGE_EXTENSIONS.map((e) => e.slice(1))];
+  const nonPlaceWatcher = chokidar.watch(`${vaultRoot}/**/*.{${nonPlaceGlobExts.join(",")}}`, {
     ignoreInitial: true, // startup listing is covered by readDirTree
     ignored: /(^|[/\\])(\.|node_modules)/,
     ...(process.versions.electron ? { useFsEvents: false as const } : {})
@@ -368,7 +460,12 @@ export function setupPlacesWatcher(
           frontmatter[key] = val;
         }
       }
-      return { raw, body: content.trimStart(), frontmatter };
+      // `cover`/`cover_source` are reserved (hidden from the generic grid) but
+      // the card renders the hero image and its provenance link from them, so
+      // surface each as its own field.
+      const cover = typeof data.cover === "string" ? data.cover : undefined;
+      const coverSource = typeof data.cover_source === "string" ? data.cover_source : undefined;
+      return { raw, body: content.trimStart(), frontmatter, cover, coverSource };
     } catch (err) {
       return { error: String(err) };
     }
@@ -418,17 +515,21 @@ export function setupPlacesWatcher(
       try {
         const raw = await readFile(filePath, "utf-8");
         const parsed = matter(raw);
+        // Clone before mutating: gray-matter caches parses by raw string and hands
+        // back the SAME `data` object every time, so in-place edits poison the cache
+        // and deleted keys resurrect whenever a file round-trips to identical bytes.
+        const data: Record<string, unknown> = { ...parsed.data };
         if (value === null || value === undefined) {
-          delete parsed.data[key];
+          delete data[key];
         } else {
-          parsed.data[key] = value;
+          data[key] = value;
         }
-        writeVaultFile(filePath, matter.stringify(parsed.content, parsed.data));
-        // Update the places Map synchronously from `parsed.data` — the same object
-        // we just serialized to disk. Don't re-read the file: the barrier above will
-        // make chokidar skip its own re-read for this change, so this is the one
-        // place that establishes the new state.
-        const rec = parsed.data as Record<string, unknown>;
+        writeVaultFile(filePath, matter.stringify(parsed.content, data));
+        // Update the places Map synchronously from `data` — the same object we just
+        // serialized to disk. Don't re-read the file: the barrier above will make
+        // chokidar skip its own re-read for this change, so this is the one place
+        // that establishes the new state.
+        const rec = data;
         collectPropertyKeysFromData(rec, knownPropertyKeys);
         replaceFeaturePropertiesForFile(filePath, rec);
         const place = placeRecordFromMatterData(rec, filePath);
@@ -447,9 +548,10 @@ export function setupPlacesWatcher(
   );
 
   // Merge several frontmatter properties in one round-trip, preserving existing keys
-  // and the body. New keys are appended in the object's iteration order; empty/blank
-  // values are skipped. Used when saving a preview place (search/chat) to the vault so
-  // the file isn't rewritten once per property.
+  // and the body. New keys are appended in the object's iteration order; blank values
+  // are skipped and null/undefined deletes the key (matching the singular handler).
+  // Used when saving a preview place (search/chat) to the vault so the file isn't
+  // rewritten once per property.
   ipcMain.handle(
     "fs:write-frontmatter-properties",
     async (_event, filePath: string, properties: Record<string, unknown>) => {
@@ -459,12 +561,15 @@ export function setupPlacesWatcher(
       try {
         const raw = await readFile(filePath, "utf-8");
         const parsed = matter(raw);
+        // Clone before mutating — see fs:write-frontmatter-property.
+        const data: Record<string, unknown> = { ...parsed.data };
         for (const [key, value] of Object.entries(properties)) {
-          if (value === null || value === undefined || value === "") continue;
-          parsed.data[key] = value;
+          if (value === "") continue;
+          if (value === null || value === undefined) delete data[key];
+          else data[key] = value;
         }
-        writeVaultFile(filePath, matter.stringify(parsed.content, parsed.data));
-        const rec = parsed.data as Record<string, unknown>;
+        writeVaultFile(filePath, matter.stringify(parsed.content, data));
+        const rec = data;
         collectPropertyKeysFromData(rec, knownPropertyKeys);
         replaceFeaturePropertiesForFile(filePath, rec);
         const place = placeRecordFromMatterData(rec, filePath);
@@ -712,6 +817,12 @@ export function setupPlacesWatcher(
   );
 
   ipcMain.handle(
+    "fs:import-attachment",
+    (_event, args: { suggestedName?: string; bytes: Uint8Array }) =>
+      importAttachmentToVault(vaultRoot, args)
+  );
+
+  ipcMain.handle(
     "fs:create-place-file",
     async (
       _event,
@@ -878,6 +989,7 @@ export function setupPlacesWatcher(
     "fs:reveal-in-finder",
     "fs:get-vault-root",
     "fs:create-folder",
+    "fs:import-attachment",
     "fs:create-place-file",
     "places:query-bounds",
     "places:query-folder-all",

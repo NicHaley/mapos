@@ -65,7 +65,12 @@ async function main() {
 
   let spriteBytes = 0;
   for (const flavor of SPRITE_FLAVORS) {
-    for (const file of [`${flavor}.json`, `${flavor}.png`, `${flavor}@2x.json`, `${flavor}@2x.png`]) {
+    for (const file of [
+      `${flavor}.json`,
+      `${flavor}.png`,
+      `${flavor}@2x.json`,
+      `${flavor}@2x.png`
+    ]) {
       spriteBytes += await download(`${BASE}/sprites/v4/${file}`, join(OUT, "sprites", file));
     }
   }

@@ -72,7 +72,10 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
     // Load installed packs independently of the manifest: a manifest failure (offline,
     // or unconfigured URL) must not hide packs already on disk — that's exactly when the
     // "this area is available offline" signal matters most.
-    window.api.regions.listLocal().then(setLocal).catch(() => {});
+    window.api.regions
+      .listLocal()
+      .then(setLocal)
+      .catch(() => {});
     window.api.regions
       .getManifest()
       .then(setManifest)
@@ -110,7 +113,8 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
 
   const download = useCallback(
     (slug: string) => {
-      const total = manifest?.regions[slug]?.versions[manifest.regions[slug].latest]?.total_bytes ?? 0;
+      const total =
+        manifest?.regions[slug]?.versions[manifest.regions[slug].latest]?.total_bytes ?? 0;
       setProgress((prev) => ({
         ...prev,
         [slug]: { region: slug, receivedBytes: 0, totalBytes: total, phase: "downloading" }
@@ -158,7 +162,12 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
 
       let status: RegionStatus;
       if (prog) {
-        status = prog.phase === "verifying" ? "verifying" : prog.phase === "error" ? "error" : "downloading";
+        status =
+          prog.phase === "verifying"
+            ? "verifying"
+            : prog.phase === "error"
+              ? "error"
+              : "downloading";
       } else if (installed) {
         // Up to date only if the version matches AND — when the pack recorded a content
         // hash — its content still matches the manifest. The hash check catches packs

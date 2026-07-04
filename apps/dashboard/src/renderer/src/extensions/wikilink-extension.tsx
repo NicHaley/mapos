@@ -1,10 +1,10 @@
+import { cn } from "@mapos/ui/lib/utils";
 import {
   type WikilinkItem,
   WikilinkSuggestion,
   type WikilinkSuggestionProps,
   type WikilinkSuggestionRef
 } from "@renderer/components/wikilink-suggestion";
-import { cn } from "@mapos/ui/lib/utils";
 import {
   type JSONContent,
   type MarkdownParseHelpers,

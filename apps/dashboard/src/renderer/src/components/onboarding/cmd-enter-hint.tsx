@@ -15,16 +15,12 @@ export function CmdEnterHint({
   return (
     <KbdGroup className={cn("ml-1", className)}>
       <Kbd
-        className={cn(
-          tone === "primary" && "bg-primary-foreground/15 text-primary-foreground/80"
-        )}
+        className={cn(tone === "primary" && "bg-primary-foreground/15 text-primary-foreground/80")}
       >
         ⌘
       </Kbd>
       <Kbd
-        className={cn(
-          tone === "primary" && "bg-primary-foreground/15 text-primary-foreground/80"
-        )}
+        className={cn(tone === "primary" && "bg-primary-foreground/15 text-primary-foreground/80")}
       >
         ↵
       </Kbd>

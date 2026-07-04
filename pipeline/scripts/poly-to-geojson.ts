@@ -101,9 +101,7 @@ function atLon(x: number): (a: Pt, b: Pt) => Pt {
  */
 function splitAt(poly: Poly, lon: number, beyond: (x: number) => boolean, shift: number): Poly[] {
   const side = (keep: (p: Pt) => boolean, dx: number): Poly | null => {
-    const rings = poly.map((r) =>
-      clipRing(r, keep, atLon(lon)).map<Pt>((p) => [p[0] + dx, p[1]]),
-    );
+    const rings = poly.map((r) => clipRing(r, keep, atLon(lon)).map<Pt>((p) => [p[0] + dx, p[1]]));
     if (rings[0].length < 3) return null;
     return [rings[0], ...rings.slice(1).filter((r) => r.length >= 3)];
   };
@@ -131,13 +129,10 @@ const coordinates = normalized.map((p) =>
     const [lx, ly] = closed[closed.length - 1];
     if (fx !== lx || fy !== ly) closed.push([fx, fy]);
     return closed;
-  }),
+  })
 );
 
-writeFileSync(
-  output,
-  `${JSON.stringify({ type: "MultiPolygon", coordinates })}\n`,
-);
+writeFileSync(output, `${JSON.stringify({ type: "MultiPolygon", coordinates })}\n`);
 console.error(
-  `poly-to-geojson: ${input} -> ${output} (${coordinates.length} polygon(s), ${coordinates.reduce((s, p) => s + p.length, 0)} ring(s))`,
+  `poly-to-geojson: ${input} -> ${output} (${coordinates.length} polygon(s), ${coordinates.reduce((s, p) => s + p.length, 0)} ring(s))`
 );

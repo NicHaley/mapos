@@ -213,7 +213,10 @@ export type ChatStore = {
   abort: (convId: string) => void;
   undo: (convId: string) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
   deleteConversation: (convId: string) => Promise<void>;
-  renameConversation: (convId: string, title: string) => Promise<{ success: boolean; error?: string }>;
+  renameConversation: (
+    convId: string,
+    title: string
+  ) => Promise<{ success: boolean; error?: string }>;
   removeFromStore: (convId: string) => void;
 };
 
@@ -266,22 +269,19 @@ export function useChatStore(): ChatStore {
     [state]
   );
 
-  const loadConversation = useCallback(
-    async (convId: string): Promise<MapOverlayLayer[]> => {
-      const existing = inFlightLoads.current.get(convId);
-      if (existing) return existing;
-      const p = (async () => {
-        const { messages, layers } = await window.api.chat.loadConversation(convId);
-        dispatch({ type: "loaded", convId, messages });
-        return layers;
-      })().finally(() => {
-        inFlightLoads.current.delete(convId);
-      });
-      inFlightLoads.current.set(convId, p);
-      return p;
-    },
-    []
-  );
+  const loadConversation = useCallback(async (convId: string): Promise<MapOverlayLayer[]> => {
+    const existing = inFlightLoads.current.get(convId);
+    if (existing) return existing;
+    const p = (async () => {
+      const { messages, layers } = await window.api.chat.loadConversation(convId);
+      dispatch({ type: "loaded", convId, messages });
+      return layers;
+    })().finally(() => {
+      inFlightLoads.current.delete(convId);
+    });
+    inFlightLoads.current.set(convId, p);
+    return p;
+  }, []);
 
   const sendMessage = useCallback((convId: string, text: string) => {
     dispatch({ type: "user_message", convId, content: text });

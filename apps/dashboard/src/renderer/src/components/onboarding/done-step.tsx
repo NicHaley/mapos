@@ -85,8 +85,8 @@ export function DoneStep({
       </div>
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">You're all set</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Drop a file in your vault, drag the map to look around, or open the chat panel and
-        ask MapOS a question.
+        Drop a file in your vault, drag the map to look around, or open the chat panel and ask MapOS
+        a question.
       </p>
       {vaultLabel && vaultDraft && (
         <Alert className="mt-6 text-left has-[>svg]:grid-cols-[auto_minmax(0,1fr)]">

@@ -1,14 +1,19 @@
 import { SearchIcon } from "lucide-react";
 import { type CSSProperties, type ReactElement, useCallback, useState } from "react";
 
+import { Button } from "@mapos/ui/components/button";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger
+} from "@mapos/ui/components/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
 import type { ConversationMeta, PlaceRecord } from "@shared/types";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
-import { Button } from "@mapos/ui/components/button";
-import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@mapos/ui/components/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 export function GeocodeSearchPopover({
   onSelectResult,

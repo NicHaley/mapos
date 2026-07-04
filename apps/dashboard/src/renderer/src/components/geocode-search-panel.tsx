@@ -1,12 +1,6 @@
 import { FileTextIcon, Loader2Icon, MapPinIcon, MessageCircleIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMapViewport } from "@renderer/contexts/map-viewport";
-import { useDebounce } from "@renderer/hooks/use-debounce";
-import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
-import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
-import type { ConversationMeta, PlaceRecord } from "@shared/types";
-import { cn } from "@mapos/ui/lib/utils";
 import {
   Command,
   CommandGroup,
@@ -17,6 +11,12 @@ import {
 } from "@mapos/ui/components/command";
 import { InputGroup, InputGroupAddon } from "@mapos/ui/components/input-group";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { cn } from "@mapos/ui/lib/utils";
+import { useMapViewport } from "@renderer/contexts/map-viewport";
+import { useDebounce } from "@renderer/hooks/use-debounce";
+import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
+import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
+import type { ConversationMeta, PlaceRecord } from "@shared/types";
 
 const DEBOUNCE_MS = 300;
 /** Cap local (file / conversation) matches so the popover stays scannable. */
@@ -200,8 +200,7 @@ export function GeocodeSearchPanel({
     return files
       .filter((f) => f.type !== "Search")
       .filter(
-        (f) =>
-          f.title.toLowerCase().includes(needle) || f.filePath.toLowerCase().includes(needle)
+        (f) => f.title.toLowerCase().includes(needle) || f.filePath.toLowerCase().includes(needle)
       )
       .slice(0, LOCAL_RESULT_LIMIT);
   }, [files, needle]);
@@ -325,7 +324,8 @@ export function GeocodeSearchPanel({
           <CommandGroup heading="Conversations">
             {conversationMatches.map((c, index) => {
               const title = conversationTitle(c);
-              const secondary = c.title && c.preview ? c.preview : formatConversationDate(c.updated_at);
+              const secondary =
+                c.title && c.preview ? c.preview : formatConversationDate(c.updated_at);
               return (
                 <CommandItem
                   key={`conv-${c.id}`}
@@ -355,7 +355,12 @@ export function GeocodeSearchPanel({
             {results.map((r, index) => {
               const value = `${r.id}-${index}`;
               return (
-                <CommandItem key={value} value={value} onSelect={() => pick(r)} className="rounded-md">
+                <CommandItem
+                  key={value}
+                  value={value}
+                  onSelect={() => pick(r)}
+                  className="rounded-md"
+                >
                   <MapPinIcon className="size-4 shrink-0 text-muted-foreground" />
                   {/* Single line — secondary inline in grey — so items with and without
                       context (countries have none) keep a consistent height. The name

@@ -1144,9 +1144,7 @@ export const PromptInputSubmit = ({
     Icon = <XIcon className="size-4" />;
   }
 
-  const handleClick = useCallback<
-    NonNullable<ComponentProps<typeof InputGroupButton>["onClick"]>
-  >(
+  const handleClick = useCallback<NonNullable<ComponentProps<typeof InputGroupButton>["onClick"]>>(
     (e) => {
       if (isGenerating && onStop) {
         e.preventDefault();
@@ -1214,9 +1212,7 @@ export const PromptInputSelectValue = ({ className, ...props }: PromptInputSelec
 
 export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
 
-export const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
-  <HoverCard {...props} />
-);
+export const PromptInputHoverCard = (props: PromptInputHoverCardProps) => <HoverCard {...props} />;
 
 export type PromptInputHoverCardTriggerProps = ComponentProps<typeof HoverCardTrigger>;
 

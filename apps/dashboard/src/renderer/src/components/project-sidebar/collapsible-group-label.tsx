@@ -1,5 +1,5 @@
-import { cn } from "@mapos/ui/lib/utils";
 import { SidebarGroupLabel } from "@mapos/ui/components/sidebar";
+import { cn } from "@mapos/ui/lib/utils";
 import { ChevronRightIcon } from "lucide-react";
 
 export function CollapsibleGroupLabel({

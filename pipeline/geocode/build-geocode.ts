@@ -202,11 +202,38 @@ function summarizeGeometry(geom: Geometry): GeomSummary | null {
 // it after the street — "Skalitzer Straße 12". Default number-first; list the
 // street-first countries explicitly (matched against the pack's --country).
 const STREET_FIRST_COUNTRIES = new Set([
-  "germany", "austria", "switzerland", "liechtenstein", "netherlands", "belgium",
-  "luxembourg", "denmark", "norway", "sweden", "finland", "iceland", "czechia",
-  "czech republic", "poland", "slovakia", "hungary", "croatia", "slovenia", "estonia",
-  "latvia", "lithuania", "spain", "italy", "portugal", "greece", "turkey", "romania",
-  "bulgaria", "serbia", "ukraine", "russia"
+  "germany",
+  "austria",
+  "switzerland",
+  "liechtenstein",
+  "netherlands",
+  "belgium",
+  "luxembourg",
+  "denmark",
+  "norway",
+  "sweden",
+  "finland",
+  "iceland",
+  "czechia",
+  "czech republic",
+  "poland",
+  "slovakia",
+  "hungary",
+  "croatia",
+  "slovenia",
+  "estonia",
+  "latvia",
+  "lithuania",
+  "spain",
+  "italy",
+  "portugal",
+  "greece",
+  "turkey",
+  "romania",
+  "bulgaria",
+  "serbia",
+  "ukraine",
+  "russia"
 ]);
 
 /**
@@ -487,7 +514,11 @@ try {
       osm_id: tags["@id"] ? Number.parseInt(tags["@id"], 10) : 0,
       name: primaryName,
       alt_names:
-        localName && localName !== primaryName ? (alts ? `${localName}\n${alts}` : localName) : alts,
+        localName && localName !== primaryName
+          ? alts
+            ? `${localName}\n${alts}`
+            : localName
+          : alts,
       kind: c.kind,
       cls: c.cls,
       category: cat?.category ?? null,
@@ -628,4 +659,6 @@ try {
   db.close();
 }
 
-console.error(`Done: ${finalCount.toLocaleString()} features (${count.toLocaleString()} before merge) -> ${output}`);
+console.error(
+  `Done: ${finalCount.toLocaleString()} features (${count.toLocaleString()} before merge) -> ${output}`
+);

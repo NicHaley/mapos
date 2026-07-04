@@ -4,9 +4,7 @@ export type VaultMdFile = { title: string; filePath: string };
 
 /** Extract de-duplicated `[[title]]` titles from markdown body, ignoring fenced/inline code. */
 export function extractWikilinkTitles(markdown: string): string[] {
-  const stripped = markdown
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`\n]*`/g, "");
+  const stripped = markdown.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
   const titles = new Set<string>();
   const re = /\[\[([^\]\n]+)\]\]/g;
   let match: RegExpExecArray | null = re.exec(stripped);

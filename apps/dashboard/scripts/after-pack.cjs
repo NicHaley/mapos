@@ -7,17 +7,17 @@
 // linux/arm64 (~60MB each). At runtime it resolves <dir>/<os.platform()>/
 // <os.arch()> (see lib/binary-path.js), so only the matching pair is reachable.
 
-const fs = require('node:fs');
-const path = require('node:path');
-const { Arch } = require('electron-builder');
+const fs = require("node:fs");
+const path = require("node:path");
+const { Arch } = require("electron-builder");
 
 /** Resolve the app's Resources dir (where app.asar.unpacked lives). */
 function resourcesDir(context) {
   const { appOutDir, electronPlatformName, packager } = context;
-  if (electronPlatformName === 'darwin') {
-    return path.join(appOutDir, `${packager.appInfo.productFilename}.app`, 'Contents', 'Resources');
+  if (electronPlatformName === "darwin") {
+    return path.join(appOutDir, `${packager.appInfo.productFilename}.app`, "Contents", "Resources");
   }
-  return path.join(appOutDir, 'resources');
+  return path.join(appOutDir, "resources");
 }
 
 function dirSize(target) {
@@ -52,16 +52,16 @@ function rm(target, removed) {
 module.exports = async function afterPack(context) {
   const { electronPlatformName } = context;
   const targetArch = Arch[context.arch]; // 'x64' | 'arm64' | 'armv7l' | 'ia32' | 'universal'
-  const unpacked = path.join(resourcesDir(context), 'app.asar.unpacked', 'node_modules');
+  const unpacked = path.join(resourcesDir(context), "app.asar.unpacked", "node_modules");
 
   if (!fs.existsSync(unpacked)) return;
 
   const removed = { total: 0, items: [], root: unpacked };
 
   // --- @valhallajs/valhallajs: keep only <platform>/<arch> ---
-  const valhalla = path.join(unpacked, '@valhallajs', 'valhallajs');
+  const valhalla = path.join(unpacked, "@valhallajs", "valhallajs");
   if (fs.existsSync(valhalla)) {
-    for (const plat of ['darwin', 'linux', 'win32']) {
+    for (const plat of ["darwin", "linux", "win32"]) {
       const platDir = path.join(valhalla, plat);
       if (!fs.existsSync(platDir)) continue;
       if (plat !== electronPlatformName) {
@@ -81,6 +81,6 @@ module.exports = async function afterPack(context) {
         `(${electronPlatformName}/${targetArch}):`
     );
     for (const item of removed.items) console.log(`      ${item}`);
-    console.log('');
+    console.log("");
   }
 };

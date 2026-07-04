@@ -8,12 +8,6 @@ import { type BrowserWindow, ipcMain, shell } from "electron";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type { ProviderInput } from "../shared/ai-providers";
 import {
-  cancelOauthLogin,
-  disconnectKnownProvider,
-  oauthLogin,
-  setKnownProviderApiKey
-} from "./ai-auth";
-import {
   addKnownProvider,
   addProvider,
   clearActive,
@@ -26,6 +20,12 @@ import {
   testProvider,
   updateProvider
 } from "./ai";
+import {
+  cancelOauthLogin,
+  disconnectKnownProvider,
+  oauthLogin,
+  setKnownProviderApiKey
+} from "./ai-auth";
 
 const HANDLE_CHANNELS = [
   "ai:get-state",
@@ -89,7 +89,9 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
     return result;
   });
 
-  ipcMain.handle("ai:list-models", (_e, args: { providerId: string }) => fetchModels(args.providerId));
+  ipcMain.handle("ai:list-models", (_e, args: { providerId: string }) =>
+    fetchModels(args.providerId)
+  );
 
   ipcMain.handle("ai:test-provider", (_e, args: { input: ProviderInput; providerId?: string }) =>
     testProvider(args.input, args.providerId)

@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from "react";
+import { type ReactNode, createContext, useContext } from "react";
 import type { MapOverlayLayer, PlaceRecord } from "../../../shared/types";
 
 type FeatureResolverContextValue = {
@@ -23,7 +23,9 @@ export function FeatureResolverProvider({
   value: FeatureResolverContextValue;
   children: ReactNode;
 }): React.JSX.Element {
-  return <FeatureResolverContext.Provider value={value}>{children}</FeatureResolverContext.Provider>;
+  return (
+    <FeatureResolverContext.Provider value={value}>{children}</FeatureResolverContext.Provider>
+  );
 }
 
 export function useFeatureResolver(): FeatureResolverContextValue {

@@ -97,7 +97,9 @@ function polygonCollection(args: GeoComputeArgs): FeatureCollection<Polygon> {
     fc.features.push(toFeature(coerceGeoJson(args.geometryB)) as Feature<Polygon>);
   }
   if (fc.features.length < 2) {
-    throw new Error("union/intersect need at least two polygons (via feature_paths or geometry + geometry_b).");
+    throw new Error(
+      "union/intersect need at least two polygons (via feature_paths or geometry + geometry_b)."
+    );
   }
   return fc;
 }

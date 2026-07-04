@@ -891,7 +891,7 @@ export function PlaceCard({
         className={cn(
           "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
           mode === "mini"
-            ? "rounded-lg border border-sidebar-border shadow-lg max-h-72"
+            ? "rounded-lg border border-sidebar-border shadow-lg max-h-84"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
         )}
       >
@@ -1085,34 +1085,40 @@ export function PlaceCard({
             {doc.kind === "error" && (
               <div className="px-4 pb-3 text-sm text-destructive">{doc.message}</div>
             )}
-            {!loading && doc.kind !== "error" && (
-              <PlaceCardMarkdownPane
-                filePath={currentFilePath}
-                initialMarkdown={
-                  doc.kind === "geojson-layer" ? String(doc.properties.description ?? "") : doc.body
-                }
-                isPreview={doc.kind === "preview"}
-                mode={mode}
-                isDark={isDark}
-                onNavigate={onNavigate}
-                onEditorReady={onEditorReady}
-                onPersist={
-                  doc.kind === "geojson-layer"
-                    ? (content) =>
-                        void window.api.fs.writeGeoJsonProperty(
-                          currentFilePath,
-                          "description",
-                          content
-                        )
-                    : undefined
-                }
-                onImageClick={(src) =>
-                  // Vault images get their filename as the caption; remote
-                  // image URLs carry no meaningful name.
-                  setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
-                }
-              />
-            )}
+            {/* A preview body is read-only, so when it's empty the editor is just
+            dead space (min-h-4rem) — skip it in the compact mini card. */}
+            {!loading &&
+              doc.kind !== "error" &&
+              !(mode === "mini" && doc.kind === "preview" && doc.body.trim() === "") && (
+                <PlaceCardMarkdownPane
+                  filePath={currentFilePath}
+                  initialMarkdown={
+                    doc.kind === "geojson-layer"
+                      ? String(doc.properties.description ?? "")
+                      : doc.body
+                  }
+                  isPreview={doc.kind === "preview"}
+                  mode={mode}
+                  isDark={isDark}
+                  onNavigate={onNavigate}
+                  onEditorReady={onEditorReady}
+                  onPersist={
+                    doc.kind === "geojson-layer"
+                      ? (content) =>
+                          void window.api.fs.writeGeoJsonProperty(
+                            currentFilePath,
+                            "description",
+                            content
+                          )
+                      : undefined
+                  }
+                  onImageClick={(src) =>
+                    // Vault images get their filename as the caption; remote
+                    // image URLs carry no meaningful name.
+                    setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
+                  }
+                />
+              )}
           </div>
         </ScrollArea>
       </div>

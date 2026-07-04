@@ -112,9 +112,7 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
   let slotContent: React.JSX.Element | null = null;
   if (showUpdate && update.phase !== "idle") {
     slotKey = `update:${update.phase}`;
-    slotContent = (
-      <UpdatePill update={update} onClear={() => setDismissedUpdateKey(updateKey)} />
-    );
+    slotContent = <UpdatePill update={update} onClear={() => setDismissedUpdateKey(updateKey)} />;
   } else if (coverage) {
     slotKey = `coverage:${coverage.kind}`;
     slotContent =
@@ -253,10 +251,7 @@ function UpdatePill({
 
   return (
     <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
-      <span
-        className="max-w-40 truncate text-destructive"
-        title={update.message || undefined}
-      >
+      <span className="max-w-40 truncate text-destructive" title={update.message || undefined}>
         Update {update.version} failed
       </span>
       <Button

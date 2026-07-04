@@ -1,5 +1,6 @@
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { bbox } from "@turf/bbox";
+import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import {
   forwardRef,
   useCallback,
@@ -18,22 +19,23 @@ import MapGL, {
   Source,
   useMap
 } from "react-map-gl/maplibre";
-import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
 import "@renderer/lib/pmtiles-protocol";
 
-import { useDarkMode } from "@renderer/hooks/use-dark-mode";
-import { useMapViewport } from "@renderer/contexts/map-viewport";
-import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
-import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
+import { useMapViewport } from "@renderer/contexts/map-viewport";
+import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
+import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
+import { orderDetailProperties } from "../../../shared/types";
+import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
 
 export type { PlaceRecord };
 
@@ -104,12 +106,7 @@ function overlayFeatureOpacity(
   base: number
 ): DataDrivenPropertyValueSpecification<number> {
   if (focusedFeatureId == null) return base;
-  return [
-    "case",
-    ["==", ["get", "overlayId"], focusedFeatureId],
-    base,
-    base * UNFOCUSED_OPACITY
-  ];
+  return ["case", ["==", ["get", "overlayId"], focusedFeatureId], base, base * UNFOCUSED_OPACITY];
 }
 
 /** Stable, css-safe source id for an overlay layer (layer ids are tool-call ids). */
@@ -118,6 +115,102 @@ function overlaySourceId(layerId: string): string {
 }
 
 const MAP_OVERLAY_PREFIX = "map-overlay:";
+const MAP_POI_PREFIX = "map-poi:";
+
+/**
+ * Basemap POI symbol layers: "pois" in the online styles, "world_pois" /
+ * "<region>_pois" in the generated offline style (region slugs are [a-z0-9_-]).
+ */
+const POI_LAYER_RE = /^(?:[a-z0-9_-]+_)?pois$/i;
+
+/** Symbol hit-boxes are small; pad the click point a few px for comfort. */
+const POI_CLICK_PADDING = 4;
+
+/** Coordinate slack when matching a tile POI to a geocoder result (~200m; tile
+ * geometry is quantized and OSM ways anchor at a computed centroid). */
+const POI_MATCH_MAX_DELTA_DEG = 0.002;
+
+type OsmRef = { type: "node" | "way" | "relation"; id: number };
+
+/**
+ * Protomaps basemaps encode the source OSM element in the MVT feature id:
+ * `(elementType << 44) | osmId` with 1 = node, 2 = way, 3 = relation.
+ */
+function decodeOsmFeatureId(featureId: unknown): OsmRef | null {
+  if (typeof featureId !== "number" || !Number.isFinite(featureId) || featureId <= 0) return null;
+  const TYPE_SHIFT = 2 ** 44;
+  const type = (["node", "way", "relation"] as const)[Math.floor(featureId / TYPE_SHIFT) - 1];
+  if (!type) return null;
+  return { type, id: featureId % TYPE_SHIFT };
+}
+
+/**
+ * Build the preview place for a clicked basemap POI. The tile feature carries
+ * `name`/`kind` plus the source OSM element encoded in its feature id, so
+ * reverse-geocode at the POI's location and match the exact same OSM element —
+ * then derive the card properties (category, address, osm_id, wikidata_id) with
+ * the shared helper so both paths show byte-identical details. Name+proximity
+ * is the fallback signal when the geocoder has no OSM ids to compare; the
+ * tile's `kind` as `category` is the last resort (no pack coverage, offline,
+ * slow network).
+ */
+async function placeFromPoiFeature(
+  name: string,
+  kind: string | undefined,
+  lng: number,
+  lat: number,
+  osm: OsmRef | null
+): Promise<PlaceRecord> {
+  // The tile is itself an authoritative source for category and osm_id, so the
+  // fallback card still shares the search card's vocabulary.
+  const baseProperties = orderDetailProperties({
+    ...(kind ? { category: normalizeCategoryToken(kind) } : {}),
+    ...(osm ? { osm_id: `${osm.type}/${osm.id}` } : {})
+  });
+  const base: PlaceRecord = {
+    filePath: `${MAP_POI_PREFIX}${lng},${lat}:${name}`,
+    title: name,
+    type: "Search",
+    geometry: JSON.stringify({ type: "Point", coordinates: [lng, lat] }),
+    /** Present (may be empty) so PlaceCard opens in preview mode without reading a file. */
+    previewMarkdown: "",
+    ...(Object.keys(baseProperties).length > 0 ? { properties: baseProperties } : {})
+  };
+  try {
+    const results = await Promise.race([
+      window.api.services.geocodingReverse({
+        point: { lat, lng },
+        limit: 20,
+        // Neighbourhood-ish tile POIs (kind administrative/political) are
+        // geocode "place" features, not "poi".
+        kinds: ["poi", "place"]
+      }),
+      // Don't leave the click dead behind a slow cloud request — fall back.
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200))
+    ]);
+    const norm = (s: string) => s.trim().toLowerCase();
+    const match =
+      (osm && results?.find((r) => r.osmType === osm.type && r.osmId === osm.id)) ||
+      results?.find(
+        (r) =>
+          norm(r.primaryLabel) === norm(name) &&
+          Math.abs(r.lat - lat) < POI_MATCH_MAX_DELTA_DEG &&
+          Math.abs(r.lng - lng) < POI_MATCH_MAX_DELTA_DEG
+      );
+    if (match) {
+      const properties = detailPropertiesFromGeocodeResult(match);
+      return {
+        ...base,
+        // The geocoder's coordinates are the authoritative OSM location.
+        geometry: JSON.stringify({ type: "Point", coordinates: [match.lng, match.lat] }),
+        ...(Object.keys(properties).length > 0 ? { properties } : {})
+      };
+    }
+  } catch {
+    /* no geocode provider available */
+  }
+  return base;
+}
 
 function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
   return {
@@ -149,10 +242,7 @@ function placeFromOverlayFeature(
  * Look up an overlay feature's full geometry by id across all overlay layers.
  * Used to recover geometry that MapLibre clipped to a tile boundary on click.
  */
-function findOverlayGeometry(
-  layers: MapOverlayLayer[],
-  id: string
-): GeoJSONGeometry | null {
+function findOverlayGeometry(layers: MapOverlayLayer[], id: string): GeoJSONGeometry | null {
   for (const layer of layers) {
     const polygon = layer.polygons.find((pg) => pg.id === id);
     if (polygon) return { type: "Polygon", coordinates: polygon.coordinates };
@@ -190,18 +280,10 @@ export type MapSelectPlaceMeta = { mapClickLngLat: { lng: number; lat: number } 
 export type SelectionPulseAnchor = { filePath: string; lng: number; lat: number };
 
 export type MapViewHandle = {
-  flyTo: (
-    lat: number,
-    lng: number,
-    opts?: { zoom?: number; padding?: FitPadding }
-  ) => void;
+  flyTo: (lat: number, lng: number, opts?: { zoom?: number; padding?: FitPadding }) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
-  fitToPlaceAndLinks: (
-    place: PlaceRecord,
-    links: PlaceRecord[],
-    padding: FitPadding
-  ) => void;
+  fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
 };
@@ -815,8 +897,7 @@ const MapView = forwardRef<
         return {
           layerId: l.id,
           sourceId: overlaySourceId(l.id),
-          data:
-            features.length > 0 ? { type: "FeatureCollection" as const, features } : null
+          data: features.length > 0 ? { type: "FeatureCollection" as const, features } : null
         };
       })
       .filter((s): s is typeof s & { data: NonNullable<(typeof s)["data"]> } => s.data != null);
@@ -929,8 +1010,13 @@ const MapView = forwardRef<
     [geoJsonLayers]
   );
 
+  // Bumped on every map click so an in-flight POI reverse-geocode from a
+  // previous click can't override a newer selection when it resolves late.
+  const mapClickSeqRef = useRef(0);
+
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
+      mapClickSeqRef.current += 1;
       const feats = e.features ?? [];
       const clickMeta: MapSelectPlaceMeta = {
         mapClickLngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat }
@@ -980,11 +1066,43 @@ const MapView = forwardRef<
           // in, so a polygon spanning multiple tiles comes back as just the clicked
           // tile's slice. Recover the full, unclipped geometry from the source data
           // by id; only fall back to the clipped geometry if no match is found.
-          const geometry = findOverlayGeometry(overlayLayers, id) ?? (feature.geometry as GeoJSONGeometry);
+          const geometry =
+            findOverlayGeometry(overlayLayers, id) ?? (feature.geometry as GeoJSONGeometry);
           onSelectPlace?.(placeFromOverlayFeature(geometry, id, title, previewMarkdown), clickMeta);
           return;
         } catch {
           /* invalid */
+        }
+      }
+      // Basemap POI symbols. Their layer ids vary per style (and per downloaded
+      // region pack), so they can't be listed in interactiveLayerIds — query the
+      // rendered features around the click instead. Vault/overlay features above
+      // always win; POIs only fill what would otherwise be an empty click.
+      const map = mapRef.current?.getMap();
+      if (map) {
+        const { x, y } = e.point;
+        const hits = map.queryRenderedFeatures([
+          [x - POI_CLICK_PADDING, y - POI_CLICK_PADDING],
+          [x + POI_CLICK_PADDING, y + POI_CLICK_PADDING]
+        ]);
+        for (const f of hits) {
+          if (!POI_LAYER_RE.test(f.layer.id) || f.geometry.type !== "Point") continue;
+          const props = f.properties ?? {};
+          const name = [props["name:en"], props.name].find(
+            (v): v is string => typeof v === "string" && v.length > 0
+          );
+          if (!name) continue; // unnamed POI: icon only, nothing to show on a card
+          const [lng, lat] = f.geometry.coordinates as [number, number];
+          const kind = typeof props.kind === "string" && props.kind ? props.kind : undefined;
+          const osm = decodeOsmFeatureId(f.id);
+          const token = mapClickSeqRef.current;
+          void placeFromPoiFeature(name, kind, lng, lat, osm).then((place) => {
+            if (mapClickSeqRef.current !== token) return; // superseded by a newer click
+            // Same no-op guard as vault places: re-selecting flickers the mini card.
+            if (selectedPlaceRef.current?.filePath === place.filePath) return;
+            onSelectPlace?.(place, clickMeta);
+          });
+          return;
         }
       }
       onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });

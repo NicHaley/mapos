@@ -1,15 +1,3 @@
-import {
-  ArrowLeftIcon,
-  CheckIcon,
-  ChevronsUpDownIcon,
-  FolderIcon,
-  FolderInputIcon,
-  FolderOpenIcon,
-  FolderPlusIcon,
-  PlusIcon
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DEFAULT_VAULT_NAME, validateVaultName } from "../../lib/vault-name";
 import { Button } from "@mapos/ui/components/button";
 import {
   Dialog,
@@ -34,6 +22,18 @@ import {
   SidebarMenuItem,
   useSidebar
 } from "@mapos/ui/components/sidebar";
+import {
+  ArrowLeftIcon,
+  CheckIcon,
+  ChevronsUpDownIcon,
+  FolderIcon,
+  FolderInputIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+  PlusIcon
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DEFAULT_VAULT_NAME, validateVaultName } from "../../lib/vault-name";
 
 type VaultOption = {
   path: string;

@@ -30,7 +30,7 @@ import type {
 } from "@mapos/service-adapters";
 import type { ServicesConfig } from "../mapos-config";
 import { ServiceUnavailableError } from "./errors";
-import { resolve, type Resolution } from "./resolve";
+import { type Resolution, resolve } from "./resolve";
 import type { ClientCredentials } from "./types";
 
 export { ServiceUnavailableError } from "./errors";

@@ -1,26 +1,3 @@
-import { firstUniqueName } from "@renderer/lib/unique-name";
-import { format } from "date-fns";
-import {
-  CalendarIcon,
-  CheckIcon,
-  ExternalLinkIcon,
-  GripVerticalIcon,
-  HashIcon,
-  PlusIcon,
-  TagsIcon,
-  TextIcon,
-  ToggleLeftIcon,
-  Trash2Icon,
-  XIcon
-} from "lucide-react";
-import { Reorder } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PropertyType } from "../../../shared/types";
-import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
-import {
-  defaultValueForType,
-  inferPropertyType
-} from "../../../shared/property-inference";
 import { Calendar } from "@mapos/ui/components/calendar";
 import {
   DropdownMenu,
@@ -38,6 +15,26 @@ import { Input } from "@mapos/ui/components/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@mapos/ui/components/popover";
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
 import { Switch } from "@mapos/ui/components/switch";
+import { firstUniqueName } from "@renderer/lib/unique-name";
+import { format } from "date-fns";
+import {
+  CalendarIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  GripVerticalIcon,
+  HashIcon,
+  PlusIcon,
+  TagsIcon,
+  TextIcon,
+  ToggleLeftIcon,
+  Trash2Icon,
+  XIcon
+} from "lucide-react";
+import { Reorder } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { defaultValueForType, inferPropertyType } from "../../../shared/property-inference";
+import type { PropertyType } from "../../../shared/types";
+import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/;

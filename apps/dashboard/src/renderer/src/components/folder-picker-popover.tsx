@@ -1,6 +1,3 @@
-import type { FileNode } from "@shared/types";
-import { FolderIcon, HomeIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import {
   Command,
   CommandEmpty,
@@ -15,6 +12,9 @@ import {
   PopoverTitle,
   PopoverTrigger
 } from "@mapos/ui/components/popover";
+import type { FileNode } from "@shared/types";
+import { FolderIcon, HomeIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 type FolderEntry = { path: string; relPath: string; depth: number };
 

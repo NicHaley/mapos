@@ -1,6 +1,6 @@
-import { PanelRightIcon } from "lucide-react";
 import { Button } from "@mapos/ui/components/button";
 import { useSidebar } from "@mapos/ui/components/sidebar";
+import { PanelRightIcon } from "lucide-react";
 
 export function ChatToggle(): React.JSX.Element {
   const { open, toggleSidebar } = useSidebar();

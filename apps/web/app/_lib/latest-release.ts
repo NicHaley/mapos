@@ -17,7 +17,7 @@ export type LatestRelease = {
 export async function getLatestRelease(): Promise<LatestRelease | null> {
   try {
     const res = await fetch(`${UPDATES_BASE}/latest-mac.yml`, {
-      next: { revalidate: REVALIDATE_SECONDS },
+      next: { revalidate: REVALIDATE_SECONDS }
     });
     if (!res.ok) return null;
     const dmg = parseDmg(await res.text());

@@ -5,30 +5,29 @@ import "./globals.css";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   weight: ["400", "500", "600"],
-  subsets: ["latin"],
+  subsets: ["latin"]
 });
 
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   weight: ["400", "500"],
-  subsets: ["latin"],
+  subsets: ["latin"]
 });
 
 const instrumentSerif = Instrument_Serif({
   variable: "--font-instrument-serif",
   weight: "400",
   style: ["normal", "italic"],
-  subsets: ["latin"],
+  subsets: ["latin"]
 });
 
 export const metadata: Metadata = {
   title: "MapOS — Markdown maps for AI",
-  description:
-    "A plaintext map format your agents can actually read, write, and reason about.",
+  description: "A plaintext map format your agents can actually read, write, and reason about."
 };
 
 export default function RootLayout({
-  children,
+  children
 }: Readonly<{
   children: React.ReactNode;
 }>) {

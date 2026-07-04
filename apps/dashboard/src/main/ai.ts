@@ -164,7 +164,9 @@ export function listKnownProviders(): KnownProviderOption[] {
 }
 
 /** Add a provider from Pi's catalog. Protocol/baseUrl are derived from the catalog, not typed in. */
-export function addKnownProvider(name: string): { ok: true; id: string } | { ok: false; error: string } {
+export function addKnownProvider(
+  name: string
+): { ok: true; id: string } | { ok: false; error: string } {
   const models = catalogModels(name);
   if (models.length === 0) return { ok: false, error: `Unknown provider "${name}".` };
   const st = load();
@@ -173,7 +175,8 @@ export function addKnownProvider(name: string): { ok: true; id: string } | { ok:
   if (existing) return { ok: true, id: existing.id };
   const id = randomUUID();
   // anthropic-messages models map to our "anthropic" protocol; everything else routes as openai-ish.
-  const protocol: ProviderProtocol = models[0]?.api === "anthropic-messages" ? "anthropic" : "openai";
+  const protocol: ProviderProtocol =
+    models[0]?.api === "anthropic-messages" ? "anthropic" : "openai";
   const next: ProviderStored = {
     id,
     label: knownProviderLabel(name),
@@ -204,7 +207,9 @@ export function getAiState(): AiState {
   return { providers: st.providers.map(toView), active };
 }
 
-export function addProvider(input: ProviderInput): { ok: true; id: string } | { ok: false; error: string } {
+export function addProvider(
+  input: ProviderInput
+): { ok: true; id: string } | { ok: false; error: string } {
   if (!safeStorage.isEncryptionAvailable()) {
     return { ok: false, error: "Secure storage isn't available on this system." };
   }
@@ -366,7 +371,10 @@ async function fetchAnthropicModels(
  * array (`tools`, `vision`, `thinking`, ...) and the context length in `model_info`. Returns null
  * on any failure so the caller can fall back to assumed defaults.
  */
-async function fetchOllamaCapabilities(root: string, model: string): Promise<ModelCapabilities | null> {
+async function fetchOllamaCapabilities(
+  root: string,
+  model: string
+): Promise<ModelCapabilities | null> {
   const { signal, done } = withTimeout();
   try {
     const res = await fetch(`${root}/api/show`, {
@@ -381,7 +389,9 @@ async function fetchOllamaCapabilities(root: string, model: string): Promise<Mod
       model_info?: Record<string, unknown>;
     };
     const caps = data.capabilities ?? [];
-    const ctxEntry = Object.entries(data.model_info ?? {}).find(([k]) => k.endsWith(".context_length"));
+    const ctxEntry = Object.entries(data.model_info ?? {}).find(([k]) =>
+      k.endsWith(".context_length")
+    );
     const contextWindow =
       typeof ctxEntry?.[1] === "number" && ctxEntry[1] > 0 ? (ctxEntry[1] as number) : 32_000;
     return {
@@ -567,7 +577,14 @@ export function resolveActive(): ResolvedAiRequestConfig | null {
 
   if (provider.protocol === "anthropic") {
     if (!secret) return null; // unusable without a key
-    return { provider: "anthropic", baseUrl: "", authToken: "", apiKey: secret, model, capabilities };
+    return {
+      provider: "anthropic",
+      baseUrl: "",
+      authToken: "",
+      apiKey: secret,
+      model,
+      capabilities
+    };
   }
   return {
     provider: "local",
@@ -593,7 +610,10 @@ export function getAiStatus(): { configured: boolean; activeProvider: AiProvider
 export function loadAiConfigForRequest(): ResolvedAiRequestConfig {
   const resolved = resolveActive();
   if (!resolved) {
-    throw new AiConfigError("AI_NOT_CONFIGURED", "No AI model is configured. Pick one in Settings → AI.");
+    throw new AiConfigError(
+      "AI_NOT_CONFIGURED",
+      "No AI model is configured. Pick one in Settings → AI."
+    );
   }
   return resolved;
 }

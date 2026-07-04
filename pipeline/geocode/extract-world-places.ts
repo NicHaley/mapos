@@ -19,12 +19,12 @@
  *   tsx extract-world-places.ts WORLD.pmtiles [--maxzoom 6] | tsx build-geocode.ts ...
  */
 
-import { VectorTile } from "@mapbox/vector-tile";
-import Pbf from "pbf";
-import { PMTiles, type Source } from "pmtiles";
 import { closeSync, openSync, readSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
+import { VectorTile } from "@mapbox/vector-tile";
 import type { Feature, Point } from "geojson";
+import Pbf from "pbf";
+import { PMTiles, type Source } from "pmtiles";
 
 // Node fs-backed pmtiles Source (the library's FileSource is browser-only). Same
 // shape as the desktop app's NodeFileSource (region-protocol.ts).

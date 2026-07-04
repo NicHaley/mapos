@@ -1,6 +1,11 @@
+import { Button } from "@mapos/ui/components/button";
+import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { PulseLoader } from "@mapos/ui/components/pulse-loader";
+import { Separator } from "@mapos/ui/components/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import { cn } from "@mapos/ui/lib/utils";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -9,11 +14,6 @@ import {
   XIcon
 } from "lucide-react";
 import { Reorder, motion } from "motion/react";
-import { Button } from "@mapos/ui/components/button";
-import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { PulseLoader } from "@mapos/ui/components/pulse-loader";
-import { Separator } from "@mapos/ui/components/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }

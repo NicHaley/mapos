@@ -122,25 +122,22 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
    * directory, validates the name, and returns the resolved target path WITHOUT writing
    * anything to disk. Onboarding stores this as a draft and only commits on Done.
    */
-  ipcMain.handle(
-    "onboarding:pick-create-location",
-    async (_event, name: string) => {
-      const validated = validateVaultName(name);
-      if (!validated.ok) return { ok: false as const, error: validated.error };
-      if (mainWindow.isDestroyed()) return { canceled: true as const };
-      const picked = await dialog.showOpenDialog(mainWindow, {
-        properties: ["openDirectory", "createDirectory"],
-        title: "Choose where to create the new vault"
-      });
-      if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
-      const parent = picked.filePaths[0];
-      const targetPath = resolve(join(parent, name.trim()));
-      if (existsSync(targetPath)) {
-        return { ok: false as const, error: "A folder with that name already exists." };
-      }
-      return { ok: true as const, targetPath, parentPath: parent };
+  ipcMain.handle("onboarding:pick-create-location", async (_event, name: string) => {
+    const validated = validateVaultName(name);
+    if (!validated.ok) return { ok: false as const, error: validated.error };
+    if (mainWindow.isDestroyed()) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory", "createDirectory"],
+      title: "Choose where to create the new vault"
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+    const parent = picked.filePaths[0];
+    const targetPath = resolve(join(parent, name.trim()));
+    if (existsSync(targetPath)) {
+      return { ok: false as const, error: "A folder with that name already exists." };
     }
-  );
+    return { ok: true as const, targetPath, parentPath: parent };
+  });
 
   /**
    * Renderer-driven "use existing folder" picker. Returns the picked path without
@@ -164,39 +161,36 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
     return { ok: true as const, path };
   });
 
-  ipcMain.handle(
-    "onboarding:complete",
-    async (_event, draft: OnboardingVaultDraft) => {
-      const appStateDir = app.getPath("userData");
+  ipcMain.handle("onboarding:complete", async (_event, draft: OnboardingVaultDraft) => {
+    const appStateDir = app.getPath("userData");
 
-      if (draft.kind === "create") {
-        if (existsSync(draft.targetPath)) {
-          return { ok: false as const, error: "A folder with that name already exists." };
-        }
-        try {
-          initVaultOnDisk(draft.targetPath);
-          closeDb();
-        } catch (e) {
-          return { ok: false as const, error: String(e) };
-        }
-        const result = appendVaultToConfig(appStateDir, draft.targetPath);
-        if (!result.ok) {
-          try {
-            rmSync(draft.targetPath, { recursive: true, force: true });
-          } catch {
-            /* best-effort cleanup */
-          }
-          return { ok: false as const, error: result.error };
-        }
-      } else {
-        const result = appendVaultToConfig(appStateDir, draft.path);
-        if (!result.ok) return { ok: false as const, error: result.error };
-        initVaultOnDisk(draft.path);
-        closeDb();
+    if (draft.kind === "create") {
+      if (existsSync(draft.targetPath)) {
+        return { ok: false as const, error: "A folder with that name already exists." };
       }
-
-      await opts.onOnboardingComplete();
-      return { ok: true as const };
+      try {
+        initVaultOnDisk(draft.targetPath);
+        closeDb();
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
+      const result = appendVaultToConfig(appStateDir, draft.targetPath);
+      if (!result.ok) {
+        try {
+          rmSync(draft.targetPath, { recursive: true, force: true });
+        } catch {
+          /* best-effort cleanup */
+        }
+        return { ok: false as const, error: result.error };
+      }
+    } else {
+      const result = appendVaultToConfig(appStateDir, draft.path);
+      if (!result.ok) return { ok: false as const, error: result.error };
+      initVaultOnDisk(draft.path);
+      closeDb();
     }
-  );
+
+    await opts.onOnboardingComplete();
+    return { ok: true as const };
+  });
 }

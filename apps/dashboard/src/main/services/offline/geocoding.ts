@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type {
   Endpoint,
   GeocodeForwardRequest,
@@ -5,7 +6,6 @@ import type {
   GeocodeReverseRequest
 } from "@mapos/contracts";
 import type { AdapterContext, GeocodingCapability } from "@mapos/service-adapters";
-import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { listInstalledRegions, regionsContaining } from "./installed-regions";
 
@@ -71,7 +71,9 @@ const wikidataColumn = new Map<string, boolean>();
 function hasWikidataColumn(path: string): boolean {
   let has = wikidataColumn.get(path);
   if (has === undefined) {
-    const cols = getDb(path).prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+    const cols = getDb(path).prepare("PRAGMA table_info(features)").all() as Array<{
+      name: string;
+    }>;
     has = cols.some((c) => c.name === "wikidata");
     wikidataColumn.set(path, has);
   }
@@ -290,9 +292,9 @@ async function forward(
   for (const r of regions) {
     try {
       const path = r.geocode as string;
-      const rows = getDb(path).prepare(buildSql(featureCols(path))).all(params) as Array<
-        FeatureRow & { score: number }
-      >;
+      const rows = getDb(path)
+        .prepare(buildSql(featureCols(path)))
+        .all(params) as Array<FeatureRow & { score: number }>;
       for (const row of rows) merged.push({ row, region: r.region });
     } catch {
       /* skip a corrupt/locked pack rather than failing the whole search */
@@ -355,9 +357,9 @@ async function reverse(
   for (const r of candidates) {
     try {
       const path = r.geocode as string;
-      const rows = getDb(path).prepare(buildSql(featureCols(path))).all(params) as Array<
-        FeatureRow & { dist: number }
-      >;
+      const rows = getDb(path)
+        .prepare(buildSql(featureCols(path)))
+        .all(params) as Array<FeatureRow & { dist: number }>;
       for (const row of rows) merged.push({ row, region: r.region });
     } catch {
       /* skip a corrupt/locked pack */

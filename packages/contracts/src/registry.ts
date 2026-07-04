@@ -6,13 +6,7 @@
 
 import { z } from "zod";
 
-export const ServiceIdSchema = z.enum([
-  "geocoding",
-  "routing",
-  "isochrones",
-  "tiles",
-  "webSearch"
-]);
+export const ServiceIdSchema = z.enum(["geocoding", "routing", "isochrones", "tiles", "webSearch"]);
 export type ServiceId = z.infer<typeof ServiceIdSchema>;
 
 export const AdapterIdSchema = z.enum([

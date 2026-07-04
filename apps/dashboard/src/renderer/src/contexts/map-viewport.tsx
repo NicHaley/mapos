@@ -1,5 +1,5 @@
-import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
 import type { BBox } from "@mapos/contracts";
+import { type ReactNode, createContext, useContext, useMemo, useRef } from "react";
 
 type MapViewportContextValue = {
   /** Latest map viewport bounds, or null before the map's first load/move. */

@@ -36,7 +36,8 @@ export function useConversations(chatStore: ChatStore): {
   const anyStreaming = useMemo(
     () =>
       Object.values(chatStore.state.byId).some(
-        (c) => c.streamingContent !== "" || c.streamingThinking !== "" || c.activeToolCalls.length > 0
+        (c) =>
+          c.streamingContent !== "" || c.streamingThinking !== "" || c.activeToolCalls.length > 0
       ),
     [chatStore.state]
   );

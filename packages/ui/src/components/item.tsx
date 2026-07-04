@@ -55,8 +55,7 @@ function Item({
   selected,
   render,
   ...props
-}: useRender.ComponentProps<"div"> &
-  VariantProps<typeof itemVariants> & { selected?: boolean }) {
+}: useRender.ComponentProps<"div"> & VariantProps<typeof itemVariants> & { selected?: boolean }) {
   return useRender({
     defaultTagName: "div",
     render,

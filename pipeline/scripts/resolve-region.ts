@@ -37,7 +37,7 @@ const vars: Record<string, string | undefined> = {
   CONTINENT_NAME: entry.continentName,
   COUNTRY: entry.country,
   CITY_LEVEL_MAX: entry.cityLevelMax?.toString(),
-  TILES_MAXZOOM: entry.tilesMaxzoom?.toString(),
+  TILES_MAXZOOM: entry.tilesMaxzoom?.toString()
 };
 for (const [k, v] of Object.entries(vars)) {
   if (v !== undefined) console.log(`${k}=${sh(v)}`);

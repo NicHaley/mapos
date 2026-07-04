@@ -15,10 +15,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Api, KnownProvider, Model, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
+import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 // `getOAuthProvider` ships behind the `./oauth` subpath export, not the package root — the root
 // only re-exports the OAuth *types*. Importing it from the root type-checks but throws at runtime.
 import { getOAuthProvider } from "@earendil-works/pi-ai/oauth";
-import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { AuthStorage, type AuthStorageBackend } from "@earendil-works/pi-coding-agent";
 import { app, safeStorage } from "electron";
 import type { KnownProviderOption } from "../shared/ai-providers";

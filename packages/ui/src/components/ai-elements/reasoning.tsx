@@ -1,14 +1,14 @@
 "use client";
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from "@mapos/ui/components/collapsible";
-import { normalizeAssistantMarkdownSpacing } from "@mapos/ui/lib/normalize-assistant-markdown";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
+import { normalizeAssistantMarkdownSpacing } from "@mapos/ui/lib/normalize-assistant-markdown";
 import { cn } from "@mapos/ui/lib/utils";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";

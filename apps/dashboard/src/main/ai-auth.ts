@@ -169,6 +169,12 @@ export function knownAuthStatus(name: string): KnownAuthStatus {
   return { method, configured: !!cred, oauthAvailable: oauthAvailable(name) };
 }
 
+/** The saved API key for a known provider, or null when unset or OAuth-connected. */
+export function getKnownProviderApiKey(name: string): string | null {
+  const cred = getRuntimeAuthStorage().get(name);
+  return cred?.type === "api_key" ? cred.key : null;
+}
+
 export function setKnownProviderApiKey(
   name: string,
   key: string

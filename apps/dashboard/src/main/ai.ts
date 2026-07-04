@@ -26,6 +26,7 @@ import {
 import {
   catalogBaseUrl,
   catalogModels,
+  getKnownProviderApiKey,
   knownAuthStatus,
   knownProviderConfigured,
   knownProviderLabel,
@@ -272,12 +273,17 @@ export function updateProvider(
   return { ok: true };
 }
 
-/** Decrypt a custom provider's saved secret so the editor's reveal toggle can show it. */
+/** Decrypt a provider's saved secret so the editor's reveal toggle can show it. Custom rows keep
+ * theirs in ai.json; known providers' API keys live in Pi's AuthStorage. */
 export function revealSecret(
   providerId: string
 ): { ok: true; secret: string } | { ok: false; error: string } {
   const provider = load().providers.find((x) => x.id === providerId);
   if (!provider) return { ok: false, error: "Provider not found." };
+  if (provider.knownProvider) {
+    const key = getKnownProviderApiKey(provider.knownProvider);
+    return key !== null ? { ok: true, secret: key } : { ok: false, error: "No API key is saved." };
+  }
   if (!provider.encryptedSecret) return { ok: false, error: "No secret is saved." };
   try {
     return { ok: true, secret: decrypt(provider.encryptedSecret) };

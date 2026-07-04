@@ -61,14 +61,20 @@ export function KnownProviderAuthSheet({
 
   const [resolvedOauth, setResolvedOauth] = useState<boolean | null>(null);
   const [keyMode, setKeyMode] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
   const connect = useKnownProviderConnect(name, { onChanged, persistOnConnect });
+  const { setKeyDraft, setReveal } = connect;
 
   // A brand-new (not-yet-persisted) provider has no row to read oauth availability from, so resolve
-  // it from the catalog when the drawer opens. Reset the key/sign-in mode on each open.
+  // it from the catalog when the drawer opens. Reset the key/sign-in mode and any draft (which may
+  // hold a previously revealed key) on each open.
   useEffect(() => {
     if (!open) return;
     setKeyMode(false);
+    setRevealError(null);
+    setKeyDraft("");
+    setReveal(() => false);
     if (target?.kind !== "new") {
       setResolvedOauth(null);
       return;
@@ -82,7 +88,7 @@ export function KnownProviderAuthSheet({
     return () => {
       cancelled = true;
     };
-  }, [open, target?.kind, name]);
+  }, [open, target?.kind, name, setKeyDraft, setReveal]);
 
   const existingAuth = target?.kind === "existing" ? target.provider.auth : null;
   const configured = existingAuth?.configured ?? false;
@@ -98,6 +104,67 @@ export function KnownProviderAuthSheet({
       onOpenChange(false);
     }
   }
+
+  // Replace the saved key with the typed one (the configured-state footer's Update action).
+  async function updateKey(): Promise<void> {
+    const ok = await connect.saveKey();
+    if (ok) {
+      onConnected();
+      onOpenChange(false);
+    }
+  }
+
+  // Revealing a saved-but-untyped key pulls the decrypted value into the field first, so the eye
+  // shows the real key (editable in place) instead of toggling an empty input.
+  async function handleToggleReveal(): Promise<void> {
+    if (
+      !connect.reveal &&
+      connect.keyDraft.length === 0 &&
+      configured &&
+      target?.kind === "existing"
+    ) {
+      const result = await window.api.ai.revealSecret(target.provider.id);
+      if (!result.ok) {
+        setRevealError(result.error);
+        return;
+      }
+      setKeyDraft(result.secret);
+    }
+    setReveal((r) => !r);
+  }
+
+  // One key input for both states: entering a first key, and viewing/replacing a saved one.
+  const keyInput = (placeholder: string, onEnter: () => void): React.JSX.Element => (
+    <InputGroup className="bg-background">
+      <InputGroupAddon>
+        <KeyRoundIcon />
+      </InputGroupAddon>
+      <InputGroupInput
+        type={connect.reveal ? "text" : "password"}
+        placeholder={placeholder}
+        value={connect.keyDraft}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => setKeyDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onEnter();
+          }
+        }}
+      />
+      <InputGroupAddon align="inline-end">
+        <InputGroupButton
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => void handleToggleReveal()}
+          aria-label={connect.reveal ? "Hide key" : "Show key"}
+        >
+          {connect.reveal ? <EyeOffIcon /> : <EyeIcon />}
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
+  );
 
   // Removal lives in the footer for an existing row; the X / backdrop already handle dismissal.
   const removeButton =
@@ -118,10 +185,26 @@ export function KnownProviderAuthSheet({
   const footer = !target ? null : configured ? (
     <div className="flex items-center justify-between gap-2">
       {removeButton}
-      <Button variant="outline" onClick={() => void connect.disconnect()} disabled={connect.busy}>
-        {connect.busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-        Disconnect
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          onClick={() => {
+            // A revealed key mustn't carry into the disconnected state's entry field.
+            setKeyDraft("");
+            setReveal(() => false);
+            void connect.disconnect();
+          }}
+          disabled={connect.busy}
+        >
+          Disconnect
+        </Button>
+        {existingAuth?.method === "api-key" && (
+          <Button onClick={() => void updateKey()} disabled={connect.busy || !connect.canSaveKey}>
+            {connect.busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+            Save
+          </Button>
+        )}
+      </div>
     </div>
   ) : (
     <div className="flex items-center justify-between gap-2">
@@ -145,12 +228,20 @@ export function KnownProviderAuthSheet({
       footer={footer}
     >
       {target &&
-        (configured ? (
+        (configured && existingAuth?.method === "api-key" ? (
+          <div className="flex flex-col gap-2">
+            {keyInput("••••••••", () => void updateKey())}
+            <span className="text-muted-foreground/80 text-xs">
+              A key is saved. Leave blank to keep it, or type a new one to replace.
+            </span>
+            {(revealError || connect.error) && (
+              <span className="text-xs text-destructive">{revealError ?? connect.error}</span>
+            )}
+          </div>
+        ) : configured ? (
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle2Icon className="size-4 shrink-0 text-emerald-500" />
-            <span>
-              {existingAuth?.method === "oauth" ? "Signed in (subscription)." : "API key saved."}
-            </span>
+            <span>Signed in (subscription).</span>
           </div>
         ) : resolving ? (
           <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
@@ -175,35 +266,7 @@ export function KnownProviderAuthSheet({
 
             {keyEntry && (
               <div className="flex flex-col gap-2">
-                <InputGroup className="bg-background">
-                  <InputGroupAddon>
-                    <KeyRoundIcon />
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    type={connect.reveal ? "text" : "password"}
-                    placeholder="Paste API key"
-                    value={connect.keyDraft}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(e) => connect.setKeyDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void primaryConnect();
-                      }
-                    }}
-                  />
-                  <InputGroupAddon align="inline-end">
-                    <InputGroupButton
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => connect.setReveal((r) => !r)}
-                      aria-label={connect.reveal ? "Hide key" : "Show key"}
-                    >
-                      {connect.reveal ? <EyeOffIcon /> : <EyeIcon />}
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                </InputGroup>
+                {keyInput("Paste API key", () => void primaryConnect())}
                 {oauthAvailable && (
                   <button
                     type="button"

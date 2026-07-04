@@ -72,6 +72,16 @@ export function ProviderEditorSheet({
 
   const isEdit = !!provider;
 
+  // Enable Save only when something would actually change, mirroring the connect drawer's
+  // disabled-until-typed Save. A typed (or revealed) secret always counts as a change.
+  const dirty = provider
+    ? label.trim() !== provider.label ||
+      protocol !== provider.protocol ||
+      baseUrl.trim() !== provider.baseUrl ||
+      authKind !== provider.authKind ||
+      secret.trim().length > 0
+    : baseUrl.trim().length > 0;
+
   // Hydrate the form from the target whenever the sheet opens.
   useEffect(() => {
     if (!open) return;
@@ -195,7 +205,10 @@ export function ProviderEditorSheet({
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSave()} disabled={busy || baseUrl.trim().length === 0}>
+          <Button
+            onClick={() => void handleSave()}
+            disabled={busy || !dirty || baseUrl.trim().length === 0}
+          >
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
             Save
           </Button>
@@ -273,7 +286,7 @@ export function ProviderEditorSheet({
               </InputGroupAddon>
               <InputGroupInput
                 type={reveal ? "text" : "password"}
-                placeholder={isEdit && provider?.hasSecret ? "•••••••• saved" : "sk-..."}
+                placeholder={isEdit && provider?.hasSecret ? "••••••••" : "sk-..."}
                 value={secret}
                 autoComplete="off"
                 spellCheck={false}

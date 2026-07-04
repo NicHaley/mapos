@@ -492,6 +492,9 @@ const MapView = forwardRef<
     selectionPulseAnchor?: SelectionPulseAnchor | null;
     /** Places referenced by [[wikilinks]] in the currently-open file; rendered gray. */
     linkedPlaces?: PlaceRecord[];
+    /** Vault places presented by chat feature lists; drawn while the chat overlay is shown,
+     * since they may lie outside the selected folder. */
+    presentedPlaces?: PlaceRecord[];
     /** The still-open file while a map peek is active: rendered in the selected style, but without the pulse. */
     openPlace?: PlaceRecord | null;
   }
@@ -510,6 +513,7 @@ const MapView = forwardRef<
     geoJsonLayers = [],
     selectionPulseAnchor = null,
     linkedPlaces = [],
+    presentedPlaces = [],
     openPlace = null
   },
   ref
@@ -942,6 +946,26 @@ const MapView = forwardRef<
     }
   }, [linkedPlaces, selectedPlace, openPlace, toFeature]);
 
+  // Chat-presented vault places, excluding any place another source already draws
+  // (folder, wikilinks, selected/open) to avoid double markers.
+  const presentedGeoJSON = useMemo(() => {
+    const drawn = new Set([...folderPlaces, ...linkedPlaces].map((p) => p.filePath));
+    const places = presentedPlaces
+      .filter(
+        (p) =>
+          !drawn.has(p.filePath) &&
+          p.filePath !== selectedPlace?.filePath &&
+          p.filePath !== openPlace?.filePath
+      )
+      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    if (places.length === 0) return null;
+    try {
+      return { type: "FeatureCollection" as const, features: places.map(toFeature) };
+    } catch {
+      return null;
+    }
+  }, [presentedPlaces, folderPlaces, linkedPlaces, selectedPlace, openPlace, toFeature]);
+
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
   // drives the pulse (selectionPulseGeoJSON below).
@@ -1031,6 +1055,7 @@ const MapView = forwardRef<
         const place =
           folderPlaces.find((p) => p.filePath === fp) ??
           linkedPlaces.find((p) => p.filePath === fp) ??
+          presentedPlaces.find((p) => p.filePath === fp) ??
           (openPlace?.filePath === fp ? openPlace : undefined);
         if (place) {
           onSelectPlace?.(place, clickMeta);
@@ -1110,6 +1135,7 @@ const MapView = forwardRef<
     [
       folderPlaces,
       linkedPlaces,
+      presentedPlaces,
       selectedPlace,
       openPlace,
       overlayLayers,
@@ -1126,6 +1152,9 @@ const MapView = forwardRef<
     if (linkedGeoJSON) {
       ids.push("linked-circle", "linked-fill", "linked-line", "linked-line-casing");
     }
+    if (showOverlay && presentedGeoJSON) {
+      ids.push("presented-circle", "presented-fill", "presented-line", "presented-line-casing");
+    }
     if (selectedGeoJSON) {
       ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
     }
@@ -1136,7 +1165,15 @@ const MapView = forwardRef<
       ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
     }
     return ids;
-  }, [folderGeoJSON, linkedGeoJSON, selectedGeoJSON, overlayLayerSources, augmentedGeoJsonLayers]);
+  }, [
+    folderGeoJSON,
+    linkedGeoJSON,
+    presentedGeoJSON,
+    showOverlay,
+    selectedGeoJSON,
+    overlayLayerSources,
+    augmentedGeoJsonLayers
+  ]);
 
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
@@ -1268,6 +1305,61 @@ const MapView = forwardRef<
             />
             <Layer
               id="linked-line"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-width": 3
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+          </Source>
+        )}
+        {showOverlay && presentedGeoJSON && (
+          <Source id="presented-geojson" type="geojson" data={presentedGeoJSON}>
+            <Layer
+              id="presented-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 5,
+                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff"
+              }}
+            />
+            <Layer
+              id="presented-fill"
+              type="fill"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{
+                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-opacity": 0.25
+              }}
+            />
+            <Layer
+              id="presented-fill-outline"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={{
+                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-width": 2
+              }}
+            />
+            <Layer
+              id="presented-line-casing"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={LINESTRING_FILTER}
+              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+            <Layer
+              id="presented-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}

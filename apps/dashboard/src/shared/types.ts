@@ -109,6 +109,13 @@ export type MapOverlayPayload = {
  */
 export type MapOverlayLayer = MapOverlayPayload & {
   id: string;
+  /**
+   * Vault file paths of saved places presented in this layer (present_features
+   * `path` entries). The renderer resolves them against the live places index and
+   * draws their markers while the layer is shown — they may lie outside the
+   * selected folder, so no other source would render them.
+   */
+  vaultPaths?: string[];
 };
 
 export type FileNode = {

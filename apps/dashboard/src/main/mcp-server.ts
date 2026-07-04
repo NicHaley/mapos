@@ -441,6 +441,7 @@ export function buildMaposCustomTools(
       const layerId = toolCallId;
       const refs: string[] = [];
       const points: MapOverlayLayer["points"] = [];
+      const vaultPaths: string[] = [];
       // result_ids the model referenced that aren't in the cache (and had no coord
       // fallback), so they were dropped. Reported back so the agent re-searches instead
       // of silently showing a short list. Happens mainly after a restart clears the cache.
@@ -448,6 +449,7 @@ export function buildMaposCustomTools(
       args.features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
           refs.push(`vault:${f.path}`);
+          vaultPaths.push(f.path);
           return;
         }
         // Namespace with the layer id so ids stay unique across accumulated layers.
@@ -500,16 +502,17 @@ export function buildMaposCustomTools(
         if (f.result_id) unresolvedResultIds.push(f.result_id);
       });
 
-      // Only emit a layer when there are ad-hoc points to draw. An all-vault list
-      // references markers that already exist as persistent places, so there is
-      // nothing new to add to the map.
-      if (points.length > 0 && !mainWindow.isDestroyed()) {
+      // Vault paths ride along on the layer: the renderer resolves them against the
+      // places index and draws their markers, since a presented place may lie outside
+      // the selected folder and would otherwise have no marker on the map.
+      if ((points.length > 0 || vaultPaths.length > 0) && !mainWindow.isDestroyed()) {
         const layer: MapOverlayLayer = {
           id: layerId,
           layerName: args.layer_name ?? "search-results",
           points,
           lines: [],
-          polygons: []
+          polygons: [],
+          ...(vaultPaths.length > 0 ? { vaultPaths } : {})
         };
         mainWindow.webContents.send("map:overlay-add", layer);
         onLayerUpdate(layer);

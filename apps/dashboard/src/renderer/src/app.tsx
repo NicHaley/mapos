@@ -359,6 +359,23 @@ function App(): React.JSX.Element {
   const placesByPath = usePlacesIndex();
   useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
 
+  /** Vault places presented by chat (present_features `path` entries), resolved
+   * against the live index. They may lie outside the selected folder, so the map
+   * draws them alongside the overlay layers they arrived with. */
+  const presentedPlaces = useMemo(() => {
+    const seen = new Set<string>();
+    const places: PlaceRecord[] = [];
+    for (const layer of overlayLayers) {
+      for (const path of layer.vaultPaths ?? []) {
+        if (seen.has(path)) continue;
+        seen.add(path);
+        const place = placesByPath.get(path);
+        if (place) places.push(place);
+      }
+    }
+    return places;
+  }, [overlayLayers, placesByPath]);
+
   /** AI `pan_to` from chat: route through the map handle so the camera respects
    * sidebar/main-pane padding instead of centering behind them. */
   useEffect(() => {
@@ -992,6 +1009,7 @@ function App(): React.JSX.Element {
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
           linkedPlaces={linkedPlaces}
+          presentedPlaces={presentedPlaces}
           openPlace={mapPeekPlace ? selectedPlace : null}
         />
       </div>

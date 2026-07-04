@@ -381,6 +381,7 @@ export function setupPlacesWatcher(
           "places:updated",
           place ? { event: "change", place } : { event: "unlink", filePath }
         );
+        mainWindow.webContents.send("fs:file-content-changed", { filePath });
       }
       return;
     }
@@ -401,6 +402,7 @@ export function setupPlacesWatcher(
         "places:updated",
         place ? { event: "change", place } : { event: "unlink", filePath }
       );
+      mainWindow.webContents.send("fs:file-content-changed", { filePath });
     }
   });
 

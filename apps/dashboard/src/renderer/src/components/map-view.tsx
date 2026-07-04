@@ -492,6 +492,8 @@ const MapView = forwardRef<
     selectionPulseAnchor?: SelectionPulseAnchor | null;
     /** Places referenced by [[wikilinks]] in the currently-open file; rendered gray. */
     linkedPlaces?: PlaceRecord[];
+    /** The still-open file while a map peek is active: rendered in the selected style, but without the pulse. */
+    openPlace?: PlaceRecord | null;
   }
 >(function MapView(
   {
@@ -507,7 +509,8 @@ const MapView = forwardRef<
     showOverlay = false,
     geoJsonLayers = [],
     selectionPulseAnchor = null,
-    linkedPlaces = []
+    linkedPlaces = [],
+    openPlace = null
   },
   ref
 ) {
@@ -913,50 +916,46 @@ const MapView = forwardRef<
     };
   }, []);
 
-  // All folder places as one source (excluding selected to avoid double-render)
+  // All folder places as one source (excluding selected/open to avoid double-render)
   const folderGeoJSON = useMemo(() => {
-    const places = (
-      selectedPlace
-        ? folderPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
-        : folderPlaces
-    ).filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    const places = folderPlaces
+      .filter((p) => p.filePath !== selectedPlace?.filePath && p.filePath !== openPlace?.filePath)
+      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
     } catch {
       return null;
     }
-  }, [folderPlaces, selectedPlace, toFeature]);
+  }, [folderPlaces, selectedPlace, openPlace, toFeature]);
 
   // Wikilink-target places for the currently-open file (excluding the open file itself)
   const linkedGeoJSON = useMemo(() => {
-    const places = (
-      selectedPlace
-        ? linkedPlaces.filter((p) => p.filePath !== selectedPlace.filePath)
-        : linkedPlaces
-    ).filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    const places = linkedPlaces
+      .filter((p) => p.filePath !== selectedPlace?.filePath && p.filePath !== openPlace?.filePath)
+      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
     } catch {
       return null;
     }
-  }, [linkedPlaces, selectedPlace, toFeature]);
+  }, [linkedPlaces, selectedPlace, openPlace, toFeature]);
 
-  // Selected place as its own source for distinct styling
+  // Selected place as its own source for distinct styling. While a peek is active,
+  // the still-open file renders here too — same style, but only the selected place
+  // drives the pulse (selectionPulseGeoJSON below).
   const selectedGeoJSON = useMemo(() => {
-    if (!selectedPlace) return null;
-    const { geometry } = selectedPlace;
-    if (!geometry) return null;
+    const places = [selectedPlace, openPlace]
+      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p?.geometry))
+      .filter((p, i, arr) => arr.findIndex((q) => q.filePath === p.filePath) === i);
+    if (places.length === 0) return null;
     try {
-      return {
-        type: "FeatureCollection" as const,
-        features: [toFeature({ ...selectedPlace, geometry })]
-      };
+      return { type: "FeatureCollection" as const, features: places.map(toFeature) };
     } catch {
       return null;
     }
-  }, [selectedPlace, toFeature]);
+  }, [selectedPlace, openPlace, toFeature]);
 
   /** Pulse position: Points use geometry; lines/polygons only pulse where the user clicked. */
   const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
@@ -1031,7 +1030,8 @@ const MapView = forwardRef<
         if (selectedPlace?.filePath === fp) return;
         const place =
           folderPlaces.find((p) => p.filePath === fp) ??
-          linkedPlaces.find((p) => p.filePath === fp);
+          linkedPlaces.find((p) => p.filePath === fp) ??
+          (openPlace?.filePath === fp ? openPlace : undefined);
         if (place) {
           onSelectPlace?.(place, clickMeta);
           return;
@@ -1107,7 +1107,15 @@ const MapView = forwardRef<
       }
       onMapClickEmpty?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     },
-    [folderPlaces, linkedPlaces, selectedPlace, overlayLayers, onSelectPlace, onMapClickEmpty]
+    [
+      folderPlaces,
+      linkedPlaces,
+      selectedPlace,
+      openPlace,
+      overlayLayers,
+      onSelectPlace,
+      onMapClickEmpty
+    ]
   );
 
   const interactiveLayerIds = useMemo(() => {

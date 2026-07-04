@@ -576,6 +576,13 @@ function App(): React.JSX.Element {
       }
 
       if (placeMode === "full") {
+        // Clicking the open file's own marker returns the highlight to it
+        // instead of floating a duplicate mini card over its full panel.
+        if (selectedPlaceRef.current?.filePath === place.filePath) {
+          setMapPeekPlace(null);
+          setFeatureScreenPos(null);
+          return;
+        }
         setMapPeekPlace(place);
         setFeatureScreenPos(null);
         return;
@@ -985,6 +992,7 @@ function App(): React.JSX.Element {
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
           linkedPlaces={linkedPlaces}
+          openPlace={mapPeekPlace ? selectedPlace : null}
         />
       </div>
 

@@ -41,7 +41,7 @@ import { parseWkt } from "./wkt";
  *
  * If `skipPath` is set, that path counts as available (same-file rename).
  */
-function uniquePathInDir(
+export function uniquePathInDir(
   dir: string,
   finalName: string,
   isDirectory: boolean,

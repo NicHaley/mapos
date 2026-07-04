@@ -4,12 +4,18 @@ import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { type BrowserWindow, ipcMain } from "electron";
+import matter from "gray-matter";
 import { Type } from "typebox";
 import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
-import type { MapOverlayLayer, PlaceRecord, VaultOperation } from "../shared/types";
+import {
+  type MapOverlayLayer,
+  type PlaceRecord,
+  type VaultOperation,
+  orderDetailProperties
+} from "../shared/types";
 import { computeBbox } from "./bbox";
 import {
   queryNear,
@@ -23,7 +29,8 @@ import {
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
-import { parsePlaceFile } from "./watcher";
+import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
+import { downloadWikidataImage } from "./wiki-image";
 
 function errorPayload(err: unknown): string {
   if (err instanceof MapServiceError) {
@@ -141,10 +148,12 @@ ${webSearchSection}## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
+To SAVE places to the vault — the user says save/add/keep after a search, or asks you to build a folder or collection of places — use \`save_features_to_vault\`, NOT hand-written write_vault_file content. It writes the exact same file format as the app's own save button: \`geometry\` WKT frontmatter, canonical properties from the geocoder source (category, address, osm_id, wikidata_id), and the place's cover photo. Reference looked-up places by \`result_id\`, exactly as with present_features; pass genuinely ad-hoc points as title + lat/lng. Reserve write_vault_file for non-place notes, edits to existing files, and places with non-point geometry.
+
 ## Display vs. action intent
 
 - If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features for a browsable list of places; use render_overlay_on_map for routes, areas, and bulk geometry.
-- If the user asks you to save, create, add, update, mark, or organize → write actual vault files with write_vault_file.
+- If the user asks you to save, create, add, update, mark, or organize → write actual vault files: save_features_to_vault for new places, write_vault_file for everything else.
 
 ## Showing places and features in chat
 
@@ -1042,7 +1051,7 @@ export function buildMaposCustomTools(
     name: "write_vault_file",
     label: "Write vault file",
     description:
-      "Write or overwrite a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this.",
+      "Write or overwrite a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this. To save geocoded or ad-hoc places as NEW place files, use save_features_to_vault instead — it writes the app's canonical place format for you.",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path within the MapOS vault" }),
       content: Type.String({ description: "Full file content to write" })
@@ -1063,13 +1072,192 @@ export function buildMaposCustomTools(
       } catch {
         // Not a place file — skip indexing
       }
+      // Catch the classic mistake of writing coordinates as plain properties:
+      // such a file silently never renders on the map.
+      let warning: string | undefined;
+      try {
+        const fm = matter(args.content).data as Record<string, unknown>;
+        const coordKeys = ["lat", "lng", "latitude", "longitude"].filter((k) => k in fm);
+        if (!("geometry" in fm) && coordKeys.length > 0) {
+          warning = `Frontmatter has ${coordKeys.join("/")} but no \`geometry\` key, so this file will NOT appear on the map. Place files need WKT geometry, e.g. \`geometry: POINT(lng lat)\`. To save looked-up places, use save_features_to_vault instead.`;
+        }
+      } catch {
+        // Unparseable frontmatter — not this tool's problem
+      }
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
           path: args.path,
           action: previousContent === null ? "created" : "modified",
           previousContent,
-          newContent: args.content
+          newContent: args.content,
+          ...(warning ? { warning } : {})
+        })
+      );
+    }
+  });
+
+  const saveFeaturesToVault = defineTool({
+    name: "save_features_to_vault",
+    label: "Save places to vault",
+    description:
+      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
+    parameters: Type.Object({
+      features: Type.Array(
+        Type.Object({
+          result_id: Type.Optional(
+            Type.String({
+              description:
+                "The `id` of a result returned by geocode_search/reverse_geocode. PREFER this for anything you looked up. When set, leave title/lat/lng unset; `properties` and `body_markdown` are additive."
+            })
+          ),
+          title: Type.Optional(
+            Type.String({
+              description:
+                "Display name, used for the filename. Required ONLY for an ad-hoc place (no result_id)."
+            })
+          ),
+          lat: Type.Optional(
+            Type.Number({
+              description: "Latitude — set together with lng ONLY for an ad-hoc place"
+            })
+          ),
+          lng: Type.Optional(
+            Type.Number({
+              description: "Longitude — set together with lat ONLY for an ad-hoc place"
+            })
+          ),
+          properties: Type.Optional(
+            Type.Record(Type.String(), Type.String(), {
+              description:
+                'Extra frontmatter properties. Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. "restaurant"), `address`, `source_url`, plus extra keys like `cuisine`. Do NOT provide `osm_id`/`wikidata_id` — with result_id the app supplies them from the source; without one you have no reliable source and they are dropped.'
+            })
+          ),
+          body_markdown: Type.Optional(
+            Type.String({
+              description:
+                "Markdown body for the file — free prose like why it's saved or a recommendation (same prose you may have shown as preview_markdown). Structured facts go in `properties`, not here."
+            })
+          )
+        }),
+        { minItems: 1, description: "Places to save" }
+      ),
+      folder: Type.Optional(
+        Type.String({
+          description:
+            "Absolute folder path within the vault to save into. Created if missing. Defaults to the vault root."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      const folder = args.folder ?? maposDir;
+      if (!isUnderVault(folder)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+
+      type ResolvedFeature = {
+        title: string;
+        lat: number;
+        lng: number;
+        properties: Record<string, string>;
+        wikidataId?: string;
+        body?: string;
+      };
+      const resolved: ResolvedFeature[] = [];
+      const unresolvedResultIds: string[] = [];
+      for (const f of args.features) {
+        // Preferred path: derive everything from the cached geocoder result, exactly
+        // like the search UI's save — the model never re-types facts. Extra keys it
+        // passed are kept (sanitized) but source-derived properties win.
+        if (f.result_id) {
+          const cached = geocodeStore.get(f.result_id);
+          if (cached) {
+            resolved.push({
+              title: cached.primaryLabel,
+              lat: cached.lat,
+              lng: cached.lng,
+              properties: orderDetailProperties({
+                ...sanitizeAdHocProperties(f.properties),
+                ...detailPropertiesFromGeocodeResult(cached)
+              }),
+              wikidataId: cached.wikidataId,
+              body: f.body_markdown
+            });
+            continue;
+          }
+          // Cache miss: fall through to ad-hoc coords if supplied, else report it.
+        }
+        if (typeof f.lat === "number" && typeof f.lng === "number" && f.title) {
+          resolved.push({
+            title: f.title,
+            lat: f.lat,
+            lng: f.lng,
+            properties: sanitizeAdHocProperties(f.properties),
+            body: f.body_markdown
+          });
+          continue;
+        }
+        if (f.result_id) unresolvedResultIds.push(f.result_id);
+      }
+
+      if (resolved.length > 0) mkdirSync(folder, { recursive: true });
+
+      // Prefetch covers concurrently; best-effort (offline or imageless QIDs skip).
+      const covers = await Promise.all(
+        resolved.map((r) => (r.wikidataId ? downloadWikidataImage(r.wikidataId) : null))
+      );
+
+      const saved: Array<{ path: string; title: string }> = [];
+      for (let i = 0; i < resolved.length; i++) {
+        const r = resolved[i];
+        const data: Record<string, unknown> = {
+          geometry: `POINT(${r.lng} ${r.lat})`,
+          ...r.properties
+        };
+        const downloaded = covers[i];
+        if (downloaded) {
+          const imported = await importAttachmentToVault(maposDir, {
+            suggestedName: downloaded.fileName,
+            bytes: downloaded.bytes
+          });
+          if (imported.success) {
+            data.cover = imported.relPath;
+            data.cover_source = downloaded.pageUrl;
+          }
+        }
+        const base =
+          r.title
+            .trim()
+            .replace(/[/\\:*?"<>|]/g, "")
+            .trim() || "place";
+        const path = uniquePathInDir(folder, `${base}.md`, false);
+        const body = r.body?.trim();
+        const content = matter.stringify(body ? `\n${body}\n` : "", data);
+        onVaultWrite({ path, previousContent: null });
+        writeFileSync(path, content, "utf-8");
+        try {
+          const record = await parsePlaceFile(path);
+          syncFeatureForFile(path, record);
+        } catch {
+          // Indexing failure is non-fatal; the watcher will pick the file up
+        }
+        saved.push({ path, title: r.title });
+      }
+
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: unresolvedResultIds.length === 0,
+          saved,
+          ...(unresolvedResultIds.length > 0
+            ? {
+                unresolved_result_ids: unresolvedResultIds,
+                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT saved. Re-run geocode_search/reverse_geocode for those places, then call save_features_to_vault again with the fresh ids.`
+              }
+            : {}),
+          assistant_instructions:
+            "The files are saved and indexed. Confirm briefly — do not enumerate every saved place in your reply."
         })
       );
     }
@@ -1185,6 +1373,7 @@ export function buildMaposCustomTools(
     getMatrixTool,
     ...(webSearchAvailable ? [webSearchTool] : []),
     computeBboxTool,
+    saveFeaturesToVault,
     writeVaultFile,
     deleteVaultFile,
     renameVaultFile

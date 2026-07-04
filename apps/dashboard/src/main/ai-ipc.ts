@@ -16,6 +16,7 @@ import {
   getAiStatus,
   listKnownProviders,
   removeProvider,
+  revealSecret,
   setActive,
   testProvider,
   updateProvider
@@ -37,6 +38,7 @@ const HANDLE_CHANNELS = [
   "ai:clear-active",
   "ai:list-models",
   "ai:test-provider",
+  "ai:reveal-secret",
   "ai:list-known-providers",
   "ai:add-known-provider",
   "ai:set-api-key",
@@ -95,6 +97,10 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
 
   ipcMain.handle("ai:test-provider", (_e, args: { input: ProviderInput; providerId?: string }) =>
     testProvider(args.input, args.providerId)
+  );
+
+  ipcMain.handle("ai:reveal-secret", (_e, args: { providerId: string }) =>
+    revealSecret(args.providerId)
   );
 
   ipcMain.handle("ai:list-known-providers", () => listKnownProviders());

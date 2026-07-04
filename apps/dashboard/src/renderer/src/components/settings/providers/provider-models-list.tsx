@@ -90,15 +90,15 @@ function ProviderModelGroup({
   const [models, setModels] = useState<FetchedModel[] | null>(null);
   const [expanded, setExpanded] = useState(false);
 
-  const providerId = provider.id;
   const canFetch = shouldFetch(provider);
 
-  // Fetch this provider's models on mount and whenever the provider identity/connection changes.
+  // Fetch on mount and refetch whenever the provider row changes — every getAiState() reload maps
+  // fresh objects, so any ai:changed (edit, reconnect, secret swap) re-runs this. Keep the previous
+  // list visible while refetching; only the initial load shows the spinner.
   useEffect(() => {
     let cancelled = false;
-    setModels(null);
     void (async () => {
-      const result = canFetch ? await window.api.ai.listModels(providerId) : null;
+      const result = canFetch ? await window.api.ai.listModels(provider.id) : null;
       // Providers return models oldest-first; reverse so the newest are at the top (and in the
       // collapsed view).
       if (!cancelled) setModels(result?.ok === true ? [...result.models].reverse() : []);
@@ -106,7 +106,7 @@ function ProviderModelGroup({
     return () => {
       cancelled = true;
     };
-  }, [providerId, canFetch]);
+  }, [provider, canFetch]);
 
   const active = state.active;
   const visible = expanded ? models : models?.slice(0, COLLAPSE_COUNT);

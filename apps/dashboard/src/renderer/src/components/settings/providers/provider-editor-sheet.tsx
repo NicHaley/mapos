@@ -108,6 +108,20 @@ export function ProviderEditorSheet({
     };
   }
 
+  // Revealing a saved-but-untyped secret pulls the decrypted value into the field first, so the
+  // eye shows the real key (editable in place) instead of toggling an empty input.
+  async function handleToggleReveal(): Promise<void> {
+    if (!reveal && secret.length === 0 && provider?.hasSecret) {
+      const result = await window.api.ai.revealSecret(provider.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSecret(result.secret);
+    }
+    setReveal((r) => !r);
+  }
+
   async function handleTest(): Promise<void> {
     if (!baseUrl.trim()) return;
     setTesting(true);
@@ -177,19 +191,7 @@ export function ProviderEditorSheet({
             )}
             Test
           </Button>
-          <div className="min-w-0 flex-1">
-            {(testResult || error) && (
-              <span
-                className={cn(
-                  "flex min-w-0 items-center gap-1 text-xs",
-                  testResult?.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
-                )}
-              >
-                {testResult?.ok && <CheckCircle2Icon className="size-3.5 shrink-0" />}
-                <span className="min-w-0 truncate">{testResult ? testResult.message : error}</span>
-              </span>
-            )}
-          </div>
+          <div className="flex-1" />
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
@@ -200,7 +202,7 @@ export function ProviderEditorSheet({
         </div>
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex min-h-full flex-col gap-4">
         <Field label="Name">
           <Input
             value={label}
@@ -281,7 +283,7 @@ export function ProviderEditorSheet({
                 <InputGroupButton
                   variant="ghost"
                   size="icon-xs"
-                  onClick={() => setReveal((r) => !r)}
+                  onClick={() => void handleToggleReveal()}
                   aria-label={reveal ? "Hide secret" : "Show secret"}
                 >
                   {reveal ? <EyeOffIcon /> : <EyeIcon />}
@@ -289,6 +291,20 @@ export function ProviderEditorSheet({
               </InputGroupAddon>
             </InputGroup>
           </Field>
+        )}
+
+        {(testResult || error) && (
+          <div
+            className={cn(
+              "mt-auto flex items-start gap-1.5 rounded-md px-3 py-2 text-xs",
+              testResult?.ok
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-destructive/10 text-destructive"
+            )}
+          >
+            {testResult?.ok && <CheckCircle2Icon className="mt-px size-3.5 shrink-0" />}
+            <span className="min-w-0 break-words">{testResult ? testResult.message : error}</span>
+          </div>
         )}
       </div>
     </SettingsSheet>

@@ -13,6 +13,7 @@ import type { AiProvider, ModelCapabilities } from "../shared/ai-models";
 import {
   ANTHROPIC_CAPS,
   type AiState,
+  type CapabilitySource,
   type FetchedModel,
   type KnownProviderOption,
   OPENAI_ASSUMED_CAPS,
@@ -271,6 +272,20 @@ export function updateProvider(
   return { ok: true };
 }
 
+/** Decrypt a custom provider's saved secret so the editor's reveal toggle can show it. */
+export function revealSecret(
+  providerId: string
+): { ok: true; secret: string } | { ok: false; error: string } {
+  const provider = load().providers.find((x) => x.id === providerId);
+  if (!provider) return { ok: false, error: "Provider not found." };
+  if (!provider.encryptedSecret) return { ok: false, error: "No secret is saved." };
+  try {
+    return { ok: true, secret: decrypt(provider.encryptedSecret) };
+  } catch {
+    return { ok: false, error: "Couldn't decrypt the saved secret." };
+  }
+}
+
 export function removeProvider(id: string): { ok: true } | { ok: false; error: string } {
   const st = load();
   const target = st.providers.find((x) => x.id === id);
@@ -407,6 +422,43 @@ async function fetchOllamaCapabilities(
   }
 }
 
+/** Non-standard capability metadata some runtimes embed in their `/v1/models` rows: vLLM's
+ * `max_model_len`, llama.cpp's `meta.n_ctx_train`, OpenRouter-style proxies' `context_length` /
+ * `supported_parameters` / `architecture.input_modalities`. */
+type OpenAiModelRow = {
+  id?: string;
+  max_model_len?: number;
+  context_length?: number;
+  meta?: { n_ctx_train?: number };
+  supported_parameters?: string[];
+  architecture?: { input_modalities?: string[] };
+};
+
+/** Derive capabilities from whatever metadata a `/v1/models` row carries, assuming the rest.
+ * Only claims "fetched" when the row answered everything the badge asserts — a lone context
+ * length still leaves tools/vision assumed. */
+function metadataCapabilities(row: OpenAiModelRow): {
+  capabilities: ModelCapabilities;
+  source: CapabilitySource;
+} {
+  const contextWindow = [row.max_model_len, row.context_length, row.meta?.n_ctx_train].find(
+    (n): n is number => typeof n === "number" && n > 0
+  );
+  const params = Array.isArray(row.supported_parameters) ? row.supported_parameters : null;
+  const modalities = Array.isArray(row.architecture?.input_modalities)
+    ? row.architecture.input_modalities
+    : null;
+  const capabilities: ModelCapabilities = {
+    ...OPENAI_ASSUMED_CAPS,
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(params ? { supportsTools: params.includes("tools") } : {}),
+    ...(params?.includes("reasoning") ? { thinking: "medium" as const } : {}),
+    ...(modalities ? { supportsImages: modalities.includes("image") } : {})
+  };
+  const source: CapabilitySource = contextWindow && params && modalities ? "fetched" : "assumed";
+  return { capabilities, source };
+}
+
 async function fetchOpenAiModels(
   baseUrl: string,
   token: string | null
@@ -414,7 +466,7 @@ async function fetchOpenAiModels(
   const base = openAiBase(baseUrl);
   const root = ollamaRoot(base);
   const { signal, done } = withTimeout();
-  let ids: string[];
+  let rows: Array<OpenAiModelRow & { id: string }>;
   try {
     const res = await fetch(`${base}/models`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
@@ -424,10 +476,10 @@ async function fetchOpenAiModels(
       const text = await res.text().catch(() => "");
       return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
     }
-    const data = (await res.json()) as { data?: Array<{ id?: string }> };
-    ids = (data.data ?? [])
-      .map((m) => m.id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const data = (await res.json()) as { data?: OpenAiModelRow[] };
+    rows = (data.data ?? []).filter(
+      (m): m is OpenAiModelRow & { id: string } => typeof m.id === "string" && m.id.length > 0
+    );
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   } finally {
@@ -435,18 +487,19 @@ async function fetchOpenAiModels(
   }
 
   // Probe once for Ollama's native API. If present, enrich each model with real capabilities;
-  // otherwise we can only assume (a generic proxy exposes the model list but not capabilities).
+  // otherwise fall back to whatever metadata the /v1/models response itself carried.
   const isOllama = await fetch(`${root}/api/tags`)
     .then((r) => r.ok)
     .catch(() => false);
 
   const models: FetchedModel[] = await Promise.all(
-    ids.map(async (id) => {
+    rows.map(async (row) => {
       if (isOllama) {
-        const caps = await fetchOllamaCapabilities(root, id);
-        if (caps) return { id, capabilities: caps, capabilitySource: "fetched" as const };
+        const caps = await fetchOllamaCapabilities(root, row.id);
+        if (caps) return { id: row.id, capabilities: caps, capabilitySource: "fetched" as const };
       }
-      return { id, capabilities: OPENAI_ASSUMED_CAPS, capabilitySource: "assumed" as const };
+      const { capabilities, source } = metadataCapabilities(row);
+      return { id: row.id, capabilities, capabilitySource: source };
     })
   );
   return { ok: true, models };

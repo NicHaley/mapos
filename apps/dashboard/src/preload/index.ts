@@ -268,6 +268,10 @@ const api = {
       ipcRenderer.invoke("ai:test-provider", { input, providerId }) as Promise<
         { ok: true; modelCount: number } | { ok: false; error: string }
       >,
+    revealSecret: (providerId: string) =>
+      ipcRenderer.invoke("ai:reveal-secret", { providerId }) as Promise<
+        { ok: true; secret: string } | { ok: false; error: string }
+      >,
     listKnownProviders: () =>
       ipcRenderer.invoke("ai:list-known-providers") as Promise<KnownProviderOption[]>,
     addKnownProvider: (provider: string) =>

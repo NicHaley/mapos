@@ -202,6 +202,13 @@ declare global {
         listModels: (
           providerId: string
         ) => Promise<{ ok: true; models: FetchedModel[] } | { ok: false; error: string }>;
+        testProvider: (
+          input: ProviderInput,
+          providerId?: string
+        ) => Promise<{ ok: true; modelCount: number } | { ok: false; error: string }>;
+        revealSecret: (
+          providerId: string
+        ) => Promise<{ ok: true; secret: string } | { ok: false; error: string }>;
         listKnownProviders: () => Promise<KnownProviderOption[]>;
         addKnownProvider: (
           provider: string

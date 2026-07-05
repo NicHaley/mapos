@@ -1,6 +1,11 @@
 import type { FileNode } from "../../../shared/types";
 
-export type VaultMdFile = { title: string; filePath: string };
+export type VaultMdFile = {
+  title: string;
+  /** Vault-relative path without the `.md` extension, `/`-separated (e.g. `tokyo/kinka-izakaya`). */
+  relPath: string;
+  filePath: string;
+};
 
 /** Extract de-duplicated `[[title]]` titles from markdown body, ignoring fenced/inline code. */
 export function extractWikilinkTitles(markdown: string): string[] {
@@ -16,15 +21,27 @@ export function extractWikilinkTitles(markdown: string): string[] {
   return [...titles];
 }
 
-/** Flatten a vault FileNode tree into the (title, filePath) shape used for wikilink lookups. */
-export function flattenMdFiles(nodes: FileNode[]): VaultMdFile[] {
+/** Flatten a vault FileNode tree into the shape used for wikilink lookups. */
+export function flattenMdFiles(nodes: FileNode[], prefix = ""): VaultMdFile[] {
   const result: VaultMdFile[] = [];
   for (const node of nodes) {
     if (node.type === "file" && node.name.endsWith(".md")) {
-      result.push({ title: node.name.replace(/\.md$/i, ""), filePath: node.path });
+      const title = node.name.replace(/\.md$/i, "");
+      result.push({ title, relPath: prefix + title, filePath: node.path });
     } else if (node.type === "directory" && node.children) {
-      result.push(...flattenMdFiles(node.children));
+      result.push(...flattenMdFiles(node.children, `${prefix}${node.name}/`));
     }
   }
   return result;
+}
+
+/**
+ * Resolve `[[link]]` text to a vault file: exact vault-relative path first
+ * (`[[tokyo/kinka-izakaya]]`), then filename (`[[kinka-izakaya]]`, first match in tree order).
+ */
+export function resolveWikilinkTarget<T extends VaultMdFile>(
+  files: T[],
+  link: string
+): T | undefined {
+  return files.find((f) => f.relPath === link) ?? files.find((f) => f.title === link);
 }

@@ -24,12 +24,34 @@ import {
   type SuggestionOptions,
   type SuggestionProps
 } from "@tiptap/suggestion";
+import { useEffect, useState } from "react";
 export type { WikilinkItem };
 
 const WikilinkPluginKey = new PluginKey("wikilink");
 
-function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
+function WikilinkNodeView({ node, selected, editor, getPos, extension }: ReactNodeViewProps) {
   const onClickWikilink = (extension as { options: WikilinkOptions }).options.onClickWikilink;
+  // Obsidian-style live preview: reveal the raw [[...]] syntax while the caret touches the node.
+  const [caretAdjacent, setCaretAdjacent] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      const pos = getPos();
+      if (typeof pos !== "number" || !editor.isEditable) {
+        setCaretAdjacent(false);
+        return;
+      }
+      const { from, to } = editor.state.selection;
+      setCaretAdjacent(from <= pos + node.nodeSize && to >= pos);
+    };
+    update();
+    editor.on("selectionUpdate", update);
+    editor.on("transaction", update);
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("transaction", update);
+    };
+  }, [editor, getPos, node.nodeSize]);
 
   return (
     <NodeViewWrapper as="span" style={{ display: "inline" }}>
@@ -61,7 +83,9 @@ function WikilinkNodeView({ node, selected, extension }: ReactNodeViewProps) {
           selected && "bg-sidebar-accent rounded"
         )}
       >
+        {caretAdjacent && <span className="text-muted-foreground">[[</span>}
         {node.attrs.title}
+        {caretAdjacent && <span className="text-muted-foreground">]]</span>}
       </a>
     </NodeViewWrapper>
   );
@@ -194,7 +218,7 @@ export const WikilinkExtension = Node.create<WikilinkOptions>({
             .chain()
             .focus()
             .deleteRange(range)
-            .insertContent({ type: "wikilink", attrs: { title: props.title } })
+            .insertContent({ type: "wikilink", attrs: { title: props.linkTarget } })
             .insertContent(" ")
             .run();
         },

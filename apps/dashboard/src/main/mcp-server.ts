@@ -95,6 +95,8 @@ The agent working directory (cwd) for this session is set to that folder. The en
 
 Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\`, \`color\`, and \`cover\` have special meaning to the map renderer — do not reuse those key names for other purposes. \`cover\` is a vault-relative path to an image file (e.g. \`cover: attachments/tower.jpg\`) shown as the place's hero photo; the body can also embed vault images with standard Markdown (\`![](attachments/tower.jpg)\`).
 
+In a file's body, \`[[Title]]\` is a wikilink to another vault file. \`Title\` must exactly match the target's filename without \`.md\` (case-sensitive; the folder doesn't matter): a file saved as \`tokyo/kinka-izakaya.md\` is linked as \`[[kinka-izakaya]]\`. If two files share a filename, qualify the link with the vault-relative path — \`[[tokyo/kinka-izakaya]]\` — which always takes precedence over a bare filename match. When the user opens a file, the places it wikilinks to are rendered on the map alongside it — so when writing notes that reference saved places (itineraries, trip plans, comparisons), link them with \`[[...]]\` rather than plain text. Wikilinks inside code fences or inline code are ignored.
+
 Write frontmatter values using the correct YAML type so they round-trip properly:
 
 - **number** — bare numeric literal: \`rating: 4\`

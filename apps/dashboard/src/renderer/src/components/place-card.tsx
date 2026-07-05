@@ -44,6 +44,7 @@ import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikil
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
+import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -74,12 +75,7 @@ import {
   useRef,
   useState
 } from "react";
-import {
-  type FileNode,
-  type PlaceRecord,
-  type PropertyType,
-  isServableImageFile
-} from "../../../shared/types";
+import { type PlaceRecord, type PropertyType, isServableImageFile } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
@@ -107,18 +103,6 @@ function formatPointLocationShort(geometryJson: string | undefined): string {
     /* ignore */
   }
   return "Location";
-}
-
-function flattenMdFiles(nodes: FileNode[]): WikilinkItem[] {
-  const result: WikilinkItem[] = [];
-  for (const node of nodes) {
-    if (node.type === "file" && node.name.endsWith(".md")) {
-      result.push({ title: node.name.replace(/\.md$/i, ""), filePath: node.path });
-    } else if (node.type === "directory" && node.children) {
-      result.push(...flattenMdFiles(node.children));
-    }
-  }
-  return result;
 }
 
 type LoadedDoc =
@@ -230,7 +214,7 @@ function PlaceCardMarkdownPane({
       }),
       WikilinkExtension.configure({
         onClickWikilink: async (title: string, newTab: boolean) => {
-          const item = vaultFilesRef.current.find((f) => f.title === title);
+          const item = resolveWikilinkTarget(vaultFilesRef.current, title);
           if (!item) return;
           const result = await window.api.places.getByPath(item.filePath);
           if (result) onNavigateRef.current?.(result as PlaceRecord, newTab);
@@ -240,7 +224,9 @@ function PlaceCardMarkdownPane({
             const q = query.toLowerCase();
             return vaultFilesRef.current
               .filter(
-                (f) => f.filePath !== currentPathRef.current && f.title.toLowerCase().includes(q)
+                (f) =>
+                  f.filePath !== currentPathRef.current &&
+                  (f.title.toLowerCase().includes(q) || f.relPath.toLowerCase().includes(q))
               )
               .slice(0, 20);
           }
@@ -257,7 +243,14 @@ function PlaceCardMarkdownPane({
 
   useEffect(() => {
     void window.api.fs.listDir().then((nodes) => {
-      vaultFilesRef.current = flattenMdFiles(nodes);
+      const files = flattenMdFiles(nodes);
+      const titleCounts = new Map<string, number>();
+      for (const f of files) titleCounts.set(f.title, (titleCounts.get(f.title) ?? 0) + 1);
+      // Duplicate titles get a path-qualified link so resolution stays unambiguous.
+      vaultFilesRef.current = files.map((f) => ({
+        ...f,
+        linkTarget: (titleCounts.get(f.title) ?? 0) > 1 ? f.relPath : f.title
+      }));
     });
   }, []);
 

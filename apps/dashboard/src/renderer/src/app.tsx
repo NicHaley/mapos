@@ -36,7 +36,7 @@ import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
-import { extractWikilinkTitles, flattenMdFiles } from "./lib/wikilinks";
+import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
 
@@ -117,7 +117,7 @@ async function resolveWikilinks(filePath: string): Promise<PlaceRecord[]> {
   if (titles.length === 0) return [];
   const cache = flattenMdFiles(nodes);
   const paths = titles
-    .map((t) => cache.find((f) => f.title === t)?.filePath)
+    .map((t) => resolveWikilinkTarget(cache, t)?.filePath)
     .filter((p): p is string => Boolean(p) && p !== filePath);
   const records = await Promise.all(paths.map((p) => window.api.places.getByPath(p)));
   return records.filter((r): r is PlaceRecord => r !== null && Boolean(r.geometry));

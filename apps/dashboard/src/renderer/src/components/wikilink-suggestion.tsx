@@ -11,7 +11,11 @@ import { createPortal } from "react-dom";
 
 export interface WikilinkItem {
   title: string;
+  /** Vault-relative path without the `.md` extension (e.g. `tokyo/kinka-izakaya`). */
+  relPath: string;
   filePath: string;
+  /** Link text to insert — the relPath when the title alone is ambiguous, else the title. */
+  linkTarget: string;
 }
 
 export interface WikilinkSuggestionProps {
@@ -104,27 +108,36 @@ export const WikilinkSuggestion = forwardRef<WikilinkSuggestionRef, WikilinkSugg
       <div
         ref={popupRef}
         style={{ ...style, zIndex: 9999 }}
-        // DropdownMenuContent styling (minus anchor-width / transform-origin CSS vars that need base-ui)
-        className="z-50 max-h-72 min-w-32 overflow-y-auto rounded-lg p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none relative bg-popover/70 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150"
+        // DropdownMenuContent styling (minus anchor-width / transform-origin CSS vars that need
+        // base-ui). Scrolling lives on an inner element: the before: backdrop-blur layer is only
+        // viewport-sized, so it would scroll out of view with the content.
+        className="z-50 min-w-32 rounded-lg text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none relative bg-popover/70 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150"
       >
-        {items.map((item, i) => (
-          <button
-            key={item.filePath}
-            ref={(el) => {
-              itemRefs.current[i] = el;
-            }}
-            type="button"
-            // DropdownMenuItem styling
-            className={cn(
-              "group/dropdown-menu-item relative flex w-full cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none select-none",
-              i === selectedIndex && "bg-foreground/10 text-popover-foreground"
-            )}
-            onMouseEnter={() => setSelectedIndex(i)}
-            onClick={() => command(item)}
-          >
-            {item.title}
-          </button>
-        ))}
+        <div className="max-h-72 overflow-y-auto rounded-[inherit] p-1">
+          {items.map((item, i) => (
+            <button
+              key={item.filePath}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
+              type="button"
+              // DropdownMenuItem styling
+              className={cn(
+                "group/dropdown-menu-item relative flex w-full cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none select-none",
+                i === selectedIndex && "bg-foreground/10 text-popover-foreground"
+              )}
+              onMouseEnter={() => setSelectedIndex(i)}
+              onClick={() => command(item)}
+            >
+              <span className="truncate">{item.title}</span>
+              {item.linkTarget !== item.title && (
+                <span className="ml-auto truncate text-xs text-muted-foreground">
+                  {item.relPath.slice(0, item.relPath.length - item.title.length - 1)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>,
       document.body
     );

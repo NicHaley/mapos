@@ -85,6 +85,12 @@ import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import { PropertiesPanel } from "./properties-panel";
 
+/** GeoJSON top-level members with dedicated UI (title / body editor), not the grid. */
+const GJ_EXCLUDED = new Set(["name", "description"]);
+
+/** Stable empty list — PropertiesPanel is memoized, so props must keep identity. */
+const EMPTY_KEY_TYPES: Array<{ key: string; type: PropertyType }> = [];
+
 function formatPointLocationShort(geometryJson: string | undefined): string {
   if (!geometryJson) return "";
   try {
@@ -559,6 +565,21 @@ export function PlaceCard({
   );
 
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  const gjFrontmatter = useMemo(
+    () =>
+      doc.kind === "geojson-layer"
+        ? Object.fromEntries(Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k)))
+        : null,
+    [doc]
+  );
+
+  const writeGeoJsonProperty = useCallback(
+    async (key: string, value: unknown) => {
+      await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
+    },
+    [currentFilePath]
+  );
 
   async function handleCoverFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1056,27 +1077,18 @@ export function PlaceCard({
                   readOnly
                   filePath={currentFilePath}
                   frontmatter={place.properties}
-                  allVaultKeyTypes={[]}
+                  allVaultKeyTypes={EMPTY_KEY_TYPES}
                 />
               )}
-            {doc.kind === "geojson-layer" &&
-              (() => {
-                const GJ_EXCLUDED = new Set(["name", "description"]);
-                const gjFrontmatter = Object.fromEntries(
-                  Object.entries(doc.properties).filter(([k]) => !GJ_EXCLUDED.has(k))
-                );
-                return (
-                  <PropertiesPanel
-                    filePath={currentFilePath}
-                    frontmatter={gjFrontmatter}
-                    allVaultKeyTypes={[]}
-                    onWriteProperty={async (key, value) => {
-                      await window.api.fs.writeGeoJsonProperty(currentFilePath, key, value);
-                    }}
-                    reorderable={false}
-                  />
-                );
-              })()}
+            {doc.kind === "geojson-layer" && gjFrontmatter && (
+              <PropertiesPanel
+                filePath={currentFilePath}
+                frontmatter={gjFrontmatter}
+                allVaultKeyTypes={EMPTY_KEY_TYPES}
+                onWriteProperty={writeGeoJsonProperty}
+                reorderable={false}
+              />
+            )}
 
             {/* Body content */}
             {loading && showLoadingIndicator && (

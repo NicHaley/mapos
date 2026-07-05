@@ -31,7 +31,7 @@ import {
   XIcon
 } from "lucide-react";
 import { Reorder } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultValueForType, inferPropertyType } from "../../../shared/property-inference";
 import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
@@ -961,7 +961,17 @@ function PropertiesPanelInner({
   );
 }
 
-export function PropertiesPanel(props: PropertiesPanelProps): React.JSX.Element | null {
+/**
+ * Memoized because the mini place card re-renders on every frame while the map
+ * pans (its screen position is state). Draggable rows re-snapshot their layout
+ * on every render, which re-anchors the reorder animation to a stale viewport
+ * position and makes the rows trail behind the moving card. Skipping re-renders
+ * with unchanged props keeps them rigidly in flow — so callers must pass
+ * referentially stable props.
+ */
+export const PropertiesPanel = memo(function PropertiesPanel(
+  props: PropertiesPanelProps
+): React.JSX.Element | null {
   if (props.readOnly) return <ReadOnlyPropertiesPanel frontmatter={props.frontmatter} />;
   return <PropertiesPanelInner key={props.filePath} {...props} />;
-}
+});

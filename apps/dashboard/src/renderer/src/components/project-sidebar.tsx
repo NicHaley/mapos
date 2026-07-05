@@ -780,8 +780,11 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                         });
                         setPendingDelete({ kind: "conversations", ids, titles });
                       } else {
-                        // Preserve existing single-conversation no-confirm UX.
-                        onDeleteChat?.(conv.id);
+                        setPendingDelete({
+                          kind: "conversations",
+                          ids: [conv.id],
+                          titles: [title]
+                        });
                       }
                     };
                     return (

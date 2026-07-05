@@ -23,6 +23,16 @@ import {
   ReasoningTrigger
 } from "@mapos/ui/components/ai-elements/reasoning";
 import { Shimmer } from "@mapos/ui/components/ai-elements/shimmer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@mapos/ui/components/alert-dialog";
 import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
@@ -722,8 +732,11 @@ export function ChatPane({
     onSubmit(text);
   }
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
   async function handleDeleteConversation(): Promise<void> {
     await window.api.chat.deleteConversation(convId);
+    setConfirmingDelete(false);
     onDeleted(convId);
   }
 
@@ -865,10 +878,7 @@ export function ChatPane({
                     Rename
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => void handleDeleteConversation()}
-                  >
+                  <DropdownMenuItem variant="destructive" onClick={() => setConfirmingDelete(true)}>
                     <Trash2Icon />
                     Delete
                   </DropdownMenuItem>
@@ -880,6 +890,26 @@ export function ChatPane({
             </Button>
           </div>
         </div>
+
+        <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete "{convTitle}".
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => void handleDeleteConversation()}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* `initial="instant"` jumps to the bottom without animating when a conversation
             opens with its messages already in the store. The `key` remount handles the

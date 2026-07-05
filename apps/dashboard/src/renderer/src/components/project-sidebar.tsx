@@ -55,7 +55,7 @@ import {
   SquarePenIcon,
   Trash2Icon
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { useLocalStorage } from "../lib/use-local-storage";
@@ -82,7 +82,9 @@ const SET_STORAGE = {
   deserialize: (raw: string) => new Set<string>(JSON.parse(raw))
 };
 
-export function ProjectSidebar({
+// Memoized: App re-renders per frame while a mini card tracks the map; the sidebar
+// (and its recursive file tree) only needs to render when its own props change.
+export const ProjectSidebar = memo(function ProjectSidebar({
   selectedFilePath,
   selectedFolderPath,
   activeChatConvId,
@@ -967,4 +969,4 @@ export function ProjectSidebar({
       )}
     </Sidebar>
   );
-}
+});

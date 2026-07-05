@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -425,7 +426,9 @@ function PlaceCardMarkdownPane({
   );
 }
 
-export function PlaceCard({
+// Memoized: while a mini card tracks the map, App re-renders per frame to move the
+// card's wrapper; the card itself only needs to render when its props change.
+export const PlaceCard = memo(function PlaceCard({
   place,
   onClose,
   mode = "mini",
@@ -1210,4 +1213,4 @@ export function PlaceCard({
       </AlertDialog>
     </div>
   );
-}
+});

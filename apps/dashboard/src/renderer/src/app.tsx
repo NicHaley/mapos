@@ -22,7 +22,7 @@ import { NavTabs } from "./components/nav-tabs";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
-import { useChatStore } from "./hooks/use-chat-store";
+import { useChatStore, useStreamingConvIds } from "./hooks/use-chat-store";
 import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
@@ -183,21 +183,10 @@ function App(): React.JSX.Element {
   const chatStore = useChatStore();
   const { conversations, refresh: refreshConversations } = useConversations(chatStore);
 
-  /** convIds whose stream is currently in flight (renderer view); drives spinners on tabs and the sidebar list. */
-  const streamingConvIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const [id, c] of Object.entries(chatStore.state.byId)) {
-      if (
-        c.assistantPending ||
-        c.streamingContent !== "" ||
-        c.streamingThinking !== "" ||
-        c.activeToolCalls.length > 0
-      ) {
-        ids.add(id);
-      }
-    }
-    return ids;
-  }, [chatStore.state]);
+  /** convIds whose stream is currently in flight (renderer view); drives spinners on tabs and
+   * the sidebar list. Identity changes only when a stream starts/ends, so streaming chunks
+   * don't re-render App (the chat pane subscribes to its own conversation slice). */
+  const streamingConvIds = useStreamingConvIds(chatStore);
 
   const addLayer = useCallback((layer: MapOverlayLayer) => {
     setOverlayLayers((prev) => [...prev.filter((l) => l.id !== layer.id), layer]);
@@ -567,7 +556,7 @@ function App(): React.JSX.Element {
     [handleNavTabClose]
   );
 
-  function handlePlaceCardClose() {
+  const handlePlaceCardClose = useCallback(() => {
     setMapPeekPlace(null);
     // Full place cards should close exactly like the active top-bar tab.
     if (placeMode !== "full" || activeTabIndex < 0) {
@@ -575,7 +564,7 @@ function App(): React.JSX.Element {
       return;
     }
     handleCloseTab(activeTabIndex);
-  }
+  }, [placeMode, activeTabIndex, clearPlace, handleCloseTab]);
 
   // Map feature click — mini card, or peek mini while full panel stays open
   const handleSelectPlaceFromMap = useCallback(
@@ -967,6 +956,55 @@ function App(): React.JSX.Element {
   const isMini = selectedPlace !== null && placeMode === "mini";
   const isFull = selectedPlace !== null && placeMode === "full";
 
+  /** MapView emits this per frame while the map moves with a selection; bail when the
+   * projected position hasn't changed so idle map events don't re-render App. */
+  const handleFeatureScreenPos = useCallback((x: number, y: number) => {
+    setFeatureScreenPos((prev) => (prev && prev.x === x && prev.y === y ? prev : { x, y }));
+  }, []);
+
+  const handleDeletePlaceFile = useCallback(
+    (filePath: string) => handleDeletedPath(filePath, "file"),
+    [handleDeletedPath]
+  );
+
+  /** Mini card → full panel (vault files only; previews keep no expand affordance). */
+  const handleExpandMiniCard = useCallback(() => {
+    const place = selectedPlace;
+    if (!place) return;
+    setPlaceMode("full");
+    setSelectedFolder(null);
+    dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: false });
+    mapRef.current?.fitToPlace(place, getMapPadding(true));
+  }, [selectedPlace, dispatchNav, getMapPadding]);
+
+  const handleClosePeek = useCallback(() => {
+    setMapPeekPlace(null);
+    setSelectionPulseAnchor(null);
+  }, []);
+
+  const handleSavePeekToVault = useCallback(
+    async (folderPath: string | null) => {
+      await savePreviewPlaceToVault(mapPeekPlace, folderPath);
+    },
+    [mapPeekPlace, savePreviewPlaceToVault]
+  );
+
+  const handleExpandPeek = useCallback(() => {
+    if (!mapPeekPlace) return;
+    setMapPeekPlace(null);
+    handleSelectPlaceFromSidebar(mapPeekPlace, false);
+  }, [mapPeekPlace, handleSelectPlaceFromSidebar]);
+
+  const handleSelectGeoJsonFromSidebar = useCallback(
+    (filePath: string) => void handleSelectGeoJson(filePath),
+    [handleSelectGeoJson]
+  );
+
+  const handleDeleteChatFromSidebar = useCallback(
+    (convId: string) => void handleSidebarDeleteChat(convId),
+    [handleSidebarDeleteChat]
+  );
+
   const handleMapClickEmpty = useCallback(() => {
     if (isMini) {
       clearPlace();
@@ -1001,7 +1039,7 @@ function App(): React.JSX.Element {
           selectedPlace={placeForMapHighlight}
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
-          onSelectedFeaturePosition={(x, y) => setFeatureScreenPos({ x, y })}
+          onSelectedFeaturePosition={handleFeatureScreenPos}
           overlayLayers={overlayLayers}
           focusedFeatureId={focusedFeatureId}
           showOverlay={activeChatConvId !== null}
@@ -1094,7 +1132,7 @@ function App(): React.JSX.Element {
                 onRename={handlePlaceRename}
                 onCommitPointLocation={commitVaultPointLocation}
                 onClearPointLocation={clearVaultPointLocation}
-                onDelete={(filePath) => handleDeletedPath(filePath, "file")}
+                onDelete={handleDeletePlaceFile}
                 onOpenFolder={handleSelectFolder}
               />
             )}
@@ -1106,7 +1144,7 @@ function App(): React.JSX.Element {
                   const c = conversations.find((c) => c.id === activeChatConvId);
                   return c?.title || c?.preview || "New Chat";
                 })()}
-                convState={chatStore.getConv(activeChatConvId)}
+                chatStore={chatStore}
                 overlayLayers={overlayLayers}
                 focusFeature={setFocusedFeatureId}
                 defaultParentFolderPath={parentFolderForNewFiles}
@@ -1172,18 +1210,7 @@ function App(): React.JSX.Element {
               defaultParentFolderPath={parentFolderForNewFiles}
               onOpenFolder={handleSelectFolder}
               onExpand={
-                selectedPlace.previewMarkdown !== undefined
-                  ? undefined
-                  : () => {
-                      setPlaceMode("full");
-                      setSelectedFolder(null);
-                      dispatchNav({
-                        type: "navigate",
-                        entry: { kind: "place", place: selectedPlace },
-                        newTab: false
-                      });
-                      mapRef.current?.fitToPlace(selectedPlace, getMapPadding(true));
-                    }
+                selectedPlace.previewMarkdown !== undefined ? undefined : handleExpandMiniCard
               }
             />
           </div>
@@ -1203,31 +1230,17 @@ function App(): React.JSX.Element {
               key={mapPeekPlace.filePath}
               place={mapPeekPlace}
               mode="mini"
-              onClose={() => {
-                setMapPeekPlace(null);
-                setSelectionPulseAnchor(null);
-              }}
+              onClose={handleClosePeek}
               onNavigate={handleSelectPlaceFromSidebar}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
               onSaveSearchToVault={
-                mapPeekPlace.previewMarkdown !== undefined
-                  ? async (folderPath) => {
-                      await savePreviewPlaceToVault(mapPeekPlace, folderPath);
-                    }
-                  : undefined
+                mapPeekPlace.previewMarkdown !== undefined ? handleSavePeekToVault : undefined
               }
               defaultParentFolderPath={parentFolderForNewFiles}
               onOpenFolder={handleSelectFolder}
-              onExpand={
-                mapPeekPlace.previewMarkdown !== undefined
-                  ? undefined
-                  : () => {
-                      setMapPeekPlace(null);
-                      handleSelectPlaceFromSidebar(mapPeekPlace, false);
-                    }
-              }
+              onExpand={mapPeekPlace.previewMarkdown !== undefined ? undefined : handleExpandPeek}
             />
           </div>
         )}
@@ -1249,15 +1262,15 @@ function App(): React.JSX.Element {
             streamingConvIds={streamingConvIds}
             onSelectPlace={handleSelectPlaceFromSidebar}
             onSelectFolder={handleSelectFolder}
-            onSelectGeoJson={(p) => void handleSelectGeoJson(p)}
+            onSelectGeoJson={handleSelectGeoJsonFromSidebar}
             onDeletePath={handleDeletedPath}
             onRenamePath={handlePathRelocated}
             onMoved={handlePathRelocated}
             onNewChat={handleNewChat}
             onSelectChat={handleSwitchChatConv}
-            onDeleteChat={(convId) => void handleSidebarDeleteChat(convId)}
+            onDeleteChat={handleDeleteChatFromSidebar}
             onRenameChat={handleSidebarRenameChat}
-            onStopChat={(convId) => chatStore.abort(convId)}
+            onStopChat={chatStore.abort}
           />
         </SidebarProvider>
 

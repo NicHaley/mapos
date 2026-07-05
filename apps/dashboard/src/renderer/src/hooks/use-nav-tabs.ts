@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
 
 export type NavEntry =
@@ -370,24 +370,34 @@ export function useNavTabs({
   }, []);
 
   const activeTab = nav.tabs[nav.activeTab];
-  const navTabsData = nav.tabs.map((tab) => {
-    const current = tab.history[tab.cursor];
-    if (current?.kind === "place") {
-      return {
-        id: tab.id,
-        title: current.place.title,
-        kind: "place" as const,
-        filePath: current.place.filePath
-      };
-    }
-    if (current?.kind === "folder") {
-      return { id: tab.id, title: current.label, kind: "folder" as const };
-    }
-    if (current?.kind === "chat") {
-      return { id: tab.id, title: current.title, kind: "chat" as const, convId: current.convId };
-    }
-    return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
-  });
+  // Stable identity across unrelated renders so the memoized NavTabs can bail.
+  const navTabsData = useMemo(
+    () =>
+      nav.tabs.map((tab) => {
+        const current = tab.history[tab.cursor];
+        if (current?.kind === "place") {
+          return {
+            id: tab.id,
+            title: current.place.title,
+            kind: "place" as const,
+            filePath: current.place.filePath
+          };
+        }
+        if (current?.kind === "folder") {
+          return { id: tab.id, title: current.label, kind: "folder" as const };
+        }
+        if (current?.kind === "chat") {
+          return {
+            id: tab.id,
+            title: current.title,
+            kind: "chat" as const,
+            convId: current.convId
+          };
+        }
+        return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
+      }),
+    [nav.tabs]
+  );
 
   return {
     nav,

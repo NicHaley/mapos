@@ -3,6 +3,7 @@ import { bbox } from "@turf/bbox";
 import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -545,27 +546,32 @@ const MapView = forwardRef<
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
-  const selectionPulseAnchorRef = useRef(selectionPulseAnchor);
-  selectionPulseAnchorRef.current = selectionPulseAnchor;
+
+  /** Card anchor in map coordinates: the click position when one exists (lines/polygons),
+   * matching the selection pulse, otherwise the geometry's bbox center. Computed once per
+   * selection change — `onMove` fires per frame during pan, so the parse/bbox must not
+   * run there. */
+  const selectedCenter = useMemo<[number, number] | null>(() => {
+    if (!selectedPlace?.geometry) return null;
+    if (selectionPulseAnchor && selectionPulseAnchor.filePath === selectedPlace.filePath) {
+      return [selectionPulseAnchor.lng, selectionPulseAnchor.lat];
+    }
+    try {
+      return getGeometryCenter(parseGeometry(selectedPlace.geometry));
+    } catch {
+      return null;
+    }
+  }, [selectedPlace, selectionPulseAnchor]);
+  const selectedCenterRef = useRef(selectedCenter);
+  selectedCenterRef.current = selectedCenter;
 
   const emitFeaturePosition = useCallback(() => {
     const map = mapRef.current;
-    const place = selectedPlaceRef.current;
+    const center = selectedCenterRef.current;
     const cb = onSelectedFeaturePositionRef.current;
-    if (!map || !place || !cb || !place.geometry) return;
-    try {
-      // Anchor the card to the click position when one exists (lines/polygons),
-      // matching the selection pulse, instead of the geometry's bbox center.
-      const anchor = selectionPulseAnchorRef.current;
-      const center: [number, number] =
-        anchor && anchor.filePath === place.filePath
-          ? [anchor.lng, anchor.lat]
-          : getGeometryCenter(parseGeometry(place.geometry));
-      const pt = map.project(center);
-      cb(pt.x, pt.y);
-    } catch {
-      /* invalid geometry */
-    }
+    if (!map || !center || !cb) return;
+    const pt = map.project(center);
+    cb(pt.x, pt.y);
   }, []);
 
   const parentForCreate =
@@ -829,11 +835,11 @@ const MapView = forwardRef<
     }
   }, [selectedFolder, loadFolderPlaces]);
 
-  // Re-project when selection or its click anchor changes (emit reads refs; these still trigger)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedPlace, selectionPulseAnchor
+  // Re-project when the selection's anchor point changes (emit reads the ref; this still triggers)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedCenter
   useEffect(() => {
     emitFeaturePosition();
-  }, [selectedPlace, selectionPulseAnchor, emitFeaturePosition]);
+  }, [selectedCenter, emitFeaturePosition]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
     e.preventDefault();
@@ -928,43 +934,40 @@ const MapView = forwardRef<
     };
   }, []);
 
-  // All folder places as one source (excluding selected/open to avoid double-render)
+  // All folder places as one source. The selected/open place stays in the data and is
+  // hidden per-layer via `unselectedFilters` — rebuilding the collection on selection
+  // change would re-parse every geometry and re-upload the whole source to MapLibre.
   const folderGeoJSON = useMemo(() => {
-    const places = folderPlaces
-      .filter((p) => p.filePath !== selectedPlace?.filePath && p.filePath !== openPlace?.filePath)
-      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    const places = folderPlaces.filter((p): p is PlaceRecord & { geometry: string } =>
+      Boolean(p.geometry)
+    );
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
     } catch {
       return null;
     }
-  }, [folderPlaces, selectedPlace, openPlace, toFeature]);
+  }, [folderPlaces, toFeature]);
 
-  // Wikilink-target places for the currently-open file (excluding the open file itself)
+  // Wikilink-target places for the currently-open file
   const linkedGeoJSON = useMemo(() => {
-    const places = linkedPlaces
-      .filter((p) => p.filePath !== selectedPlace?.filePath && p.filePath !== openPlace?.filePath)
-      .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
+    const places = linkedPlaces.filter((p): p is PlaceRecord & { geometry: string } =>
+      Boolean(p.geometry)
+    );
     if (places.length === 0) return null;
     try {
       return { type: "FeatureCollection" as const, features: places.map(toFeature) };
     } catch {
       return null;
     }
-  }, [linkedPlaces, selectedPlace, openPlace, toFeature]);
+  }, [linkedPlaces, toFeature]);
 
   // Chat-presented vault places, excluding any place another source already draws
-  // (folder, wikilinks, selected/open) to avoid double markers.
+  // (folder, wikilinks) to avoid double markers.
   const presentedGeoJSON = useMemo(() => {
     const drawn = new Set([...folderPlaces, ...linkedPlaces].map((p) => p.filePath));
     const places = presentedPlaces
-      .filter(
-        (p) =>
-          !drawn.has(p.filePath) &&
-          p.filePath !== selectedPlace?.filePath &&
-          p.filePath !== openPlace?.filePath
-      )
+      .filter((p) => !drawn.has(p.filePath))
       .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p.geometry));
     if (places.length === 0) return null;
     try {
@@ -972,7 +975,25 @@ const MapView = forwardRef<
     } catch {
       return null;
     }
-  }, [presentedPlaces, folderPlaces, linkedPlaces, selectedPlace, openPlace, toFeature]);
+  }, [presentedPlaces, folderPlaces, linkedPlaces, toFeature]);
+
+  // Hide the selected/open place in the shared sources so it renders only in the
+  // selected source's style. Selection changes then cost a setFilter per layer
+  // instead of a setData per source.
+  const unselectedFilters = useMemo(() => {
+    const excluded = [selectedPlace?.filePath, openPlace?.filePath].filter((p): p is string =>
+      Boolean(p)
+    );
+    if (excluded.length === 0) {
+      return { point: POINT_FILTER, polygon: POLYGON_FILTER, line: LINESTRING_FILTER };
+    }
+    const notSelected = ["!", ["in", ["get", "filePath"], ["literal", excluded]]];
+    return {
+      point: ["all", POINT_FILTER, notSelected],
+      polygon: ["all", POLYGON_FILTER, notSelected],
+      line: ["all", LINESTRING_FILTER, notSelected]
+    };
+  }, [selectedPlace?.filePath, openPlace?.filePath]);
 
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
@@ -1220,7 +1241,7 @@ const MapView = forwardRef<
               id="folder-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
+              filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
@@ -1232,7 +1253,7 @@ const MapView = forwardRef<
               id="folder-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "fill-opacity": 0.25
@@ -1242,7 +1263,7 @@ const MapView = forwardRef<
               id="folder-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 2
@@ -1252,7 +1273,7 @@ const MapView = forwardRef<
               id="folder-line-casing"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
@@ -1260,7 +1281,7 @@ const MapView = forwardRef<
               id="folder-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 3
@@ -1275,7 +1296,7 @@ const MapView = forwardRef<
               id="linked-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
+              filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
@@ -1287,7 +1308,7 @@ const MapView = forwardRef<
               id="linked-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "fill-opacity": 0.25
@@ -1297,7 +1318,7 @@ const MapView = forwardRef<
               id="linked-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 2
@@ -1307,7 +1328,7 @@ const MapView = forwardRef<
               id="linked-line-casing"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
@@ -1315,7 +1336,7 @@ const MapView = forwardRef<
               id="linked-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 3
@@ -1330,7 +1351,7 @@ const MapView = forwardRef<
               id="presented-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
+              filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
                 "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
@@ -1342,7 +1363,7 @@ const MapView = forwardRef<
               id="presented-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "fill-opacity": 0.25
@@ -1352,7 +1373,7 @@ const MapView = forwardRef<
               id="presented-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={unselectedFilters.polygon}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 2
@@ -1362,7 +1383,7 @@ const MapView = forwardRef<
               id="presented-line-casing"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
@@ -1370,7 +1391,7 @@ const MapView = forwardRef<
               id="presented-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={unselectedFilters.line}
               paint={{
                 "line-color": ["coalesce", ["get", "color"], "#6b7280"],
                 "line-width": 3
@@ -1589,4 +1610,7 @@ const MapView = forwardRef<
   );
 });
 
-export default MapView;
+// Memoized: App re-renders per frame while a mini card tracks the map (featureScreenPos),
+// and on every chat-stream membership change; the map only needs to render when its own
+// props change.
+export default memo(MapView);

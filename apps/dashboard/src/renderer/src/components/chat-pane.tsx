@@ -56,7 +56,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FeatureResolverProvider, useFeatureResolver } from "../contexts/feature-resolver";
-import type { ActiveToolCall, ConvChatState } from "../hooks/use-chat-store";
+import { type ActiveToolCall, type ChatStore, useConvChatState } from "../hooks/use-chat-store";
 import { FeatureList } from "./feature-list";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { ModelSwitcher } from "./settings/providers/model-switcher";
@@ -610,7 +610,7 @@ const overlayActionButtonClass = "shrink-0 h-7 text-xs gap-1 font-normal";
 export function ChatPane({
   convId,
   convTitle,
-  convState,
+  chatStore,
   onSubmit,
   onAbort,
   onUndo,
@@ -631,7 +631,8 @@ export function ChatPane({
   convId: string;
   /** Display name for the active conversation (preview text or "New Chat" before first message). */
   convTitle: string;
-  convState: ConvChatState;
+  /** The pane subscribes to its own conversation slice, so streaming chunks re-render only this subtree. */
+  chatStore: ChatStore;
   onSubmit: (text: string) => void;
   onAbort: () => void;
   onUndo: () => void;
@@ -669,7 +670,7 @@ export function ChatPane({
     assistantPending,
     canUndo,
     loaded
-  } = convState;
+  } = useConvChatState(chatStore, convId);
 
   /** Build once per render so AssistantBubble can pair each ToolCall block with its result. */
   const toolResultsById = useMemo(() => {

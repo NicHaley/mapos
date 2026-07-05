@@ -14,6 +14,7 @@ import {
   XIcon
 } from "lucide-react";
 import { Reorder, motion } from "motion/react";
+import { memo } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
@@ -43,7 +44,7 @@ function tabIcon(tab: NavTabData): React.ElementType {
   return iconForFilename(tab.filePath);
 }
 
-export function NavTabs({
+export const NavTabs = memo(function NavTabs({
   tabs,
   activeTabIndex,
   canBack,
@@ -154,4 +155,4 @@ export function NavTabs({
       <div className="min-h-0 min-w-0 flex-1 self-stretch" style={dragRegion} aria-hidden />
     </div>
   );
-}
+});

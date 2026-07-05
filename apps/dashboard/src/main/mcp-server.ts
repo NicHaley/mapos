@@ -117,7 +117,7 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
-- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry. Do not try to retrieve, decode, or downsample route geometry yourself.
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry; to save it as a vault file, pass it to \`save_features_to_vault\` with a title. Do not try to retrieve, decode, or downsample route geometry yourself.
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
@@ -150,12 +150,12 @@ ${webSearchSection}## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
-To SAVE places to the vault — the user says save/add/keep after a search, or asks you to build a folder or collection of places — use \`save_features_to_vault\`, NOT hand-written write_vault_file content. It writes the exact same file format as the app's own save button: \`geometry\` WKT frontmatter, canonical properties from the geocoder source (category, address, osm_id, wikidata_id), and the place's cover photo. Reference looked-up places by \`result_id\`, exactly as with present_features; pass genuinely ad-hoc points as title + lat/lng. Reserve write_vault_file for non-place notes, edits to existing files, and places with non-point geometry.
+To SAVE places or routes to the vault — the user says save/add/keep after a search, or asks you to build a folder or collection of places — use \`save_features_to_vault\`, NOT hand-written write_vault_file content. It writes the exact same file format as the app's own save button: \`geometry\` WKT frontmatter, canonical properties from the geocoder source (category, address, osm_id, wikidata_id), and the place's cover photo. Reference looked-up places by \`result_id\`, exactly as with present_features; save a route from get_directions by its \`route_id\` plus a title (the app expands it to the LINESTRING geometry and fills in distance/duration/mode); pass genuinely ad-hoc points as title + lat/lng. Reserve write_vault_file for non-place notes, edits to existing files, and other non-point geometry you authored yourself.
 
 ## Display vs. action intent
 
 - If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features for a browsable list of places; use render_overlay_on_map for routes, areas, and bulk geometry.
-- If the user asks you to save, create, add, update, mark, or organize → write actual vault files: save_features_to_vault for new places, write_vault_file for everything else.
+- If the user asks you to save, create, add, update, mark, or organize → write actual vault files: save_features_to_vault for new places and routes, write_vault_file for everything else.
 
 ## Showing places and features in chat
 
@@ -197,13 +197,21 @@ export function buildMaposCustomTools(
    *  the caller so it outlives this tool set (which is rebuilt when the session is). */
   geocodeStore: Map<string, GeocodeResult>
 ): ToolDefinition[] {
-  // Pass-by-reference store for large geometries returned to the agent.
-  const routeStore = new Map<string, [number, number][]>();
+  // Pass-by-reference store for large geometries returned to the agent. Carries the
+  // route's summary facts too, so saving a route derives them from the source rather
+  // than round-tripping them through the model.
+  type StashedRoute = {
+    coords: [number, number][];
+    distanceMeters: number;
+    durationSeconds: number;
+    mode: string;
+  };
+  const routeStore = new Map<string, StashedRoute>();
   let routeSeq = 0;
-  const stashRoute = (coords: [number, number][]): string => {
+  const stashRoute = (route: StashedRoute): string => {
     routeSeq++;
     const id = `route_${routeSeq}`;
-    routeStore.set(id, coords);
+    routeStore.set(id, route);
     if (routeStore.size > 50) {
       const oldest = routeStore.keys().next().value;
       if (oldest != null) routeStore.delete(oldest);
@@ -331,7 +339,7 @@ export function buildMaposCustomTools(
                 `Unknown route_id "${l.route_id}". Routes are cached in-memory; if the server restarted or the route was evicted, call get_directions again.`
               );
             }
-            coordinates = stored;
+            coordinates = stored.coords;
           } else {
             coordinates = (l.coordinates ?? []) as [number, number][];
           }
@@ -907,7 +915,7 @@ export function buildMaposCustomTools(
     name: "get_directions",
     label: "Get directions",
     description:
-      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
+      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
     parameters: Type.Object({
       locations: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
         minItems: 2,
@@ -925,7 +933,12 @@ export function buildMaposCustomTools(
           locations: args.locations,
           costing: args.costing ?? "pedestrian"
         });
-        const route_id = stashRoute(route.geometry.coordinates);
+        const route_id = stashRoute({
+          coords: route.geometry.coordinates,
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+          mode: args.costing ?? "pedestrian"
+        });
         const visible = {
           distanceMeters: route.distanceMeters,
           durationSeconds: route.durationSeconds,
@@ -1106,7 +1119,7 @@ export function buildMaposCustomTools(
     name: "save_features_to_vault",
     label: "Save places to vault",
     description:
-      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
+      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — the app expands the id to the full LINESTRING geometry and fills in distance/duration/mode), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
     parameters: Type.Object({
       features: Type.Array(
         Type.Object({
@@ -1116,10 +1129,16 @@ export function buildMaposCustomTools(
                 "The `id` of a result returned by geocode_search/reverse_geocode. PREFER this for anything you looked up. When set, leave title/lat/lng unset; `properties` and `body_markdown` are additive."
             })
           ),
+          route_id: Type.Optional(
+            Type.String({
+              description:
+                "The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. \"Home to Café Olimpico\"); leave lat/lng unset."
+            })
+          ),
           title: Type.Optional(
             Type.String({
               description:
-                "Display name, used for the filename. Required ONLY for an ad-hoc place (no result_id)."
+                "Display name, used for the filename. Required for an ad-hoc place or a route (not with result_id)."
             })
           ),
           lat: Type.Optional(
@@ -1164,14 +1183,15 @@ export function buildMaposCustomTools(
 
       type ResolvedFeature = {
         title: string;
-        lat: number;
-        lng: number;
+        geometry: string;
         properties: Record<string, string>;
         wikidataId?: string;
         body?: string;
       };
       const resolved: ResolvedFeature[] = [];
       const unresolvedResultIds: string[] = [];
+      const unresolvedRouteIds: string[] = [];
+      const untitledRouteIds: string[] = [];
       for (const f of args.features) {
         // Preferred path: derive everything from the cached geocoder result, exactly
         // like the search UI's save — the model never re-types facts. Extra keys it
@@ -1181,8 +1201,7 @@ export function buildMaposCustomTools(
           if (cached) {
             resolved.push({
               title: cached.primaryLabel,
-              lat: cached.lat,
-              lng: cached.lng,
+              geometry: `POINT(${cached.lng} ${cached.lat})`,
               properties: orderDetailProperties({
                 ...sanitizeAdHocProperties(f.properties),
                 ...detailPropertiesFromGeocodeResult(cached)
@@ -1194,11 +1213,37 @@ export function buildMaposCustomTools(
           }
           // Cache miss: fall through to ad-hoc coords if supplied, else report it.
         }
+        if (f.route_id) {
+          const stored = routeStore.get(f.route_id);
+          if (!stored) {
+            unresolvedRouteIds.push(f.route_id);
+            continue;
+          }
+          if (!f.title) {
+            untitledRouteIds.push(f.route_id);
+            continue;
+          }
+          // Same principle as result_id: geometry and summary facts come from the
+          // stashed source, never from the model.
+          const line = stored.coords.map(([lng, lat]) => `${lng} ${lat}`).join(", ");
+          resolved.push({
+            title: f.title,
+            geometry: `LINESTRING(${line})`,
+            properties: orderDetailProperties({
+              ...sanitizeAdHocProperties(f.properties),
+              category: "route",
+              mode: stored.mode,
+              distance_m: String(Math.round(stored.distanceMeters)),
+              duration_s: String(Math.round(stored.durationSeconds))
+            }),
+            body: f.body_markdown
+          });
+          continue;
+        }
         if (typeof f.lat === "number" && typeof f.lng === "number" && f.title) {
           resolved.push({
             title: f.title,
-            lat: f.lat,
-            lng: f.lng,
+            geometry: `POINT(${f.lng} ${f.lat})`,
             properties: sanitizeAdHocProperties(f.properties),
             body: f.body_markdown
           });
@@ -1218,7 +1263,7 @@ export function buildMaposCustomTools(
       for (let i = 0; i < resolved.length; i++) {
         const r = resolved[i];
         const data: Record<string, unknown> = {
-          geometry: `POINT(${r.lng} ${r.lat})`,
+          geometry: r.geometry,
           ...r.properties
         };
         const downloaded = covers[i];
@@ -1251,16 +1296,30 @@ export function buildMaposCustomTools(
         saved.push({ path, title: r.title });
       }
 
+      const warnings: string[] = [];
+      if (unresolvedResultIds.length > 0) {
+        warnings.push(
+          `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT saved. Re-run geocode_search/reverse_geocode for those places, then call save_features_to_vault again with the fresh ids.`
+        );
+      }
+      if (unresolvedRouteIds.length > 0) {
+        warnings.push(
+          `${unresolvedRouteIds.length} route(s) referenced a route_id that is no longer cached (routes are cached in-memory and evicted on restart) and were NOT saved. Re-run get_directions, then call save_features_to_vault again with the fresh route_id.`
+        );
+      }
+      if (untitledRouteIds.length > 0) {
+        warnings.push(
+          `${untitledRouteIds.length} route(s) were NOT saved because they had no \`title\`. Routes require a title (used for the filename) — retry those features with a title set.`
+        );
+      }
       return TEXT_RESULT(
         JSON.stringify({
-          success: unresolvedResultIds.length === 0,
+          success: warnings.length === 0,
           saved,
-          ...(unresolvedResultIds.length > 0
-            ? {
-                unresolved_result_ids: unresolvedResultIds,
-                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT saved. Re-run geocode_search/reverse_geocode for those places, then call save_features_to_vault again with the fresh ids.`
-              }
-            : {}),
+          ...(unresolvedResultIds.length > 0 ? { unresolved_result_ids: unresolvedResultIds } : {}),
+          ...(unresolvedRouteIds.length > 0 ? { unresolved_route_ids: unresolvedRouteIds } : {}),
+          ...(untitledRouteIds.length > 0 ? { untitled_route_ids: untitledRouteIds } : {}),
+          ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
           assistant_instructions:
             "The files are saved and indexed. Confirm briefly — do not enumerate every saved place in your reply."
         })

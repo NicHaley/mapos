@@ -147,6 +147,8 @@ type PlaceCardMarkdownPaneProps = {
   isPreview: boolean;
   mode: "mini" | "full";
   isDark: boolean;
+  /** Focus the editor once the initial content is loaded (opening an existing file). */
+  autoFocus?: boolean;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
   onEditorReady: (editor: Editor | null) => void;
   /** Override the default writePlaceBody persistence. */
@@ -181,6 +183,7 @@ function PlaceCardMarkdownPane({
   isPreview,
   mode,
   isDark,
+  autoFocus,
   onNavigate,
   onEditorReady,
   onPersist,
@@ -257,6 +260,8 @@ function PlaceCardMarkdownPane({
     });
   }, []);
 
+  const didAutoFocusRef = useRef(false);
+
   useLayoutEffect(() => {
     if (!editor) return;
     // emitUpdate: false prevents tiptap firing `update` for programmatic content loads.
@@ -267,7 +272,14 @@ function PlaceCardMarkdownPane({
       contentType: "markdown",
       emitUpdate: false
     });
-  }, [editor, initialMarkdown]);
+    // Once only — this effect also re-runs when the file changes on disk, and a
+    // background change must not yank focus. scrollIntoView: false keeps the
+    // card scrolled to the top when the body is long.
+    if (autoFocus && !isPreview && !didAutoFocusRef.current) {
+      didAutoFocusRef.current = true;
+      editor.commands.focus("end", { scrollIntoView: false });
+    }
+  }, [editor, initialMarkdown, autoFocus, isPreview]);
 
   useEffect(() => {
     if (!editor) return;
@@ -322,7 +334,15 @@ function PlaceCardMarkdownPane({
   }
 
   return (
-    <div className={cn("px-4 pb-3", mode === "full" && "flex-1 min-h-0")}>
+    // biome-ignore lint/a11y/useKeyWithClickEvents: click-to-focus dead zone is a pointer-only convenience; the editor itself is keyboard-focusable
+    <div
+      className={cn("px-4 pb-3", mode === "full" && "flex-1 min-h-0", !isPreview && "cursor-text")}
+      onClick={(e) => {
+        // The editor only occupies its content height; clicks on the empty
+        // space around it should still start editing at the end of the body.
+        if (e.target === e.currentTarget) editor?.chain().focus("end").run();
+      }}
+    >
       {editor && (
         <BubbleMenu editor={editor} options={{ onHide: () => setShowLinkInput(false) }}>
           {showLinkInput ? (
@@ -394,7 +414,13 @@ function PlaceCardMarkdownPane({
           )}
         </BubbleMenu>
       )}
-      <EditorContent editor={editor} className={cn("h-full", isDark && "dark")} />
+      <EditorContent
+        editor={editor}
+        className={cn("h-full", isDark && "dark")}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) editor?.chain().focus("end").run();
+        }}
+      />
     </div>
   );
 }
@@ -1112,6 +1138,8 @@ export function PlaceCard({
                   isPreview={doc.kind === "preview"}
                   mode={mode}
                   isDark={isDark}
+                  // Freshly created files focus the title for an immediate rename instead.
+                  autoFocus={!place.justCreated}
                   onNavigate={onNavigate}
                   onEditorReady={onEditorReady}
                   onPersist={

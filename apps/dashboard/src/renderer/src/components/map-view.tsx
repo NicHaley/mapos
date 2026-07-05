@@ -545,6 +545,8 @@ const MapView = forwardRef<
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
+  const selectionPulseAnchorRef = useRef(selectionPulseAnchor);
+  selectionPulseAnchorRef.current = selectionPulseAnchor;
 
   const emitFeaturePosition = useCallback(() => {
     const map = mapRef.current;
@@ -552,7 +554,13 @@ const MapView = forwardRef<
     const cb = onSelectedFeaturePositionRef.current;
     if (!map || !place || !cb || !place.geometry) return;
     try {
-      const center = getGeometryCenter(parseGeometry(place.geometry));
+      // Anchor the card to the click position when one exists (lines/polygons),
+      // matching the selection pulse, instead of the geometry's bbox center.
+      const anchor = selectionPulseAnchorRef.current;
+      const center: [number, number] =
+        anchor && anchor.filePath === place.filePath
+          ? [anchor.lng, anchor.lat]
+          : getGeometryCenter(parseGeometry(place.geometry));
       const pt = map.project(center);
       cb(pt.x, pt.y);
     } catch {
@@ -821,11 +829,11 @@ const MapView = forwardRef<
     }
   }, [selectedFolder, loadFolderPlaces]);
 
-  // Re-project when selection changes (emit reads refs; selectedPlace still needed to trigger)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedPlace
+  // Re-project when selection or its click anchor changes (emit reads refs; these still trigger)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedPlace, selectionPulseAnchor
   useEffect(() => {
     emitFeaturePosition();
-  }, [selectedPlace, emitFeaturePosition]);
+  }, [selectedPlace, selectionPulseAnchor, emitFeaturePosition]);
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
     e.preventDefault();

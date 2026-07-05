@@ -639,6 +639,31 @@ function App(): React.JSX.Element {
     [getMapPadding]
   );
 
+  /** Wikilink click in a place card body: mini card over the target feature
+   * (a floating peek when a full panel is open), matching map-click semantics.
+   * Cmd/ctrl+click keeps the browser convention: open as a full background tab. */
+  const handleOpenWikilink = useCallback(
+    (place: PlaceRecord, newTab = false) => {
+      if (newTab) {
+        handleSelectPlaceFromSidebar(place, true);
+        return;
+      }
+      setSelectionPulseAnchor(null);
+      setFeatureScreenPos(null);
+      if (placeMode === "full") {
+        // Link to the open file itself: just bring its feature into view.
+        if (selectedPlace?.filePath !== place.filePath) setMapPeekPlace(place);
+        mapRef.current?.fitToPlace(place, getMapPadding(true));
+        return;
+      }
+      setMapPeekPlace(null);
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
+    },
+    [placeMode, selectedPlace, activeChatConvId, getMapPadding, handleSelectPlaceFromSidebar]
+  );
+
   // Sidebar folder click — navigate within active tab (or background tab on cmd/ctrl+click)
   const handleSelectFolder = useCallback(
     (folderPath: string, newTab = false) => {
@@ -1107,11 +1132,14 @@ function App(): React.JSX.Element {
         </div>
       </motion.div>
 
-      {/* Content wrapper: top offset + transform creates a new containing block
-          so all fixed children are relative to this wrapper, not the viewport */}
+      {/* Content wrapper: top offset + layout containment creates a new containing
+          block so all fixed children are relative to this wrapper, not the viewport.
+          Must not use a transform here: that promotes the whole chrome onto one
+          compositor layer over the WebGL canvas, which makes Chromium drop the
+          backdrop-filter surfaces for a frame on hover/scroll (UI flicker). */}
       <div
         className="fixed inset-x-0 bottom-0 pointer-events-none"
-        style={{ top: TOP_BAR_HEIGHT, transform: "translateZ(0)" }}
+        style={{ top: TOP_BAR_HEIGHT, contain: "layout" }}
       >
         {/* Main pane — full-height place panel and chat tab share this column. */}
         {((isFull && selectedPlace) || activeChatConvId) && (
@@ -1129,6 +1157,7 @@ function App(): React.JSX.Element {
                 mode="full"
                 onClose={handlePlaceCardClose}
                 onNavigate={handleSelectPlaceFromSidebar}
+                onOpenWikilink={handleOpenWikilink}
                 onRename={handlePlaceRename}
                 onCommitPointLocation={commitVaultPointLocation}
                 onClearPointLocation={clearVaultPointLocation}
@@ -1201,6 +1230,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
@@ -1232,6 +1262,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handleClosePeek}
               onNavigate={handleSelectPlaceFromSidebar}
+              onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}

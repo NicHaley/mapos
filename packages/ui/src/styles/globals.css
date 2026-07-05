@@ -125,6 +125,13 @@
 .tiptap a {
   cursor: pointer;
 }
+/* Wikilinks render as span[role=link] (an <a> would get hijacked by the Link
+   extension's click handler); restyle them to match prose links. */
+.tiptap span[data-wikilink] {
+  color: var(--tw-prose-links);
+  text-decoration: underline;
+  font-weight: 500;
+}
 .tiptap a:not([data-wikilink])::after {
   content: "";
   display: inline-block;

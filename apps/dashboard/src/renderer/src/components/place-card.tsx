@@ -135,6 +135,9 @@ type PlaceCardMarkdownPaneProps = {
   /** Focus the editor once the initial content is loaded (opening an existing file). */
   autoFocus?: boolean;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
+  /** Wikilink click — open the linked place without leaving the current card
+   * (mini/peek). Falls back to onNavigate when unset. */
+  onOpenWikilink?: (place: PlaceRecord, newTab?: boolean) => void;
   onEditorReady: (editor: Editor | null) => void;
   /** Override the default writePlaceBody persistence. */
   onPersist?: (content: string) => void;
@@ -170,6 +173,7 @@ function PlaceCardMarkdownPane({
   isDark,
   autoFocus,
   onNavigate,
+  onOpenWikilink,
   onEditorReady,
   onPersist,
   onImageClick
@@ -181,6 +185,8 @@ function PlaceCardMarkdownPane({
   currentPathRef.current = filePath;
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
+  const onOpenWikilinkRef = useRef(onOpenWikilink);
+  onOpenWikilinkRef.current = onOpenWikilink;
 
   const [linkUrl, setLinkUrl] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -217,7 +223,9 @@ function PlaceCardMarkdownPane({
           const item = resolveWikilinkTarget(vaultFilesRef.current, title);
           if (!item) return;
           const result = await window.api.places.getByPath(item.filePath);
-          if (result) onNavigateRef.current?.(result as PlaceRecord, newTab);
+          if (!result) return;
+          const open = onOpenWikilinkRef.current ?? onNavigateRef.current;
+          open?.(result as PlaceRecord, newTab);
         },
         suggestion: {
           items({ query }: { query: string }) {
@@ -427,6 +435,7 @@ export const PlaceCard = memo(function PlaceCard({
   mode = "mini",
   onExpand,
   onNavigate,
+  onOpenWikilink,
   onSaveSearchToVault,
   defaultParentFolderPath = null,
   onCommitPointLocation,
@@ -440,6 +449,9 @@ export const PlaceCard = memo(function PlaceCard({
   mode?: "mini" | "full";
   onExpand?: () => void;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
+  /** Wikilink click — open the linked place in a mini/peek card instead of
+   * navigating the panel. Falls back to onNavigate when unset. */
+  onOpenWikilink?: (place: PlaceRecord, newTab?: boolean) => void;
   /** When set with a search preview, shows Save (+) to create a place file in a chosen folder. */
   onSaveSearchToVault?: (folderPath: string | null) => Promise<void>;
   /** Folder highlighted as the default in the save picker. `null` = vault root. */
@@ -1137,6 +1149,7 @@ export const PlaceCard = memo(function PlaceCard({
                   // Freshly created files focus the title for an immediate rename instead.
                   autoFocus={!place.justCreated}
                   onNavigate={onNavigate}
+                  onOpenWikilink={onOpenWikilink}
                   onEditorReady={onEditorReady}
                   onPersist={
                     doc.kind === "geojson-layer"

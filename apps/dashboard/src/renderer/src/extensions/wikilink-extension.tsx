@@ -55,9 +55,13 @@ function WikilinkNodeView({ node, selected, editor, getPos, extension }: ReactNo
 
   return (
     <NodeViewWrapper as="span" style={{ display: "inline" }}>
-      <a
+      {/* Not an <a>: tiptap's Link click plugin window.open()s any anchor inside the
+          editor, which Electron then hands to the external browser. */}
+      <span
         data-wikilink=""
-        href={`#wikilink:${encodeURIComponent(node.attrs.title)}`}
+        // biome-ignore lint/a11y/useSemanticElements: an <a> would be hijacked by the Link extension's click handler
+        role="link"
+        tabIndex={onClickWikilink ? 0 : -1}
         onClick={
           onClickWikilink
             ? (e) => {
@@ -86,7 +90,7 @@ function WikilinkNodeView({ node, selected, editor, getPos, extension }: ReactNo
         {caretAdjacent && <span className="text-muted-foreground">[[</span>}
         {node.attrs.title}
         {caretAdjacent && <span className="text-muted-foreground">]]</span>}
-      </a>
+      </span>
     </NodeViewWrapper>
   );
 }

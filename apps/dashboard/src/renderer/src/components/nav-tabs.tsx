@@ -61,12 +61,38 @@ export const NavTabs = memo(function NavTabs({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5" style={dragRegion}>
       <div className="flex shrink-0 items-center gap-0.5" style={noDrag}>
-        <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
-          <ChevronLeftIcon />
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
-          <ChevronRightIcon />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
+                <ChevronLeftIcon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">
+            Back
+            <KbdGroup>
+              <Kbd>{modSymbol}</Kbd>
+              <Kbd>[</Kbd>
+            </KbdGroup>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
+                <ChevronRightIcon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">
+            Forward
+            <KbdGroup>
+              <Kbd>{modSymbol}</Kbd>
+              <Kbd>]</Kbd>
+            </KbdGroup>
+          </TooltipContent>
+        </Tooltip>
 
         <Separator orientation="vertical" className="mx-0.5 h-4! self-auto" />
       </div>

@@ -532,6 +532,14 @@ function App(): React.JSX.Element {
       handler: () => handleCloseTab(activeTabIndex)
     },
     {
+      def: { code: "BracketLeft", meta: true, enabled: canBack },
+      handler: handleNavBack
+    },
+    {
+      def: { code: "BracketRight", meta: true, enabled: canForward },
+      handler: handleNavForward
+    },
+    {
       def: { code: "BracketLeft", meta: true, shift: true, enabled: navTabsData.length > 1 },
       handler: () =>
         handleNavTabActivate((activeTabIndex - 1 + navTabsData.length) % navTabsData.length)

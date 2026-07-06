@@ -31,7 +31,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  icon: resources/icon.icns
+  icon: resources/icon.icon
   target:
     - target: dmg
       arch: [arm64]

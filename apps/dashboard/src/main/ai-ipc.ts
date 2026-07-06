@@ -7,26 +7,11 @@
 import { type BrowserWindow, ipcMain, shell } from "electron";
 import type { ModelCapabilities } from "../shared/ai-models";
 import type { ProviderInput } from "../shared/ai-providers";
-import {
-  addKnownProvider,
-  addProvider,
-  clearActive,
-  fetchModels,
-  getAiState,
-  getAiStatus,
-  listKnownProviders,
-  removeProvider,
-  revealSecret,
-  setActive,
-  testProvider,
-  updateProvider
-} from "./ai";
-import {
-  cancelOauthLogin,
-  disconnectKnownProvider,
-  oauthLogin,
-  setKnownProviderApiKey
-} from "./ai-auth";
+
+// `./ai` and `./ai-auth` pull in the Pi SDK (~21 MB of JS) — dynamic imports keep
+// that off the app-startup path; the chunk loads on the first AI IPC instead.
+const ai = () => import("./ai");
+const aiAuth = () => import("./ai-auth");
 
 const HANDLE_CHANNELS = [
   "ai:get-state",
@@ -55,64 +40,66 @@ export function broadcastAiChanged(mainWindow: BrowserWindow): void {
 export function registerAiIpc(mainWindow: BrowserWindow): () => void {
   const changed = (): void => broadcastAiChanged(mainWindow);
 
-  ipcMain.handle("ai:get-state", () => getAiState());
-  ipcMain.handle("ai:get-status", () => getAiStatus());
+  ipcMain.handle("ai:get-state", async () => (await ai()).getAiState());
+  ipcMain.handle("ai:get-status", async () => (await ai()).getAiStatus());
 
-  ipcMain.handle("ai:add-provider", (_e, input: ProviderInput) => {
-    const result = addProvider(input);
+  ipcMain.handle("ai:add-provider", async (_e, input: ProviderInput) => {
+    const result = (await ai()).addProvider(input);
     if (result.ok) changed();
     return result;
   });
 
-  ipcMain.handle("ai:update-provider", (_e, args: { id: string; patch: ProviderInput }) => {
-    const result = updateProvider(args.id, args.patch);
+  ipcMain.handle("ai:update-provider", async (_e, args: { id: string; patch: ProviderInput }) => {
+    const result = (await ai()).updateProvider(args.id, args.patch);
     if (result.ok) changed();
     return result;
   });
 
-  ipcMain.handle("ai:remove-provider", (_e, args: { id: string }) => {
-    const result = removeProvider(args.id);
+  ipcMain.handle("ai:remove-provider", async (_e, args: { id: string }) => {
+    const result = (await ai()).removeProvider(args.id);
     if (result.ok) changed();
     return result;
   });
 
   ipcMain.handle(
     "ai:set-active",
-    (_e, args: { providerId: string; model: string; capabilities: ModelCapabilities }) => {
-      const result = setActive(args.providerId, args.model, args.capabilities);
+    async (_e, args: { providerId: string; model: string; capabilities: ModelCapabilities }) => {
+      const result = (await ai()).setActive(args.providerId, args.model, args.capabilities);
       if (result.ok) changed();
       return result;
     }
   );
 
-  ipcMain.handle("ai:clear-active", () => {
-    const result = clearActive();
+  ipcMain.handle("ai:clear-active", async () => {
+    const result = (await ai()).clearActive();
     changed();
     return result;
   });
 
-  ipcMain.handle("ai:list-models", (_e, args: { providerId: string }) =>
-    fetchModels(args.providerId)
+  ipcMain.handle("ai:list-models", async (_e, args: { providerId: string }) =>
+    (await ai()).fetchModels(args.providerId)
   );
 
-  ipcMain.handle("ai:test-provider", (_e, args: { input: ProviderInput; providerId?: string }) =>
-    testProvider(args.input, args.providerId)
+  ipcMain.handle(
+    "ai:test-provider",
+    async (_e, args: { input: ProviderInput; providerId?: string }) =>
+      (await ai()).testProvider(args.input, args.providerId)
   );
 
-  ipcMain.handle("ai:reveal-secret", (_e, args: { providerId: string }) =>
-    revealSecret(args.providerId)
+  ipcMain.handle("ai:reveal-secret", async (_e, args: { providerId: string }) =>
+    (await ai()).revealSecret(args.providerId)
   );
 
-  ipcMain.handle("ai:list-known-providers", () => listKnownProviders());
+  ipcMain.handle("ai:list-known-providers", async () => (await ai()).listKnownProviders());
 
-  ipcMain.handle("ai:add-known-provider", (_e, args: { provider: string }) => {
-    const result = addKnownProvider(args.provider);
+  ipcMain.handle("ai:add-known-provider", async (_e, args: { provider: string }) => {
+    const result = (await ai()).addKnownProvider(args.provider);
     if (result.ok) changed();
     return result;
   });
 
-  ipcMain.handle("ai:set-api-key", (_e, args: { provider: string; key: string }) => {
-    const result = setKnownProviderApiKey(args.provider, args.key);
+  ipcMain.handle("ai:set-api-key", async (_e, args: { provider: string; key: string }) => {
+    const result = (await aiAuth()).setKnownProviderApiKey(args.provider, args.key);
     if (result.ok) changed();
     return result;
   });
@@ -134,7 +121,7 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
       }
     };
     emit("starting");
-    const result = await oauthLogin(args.provider, {
+    const result = await (await aiAuth()).oauthLogin(args.provider, {
       onAuthUrl: (url) => {
         void shell.openExternal(url);
         emit("awaiting-browser", { url });
@@ -150,13 +137,13 @@ export function registerAiIpc(mainWindow: BrowserWindow): () => void {
     return result;
   });
 
-  ipcMain.handle("ai:oauth-cancel", () => {
-    cancelOauthLogin();
+  ipcMain.handle("ai:oauth-cancel", async () => {
+    (await aiAuth()).cancelOauthLogin();
     return { ok: true as const };
   });
 
-  ipcMain.handle("ai:disconnect", (_e, args: { provider: string }) => {
-    const result = disconnectKnownProvider(args.provider);
+  ipcMain.handle("ai:disconnect", async (_e, args: { provider: string }) => {
+    const result = (await aiAuth()).disconnectKnownProvider(args.provider);
     changed();
     return result;
   });

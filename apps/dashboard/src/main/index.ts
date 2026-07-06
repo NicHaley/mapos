@@ -9,7 +9,6 @@ import icon from "../../resources/icon.png?asset";
 import { registerAiIpc } from "./ai-ipc";
 import { setupAppMenu } from "./app-menu";
 import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
-import { setupChat } from "./chat";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
 import { closeDb } from "./db";
 import {
@@ -57,8 +56,12 @@ function createWindow(): BrowserWindow {
   });
 
   mainWindow.on("ready-to-show", () => {
+    console.log(`[startup] window ready-to-show at ${process.uptime().toFixed(2)}s`);
     mainWindow.show();
     if (is.dev) mainWindow.webContents.openDevTools();
+    // Warm the chat chunk (Pi SDK) off the critical path. Also covers the onboarding
+    // flow (no bootVault) and registers mcp-server's module-level viewport listener.
+    setImmediate(() => void import("./chat"));
   });
 
   const sendFullscreenState = (isFullScreen: boolean): void => {
@@ -153,8 +156,18 @@ app.whenReady().then(() => {
   // mid-session (e.g. user wipes mapos.json without quitting on macOS, then reloads) would
   // otherwise re-call setupPlacesWatcher and collide with its own handlers.
   let vaultActive = false;
+  // In-flight boot, awaited before teardown so a teardown can't race the async chat setup.
+  let bootPromise: Promise<void> | undefined;
+
+  // `./chat` pulls in the Pi SDK and mcp-server — dynamically imported so the app
+  // window isn't blocked on evaluating them at startup.
+  async function bootChat(): Promise<void> {
+    const { setupChat } = await import("./chat");
+    stopChat = setupChat(mainWindow, places, vaultRoot);
+  }
 
   async function teardownVault(): Promise<void> {
+    await bootPromise?.catch(() => {});
     if (!vaultActive) return;
     stopChat();
     await stopWatcher();
@@ -166,12 +179,15 @@ app.whenReady().then(() => {
     vaultActive = false;
   }
 
-  function bootVault(): void {
-    maposConfig = loadOrInitMaposConfig(appStateDir);
-    vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot);
-    vaultActive = true;
+  function bootVault(): Promise<void> {
+    bootPromise = (async () => {
+      maposConfig = loadOrInitMaposConfig(appStateDir);
+      vaultRoot = getPrimaryVaultRoot(maposConfig);
+      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      await bootChat();
+      vaultActive = true;
+    })();
+    return bootPromise;
   }
 
   // AI config handlers don't depend on vault state — register once for the lifetime of the window.
@@ -189,13 +205,13 @@ app.whenReady().then(() => {
       // If a previous vault is active (e.g. user wiped mapos.json mid-session and is
       // re-onboarding), tear it down first so handler registration doesn't collide.
       await teardownVault();
-      bootVault();
+      await bootVault();
       mainWindow.webContents.reload();
     }
   });
 
   if (!isOnboardingPending(appStateDir)) {
-    bootVault();
+    void bootVault();
   }
 
   ipcMain.handle("mapos:switch-vault", async (_event, targetPath: string) => {
@@ -203,6 +219,7 @@ app.whenReady().then(() => {
     if (!result.ok) return result;
 
     // Tear down current vault
+    await bootPromise?.catch(() => {});
     stopChat();
     await stopWatcher();
     closeDb();
@@ -211,7 +228,7 @@ app.whenReady().then(() => {
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
     ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot);
+    await bootChat();
 
     // Reload the renderer (fast — no process restart)
     mainWindow.webContents.reload();
@@ -237,6 +254,7 @@ app.whenReady().then(() => {
     }
 
     // Tear down current vault so we can release file handles before renaming on disk.
+    await bootPromise?.catch(() => {});
     stopChat();
     await stopWatcher();
     closeDb();
@@ -246,7 +264,7 @@ app.whenReady().then(() => {
     } catch (e) {
       // Re-initialize at the original path so the app is not left in a broken state.
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot);
+      await bootChat();
       return { ok: false as const, error: `Rename failed: ${String(e)}` };
     }
 
@@ -259,7 +277,7 @@ app.whenReady().then(() => {
         /* best-effort rollback */
       }
       ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      stopChat = setupChat(mainWindow, places, vaultRoot);
+      await bootChat();
       return { ok: false as const, error: updated.error };
     }
 
@@ -275,7 +293,7 @@ app.whenReady().then(() => {
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
     ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    stopChat = setupChat(mainWindow, places, vaultRoot);
+    await bootChat();
 
     mainWindow.webContents.reload();
 
@@ -294,13 +312,13 @@ app.whenReady().then(() => {
 
     const removed = removeVaultFromConfig(appStateDir, oldActive);
     if (!removed.ok) {
-      bootVault();
+      await bootVault();
       return { ok: false as const, error: removed.error };
     }
     if (fallback) {
       const activated = setActiveVaultInConfig(appStateDir, fallback);
       if (!activated.ok) {
-        bootVault();
+        await bootVault();
         return { ok: false as const, error: activated.error };
       }
     }
@@ -316,7 +334,7 @@ app.whenReady().then(() => {
     // Re-boot only when a vault remains; otherwise stay torn down so the reload lands
     // on onboarding rather than booting against a non-existent vault.
     if (fallback) {
-      bootVault();
+      await bootVault();
     }
 
     mainWindow.webContents.reload();
@@ -355,3 +373,5 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+console.log(`[startup] main module evaluated in ${process.uptime().toFixed(2)}s`);

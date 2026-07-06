@@ -23,7 +23,7 @@ import {
   parseMatrixResponse,
   parseRouteResponse
 } from "@mapos/service-adapters";
-import { Actor } from "@valhallajs/valhallajs";
+import type { Actor } from "@valhallajs/valhallajs";
 import { listInstalledRegions, regionsContaining } from "./installed-regions";
 import configTemplate from "./valhalla-config.template.json";
 
@@ -66,8 +66,10 @@ function buildConfig(tarPath: string): Record<string, unknown> {
 function getActor(tarPath: string): Promise<Actor> {
   let actor = actors.get(tarPath);
   if (!actor) {
-    actor = Promise.resolve()
-      .then(() => new Actor(buildConfig(tarPath)))
+    // Dynamic import keeps the 10 MB native addon off the app-startup path — it
+    // dlopens on the first offline routing call instead of at module load.
+    actor = import("@valhallajs/valhallajs")
+      .then(({ Actor }) => new Actor(buildConfig(tarPath)))
       .catch((err) => {
         actors.delete(tarPath);
         throw err;

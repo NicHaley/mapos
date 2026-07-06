@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SiApple } from "react-icons/si";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
+import { DemoCarousel } from "./demo-carousel";
 import { MapOSLogo } from "./mapos-logo";
 
 const FAQ_ITEMS = [
@@ -160,25 +161,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             <h2 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
               See it in action
             </h2>
-            <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-neutral-800 bg-neutral-900/50">
-              <div className="flex flex-col items-center gap-3.5">
-                <div className="flex size-14 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/60">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="ml-0.5 text-neutral-300"
-                    aria-hidden="true"
-                  >
-                    <path d="M4 2.5v11l9-5.5z" />
-                  </svg>
-                </div>
-                <span className="font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
-                  Demo video coming soon
-                </span>
-              </div>
-            </div>
+            <DemoCarousel />
           </div>
         </section>
 

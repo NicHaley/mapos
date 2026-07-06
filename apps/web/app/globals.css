@@ -2,4 +2,8 @@
 
 body {
   font-feature-settings: "ss01", "cv11";
+  /* The shared ui globals set overflow: hidden for the app shell; the
+     marketing site scrolls. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }

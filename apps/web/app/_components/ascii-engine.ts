@@ -42,6 +42,12 @@ export interface SceneOptions {
   flareLength?: number;
   starburst?: number;
   disableStars?: boolean;
+  // Scroll-parallax offsets, as fractions of the visible viewport height.
+  // Positive shifts the element up. The sun's rise anchor stays pinned to the
+  // unshifted rim, so the two layers move independently — a larger planet
+  // offset makes the limb climb over the sun as the page scrolls.
+  sunOffsetY?: number;
+  planetOffsetY?: number;
 }
 
 export interface RenderArgs {
@@ -95,8 +101,13 @@ function sampleScene(
     sunArcSpan = 0.55,
     flareLength = 1.6,
     starburst = 1.0,
-    disableStars = false
+    disableStars = false,
+    sunOffsetY = 0,
+    planetOffsetY = 0
   } = opts;
+
+  const sunShift = sunOffsetY * VIEW_H;
+  const planetShift = planetOffsetY * VIEW_H;
 
   // Sun position: vertical rise, centered horizontally. Both the rim reference
   // and the travel span are divided by yScale so the sun lands at the same
@@ -110,7 +121,7 @@ function sampleScene(
   const span = sunArcSpan / yScale;
   const startY = rimTopY - span * 0.4;
   const endY = rimTopY + span * 0.6;
-  const sy = startY + (endY - startY) * t;
+  const sy = startY + (endY - startY) * t + sunShift;
 
   const dxS = x - sx;
   const dyS = y - sy;
@@ -128,7 +139,7 @@ function sampleScene(
   // cell aspect or container shape. Without this, the planet stretches into
   // an ellipse on aspect ratios that diverge from VIEW_W:VIEW_H.
   const dxA = x;
-  const dyA = y - arcCenterY;
+  const dyA = y - (arcCenterY + planetShift);
   const dyAScaled = dyA * yScale;
   const distArc = Math.sqrt(dxA * dxA + dyAScaled * dyAScaled);
   const insidePlanet = distArc < arcRadius - 0.005;

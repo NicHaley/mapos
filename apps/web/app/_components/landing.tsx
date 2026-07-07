@@ -193,6 +193,26 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           </div>
         </section>
 
+        <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pb-28">
+          <div className="mx-auto flex max-w-[640px] flex-col items-center gap-4 rounded-2xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950 px-8 py-14 text-center">
+            <h2 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
+              Get started for free
+            </h2>
+            <div className="flex flex-col items-center gap-3.5">
+              <a
+                className="inline-flex items-center gap-2 rounded-lg bg-neutral-50 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-neutral-950 no-underline transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:translate-y-px [&_svg]:-mt-px"
+                href="/download"
+              >
+                <SiApple size={14} aria-hidden="true" />
+                Download for macOS
+              </a>
+              <span className="font-[family-name:var(--font-jetbrains-mono)] text-[11.5px] tracking-[0.01em] text-neutral-500">
+                {caption}
+              </span>
+            </div>
+          </div>
+        </section>
+
         <footer className="flex items-center justify-center gap-2.5 bg-neutral-950 pb-5 font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
           <span>© 2026 MapOS</span>
         </footer>

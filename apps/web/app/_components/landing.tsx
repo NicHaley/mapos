@@ -17,7 +17,11 @@ const FAQ_ITEMS = [
   {
     question: "What is MapOS?",
     answer:
-      "MapOS is a local-first map app for your Mac. Your saved places are plain Markdown files with location data in their frontmatter, and the map is the interface to them."
+      "MapOS is a local-first map client for your Mac. Your saved places are plain Markdown files with location data in their frontmatter, and the map is the interface to them."
+  },
+  {
+    question: "How much does it cost?",
+    answer: "MapOS is free. Download it and use it with no account, subscription, or usage limits."
   },
   {
     question: "Where is my data stored?",
@@ -177,10 +181,10 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                   key={item.question}
                   value={item.question}
                 >
-                  <AccordionTrigger className="items-center py-5 text-[15px] text-neutral-50 hover:no-underline">
+                  <AccordionTrigger className="items-center py-5 text-lg text-neutral-50 hover:no-underline">
                     {item.question}
                   </AccordionTrigger>
-                  <AccordionContent className="pb-5 text-left text-sm leading-relaxed text-neutral-400">
+                  <AccordionContent className="pb-5 text-left text-base leading-relaxed text-neutral-400">
                     {item.answer}
                   </AccordionContent>
                 </AccordionItem>

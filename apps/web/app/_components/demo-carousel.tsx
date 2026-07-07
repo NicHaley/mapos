@@ -9,8 +9,9 @@ import {
 import { cn } from "@mapos/ui/lib/utils";
 import BackgroundVideo from "next-video/background-video";
 import type { Asset } from "next-video/dist/assets.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FaPause, FaPlay } from "react-icons/fa6";
+import bigBuckBunny from "../../videos/BigBuckBunny_320x180.mp4";
 
 // Demo videos are next-video assets: drop an MP4 into apps/web/videos, run
 // `npx next-video sync` to upload it to R2, then import it and set it on the
@@ -28,11 +29,13 @@ type DemoSlide = {
 };
 
 const SLIDES: DemoSlide[] = [
-  { id: "agent", tag: "AI agent", title: "Chat with your map" },
+  { id: "agent", tag: "AI agent", title: "Chat with your map", video: bigBuckBunny },
   { id: "vault", tag: "Vault", title: "Places as Markdown files" },
   { id: "offline", tag: "Offline", title: "Maps and routing, no internet" }
 ];
 
+// Fallback duration for slides without a video; video slides run for the
+// length of their video (advance on `ended`).
 const SLIDE_DURATION_MS = 8000;
 const TICK_MS = 50;
 
@@ -41,26 +44,69 @@ export function DemoCarousel() {
   const [current, setCurrent] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
+  // BackgroundVideo forwards a ref to its <video>; we keep the active slide's
+  // element to drive timing (progress + advance-on-end) from real playback.
+  const videoEls = useRef(new Map<number, HTMLVideoElement>());
+
+  const setVideoEl = useCallback(
+    (index: number) => (el: HTMLVideoElement | null) => {
+      if (el) videoEls.current.set(index, el);
+      else videoEls.current.delete(index);
+    },
+    []
+  );
 
   useEffect(() => {
-    if (!api || !isPlaying) return;
+    if (!api) return;
+    const video = videoEls.current.get(current);
+
+    // Only the visible slide should be playing.
+    for (const [i, v] of videoEls.current) {
+      if (i !== current) v.pause();
+    }
+
+    if (video) {
+      if (!isPlaying) {
+        video.pause();
+        return;
+      }
+      video.play().catch(() => {});
+      const onTime = () => {
+        if (video.duration > 0) setProgress((video.currentTime / video.duration) * 100);
+      };
+      const onEnded = () => api.scrollNext();
+      video.addEventListener("timeupdate", onTime);
+      video.addEventListener("ended", onEnded);
+      return () => {
+        video.removeEventListener("timeupdate", onTime);
+        video.removeEventListener("ended", onEnded);
+      };
+    }
+
+    if (!isPlaying) return;
     const interval = setInterval(() => {
       setProgress((prev) => prev + (100 * TICK_MS) / SLIDE_DURATION_MS);
     }, TICK_MS);
     return () => clearInterval(interval);
-  }, [api, isPlaying]);
+  }, [api, current, isPlaying]);
 
+  // Placeholder slides advance when the fixed timer fills; video slides advance
+  // on their `ended` event instead (kept out of the setProgress updater so it
+  // doesn't double-fire under Strict Mode).
   useEffect(() => {
-    if (!api || progress < 100) return;
+    if (!api || progress < 100 || SLIDES[current]?.video) return;
     api.scrollNext();
     setProgress(0);
-  }, [api, progress]);
+  }, [api, progress, current]);
 
   useEffect(() => {
     if (!api) return;
     const onSelect = () => {
-      setCurrent(api.selectedScrollSnap());
+      const index = api.selectedScrollSnap();
+      setCurrent(index);
       setProgress(0);
+      const video = videoEls.current.get(index);
+      if (video) video.currentTime = 0;
     };
     onSelect();
     api.on("select", onSelect);
@@ -81,12 +127,17 @@ export function DemoCarousel() {
     <div className="relative w-full">
       <Carousel className="w-full" opts={{ loop: true, align: "center" }} setApi={setApi}>
         <CarouselContent>
-          {SLIDES.map((slide) => {
+          {SLIDES.map((slide, i) => {
             return (
               <CarouselItem key={slide.id}>
                 <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
                   {slide.video ? (
-                    <BackgroundVideo className="absolute inset-0 h-full w-full" src={slide.video} />
+                    <BackgroundVideo
+                      className="absolute inset-0 h-full w-full"
+                      loop={false}
+                      ref={setVideoEl(i)}
+                      src={slide.video}
+                    />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="flex flex-col items-center gap-3.5">

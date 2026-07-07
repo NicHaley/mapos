@@ -8,6 +8,7 @@ import {
 } from "@mapos/ui/components/accordion";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { LuFileText, LuSparkles, LuWifiOff } from "react-icons/lu";
 import { SiApple } from "react-icons/si";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
@@ -52,6 +53,24 @@ const FAQ_ITEMS = [
   {
     question: "What platforms are supported?",
     answer: "MapOS is currently available for Apple Silicon Macs."
+  }
+];
+
+const FEATURES = [
+  {
+    icon: LuFileText,
+    title: "Places as Markdown",
+    body: "Every place is a Markdown file with its location in the frontmatter. Edit it in MapOS, in Obsidian, or in any text editor."
+  },
+  {
+    icon: LuSparkles,
+    title: "An AI agent for your map",
+    body: "Ask it to find places, draw routes, build overlays, and annotate. It reads and writes files in your vault directly."
+  },
+  {
+    icon: LuWifiOff,
+    title: "Maps that work offline",
+    body: "Download region packs for search, routing, and map tiles with no connection. Switch to cloud services whenever you want."
   }
 ];
 
@@ -170,6 +189,100 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             </section>
           </main>
         </div>
+
+        <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20">
+          <div className="mx-auto flex w-full max-w-[960px] flex-col gap-14">
+            <div className="flex flex-col items-center gap-3.5 text-center">
+              <h2 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
+                Your places are just files
+              </h2>
+              <p className="m-0 max-w-[560px] text-lg text-neutral-400">
+                Every place in MapOS is a plain Markdown file with its location in the frontmatter.
+                MapOS reads that and puts it on the map. No database and no lock-in; your data is
+                text you own.
+              </p>
+            </div>
+
+            <div className="grid items-stretch gap-4 md:grid-cols-2">
+              <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
+                <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-3">
+                  <span className="size-3 rounded-full bg-neutral-700" />
+                  <span className="size-3 rounded-full bg-neutral-700" />
+                  <span className="size-3 rounded-full bg-neutral-700" />
+                  <span className="ml-2 font-[family-name:var(--font-jetbrains-mono)] text-xs text-neutral-500">
+                    blue-bottle.md
+                  </span>
+                </div>
+                <pre className="overflow-x-auto p-5 font-[family-name:var(--font-jetbrains-mono)] text-[13px] leading-relaxed">
+                  <code>
+                    <span className="text-neutral-600">---</span>
+                    {"\n"}
+                    <span className="text-neutral-500">title:</span>{" "}
+                    <span className="text-neutral-200">Blue Bottle Coffee</span>
+                    {"\n"}
+                    <span className="text-neutral-500">geometry:</span>{" "}
+                    <span className="text-neutral-200">&quot;POINT(-122.423 37.765)&quot;</span>
+                    {"\n"}
+                    <span className="text-neutral-500">color:</span>{" "}
+                    <span className="text-[#3b82f6]">&quot;#3b82f6&quot;</span>
+                    {"\n"}
+                    <span className="text-neutral-500">tags:</span>{" "}
+                    <span className="text-neutral-200">[coffee, favorites]</span>
+                    {"\n"}
+                    <span className="text-neutral-600">---</span>
+                    {"\n\n"}
+                    <span className="text-neutral-400">Great cortado. Sit by the window.</span>
+                  </code>
+                </pre>
+              </div>
+
+              <div
+                className="relative min-h-[220px] overflow-hidden rounded-xl border border-neutral-800"
+                style={{
+                  backgroundColor: "#0d0d0f",
+                  backgroundImage:
+                    "linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px)",
+                  backgroundSize: "36px 36px"
+                }}
+              >
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-jetbrains-mono)] text-xs text-neutral-200 backdrop-blur">
+                      Blue Bottle Coffee
+                    </span>
+                    <svg
+                      aria-hidden="true"
+                      fill="#3b82f6"
+                      height="30"
+                      viewBox="0 0 24 24"
+                      width="30"
+                    >
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              {FEATURES.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <div
+                    className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/30 p-6"
+                    key={feature.title}
+                  >
+                    <div className="flex size-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200">
+                      <Icon aria-hidden="true" size={18} />
+                    </div>
+                    <h3 className="m-0 text-base font-medium text-neutral-50">{feature.title}</h3>
+                    <p className="m-0 text-sm leading-relaxed text-neutral-400">{feature.body}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
 
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20 pb-24">
           <div className="mx-auto flex w-full max-w-[960px] flex-col items-center gap-7">

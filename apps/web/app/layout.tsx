@@ -21,9 +21,28 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"]
 });
 
+const SITE_URL = "https://mapos.app";
+const OG_DESCRIPTION =
+  "Build local-first maps with Markdown notes, location data, and AI that runs on your Mac.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "MapOS — Markdown maps for AI",
-  description: "A plaintext map format your agents can actually read, write, and reason about."
+  description: "A plaintext map format your agents can actually read, write, and reason about.",
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: "MapOS",
+    title: "MapOS — Maps, Meet Markdown",
+    description: OG_DESCRIPTION,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "MapOS — Maps, Meet Markdown" }]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MapOS — Maps, Meet Markdown",
+    description: OG_DESCRIPTION,
+    images: ["/og.png"]
+  }
 };
 
 export default function RootLayout({

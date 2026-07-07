@@ -64,11 +64,11 @@ export default function TermsPage() {
 
       <h2>Limitation of liability</h2>
       <p>
-        To the fullest extent permitted by law, we will not be liable for any indirect, incidental,
-        special, consequential, or punitive damages, or for any loss of data, profits, or goodwill,
-        arising out of or related to your use of MapOS — including data loss caused by the AI agent
-        or by the app itself. Because MapOS is provided free of charge, our total liability to you
-        for any claim relating to the app will not exceed CAD $100.
+        MapOS is provided free of charge. To the fullest extent permitted by law, we will not be
+        liable for any damages of any kind arising out of or related to your use of MapOS. This
+        includes direct, indirect, incidental, special, consequential, and punitive damages, and any
+        loss of data, profits, or goodwill, whether caused by the AI agent, by the app itself, or
+        otherwise, even if we have been advised of the possibility of such damages.
       </p>
 
       <h2>Governing law</h2>

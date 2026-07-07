@@ -6,6 +6,7 @@ import {
   AccordionItem,
   AccordionTrigger
 } from "@mapos/ui/components/accordion";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { SiApple } from "react-icons/si";
 import { AsciiStarfield } from "./ascii-starfield";
@@ -27,6 +28,16 @@ const FAQ_ITEMS = [
     question: "Where is my data stored?",
     answer:
       "Everything lives in a folder on your Mac. The files are the source of truth: no accounts, no sync servers, and you can read or edit them with any text editor."
+  },
+  {
+    question: "Does MapOS collect any data?",
+    answer:
+      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode or your own AI provider."
+  },
+  {
+    question: "How does the AI agent work?",
+    answer:
+      "You connect your own AI provider: sign in with an existing subscription or paste an API key. Keys are encrypted in your Mac's keychain, and requests go straight from your machine to the provider — never through a MapOS server."
   },
   {
     question: "Can I use it with Obsidian?",
@@ -213,8 +224,20 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           </div>
         </section>
 
-        <footer className="flex items-center justify-center gap-2.5 bg-neutral-950 pb-5 font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
+        <footer className="flex items-center justify-center gap-4 bg-neutral-950 pb-5 font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
           <span>© 2026 MapOS</span>
+          <Link
+            className="text-neutral-500 no-underline transition-colors hover:text-neutral-300"
+            href="/privacy"
+          >
+            Privacy
+          </Link>
+          <Link
+            className="text-neutral-500 no-underline transition-colors hover:text-neutral-300"
+            href="/terms"
+          >
+            Terms
+          </Link>
         </footer>
       </div>
     </>

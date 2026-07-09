@@ -4,8 +4,9 @@ import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
+import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon";
 import { type BrowserWindow, ipcMain } from "electron";
-import type { Geometry } from "geojson";
+import type { Geometry, MultiPolygon, Polygon } from "geojson";
 import matter from "gray-matter";
 import { Type } from "typebox";
 import {
@@ -158,7 +159,7 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
 - \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry; to save it as a vault file, pass it to \`save_features_to_vault\` with a title. Do not try to retrieve, decode, or downsample route geometry yourself.
-- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes). Each contour comes back as an \`isochrone_id\` (opaque handle) plus pointCount/bbox — the polygon shape never crosses the LLM boundary. Pass the id to render (\`polygons\` entry), \`query_within_polygon\` (\`region_id\`), \`geo_compute\`, or \`save_features_to_vault\`; never re-emit its coordinates.
+- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes). Each contour comes back as an \`isochrone_id\` (opaque handle) plus pointCount/bbox — the polygon shape never crosses the LLM boundary. Pass the id to render (\`polygons\` entry), \`geo_compute\`, or \`save_features_to_vault\`; never re-emit its coordinates. To find things INSIDE the isochrone: the user's own saved places → \`query_within_polygon\` (\`region_id\`); external POIs like gas stations or cafes → \`geocode_search\` with \`within_id\` (a plain \`bbox\` is only a rectangular bias and leaks in POIs outside the shape).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
@@ -1044,7 +1045,7 @@ export function buildMaposCustomTools(
     name: "geocode_search",
     label: "Geocode search",
     description:
-      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
+      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. For \"POIs within an isochrone/area\", pass `within_id` (an isochrone_id or a geo_compute polygon geometry_id): results are kept only if they fall INSIDE that polygon — a plain `bbox` is just a rectangular ranking bias and lets in POIs outside the shape. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
@@ -1064,7 +1065,14 @@ export function buildMaposCustomTools(
           { description: "Restrict to feature kinds, e.g. ['poi']. Offline region packs only." }
         )
       ),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 8 })),
+      limit: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          maximum: 50,
+          description:
+            "Max results (default 8; 50 when restricting to within_id / a restrict_bbox, since those mean 'give me everything in the area'). Raise it for a dense category in a large area."
+        })
+      ),
       lang: Type.Optional(
         Type.String({ description: "ISO 639-1 language code for labels, e.g. 'en', 'fr'" })
       ),
@@ -1078,20 +1086,66 @@ export function buildMaposCustomTools(
           },
           { description: "Optional bias rectangle; results near this box score higher" }
         )
+      ),
+      within_id: Type.Optional(
+        Type.String({
+          description:
+            "Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id). Results are hard-filtered to those inside this polygon, and it also biases ranking toward the polygon's area. Use this for \"within an isochrone/area\" queries — unlike bbox it excludes POIs outside the shape."
+        })
+      ),
+      isochrone_id: Type.Optional(Type.String({ description: "Alias for within_id." })),
+      geometry_id: Type.Optional(Type.String({ description: "Alias for within_id." })),
+      restrict_bbox: Type.Optional(
+        Type.Boolean({
+          description:
+            "When true and a `bbox` is given, hard-filter results to inside the box (offline packs) rather than only biasing ranking toward it — e.g. 'every cafe in this rectangle'. `within_id` already implies this for its polygon's bounding box."
+        })
       )
     }),
     execute: async (_id, args) => {
       try {
+        // Resolve an optional containment polygon. When present it both restricts the
+        // geocoder to the polygon's bounding box (hard, via the offline R-tree) and then
+        // point-in-polygon filters the results to the exact shape. Restricting at the SQL
+        // level first means the candidate set is everything in the box, not just the
+        // top-ranked few — so the shape filter isn't starved of in-polygon candidates.
+        const withinHandle = args.within_id ?? args.isochrone_id ?? args.geometry_id;
+        let withinPolygon: Geometry | null = null;
+        let bbox = args.bbox;
+        if (withinHandle) {
+          withinPolygon = resolveGeometryId(withinHandle).geometry;
+          if (withinPolygon.type !== "Polygon" && withinPolygon.type !== "MultiPolygon") {
+            throw new Error(
+              `within_id "${withinHandle}" is a ${withinPolygon.type}, not a polygon.`
+            );
+          }
+          if (!bbox) {
+            const [west, south, east, north] = turfBbox(withinPolygon);
+            bbox = { north, south, east, west };
+          }
+        }
+        // Restrict at the source when containing a polygon, or when the caller asked to
+        // hard-clip a plain bbox. Otherwise bbox stays a ranking bias (the default).
+        const bboxMode =
+          bbox && (withinPolygon || args.restrict_bbox) ? ("restrict" as const) : undefined;
+        // "Within an area" means "give me all of them", so default higher when restricting;
+        // a plain lookup still defaults to 8. Either way the caller can override.
+        const limit = args.limit ?? (bboxMode === "restrict" ? 50 : 8);
         const results = await getServiceClient().geocoding.forward({
           query: args.query,
           categories: args.categories,
           kinds: args.kinds,
-          limit: args.limit ?? 8,
+          limit,
           lang: args.lang,
-          bbox: args.bbox
+          bbox,
+          bboxMode
         });
-        stashGeocodeResults(results);
-        return TEXT_RESULT(JSON.stringify({ results }));
+        const poly = withinPolygon as Polygon | MultiPolygon | null;
+        const filtered = poly
+          ? results.filter((r) => booleanPointInPolygon([r.lng, r.lat], poly))
+          : results;
+        stashGeocodeResults(filtered);
+        return TEXT_RESULT(JSON.stringify({ results: filtered }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }

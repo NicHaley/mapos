@@ -254,6 +254,26 @@ async function forward(
     inFilter("f.category", req.categories, "cat", params) +
     inFilter("f.kind", req.kinds, "kind", params);
 
+  // Hard bbox restrict (bboxMode "restrict"): unlike the ranking bias above, this
+  // excludes anything outside the box. The R-tree join is the indexed pre-filter
+  // (bbox-overlap, O(log n)); the point BETWEEN makes it exact, so a large feature
+  // whose bbox clips the box but whose representative point is outside is dropped.
+  // Both fragments are spliced into the WHERE unconditionally (empty when not restricting).
+  let restrictJoin = "";
+  let restrictWhere = "";
+  if (req.bboxMode === "restrict" && req.bbox) {
+    const { west, south, east, north } = req.bbox;
+    params.west = west;
+    params.south = south;
+    params.east = east;
+    params.north = north;
+    restrictJoin = " JOIN features_rtree rt ON rt.id = f.id";
+    restrictWhere =
+      " AND rt.min_lng <= @east AND rt.max_lng >= @west" +
+      " AND rt.min_lat <= @north AND rt.max_lat >= @south" +
+      " AND f.lng BETWEEN @west AND @east AND f.lat BETWEEN @south AND @north";
+  }
+
   // `score` is selected (not just ordered by) so we can merge-rank across packs —
   // lower is better. Each DB returns its own top `limit`, which is enough to
   // contain the global top `limit`.
@@ -273,8 +293,8 @@ async function forward(
          - (CASE WHEN lower(f.name) = @exact THEN 8.0 ELSE 0 END)
          ${distanceTerm}) AS score
      FROM features_fts
-     JOIN features f ON f.id = features_fts.rowid
-     WHERE features_fts MATCH @match${filterSql}
+     JOIN features f ON f.id = features_fts.rowid${restrictJoin}
+     WHERE features_fts MATCH @match${filterSql}${restrictWhere}
      ORDER BY score
      LIMIT @limit`
       : // Pure structured search (no text): FTS5 MATCH needs a query, so rank the
@@ -283,8 +303,8 @@ async function forward(
         // is effectively "nearest matching POIs"; without one it's "most important".
         `SELECT ${cols},
        (- f.importance * 4.0 ${distanceTerm}) AS score
-     FROM features f
-     WHERE 1=1${filterSql}
+     FROM features f${restrictJoin}
+     WHERE 1=1${filterSql}${restrictWhere}
      ORDER BY score
      LIMIT @limit`;
 

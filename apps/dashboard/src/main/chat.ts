@@ -13,7 +13,7 @@ import {
 import type { GeocodeResult } from "@mapos/contracts";
 import { type BrowserWindow, ipcMain } from "electron";
 import { resolveCapabilities } from "../shared/ai-models";
-import type { PlaceRecord, UndoEntry } from "../shared/types";
+import type { PlaceRecord, StashedGeometry, UndoEntry } from "../shared/types";
 import { AiConfigError, loadAiConfigForRequest } from "./ai";
 import { getRuntimeAuthStorage } from "./ai-auth";
 import {
@@ -186,6 +186,31 @@ export function setupChat(
     return cache;
   }
 
+  /**
+   * Stashed geometries (routes, isochrones, geo_compute output) keyed by opaque handle,
+   * per conversation. Like {@link geocodeCaches} it's scoped to the conversation — not the
+   * Pi session — so a handle survives across turns AND session re-creation. Unlike the
+   * geocode cache it is ALSO persisted to `<id>.state.json`, so a handle resolves after an
+   * app restart: the rendered layer persists too, and a handle the user can still see must
+   * still resolve. Rehydrated in {@link ensureLoaded}.
+   */
+  const geometryStores = new Map<string, Map<string, StashedGeometry>>();
+  function geometryStoreForConv(convId: string): Map<string, StashedGeometry> {
+    let store = geometryStores.get(convId);
+    if (!store) {
+      store = new Map();
+      geometryStores.set(convId, store);
+    }
+    return store;
+  }
+
+  /** Persist both overlay layers and the geometry stash for a conversation together. */
+  function persistConvState(convId: string): void {
+    const conv = conversations.get(convId);
+    const geometries = Object.fromEntries(geometryStoreForConv(convId));
+    saveConvState(convId, { layers: conv?.layers ?? [], geometries });
+  }
+
   initConversationsDir();
 
   function ensureLoaded(id: string): ActiveConversation | null {
@@ -212,6 +237,8 @@ export function setupChat(
         ...(meta?.title ? { title: meta.title } : {})
       };
       conversations.set(id, conv);
+      // Rehydrate the geometry stash so handles from prior turns still resolve (Option B).
+      geometryStores.set(id, new Map(Object.entries(state.geometries)));
       return conv;
     } catch {
       return null;
@@ -237,16 +264,18 @@ export function setupChat(
         // Replace any existing layer with the same id (re-run of the same tool
         // call), otherwise append. Order is preserved.
         conv.layers = [...(conv.layers ?? []).filter((l) => l.id !== layer.id), layer];
-        saveConvState(convId, { layers: conv.layers });
+        persistConvState(convId);
       },
       () => {
         const conv = conversations.get(convId);
         if (!conv) return;
         conv.layers = [];
-        saveConvState(convId, { layers: [] });
+        persistConvState(convId);
       },
       () => (conversations.get(convId)?.layers?.length ?? 0) > 0,
-      geocodeCacheForConv(convId)
+      geocodeCacheForConv(convId),
+      geometryStoreForConv(convId),
+      () => persistConvState(convId)
     );
   }
 
@@ -581,6 +610,7 @@ export function setupChat(
       conversations.delete(id);
       undoEntries.delete(id);
       geocodeCaches.delete(id);
+      geometryStores.delete(id);
     } catch (err) {
       console.error("[main] failed to delete conversation:", err);
     }

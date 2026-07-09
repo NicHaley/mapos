@@ -1,4 +1,5 @@
 import type { Message } from "@earendil-works/pi-ai";
+import type { Geometry } from "geojson";
 
 export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
@@ -116,6 +117,25 @@ export type MapOverlayLayer = MapOverlayPayload & {
    * selected folder, so no other source would render them.
    */
   vaultPaths?: string[];
+};
+
+/**
+ * A large geometry stashed server-side so its coordinates never cross the LLM boundary.
+ * The agent gets back an opaque id (`route_N`, `iso_N`, `geom_N`) and passes that id to
+ * render/query/save/geo_compute; the tool layer resolves it here. Persisted per
+ * conversation in `<id>.state.json` so a handle survives an app restart (the user can
+ * still see the rendered layer, so the handle must still resolve).
+ */
+export type StashedGeometry = {
+  kind: "route" | "isochrone" | "geometry";
+  /** GeoJSON geometry (Point | LineString | Polygon | MultiPolygon | …). */
+  geometry: Geometry;
+  /** route only: summary facts, so saving a route derives them from the source. */
+  distanceMeters?: number;
+  durationSeconds?: number;
+  mode?: string;
+  /** isochrone only: the contour's minute value. */
+  minutes?: number;
 };
 
 export type FileNode = {

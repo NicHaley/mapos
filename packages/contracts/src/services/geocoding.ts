@@ -11,8 +11,14 @@ export const GeocodeForwardRequestSchema = z.object({
   limit: z.number().int().min(1).max(50).optional(),
   /** ISO 639-1 language code, e.g. "en", "fr". */
   lang: z.string().optional(),
-  /** Optional bias rectangle for results. */
+  /** Optional rectangle for results. See `bboxMode` for how it's applied. */
   bbox: BBoxSchema.optional(),
+  /**
+   * How `bbox` is applied: `"bias"` (default) only nudges ranking toward the box, keeping
+   * results outside it; `"restrict"` hard-filters to features inside the box. Honored by the
+   * offline adapter (via its R-tree); Photon's `bbox` param already restricts either way.
+   */
+  bboxMode: z.enum(["bias", "restrict"]).optional(),
   /** Restrict to normalized category ids, e.g. ["restaurant","cafe"]. Offline packs only. */
   categories: z.array(z.string()).optional(),
   /** Restrict to feature kinds, e.g. ["poi"]. Offline packs only. */

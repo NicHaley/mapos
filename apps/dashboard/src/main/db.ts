@@ -382,7 +382,10 @@ function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): Feat
   return rows.map((r) => ({ ...r }));
 }
 
-export function querySpatialIndex(bounds: Bounds, filters?: SpatialFilters): FeatureRecord[] {
+export function querySpatialIndex(
+  bounds: Bounds | null,
+  filters?: SpatialFilters
+): FeatureRecord[] {
   return selectCandidates(bounds, filters);
 }
 

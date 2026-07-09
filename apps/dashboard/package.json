@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.6",
   "description": "An Electron application with React and TypeScript",
   "type": "module",
   "main": "./out/main/index.js",
@@ -17,13 +17,13 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux",
     "release": "./scripts/publish-release.sh"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.80.3",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@earendil-works/pi-ai": "^0.80.5",
+    "@earendil-works/pi-coding-agent": "^0.80.5",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@mapos/contracts": "workspace:*",
@@ -34,6 +34,7 @@
     "@turf/area": "^7.3.5",
     "@turf/bbox": "^7.3.4",
     "@turf/boolean-intersects": "^7.3.5",
+    "@turf/boolean-point-in-polygon": "^7.3.5",
     "@turf/buffer": "^7.3.5",
     "@turf/centroid": "^7.3.5",
     "@turf/clusters-dbscan": "^7.3.5",

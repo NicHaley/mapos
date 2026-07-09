@@ -90,17 +90,19 @@ async function main() {
   console.log(`  fonts: ${(fontBytes / 1e6).toFixed(1)} MB across ${STACKS.length} stacks`);
 
   // The global low-zoom world basemap is produced by the pipeline (not fetched
-  // from the public CDN), so just verify it's present and warn loudly if not —
-  // otherwise the map ships with no low-zoom backdrop outside downloaded regions.
+  // from the public CDN). It's a hard requirement: without it the app ships with
+  // no low-zoom backdrop outside downloaded regions, and nothing downstream (the
+  // build:* / package paths run this script) would otherwise catch its absence.
+  // Fail loudly so a publish can't silently produce a worldless app.
   const worldPath = join(OUT, "basemap", "world.pmtiles");
-  if (await exists(worldPath)) {
-    const { size } = await stat(worldPath);
-    console.log(`  world basemap: ${(size / 1e6).toFixed(0)} MB`);
-  } else {
-    console.warn("  ⚠ world basemap MISSING: resources/basemap-assets/basemap/world.pmtiles");
-    console.warn("    The map will have NO low-zoom backdrop. Build + bundle it with:");
-    console.warn("      cd ../../pipeline && make world bundle-world");
+  if (!(await exists(worldPath))) {
+    console.error("  ✗ world basemap MISSING: resources/basemap-assets/basemap/world.pmtiles");
+    console.error("    The map would ship with NO low-zoom backdrop. Build + bundle it with:");
+    console.error("      cd ../../pipeline && make world bundle-world");
+    process.exit(1);
   }
+  const { size } = await stat(worldPath);
+  console.log(`  world basemap: ${(size / 1e6).toFixed(0)} MB`);
   console.log("Done.");
 }
 

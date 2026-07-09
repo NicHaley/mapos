@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
-import type { MapOverlayLayer } from "../shared/types";
+import type { MapOverlayLayer, StashedGeometry } from "../shared/types";
 
 export type ActiveConversation = {
   id: string;
@@ -30,18 +30,24 @@ export function setConversationsDir(dir: string): void {
   activeConversationsIndex = join(dir, "index.jsonl");
 }
 
-export function loadConvState(id: string): { layers: MapOverlayLayer[] } {
+export type ConvState = {
+  layers: MapOverlayLayer[];
+  /** Geometry stash keyed by opaque handle (route_N / iso_N / geom_N). See StashedGeometry. */
+  geometries: Record<string, StashedGeometry>;
+};
+
+export function loadConvState(id: string): ConvState {
   try {
     const p = join(activeConversationsDir, `${id}.state.json`);
-    if (!existsSync(p)) return { layers: [] };
-    const parsed = JSON.parse(readFileSync(p, "utf-8")) as { layers?: MapOverlayLayer[] };
-    return { layers: parsed.layers ?? [] };
+    if (!existsSync(p)) return { layers: [], geometries: {} };
+    const parsed = JSON.parse(readFileSync(p, "utf-8")) as Partial<ConvState>;
+    return { layers: parsed.layers ?? [], geometries: parsed.geometries ?? {} };
   } catch {
-    return { layers: [] };
+    return { layers: [], geometries: {} };
   }
 }
 
-export function saveConvState(id: string, state: { layers: MapOverlayLayer[] }): void {
+export function saveConvState(id: string, state: ConvState): void {
   try {
     writeFileSync(join(activeConversationsDir, `${id}.state.json`), JSON.stringify(state), "utf-8");
   } catch (err) {

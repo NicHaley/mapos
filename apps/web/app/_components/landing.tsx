@@ -13,6 +13,7 @@ import { SiApple } from "react-icons/si";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { DemoCarousel } from "./demo-carousel";
+import { InteractiveGrid } from "./interactive-grid";
 import { MapOSLogo } from "./mapos-logo";
 
 const FAQ_ITEMS = [
@@ -210,15 +211,12 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                   <span className="size-3 rounded-full bg-neutral-700" />
                   <span className="size-3 rounded-full bg-neutral-700" />
                   <span className="ml-2 font-[family-name:var(--font-jetbrains-mono)] text-xs text-neutral-500">
-                    blue-bottle.md
+                    Blue Bottle Coffee.md
                   </span>
                 </div>
                 <pre className="overflow-x-auto p-5 font-[family-name:var(--font-jetbrains-mono)] text-[13px] leading-relaxed">
                   <code>
                     <span className="text-neutral-600">---</span>
-                    {"\n"}
-                    <span className="text-neutral-500">title:</span>{" "}
-                    <span className="text-neutral-200">Blue Bottle Coffee</span>
                     {"\n"}
                     <span className="text-neutral-500">geometry:</span>{" "}
                     <span className="text-neutral-200">&quot;POINT(-122.423 37.765)&quot;</span>
@@ -236,16 +234,8 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                 </pre>
               </div>
 
-              <div
-                className="relative min-h-[220px] overflow-hidden rounded-xl border border-neutral-800"
-                style={{
-                  backgroundColor: "#0d0d0f",
-                  backgroundImage:
-                    "linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px)",
-                  backgroundSize: "36px 36px"
-                }}
-              >
-                <div className="absolute inset-0 flex items-center justify-center">
+              <InteractiveGrid>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="flex flex-col items-center gap-2">
                     <span className="rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-jetbrains-mono)] text-xs text-neutral-200 backdrop-blur">
                       Blue Bottle Coffee
@@ -261,7 +251,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                     </svg>
                   </div>
                 </div>
-              </div>
+              </InteractiveGrid>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">

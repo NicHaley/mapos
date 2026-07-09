@@ -384,8 +384,11 @@ export function buildMaposCustomTools(
             geometry_id: Type.Optional(
               Type.String({
                 description:
-                  "Opaque id of a stashed polygon (an isochrone_id from get_isochrone, or a geometry_id from geo_compute). Preferred — the server resolves it to the full polygon without re-transmitting coordinates through the LLM. A MultiPolygon is expanded to several polygon shapes automatically."
+                  "Opaque id of a stashed polygon (a geometry_id from geo_compute, or an isochrone_id from get_isochrone — either key works here). Preferred — the server resolves it to the full polygon without re-transmitting coordinates through the LLM. A MultiPolygon is expanded to several polygon shapes automatically."
               })
+            ),
+            isochrone_id: Type.Optional(
+              Type.String({ description: "Alias for geometry_id when the handle is an isochrone." })
             ),
             coordinates: Type.Optional(
               Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
@@ -433,8 +436,12 @@ export function buildMaposCustomTools(
               );
             }
             coordinates = geom.coordinates as [number, number][];
+          } else if (l.coordinates && l.coordinates.length > 0) {
+            coordinates = l.coordinates as [number, number][];
           } else {
-            coordinates = (l.coordinates ?? []) as [number, number][];
+            // Neither a route_id nor inline coordinates — a malformed entry that would
+            // otherwise render an invisible empty line and falsely report success.
+            throw new Error("A lines entry needs route_id (preferred) or non-empty coordinates.");
           }
           return {
             id: `${layerId}:${l.id ?? `line-${i}`}`,
@@ -455,20 +462,27 @@ export function buildMaposCustomTools(
         // list imperatively rather than 1:1.
         const polygons: MapOverlayLayer["polygons"] = [];
         (args.polygons ?? []).forEach((p, i) => {
+          const handle = p.geometry_id ?? p.isochrone_id;
           let ringSets: [number, number][][][];
-          if (p.geometry_id) {
-            const geom = resolveGeometryId(p.geometry_id).geometry;
+          if (handle) {
+            const geom = resolveGeometryId(handle).geometry;
             if (geom.type === "Polygon") {
               ringSets = [geom.coordinates as [number, number][][]];
             } else if (geom.type === "MultiPolygon") {
               ringSets = geom.coordinates as [number, number][][][];
             } else {
               throw new Error(
-                `Geometry id "${p.geometry_id}" is a ${geom.type}, not a polygon. Pass an isochrone_id or a polygon geometry_id to a polygons entry.`
+                `Geometry id "${handle}" is a ${geom.type}, not a polygon. Pass an isochrone_id or a polygon geometry_id to a polygons entry.`
               );
             }
+          } else if (p.coordinates && p.coordinates.length > 0) {
+            ringSets = [p.coordinates as [number, number][][]];
           } else {
-            ringSets = [(p.coordinates ?? []) as [number, number][][]];
+            // Neither a handle nor inline rings — a malformed entry that would otherwise
+            // render an invisible empty polygon and falsely report success.
+            throw new Error(
+              "A polygons entry needs geometry_id/isochrone_id (preferred) or non-empty coordinates."
+            );
           }
           ringSets.forEach((rings, j) => {
             const base = p.id ?? `polygon-${i}`;
@@ -751,9 +765,11 @@ export function buildMaposCustomTools(
       region_id: Type.Optional(
         Type.String({
           description:
-            "Opaque id of a stashed polygon (isochrone_id / geometry_id). Preferred over coordinates."
+            "Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id — any of region_id/isochrone_id/geometry_id is accepted). Preferred over coordinates."
         })
       ),
+      isochrone_id: Type.Optional(Type.String({ description: "Alias for region_id." })),
+      geometry_id: Type.Optional(Type.String({ description: "Alias for region_id." })),
       coordinates: Type.Optional(
         Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
           description:
@@ -769,16 +785,17 @@ export function buildMaposCustomTools(
       try {
         // Resolve the region to one or more coordinate ring-sets. A region_id may be a
         // MultiPolygon (run each sub-polygon and dedupe); coordinates are a single polygon.
+        const regionHandle = args.region_id ?? args.isochrone_id ?? args.geometry_id;
         let ringSets: number[][][][];
-        if (args.region_id) {
-          const geom = resolveGeometryId(args.region_id).geometry;
+        if (regionHandle) {
+          const geom = resolveGeometryId(regionHandle).geometry;
           if (geom.type === "Polygon") {
             ringSets = [geom.coordinates as number[][][]];
           } else if (geom.type === "MultiPolygon") {
             ringSets = geom.coordinates as number[][][][];
           } else {
             throw new Error(
-              `Geometry id "${args.region_id}" is a ${geom.type}, not a polygon region.`
+              `Geometry id "${regionHandle}" is a ${geom.type}, not a polygon region.`
             );
           }
         } else if (args.coordinates) {
@@ -874,12 +891,15 @@ export function buildMaposCustomTools(
       geometry_id: Type.Optional(
         Type.String({
           description:
-            "Opaque handle for the primary input (route_id / isochrone_id / a prior geo_compute geometry_id). Preferred over inline geometry."
+            "Opaque handle for the primary input (a route_id, isochrone_id, or prior geo_compute geometry_id — any of these key names is accepted). Preferred over inline geometry."
         })
       ),
+      isochrone_id: Type.Optional(Type.String({ description: "Alias for geometry_id." })),
+      route_id: Type.Optional(Type.String({ description: "Alias for geometry_id." })),
       geometry_b_id: Type.Optional(
         Type.String({ description: "Opaque handle for the second operand (union/intersect)." })
       ),
+      isochrone_b_id: Type.Optional(Type.String({ description: "Alias for geometry_b_id." })),
       geometry: Type.Optional(
         Type.Unknown({ description: "Inline GeoJSON geometry, Feature, or FeatureCollection" })
       ),
@@ -906,12 +926,10 @@ export function buildMaposCustomTools(
     execute: async (_id, args) => {
       try {
         const operation = args.operation as GeoOperation;
-        const geometry = args.geometry_id
-          ? resolveGeometryId(args.geometry_id).geometry
-          : args.geometry;
-        const geometryB = args.geometry_b_id
-          ? resolveGeometryId(args.geometry_b_id).geometry
-          : args.geometry_b;
+        const primaryId = args.geometry_id ?? args.isochrone_id ?? args.route_id;
+        const secondId = args.geometry_b_id ?? args.isochrone_b_id;
+        const geometry = primaryId ? resolveGeometryId(primaryId).geometry : args.geometry;
+        const geometryB = secondId ? resolveGeometryId(secondId).geometry : args.geometry_b;
         const result = runGeoCompute({
           operation,
           geometry,
@@ -1359,8 +1377,11 @@ export function buildMaposCustomTools(
           geometry_id: Type.Optional(
             Type.String({
               description:
-                "A stashed geometry handle (an isochrone_id from get_isochrone or a geometry_id from geo_compute). Saves it as a place file; the app resolves the WKT geometry — never re-emit coordinates yourself. Requires `title`; leave lat/lng unset. Only Point/LineString/Polygon geometry is supported (a MultiPolygon must be unioned/simplified first)."
+                "A stashed geometry handle (a geometry_id from geo_compute or an isochrone_id from get_isochrone — either key works). Saves it as a place file; the app resolves the WKT geometry — never re-emit coordinates yourself. Requires `title`; leave lat/lng unset. Only Point/LineString/Polygon geometry is supported (a MultiPolygon must be unioned/simplified first)."
             })
+          ),
+          isochrone_id: Type.Optional(
+            Type.String({ description: "Alias for geometry_id when the handle is an isochrone." })
           ),
           title: Type.Optional(
             Type.String({
@@ -1478,19 +1499,20 @@ export function buildMaposCustomTools(
           });
           continue;
         }
-        if (f.geometry_id) {
-          const stored = geometryStore.get(f.geometry_id);
+        const geomHandle = f.geometry_id ?? f.isochrone_id;
+        if (geomHandle) {
+          const stored = geometryStore.get(geomHandle);
           if (!stored) {
-            unresolvedGeometryIds.push(f.geometry_id);
+            unresolvedGeometryIds.push(geomHandle);
             continue;
           }
           if (!f.title) {
-            untitledGeometryIds.push(f.geometry_id);
+            untitledGeometryIds.push(geomHandle);
             continue;
           }
           const wkt = geometryToWkt(stored.geometry);
           if (!wkt) {
-            unsupportedGeometryIds.push(f.geometry_id);
+            unsupportedGeometryIds.push(geomHandle);
             continue;
           }
           resolved.push({

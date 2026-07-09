@@ -34,6 +34,7 @@
     "@turf/area": "^7.3.5",
     "@turf/bbox": "^7.3.4",
     "@turf/boolean-intersects": "^7.3.5",
+    "@turf/boolean-point-in-polygon": "^7.3.5",
     "@turf/buffer": "^7.3.5",
     "@turf/centroid": "^7.3.5",
     "@turf/clusters-dbscan": "^7.3.5",

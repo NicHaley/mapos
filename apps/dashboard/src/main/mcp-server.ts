@@ -8,7 +8,7 @@ import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon";
 import { type BrowserWindow, ipcMain } from "electron";
 import type { Geometry, MultiPolygon, Polygon } from "geojson";
 import matter from "gray-matter";
-import { Type } from "typebox";
+import { type TSchema, Type } from "typebox";
 import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
@@ -91,6 +91,28 @@ function countPositions(geom: Geometry): number {
   return count;
 }
 
+// Some models — smaller local ones especially — emit an array-valued tool argument
+// as a JSON-encoded string (e.g. `features: "[{...}]"`) rather than a real array. The
+// SDK's TypeBox validation runs before the handler and doesn't parse it back, so the
+// call fails with a confusing "features.0: must be object". Tools that take such an
+// array declare the param with `jsonArrayParam` (accepts either shape) and normalize
+// the value with `coerceJsonArray` at the top of their handler.
+function jsonArrayParam(item: TSchema, options: { minItems?: number; description: string }) {
+  return Type.Union([Type.Array(item, options), Type.String()], {
+    description: `${options.description} Pass a JSON array of objects; a JSON string of that same array is also accepted.`
+  });
+}
+
+function coerceJsonArray<T>(value: readonly T[] | string): T[] {
+  if (typeof value !== "string") return [...value];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [parsed as T];
+  } catch {
+    return [];
+  }
+}
+
 // Read-only built-ins plus `bash` (kept for legitimate shell needs like `exiftool`
 // during photo import). `write` and `edit` are deliberately omitted: any vault
 // mutation must go through `write_vault_file`/`delete_vault_file`/`rename_vault_file`
@@ -163,7 +185,7 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
-To search the user's own indexed places spatially (\`query_spatial_index\` only takes a rectangle):
+To search the user's own indexed places spatially (\`query_spatial_index\` takes an optional \`bounds\` — omit it to scan the whole vault, or pass a rectangle; it can't take a non-rectangular area):
 
 - \`find_near\` — places nearest a point, sorted nearest-first with \`distance_m\` (geodesic meters). Pass \`radius_m\` to cap to a circle ("cafes within 500 m"), or omit it for the K nearest overall. Combine with \`filters\` (tags/category/folder) for "nearest ramen".
 - \`query_within_polygon\` — the user's places that fall inside a polygon region (a drawn area, or an isochrone from \`get_isochrone\`). Pass the region by handle as \`region_id\` (an isochrone_id or a geo_compute geometry_id) whenever you have one; only pass \`coordinates\` (rings as \`[[[lng, lat], ...]]\`) for a hand-built polygon.
@@ -525,7 +547,7 @@ export function buildMaposCustomTools(
     description:
       "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), or a genuinely ad-hoc place you couldn't look up (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
     parameters: Type.Object({
-      features: Type.Array(
+      features: jsonArrayParam(
         Type.Object({
           result_id: Type.Optional(
             Type.String({
@@ -572,7 +594,7 @@ export function buildMaposCustomTools(
         }),
         {
           minItems: 1,
-          description: "Ordered features to show; order is preserved in the rendered list"
+          description: "Ordered features to show; order is preserved in the rendered list."
         }
       ),
       layer_name: Type.Optional(
@@ -581,6 +603,15 @@ export function buildMaposCustomTools(
     }),
     execute: async (toolCallId, args) => {
       const layerId = toolCallId;
+      const features = coerceJsonArray(args.features);
+      if (features.length === 0) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            error:
+              "No features to present — `features` was empty or could not be parsed. Pass a non-empty JSON array of feature objects, each with a result_id, a path, or title+lat+lng."
+          })
+        );
+      }
       const refs: string[] = [];
       const points: MapOverlayLayer["points"] = [];
       const vaultPaths: string[] = [];
@@ -588,7 +619,7 @@ export function buildMaposCustomTools(
       // fallback), so they were dropped. Reported back so the agent re-searches instead
       // of silently showing a short list. Happens mainly after a restart clears the cache.
       const unresolvedResultIds: string[] = [];
-      args.features.forEach((f, i) => {
+      features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
           refs.push(`vault:${f.path}`);
           vaultPaths.push(f.path);
@@ -699,21 +730,29 @@ export function buildMaposCustomTools(
     name: "query_spatial_index",
     label: "Query spatial index",
     description:
-      "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. To find a place by name, don't scan here — use spatial_sql with `file_path LIKE '%name%'` (the file basename is the place's name).",
+      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. To find a place by name, don't scan here — use spatial_sql with `file_path LIKE '%name%'` (the file basename is the place's name).",
     parameters: Type.Object({
-      bounds: Type.Object({
-        north: Type.Number(),
-        south: Type.Number(),
-        east: Type.Number(),
-        west: Type.Number()
-      }),
+      bounds: Type.Optional(
+        Type.Object(
+          {
+            north: Type.Number(),
+            south: Type.Number(),
+            east: Type.Number(),
+            west: Type.Number()
+          },
+          {
+            description:
+              "Optional bounding box. Omit to search the whole vault; provide to restrict results to a rectangle."
+          }
+        )
+      ),
       filters: Type.Optional(spatialFilters),
       limit: Type.Optional(
         Type.Integer({ minimum: 1, maximum: 1000, default: 200, description: "Max rows to return" })
       )
     }),
     execute: async (_id, args) => {
-      const results = querySpatialIndex(args.bounds, args.filters);
+      const results = querySpatialIndex(args.bounds ?? null, args.filters);
       return TEXT_RESULT(JSON.stringify(stripGeometry(results, args.limit ?? 200)));
     }
   });
@@ -1414,7 +1453,7 @@ export function buildMaposCustomTools(
     description:
       "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — the app expands the id to the full LINESTRING geometry and fills in distance/duration/mode), a stashed geometry like an isochrone or a geo_compute result (set `geometry_id` plus a `title` — the app expands the id to the polygon/line geometry), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
     parameters: Type.Object({
-      features: Type.Array(
+      features: jsonArrayParam(
         Type.Object({
           result_id: Type.Optional(
             Type.String({
@@ -1466,7 +1505,7 @@ export function buildMaposCustomTools(
             })
           )
         }),
-        { minItems: 1, description: "Places to save" }
+        { minItems: 1, description: "Places to save." }
       ),
       folder: Type.Optional(
         Type.String({
@@ -1480,6 +1519,16 @@ export function buildMaposCustomTools(
       if (!isUnderVault(folder)) {
         return TEXT_RESULT(
           JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+      const features = coerceJsonArray(args.features);
+      if (features.length === 0) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error:
+              "No features to save — `features` was empty or could not be parsed. Pass a non-empty JSON array of feature objects, each with a result_id, route_id, geometry_id, or title+lat+lng."
+          })
         );
       }
 
@@ -1497,7 +1546,7 @@ export function buildMaposCustomTools(
       const unresolvedGeometryIds: string[] = [];
       const untitledGeometryIds: string[] = [];
       const unsupportedGeometryIds: string[] = [];
-      for (const f of args.features) {
+      for (const f of features) {
         // Preferred path: derive everything from the cached geocoder result, exactly
         // like the search UI's save — the model never re-types facts. Extra keys it
         // passed are kept (sanitized) but source-derived properties win.

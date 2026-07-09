@@ -3,7 +3,9 @@ import { dirname, sep } from "node:path";
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
+import { bbox as turfBbox } from "@turf/bbox";
 import { type BrowserWindow, ipcMain } from "electron";
+import type { Geometry } from "geojson";
 import matter from "gray-matter";
 import { Type } from "typebox";
 import {
@@ -13,6 +15,7 @@ import {
 import {
   type MapOverlayLayer,
   type PlaceRecord,
+  type StashedGeometry,
   type VaultOperation,
   orderDetailProperties
 } from "../shared/types";
@@ -31,6 +34,7 @@ import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
 import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
 import { downloadWikidataImage } from "./wiki-image";
+import { geometryToWkt } from "./wkt";
 
 function errorPayload(err: unknown): string {
   if (err instanceof MapServiceError) {
@@ -49,6 +53,42 @@ const TEXT_RESULT = (text: string) => ({
   content: [{ type: "text" as const, text }],
   details: {}
 });
+
+/** Pull a single GeoJSON Geometry out of a Turf result (geometry, Feature, or FeatureCollection). */
+function extractGeometry(result: unknown): Geometry | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as {
+    type?: string;
+    geometry?: unknown;
+    features?: Array<{ geometry?: unknown }>;
+    coordinates?: unknown;
+    geometries?: unknown;
+  };
+  if (r.type === "Feature") return (r.geometry as Geometry | null) ?? null;
+  if (r.type === "FeatureCollection") {
+    const geoms = (r.features ?? []).map((f) => f.geometry).filter(Boolean) as Geometry[];
+    if (geoms.length === 0) return null;
+    if (geoms.length === 1) return geoms[0];
+    return { type: "GeometryCollection", geometries: geoms };
+  }
+  if (r.coordinates != null || r.geometries != null) return result as Geometry;
+  return null;
+}
+
+/** Count coordinate positions in a geometry — a cheap size summary for the model. */
+function countPositions(geom: Geometry): number {
+  if (geom.type === "GeometryCollection") {
+    return geom.geometries.reduce((n, g) => n + countPositions(g), 0);
+  }
+  let count = 0;
+  const walk = (c: unknown): void => {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === "number") count++;
+    else for (const x of c) walk(x);
+  };
+  walk((geom as { coordinates?: unknown }).coordinates);
+  return count;
+}
 
 // Read-only built-ins plus `bash` (kept for legitimate shell needs like `exiftool`
 // during photo import). `write` and `edit` are deliberately omitted: any vault
@@ -118,16 +158,18 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
 - \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry; to save it as a vault file, pass it to \`save_features_to_vault\` with a title. Do not try to retrieve, decode, or downsample route geometry yourself.
-- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes).
+- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes). Each contour comes back as an \`isochrone_id\` (opaque handle) plus pointCount/bbox — the polygon shape never crosses the LLM boundary. Pass the id to render (\`polygons\` entry), \`query_within_polygon\` (\`region_id\`), \`geo_compute\`, or \`save_features_to_vault\`; never re-emit its coordinates.
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
 To search the user's own indexed places spatially (\`query_spatial_index\` only takes a rectangle):
 
 - \`find_near\` — places nearest a point, sorted nearest-first with \`distance_m\` (geodesic meters). Pass \`radius_m\` to cap to a circle ("cafes within 500 m"), or omit it for the K nearest overall. Combine with \`filters\` (tags/category/folder) for "nearest ramen".
-- \`query_within_polygon\` — the user's places that fall inside a polygon region (a drawn area, or an isochrone from \`get_isochrone\`). Pass rings as \`[[[lng, lat], ...]]\`.
+- \`query_within_polygon\` — the user's places that fall inside a polygon region (a drawn area, or an isochrone from \`get_isochrone\`). Pass the region by handle as \`region_id\` (an isochrone_id or a geo_compute geometry_id) whenever you have one; only pass \`coordinates\` (rings as \`[[[lng, lat], ...]]\`) for a hand-built polygon.
 
 Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
+
+To find one of the user's places BY NAME (e.g. "Home", "the office"), a place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\`. So look it up with \`spatial_sql\` \`SELECT file_path, geometry FROM features WHERE file_path LIKE '%home%'\` (this is exactly how the app's own search matches). Don't scan for a \`name\` property or shell out to \`find\` first.
 
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
@@ -135,12 +177,12 @@ For analytical questions about indexed files that \`query_spatial_index\` can't 
 
 To COMPUTE geometry (as opposed to selecting places), use:
 
-- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is inline GeoJSON (\`geometry\`/\`geometry_b\`) or \`feature_paths\` resolved from the index (preferred for saved features — don't re-send their geometry). Output is GeoJSON you can pass straight to \`render_overlay_on_map\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect → render.
+- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is a handle (\`geometry_id\`/\`geometry_b_id\`, e.g. an isochrone_id), \`feature_paths\` resolved from the index, or inline GeoJSON (\`geometry\`/\`geometry_b\`) for hand-built input — prefer handles/paths so geometry doesn't re-cross the boundary. Geometry-producing ops return a new \`geometry_id\` (measurement ops return values inline); pass that id to \`render_overlay_on_map\`, \`query_within_polygon\`, or \`save_features_to_vault\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect on their two isochrone_ids → \`query_within_polygon\` with the resulting geometry_id.
 
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
 - a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
-- each \`contours[].polygon.coordinates\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry
+- each contour's \`isochrone_id\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry as \`{ isochrone_id }\` (or \`{ geometry_id }\` for a geo_compute result). Never pass polygon coordinates yourself.
 
 Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
 
@@ -195,28 +237,52 @@ export function buildMaposCustomTools(
   hasLayers: () => boolean,
   /** Conversation-scoped cache of geocoder results, keyed by `GeocodeResult.id`. Owned by
    *  the caller so it outlives this tool set (which is rebuilt when the session is). */
-  geocodeStore: Map<string, GeocodeResult>
+  geocodeStore: Map<string, GeocodeResult>,
+  /** Conversation-scoped geometry stash (routes, isochrones, geo_compute output), keyed by
+   *  opaque handle. Owned + persisted by the caller so handles survive session re-creation
+   *  and app restart. See {@link StashedGeometry}. */
+  geometryStore: Map<string, StashedGeometry>,
+  /** Called after the stash mutates so the caller can persist it. */
+  onGeometryUpdate: () => void
 ): ToolDefinition[] {
-  // Pass-by-reference store for large geometries returned to the agent. Carries the
-  // route's summary facts too, so saving a route derives them from the source rather
-  // than round-tripping them through the model.
-  type StashedRoute = {
-    coords: [number, number][];
+  // Pass-by-reference store for large geometries returned to the agent, so coordinates
+  // never cross the LLM boundary. Route entries carry summary facts too, so saving a
+  // route derives them from the source rather than round-tripping through the model.
+  const nextGeometryId = (prefix: string): string => {
+    // Monotonic across rehydration: 1 + the max numeric suffix already present, over ALL
+    // prefixes, so ids never collide even after eviction or a reload from disk.
+    let max = 0;
+    for (const key of geometryStore.keys()) {
+      const n = Number.parseInt(key.slice(key.indexOf("_") + 1), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return `${prefix}_${max + 1}`;
+  };
+  const stashGeometry = (entry: StashedGeometry, prefix: string): string => {
+    const id = nextGeometryId(prefix);
+    geometryStore.set(id, entry);
+    if (geometryStore.size > 50) {
+      const oldest = geometryStore.keys().next().value;
+      if (oldest != null && oldest !== id) geometryStore.delete(oldest);
+    }
+    onGeometryUpdate();
+    return id;
+  };
+  const stashRoute = (route: {
+    geometry: Geometry;
     distanceMeters: number;
     durationSeconds: number;
     mode: string;
-  };
-  const routeStore = new Map<string, StashedRoute>();
-  let routeSeq = 0;
-  const stashRoute = (route: StashedRoute): string => {
-    routeSeq++;
-    const id = `route_${routeSeq}`;
-    routeStore.set(id, route);
-    if (routeStore.size > 50) {
-      const oldest = routeStore.keys().next().value;
-      if (oldest != null) routeStore.delete(oldest);
+  }): string => stashGeometry({ kind: "route", ...route }, "route");
+  /** Resolve an opaque handle to its geometry, or throw a clear, tool-naming miss error. */
+  const resolveGeometryId = (id: string): StashedGeometry => {
+    const stored = geometryStore.get(id);
+    if (!stored) {
+      throw new Error(
+        `Unknown geometry id "${id}". Geometry handles are cached per conversation; if it was evicted or predates this feature, recompute it (get_directions / get_isochrone / geo_compute) and use the new id.`
+      );
     }
-    return id;
+    return stored;
   };
 
   // `geocodeStore` (passed in, conversation-scoped) caches geocoder results so
@@ -234,6 +300,28 @@ export function buildMaposCustomTools(
     }
   };
 
+  // The spatial query tools tell the agent to pass file_path to present_features, which
+  // re-resolves geometry itself — so the raw `geometry` GeoJSON per row is dead weight in
+  // the model's context. Omit it, and cap the row count so a large bbox can't blow up context.
+  const stripGeometry = (
+    rows: Array<{
+      file_path: string;
+      geometry_type: string;
+      color: string | null;
+      distance_m?: number;
+    }>,
+    limit: number
+  ) => {
+    const truncated = rows.length > limit;
+    const features = rows.slice(0, limit).map((r) => ({
+      file_path: r.file_path,
+      geometry_type: r.geometry_type,
+      ...(r.color != null ? { color: r.color } : {}),
+      ...(r.distance_m != null ? { distance_m: r.distance_m } : {})
+    }));
+    return { features, count: features.length, truncated };
+  };
+
   const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
   const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
 
@@ -248,7 +336,7 @@ export function buildMaposCustomTools(
     name: "render_overlay_on_map",
     label: "Render map overlay",
     description:
-      "Display lines, polygons, or bulk points on the map as a temporary overlay without saving. Use for routes, isochrones/areas, and large datasets/layers the user views in aggregate. For a browsable list of places the user will pick from, use present_features instead (it renders a clickable, map-connected list). Lines: routes, boundaries. Polygons: isochrones, areas. For routes from get_directions, pass the returned `route_id` to a `lines` entry — never re-emit coordinates or a polyline yourself; that costs tens of thousands of output tokens and takes minutes.",
+      "Display lines, polygons, or bulk points on the map as a temporary overlay without saving. Use for routes, isochrones/areas, and large datasets/layers the user views in aggregate. For a browsable list of places the user will pick from, use present_features instead (it renders a clickable, map-connected list). Lines: routes, boundaries. Polygons: isochrones, areas. Pass geometry by handle, never by coordinates: a route from get_directions → `route_id` on a `lines` entry; an isochrone or computed polygon → `isochrone_id`/`geometry_id` on a `polygons` entry. Re-emitting coordinates yourself costs tens of thousands of output tokens and takes minutes.",
     parameters: Type.Object({
       points: Type.Optional(
         Type.Array(
@@ -293,12 +381,17 @@ export function buildMaposCustomTools(
       polygons: Type.Optional(
         Type.Array(
           Type.Object({
-            coordinates: Type.Array(
-              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })),
-              {
+            geometry_id: Type.Optional(
+              Type.String({
                 description:
-                  "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close)."
-              }
+                  "Opaque id of a stashed polygon (an isochrone_id from get_isochrone, or a geometry_id from geo_compute). Preferred — the server resolves it to the full polygon without re-transmitting coordinates through the LLM. A MultiPolygon is expanded to several polygon shapes automatically."
+              })
+            ),
+            coordinates: Type.Optional(
+              Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
+                description:
+                  "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close). Use only for short, hand-built polygons — for isochrones or computed geometry, pass geometry_id."
+              })
             ),
             title: Type.Optional(Type.String()),
             id: Type.Optional(Type.String()),
@@ -333,13 +426,13 @@ export function buildMaposCustomTools(
         const lines = (args.lines ?? []).map((l, i) => {
           let coordinates: [number, number][];
           if (l.route_id) {
-            const stored = routeStore.get(l.route_id);
-            if (!stored) {
+            const geom = resolveGeometryId(l.route_id).geometry;
+            if (geom.type !== "LineString") {
               throw new Error(
-                `Unknown route_id "${l.route_id}". Routes are cached in-memory; if the server restarted or the route was evicted, call get_directions again.`
+                `Geometry id "${l.route_id}" is a ${geom.type}, not a line. Pass a route_id from get_directions to a lines entry.`
               );
             }
-            coordinates = stored.coords;
+            coordinates = geom.coordinates as [number, number][];
           } else {
             coordinates = (l.coordinates ?? []) as [number, number][];
           }
@@ -350,19 +443,43 @@ export function buildMaposCustomTools(
             ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
           };
         });
-        const polygons = (args.polygons ?? []).map((p, i) => ({
-          id: `${layerId}:${p.id ?? `polygon-${i}`}`,
-          coordinates: (p.coordinates as [number, number][][]).map((ring) => {
-            if (ring.length < 2) return ring;
-            const first = ring[0];
-            const last = ring[ring.length - 1];
-            if (!first || !last) return ring;
-            const isClosed = first[0] === last[0] && first[1] === last[1];
-            return isClosed ? ring : [...ring, first];
-          }),
-          title: p.title,
-          ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
-        }));
+        const closeRing = (ring: [number, number][]): [number, number][] => {
+          if (ring.length < 2) return ring;
+          const first = ring[0];
+          const last = ring[ring.length - 1];
+          if (!first || !last) return ring;
+          const isClosed = first[0] === last[0] && first[1] === last[1];
+          return isClosed ? ring : [...ring, first];
+        };
+        // A polygon entry may resolve to several shapes (a MultiPolygon), so build the
+        // list imperatively rather than 1:1.
+        const polygons: MapOverlayLayer["polygons"] = [];
+        (args.polygons ?? []).forEach((p, i) => {
+          let ringSets: [number, number][][][];
+          if (p.geometry_id) {
+            const geom = resolveGeometryId(p.geometry_id).geometry;
+            if (geom.type === "Polygon") {
+              ringSets = [geom.coordinates as [number, number][][]];
+            } else if (geom.type === "MultiPolygon") {
+              ringSets = geom.coordinates as [number, number][][][];
+            } else {
+              throw new Error(
+                `Geometry id "${p.geometry_id}" is a ${geom.type}, not a polygon. Pass an isochrone_id or a polygon geometry_id to a polygons entry.`
+              );
+            }
+          } else {
+            ringSets = [(p.coordinates ?? []) as [number, number][][]];
+          }
+          ringSets.forEach((rings, j) => {
+            const base = p.id ?? `polygon-${i}`;
+            polygons.push({
+              id: `${layerId}:${base}${ringSets.length > 1 ? `-${j}` : ""}`,
+              coordinates: rings.map(closeRing),
+              title: p.title,
+              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
+            });
+          });
+        });
         const layer: MapOverlayLayer = {
           id: layerId,
           layerName: args.layer_name ?? "search-results",
@@ -567,7 +684,7 @@ export function buildMaposCustomTools(
     name: "query_spatial_index",
     label: "Query spatial index",
     description:
-      "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key.",
+      "Query the spatial index for features within a bounding box. Returns saved places, notes, and any indexed files within the bounds (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. To find a place by name, don't scan here — use spatial_sql with `file_path LIKE '%name%'` (the file basename is the place's name).",
     parameters: Type.Object({
       bounds: Type.Object({
         north: Type.Number(),
@@ -575,11 +692,14 @@ export function buildMaposCustomTools(
         east: Type.Number(),
         west: Type.Number()
       }),
-      filters: Type.Optional(spatialFilters)
+      filters: Type.Optional(spatialFilters),
+      limit: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 1000, default: 200, description: "Max rows to return" })
+      )
     }),
     execute: async (_id, args) => {
       const results = querySpatialIndex(args.bounds, args.filters);
-      return TEXT_RESULT(JSON.stringify(results));
+      return TEXT_RESULT(JSON.stringify(stripGeometry(results, args.limit ?? 200)));
     }
   });
 
@@ -607,7 +727,9 @@ export function buildMaposCustomTools(
           { lat: args.lat, lng: args.lng, radiusM: args.radius_m, limit: args.limit ?? 20 },
           args.filters
         );
-        return TEXT_RESULT(JSON.stringify(results));
+        // queryNear already applies `limit`, so nothing is truncated here — pass it through
+        // as the cap so stripGeometry never re-truncates.
+        return TEXT_RESULT(JSON.stringify(stripGeometry(results, results.length)));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }
@@ -619,20 +741,59 @@ export function buildMaposCustomTools(
     label: "Query within polygon",
     description:
       "Find indexed places that fall inside a polygon region (e.g. a neighborhood the user drew " +
-      "or an isochrone). Returns the same records as query_spatial_index. A place is included if " +
-      "any part of it intersects the region. Use this instead of query_spatial_index when the " +
-      "area is not a rectangle. Returned file paths can be passed to present_features.",
+      "or an isochrone). Returns the same records as query_spatial_index (file_path, geometry_type, " +
+      "color). A place is included if any part of it intersects the region. Use this instead of " +
+      "query_spatial_index when the area is not a rectangle. Pass the region by handle whenever you " +
+      "have one — `region_id` (an isochrone_id from get_isochrone or a polygon geometry_id from " +
+      "geo_compute) — so its coordinates never cross the LLM boundary; only pass `coordinates` for a " +
+      "hand-built polygon. Returned file paths can be passed to present_features.",
     parameters: Type.Object({
-      coordinates: Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
-        description:
-          "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed)."
-      }),
-      filters: Type.Optional(spatialFilters)
+      region_id: Type.Optional(
+        Type.String({
+          description:
+            "Opaque id of a stashed polygon (isochrone_id / geometry_id). Preferred over coordinates."
+        })
+      ),
+      coordinates: Type.Optional(
+        Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
+          description:
+            "Array of rings; each ring is [[lng, lat], ...]. First ring is the outer boundary (auto-closed). Use only when you don't have a region_id."
+        })
+      ),
+      filters: Type.Optional(spatialFilters),
+      limit: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 1000, default: 200, description: "Max rows to return" })
+      )
     }),
     execute: async (_id, args) => {
       try {
-        const results = queryWithinPolygon(args.coordinates as number[][][], args.filters);
-        return TEXT_RESULT(JSON.stringify(results));
+        // Resolve the region to one or more coordinate ring-sets. A region_id may be a
+        // MultiPolygon (run each sub-polygon and dedupe); coordinates are a single polygon.
+        let ringSets: number[][][][];
+        if (args.region_id) {
+          const geom = resolveGeometryId(args.region_id).geometry;
+          if (geom.type === "Polygon") {
+            ringSets = [geom.coordinates as number[][][]];
+          } else if (geom.type === "MultiPolygon") {
+            ringSets = geom.coordinates as number[][][][];
+          } else {
+            throw new Error(
+              `Geometry id "${args.region_id}" is a ${geom.type}, not a polygon region.`
+            );
+          }
+        } else if (args.coordinates) {
+          ringSets = [args.coordinates as number[][][]];
+        } else {
+          throw new Error("Provide either region_id or coordinates.");
+        }
+
+        const byPath = new Map<string, ReturnType<typeof queryWithinPolygon>[number]>();
+        for (const rings of ringSets) {
+          for (const r of queryWithinPolygon(rings, args.filters)) {
+            byPath.set(r.file_path, r);
+          }
+        }
+        return TEXT_RESULT(JSON.stringify(stripGeometry([...byPath.values()], args.limit ?? 200)));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }
@@ -674,12 +835,15 @@ export function buildMaposCustomTools(
     name: "geo_compute",
     label: "Compute geometry",
     description:
-      "Run a single offline geometry operation (Turf). Inputs and outputs are GeoJSON in the " +
-      "same format as the index `geometry` column and get_isochrone contours, so a geometry " +
-      "result can be passed straight to render_overlay_on_map. Provide the input inline via " +
-      "`geometry` (a GeoJSON geometry, Feature, or FeatureCollection), or as `feature_paths` to " +
-      "pull geometry from the index by vault file path (preferred for already-saved features — " +
-      "avoids re-sending large geometry). Operations:\n" +
+      "Run a single offline geometry operation (Turf). Provide the input as `geometry_id` (a " +
+      "handle from get_directions/get_isochrone/a prior geo_compute — PREFERRED, keeps coordinates " +
+      "off the LLM boundary), or `feature_paths` to pull geometry from the index by vault file path, " +
+      "or inline `geometry` (a GeoJSON geometry, Feature, or FeatureCollection) for hand-built input. " +
+      "For a second operand (union/intersect) use `geometry_b_id` or `geometry_b`. Geometry-producing " +
+      "ops (buffer, centroid, convex_hull, simplify, union, intersect) DON'T return raw coordinates — " +
+      "they stash the result and return a new `geometry_id` (plus type/pointCount/bbox) you pass " +
+      "straight to render_overlay_on_map, query_within_polygon, or save_features_to_vault. Measurement " +
+      "ops (area, length, bbox) and clusters_dbscan return their values inline. Operations:\n" +
       "- buffer — expand a shape by `params.radius_m` meters → Polygon.\n" +
       "- area — square meters of a polygon (returns { area_m2 }).\n" +
       "- length — meters of a line (returns { length_m }).\n" +
@@ -707,6 +871,15 @@ export function buildMaposCustomTools(
         ],
         { description: "The geometry operation to run" }
       ),
+      geometry_id: Type.Optional(
+        Type.String({
+          description:
+            "Opaque handle for the primary input (route_id / isochrone_id / a prior geo_compute geometry_id). Preferred over inline geometry."
+        })
+      ),
+      geometry_b_id: Type.Optional(
+        Type.String({ description: "Opaque handle for the second operand (union/intersect)." })
+      ),
       geometry: Type.Optional(
         Type.Unknown({ description: "Inline GeoJSON geometry, Feature, or FeatureCollection" })
       ),
@@ -732,17 +905,46 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
-        return TEXT_RESULT(
-          JSON.stringify(
-            runGeoCompute({
-              operation: args.operation as GeoOperation,
-              geometry: args.geometry,
-              geometryB: args.geometry_b,
-              featurePaths: args.feature_paths,
-              params: args.params
-            })
-          )
-        );
+        const operation = args.operation as GeoOperation;
+        const geometry = args.geometry_id
+          ? resolveGeometryId(args.geometry_id).geometry
+          : args.geometry;
+        const geometryB = args.geometry_b_id
+          ? resolveGeometryId(args.geometry_b_id).geometry
+          : args.geometry_b;
+        const result = runGeoCompute({
+          operation,
+          geometry,
+          geometryB,
+          featurePaths: args.feature_paths,
+          params: args.params
+        });
+
+        // Measurement ops and clusters_dbscan return small/inspectable data — inline it.
+        // clusters_dbscan's value is the per-point cluster labels, which a handle would hide.
+        const inlineOps = new Set<GeoOperation>(["area", "length", "bbox", "clusters_dbscan"]);
+        if (inlineOps.has(operation)) {
+          return TEXT_RESULT(JSON.stringify(result));
+        }
+
+        // Geometry-producing ops: stash and return a handle instead of raw coordinates.
+        const geom = extractGeometry(result);
+        if (!geom) return TEXT_RESULT(JSON.stringify(result));
+        const geometry_id = stashGeometry({ kind: "geometry", geometry: geom }, "geom");
+        const b = turfBbox(geom);
+        const summary: Record<string, unknown> = {
+          geometry_id,
+          geometry_type: geom.type,
+          pointCount: countPositions(geom),
+          bbox: b,
+          bounds: { west: b[0], south: b[1], east: b[2], north: b[3] }
+        };
+        if (geom.type === "Point") {
+          const [lng, lat] = geom.coordinates as number[];
+          summary.lng = lng;
+          summary.lat = lat;
+        }
+        return TEXT_RESULT(JSON.stringify(summary));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }
@@ -934,17 +1136,22 @@ export function buildMaposCustomTools(
           costing: args.costing ?? "pedestrian"
         });
         const route_id = stashRoute({
-          coords: route.geometry.coordinates,
+          geometry: route.geometry,
           distanceMeters: route.distanceMeters,
           durationSeconds: route.durationSeconds,
           mode: args.costing ?? "pedestrian"
         });
+        // Long routes can carry hundreds of maneuvers; cap what crosses the boundary.
+        const MANEUVER_CAP = 60;
         const visible = {
           distanceMeters: route.distanceMeters,
           durationSeconds: route.durationSeconds,
           route_id,
           pointCount: route.geometry.coordinates.length,
-          maneuvers: route.maneuvers
+          maneuvers: route.maneuvers.slice(0, MANEUVER_CAP),
+          ...(route.maneuvers.length > MANEUVER_CAP
+            ? { maneuvers_truncated_total: route.maneuvers.length }
+            : {})
         };
         return TEXT_RESULT(JSON.stringify(visible));
       } catch (err) {
@@ -957,7 +1164,7 @@ export function buildMaposCustomTools(
     name: "get_isochrone",
     label: "Get isochrone",
     description:
-      "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has a GeoJSON Polygon ready to render.",
+      "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has an `isochrone_id` (opaque handle to the polygon, kept off the LLM boundary) plus pointCount and bbox. To render a contour, pass its `isochrone_id` to a render_overlay_on_map `polygons` entry; to find places inside it, pass it as `query_within_polygon`'s `region_id`; to intersect two isochrones, pass their ids to geo_compute. Do not try to retrieve or re-emit the polygon coordinates yourself.",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),
@@ -979,7 +1186,21 @@ export function buildMaposCustomTools(
           minutesContours: args.minutes_contours,
           costing: args.costing ?? "pedestrian"
         });
-        return TEXT_RESULT(JSON.stringify(iso));
+        const contours = iso.contours.map((c) => {
+          const isochrone_id = stashGeometry(
+            { kind: "isochrone", geometry: c.polygon, minutes: c.minutes },
+            "iso"
+          );
+          const b = turfBbox(c.polygon);
+          return {
+            minutes: c.minutes,
+            isochrone_id,
+            pointCount: c.polygon.coordinates[0]?.length ?? 0,
+            bbox: b,
+            bounds: { west: b[0], south: b[1], east: b[2], north: b[3] }
+          };
+        });
+        return TEXT_RESULT(JSON.stringify({ contours }));
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }
@@ -1119,7 +1340,7 @@ export function buildMaposCustomTools(
     name: "save_features_to_vault",
     label: "Save places to vault",
     description:
-      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — the app expands the id to the full LINESTRING geometry and fills in distance/duration/mode), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
+      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — the app expands the id to the full LINESTRING geometry and fills in distance/duration/mode), a stashed geometry like an isochrone or a geo_compute result (set `geometry_id` plus a `title` — the app expands the id to the polygon/line geometry), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
     parameters: Type.Object({
       features: Type.Array(
         Type.Object({
@@ -1133,6 +1354,12 @@ export function buildMaposCustomTools(
             Type.String({
               description:
                 "The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. \"Home to Café Olimpico\"); leave lat/lng unset."
+            })
+          ),
+          geometry_id: Type.Optional(
+            Type.String({
+              description:
+                "A stashed geometry handle (an isochrone_id from get_isochrone or a geometry_id from geo_compute). Saves it as a place file; the app resolves the WKT geometry — never re-emit coordinates yourself. Requires `title`; leave lat/lng unset. Only Point/LineString/Polygon geometry is supported (a MultiPolygon must be unioned/simplified first)."
             })
           ),
           title: Type.Optional(
@@ -1192,6 +1419,9 @@ export function buildMaposCustomTools(
       const unresolvedResultIds: string[] = [];
       const unresolvedRouteIds: string[] = [];
       const untitledRouteIds: string[] = [];
+      const unresolvedGeometryIds: string[] = [];
+      const untitledGeometryIds: string[] = [];
+      const unsupportedGeometryIds: string[] = [];
       for (const f of args.features) {
         // Preferred path: derive everything from the cached geocoder result, exactly
         // like the search UI's save — the model never re-types facts. Extra keys it
@@ -1214,7 +1444,7 @@ export function buildMaposCustomTools(
           // Cache miss: fall through to ad-hoc coords if supplied, else report it.
         }
         if (f.route_id) {
-          const stored = routeStore.get(f.route_id);
+          const stored = geometryStore.get(f.route_id);
           if (!stored) {
             unresolvedRouteIds.push(f.route_id);
             continue;
@@ -1225,17 +1455,48 @@ export function buildMaposCustomTools(
           }
           // Same principle as result_id: geometry and summary facts come from the
           // stashed source, never from the model.
-          const line = stored.coords.map(([lng, lat]) => `${lng} ${lat}`).join(", ");
+          const wkt = geometryToWkt(stored.geometry);
+          if (!wkt) {
+            unsupportedGeometryIds.push(f.route_id);
+            continue;
+          }
           resolved.push({
             title: f.title,
-            geometry: `LINESTRING(${line})`,
+            geometry: wkt,
             properties: orderDetailProperties({
               ...sanitizeAdHocProperties(f.properties),
               category: "route",
-              mode: stored.mode,
-              distance_m: String(Math.round(stored.distanceMeters)),
-              duration_s: String(Math.round(stored.durationSeconds))
+              ...(stored.mode != null ? { mode: stored.mode } : {}),
+              ...(stored.distanceMeters != null
+                ? { distance_m: String(Math.round(stored.distanceMeters)) }
+                : {}),
+              ...(stored.durationSeconds != null
+                ? { duration_s: String(Math.round(stored.durationSeconds)) }
+                : {})
             }),
+            body: f.body_markdown
+          });
+          continue;
+        }
+        if (f.geometry_id) {
+          const stored = geometryStore.get(f.geometry_id);
+          if (!stored) {
+            unresolvedGeometryIds.push(f.geometry_id);
+            continue;
+          }
+          if (!f.title) {
+            untitledGeometryIds.push(f.geometry_id);
+            continue;
+          }
+          const wkt = geometryToWkt(stored.geometry);
+          if (!wkt) {
+            unsupportedGeometryIds.push(f.geometry_id);
+            continue;
+          }
+          resolved.push({
+            title: f.title,
+            geometry: wkt,
+            properties: orderDetailProperties(sanitizeAdHocProperties(f.properties)),
             body: f.body_markdown
           });
           continue;
@@ -1312,6 +1573,21 @@ export function buildMaposCustomTools(
           `${untitledRouteIds.length} route(s) were NOT saved because they had no \`title\`. Routes require a title (used for the filename) — retry those features with a title set.`
         );
       }
+      if (unresolvedGeometryIds.length > 0) {
+        warnings.push(
+          `${unresolvedGeometryIds.length} geometry(ies) referenced a geometry_id that is no longer cached (evicted or predates the current session) and were NOT saved. Recompute it (get_isochrone / geo_compute) and call save_features_to_vault again with the fresh id.`
+        );
+      }
+      if (untitledGeometryIds.length > 0) {
+        warnings.push(
+          `${untitledGeometryIds.length} geometry(ies) were NOT saved because they had no \`title\`. A geometry_id requires a title (used for the filename) — retry those features with a title set.`
+        );
+      }
+      if (unsupportedGeometryIds.length > 0) {
+        warnings.push(
+          `${unsupportedGeometryIds.length} geometry(ies) were NOT saved because their type isn't supported in a place file (only Point/LineString/Polygon). Union or simplify a MultiPolygon into a single polygon first.`
+        );
+      }
       return TEXT_RESULT(
         JSON.stringify({
           success: warnings.length === 0,
@@ -1319,6 +1595,13 @@ export function buildMaposCustomTools(
           ...(unresolvedResultIds.length > 0 ? { unresolved_result_ids: unresolvedResultIds } : {}),
           ...(unresolvedRouteIds.length > 0 ? { unresolved_route_ids: unresolvedRouteIds } : {}),
           ...(untitledRouteIds.length > 0 ? { untitled_route_ids: untitledRouteIds } : {}),
+          ...(unresolvedGeometryIds.length > 0
+            ? { unresolved_geometry_ids: unresolvedGeometryIds }
+            : {}),
+          ...(untitledGeometryIds.length > 0 ? { untitled_geometry_ids: untitledGeometryIds } : {}),
+          ...(unsupportedGeometryIds.length > 0
+            ? { unsupported_geometry_ids: unsupportedGeometryIds }
+            : {}),
           ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
           assistant_instructions:
             "The files are saved and indexed. Confirm briefly — do not enumerate every saved place in your reply."

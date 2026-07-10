@@ -12,7 +12,7 @@ export default function PrivacyPage() {
       <p>
         MapOS is a local-first Mac app. Your saved places and notes are ordinary files stored on
         your own computer, and by default they are never sent to us or to anyone else. This policy
-        explains the few cases where data does leave your device, and what we do — and don&apos;t —
+        explains the few cases where data does leave your device, and what we do and don&apos;t
         collect.
       </p>
 
@@ -26,15 +26,8 @@ export default function PrivacyPage() {
       </p>
 
       <h2>When data leaves your device</h2>
-      <p>MapOS only sends data over the network for features you actively use:</p>
+      <p>Data leaves your device only in these cases:</p>
       <ul>
-        <li>
-          <strong>Cloud map services.</strong> MapOS can look up addresses, calculate routes, and
-          search the web. If you use these in cloud mode, the text of your query and any relevant
-          coordinates are sent to the MapOS service proxy and the providers behind it so they can
-          return a result. If you download region packs and switch to offline mode, these features
-          run entirely on your Mac and send nothing.
-        </li>
         <li>
           <strong>AI chat. </strong>When you use the AI agent, your messages — and the contents of
           any files the agent reads to answer you — are sent to the AI provider you have configured
@@ -56,15 +49,6 @@ export default function PrivacyPage() {
         send automatic crash reports or &ldquo;phone home&rdquo; in the background.
       </p>
 
-      <h2>Crash and diagnostic reports</h2>
-      <p>
-        If something goes wrong, you may choose to send us a crash or diagnostic report. This only
-        happens when you explicitly ask to share one — it is never automatic. Such a report may
-        include technical details like the app version, the error, and some app state (which can
-        include file names or paths) to help diagnose the problem. You can review it before sending
-        if you&apos;d prefer not to include something.
-      </p>
-
       <h2>This website</h2>
       <p>
         This website is hosted on Cloudflare. Visiting it produces standard server logs, such as
@@ -74,7 +58,7 @@ export default function PrivacyPage() {
 
       <h2>Your choices, changes, and contact</h2>
       <p>
-        Because your data stays on your device, you remain in control of it — you can edit or delete
+        Because your data stays on your device, you remain in control of it. You can edit or delete
         your files at any time. We may update this policy from time to time; the &ldquo;last
         updated&rdquo; date at the top reflects the current version. If you have any questions,
         contact <a href="mailto:hello@nichaley.com">hello@nichaley.com</a>.

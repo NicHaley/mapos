@@ -48,10 +48,9 @@ export default function TermsPage() {
 
       <h2>Third-party services</h2>
       <p>
-        When you use cloud map services or the AI agent, your requests are handled by third-party
-        providers (such as map data, routing, search, and AI model providers). Your use of those
-        features is also subject to those providers&apos; terms and privacy policies, and we are not
-        responsible for third-party services.
+        When you use the AI agent, your requests are handled by the third-party AI provider you
+        configure. Your use of the agent is also subject to that provider&apos;s terms and privacy
+        policy, and we are not responsible for third-party services.
       </p>
 
       <h2>Disclaimer of warranties</h2>

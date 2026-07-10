@@ -341,6 +341,12 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           >
             Terms
           </Link>
+          <a
+            className="text-neutral-500 no-underline transition-colors hover:text-neutral-300"
+            href="mailto:hello@nichaley.com"
+          >
+            Contact
+          </a>
         </footer>
       </div>
     </>

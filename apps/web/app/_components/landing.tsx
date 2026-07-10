@@ -310,7 +310,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pb-28">
           <div className="mx-auto flex max-w-[640px] flex-col items-center gap-4 rounded-2xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950 px-8 py-14 text-center">
             <h2 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              Put it on the map
+              Free. No account required.
             </h2>
             <div className="flex flex-col items-center gap-3.5">
               <a

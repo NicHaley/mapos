@@ -11,7 +11,10 @@ import BackgroundVideo from "next-video/background-video";
 import type { Asset } from "next-video/dist/assets.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FaPause, FaPlay } from "react-icons/fa6";
-import bigBuckBunny from "../../videos/BigBuckBunny_320x180.mp4";
+import downloadDemo from "../../videos/MapOS-Download.mp4";
+import filesDemo from "../../videos/Mapos-Files.mp4";
+import chatDemo from "../../videos/Obsidian-Chat.mp4";
+import vaultDemo from "../../videos/Mapos-Obsidian.mp4";
 
 // Demo videos are next-video assets: drop an MP4 into apps/web/videos, run
 // `npx next-video sync` to upload it to R2, then import it and set it on the
@@ -29,9 +32,10 @@ type DemoSlide = {
 };
 
 const SLIDES: DemoSlide[] = [
-  { id: "agent", tag: "AI agent", title: "Chat with your map", video: bigBuckBunny },
-  { id: "vault", tag: "Vault", title: "Places as Markdown files" },
-  { id: "offline", tag: "Offline", title: "Maps and routing, no internet" }
+  { id: "agent", tag: "AI agent", title: "Chat with your map. Your own GIS expert.", video: chatDemo },
+  { id: "files", tag: "Markdown", title: "Own your content. No lock-in.", video: filesDemo },
+  { id: "offline", tag: "Offline", title: "Maps, routing, AI. No internet required.", video: downloadDemo },
+  { id: "vault", tag: "Vault", title: "Just Markdown files. Obsidian, or anything else.", video: vaultDemo },
 ];
 
 // Fallback duration for slides without a video; video slides run for the
@@ -117,10 +121,20 @@ export function DemoCarousel() {
 
   const onPillClick = useCallback(
     (index: number) => {
-      api?.scrollTo(index);
+      // Clicking the active slide's pill restarts its video from the top;
+      // scrollTo is a no-op for the current index, so reset playback here.
+      if (index === current) {
+        const video = videoEls.current.get(index);
+        if (video) {
+          video.currentTime = 0;
+          if (isPlaying) video.play().catch(() => {});
+        }
+      } else {
+        api?.scrollTo(index);
+      }
       setProgress(0);
     },
-    [api]
+    [api, current, isPlaying]
   );
 
   return (

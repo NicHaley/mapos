@@ -1230,6 +1230,12 @@ const MapView = forwardRef<
         })()}
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
+        // Keep the map top-down: rotation stays (the compass reflects it) but tilt is off.
+        maxPitch={0}
+        touchPitch={false}
+        // Default attribution is re-rendered as a ghost control in MapControls, to
+        // match the rest of the cluster instead of MapLibre's dark chip.
+        attributionControl={false}
         onLoad={() => sendViewport()}
         onMove={debouncedMove}
         onContextMenu={handleContextMenu}

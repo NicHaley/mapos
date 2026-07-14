@@ -35,6 +35,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultValueForType, inferPropertyType } from "../../../shared/property-inference";
 import type { PropertyType } from "../../../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import { AutoSizeTextArea } from "./autosize-text-area";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z?$/;
@@ -610,12 +611,19 @@ function PropertyValue({
   type,
   onValueChange
 }: PropertyValueProps): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(toDisplayString(value));
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const skipBlurCommit = useRef(false);
+
+  // Keep the draft in sync with external changes, but never clobber an in-progress edit.
+  useEffect(() => {
+    if (!editing) setDraft(toDisplayString(value));
+  }, [value, editing]);
 
   useEffect(() => {
-    setDraft(toDisplayString(value));
-  }, [value]);
+    if (editing) inputRef.current?.select();
+  }, [editing]);
 
   function commitDraft(): void {
     if (type === "number") {
@@ -624,6 +632,22 @@ function PropertyValue({
     } else {
       onValueChange(propKey, draft);
     }
+    setEditing(false);
+  }
+
+  function cancelEdit(): void {
+    skipBlurCommit.current = true;
+    setDraft(toDisplayString(value));
+    setEditing(false);
+  }
+
+  function handleBlur(): void {
+    if (skipBlurCommit.current) {
+      skipBlurCommit.current = false;
+      setEditing(false);
+      return;
+    }
+    commitDraft();
   }
 
   const isEmpty = isEmptyPropertyValue(value);
@@ -669,44 +693,46 @@ function PropertyValue({
   // text / number
   const linkUrl = detailLinkUrl(propKey, value);
   return (
-    <div className="relative flex h-8 min-w-0 w-full items-center gap-1">
-      <Popover
-        open={open}
-        onOpenChange={(val) => {
-          setOpen(val);
-          if (!val) commitDraft();
-        }}
-      >
-        <PopoverTrigger className="flex h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+    <div className="relative flex min-h-8 min-w-0 w-full items-start gap-1">
+      {editing ? (
+        <div
+          className="flex min-h-8 min-w-0 flex-1 items-start rounded-md bg-sidebar-background px-2 py-1.5 ring-2 ring-inset ring-input"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cancelEdit();
+            }
+          }}
+        >
+          <AutoSizeTextArea
+            value={draft}
+            onChange={setDraft}
+            onEnter={() => inputRef.current?.blur()}
+            onBlur={handleBlur}
+            autoFocus
+            placeholder="Empty"
+            aria-label={propKey}
+            inputRef={inputRef}
+            className="text-sm text-sidebar-foreground"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(toDisplayString(value));
+            setEditing(true);
+          }}
+          className="flex min-h-8 min-w-0 flex-1 cursor-text items-center rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+        >
           {isEmpty ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
-            <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
+            <span className="break-words text-sidebar-foreground">{toDisplayString(value)}</span>
           )}
-        </PopoverTrigger>
-        <PopoverContent side="bottom" align="start" className="w-52 p-2">
-          <Input
-            type={type === "number" ? "number" : "text"}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                commitDraft();
-                setOpen(false);
-              }
-              if (e.key === "Escape") {
-                setDraft(toDisplayString(value));
-                setOpen(false);
-              }
-            }}
-            className="h-7 text-sm"
-            ref={(el) => {
-              if (el) el.focus();
-            }}
-          />
-        </PopoverContent>
-      </Popover>
-      {linkUrl && <OpenLinkButton url={linkUrl} />}
+        </button>
+      )}
+      {linkUrl && !editing && <OpenLinkButton url={linkUrl} />}
     </div>
   );
 }
@@ -727,7 +753,7 @@ function ReadOnlyPropertyRow({
 }): React.JSX.Element {
   const linkUrl = detailLinkUrl(propKey, value);
   return (
-    <div className="grid h-8 grid-cols-2 items-center">
+    <div className="col-span-2 grid min-h-8 grid-cols-subgrid items-start">
       <div className="flex min-h-0 min-w-0 items-center">
         <div className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground">
           <span className="inline-flex size-4 shrink-0 items-center justify-center">
@@ -736,9 +762,9 @@ function ReadOnlyPropertyRow({
           <span className="truncate">{propKey}</span>
         </div>
       </div>
-      <div className="flex min-h-0 min-w-0 items-center">
-        <div className="flex h-8 w-full items-center gap-1 rounded-md px-2 text-sm">
-          <span className="truncate text-sidebar-foreground">{toDisplayString(value)}</span>
+      <div className="flex min-h-0 min-w-0 items-start">
+        <div className="flex min-h-8 w-full items-start gap-1 rounded-md px-2 py-1.5 text-sm">
+          <span className="break-words text-sidebar-foreground">{toDisplayString(value)}</span>
           {linkUrl && <OpenLinkButton url={linkUrl} />}
         </div>
       </div>
@@ -755,7 +781,7 @@ function ReadOnlyPropertiesPanel({
   if (keys.length === 0) return null;
   return (
     <div className="px-2 pb-6 text-sidebar-foreground">
-      <div className="flex flex-col">
+      <div className="grid grid-cols-[max-content_minmax(0,1fr)]">
         {keys.map((key) => (
           <ReadOnlyPropertyRow key={key} propKey={key} value={frontmatter[key]} />
         ))}
@@ -885,14 +911,14 @@ function PropertiesPanelInner({
         axis="y"
         values={fileKeys}
         onReorder={handleReorder}
-        className="flex flex-col"
+        className="grid grid-cols-[max-content_minmax(0,1fr)]"
         as="div"
       >
         {fileKeys.map((key) => (
           <Reorder.Item
             key={key}
             value={key}
-            className="group grid h-8 grid-cols-2 items-center"
+            className="group col-span-2 grid min-h-8 grid-cols-subgrid items-start"
             as="div"
             layout="position"
           >
@@ -905,7 +931,7 @@ function PropertiesPanelInner({
                 onDelete={handleDelete}
               />
             </div>
-            <div className="flex min-h-0 min-w-0 items-center">
+            <div className="flex min-h-0 min-w-0 items-start">
               <PropertyValue
                 propKey={key}
                 value={localFrontmatter[key]}
@@ -915,48 +941,47 @@ function PropertiesPanelInner({
             </div>
           </Reorder.Item>
         ))}
-      </Reorder.Group>
 
-      <div className="grid h-8 grid-cols-2 items-center">
-        <div className="flex min-h-0 min-w-0 items-center">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
-              <PlusIcon className="size-4" />
-              Add property
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="start" className="w-56 max-h-72">
-              {existingKeysToAdd.length > 0 && (
-                <>
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Existing properties</DropdownMenuLabel>
-                    {existingKeysToAdd.map(({ key, type }) => (
-                      <DropdownMenuItem
-                        key={key}
-                        onClick={() => void handleAddExistingProperty(key, type)}
-                        className="gap-2"
-                      >
-                        {typeIcon(type)}
-                        <span className="truncate">{key}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>New property</DropdownMenuLabel>
-                {PROPERTY_TYPES.map((t) => (
-                  <DropdownMenuItem key={t.value} onClick={() => void handleAddProperty(t.value)}>
-                    {t.icon}
-                    {t.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="col-span-2 grid min-h-8 grid-cols-subgrid items-center">
+          <div className="flex min-h-0 min-w-0 items-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+                <PlusIcon className="size-4" />
+                Add property
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="start" className="w-56 max-h-72">
+                {existingKeysToAdd.length > 0 && (
+                  <>
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Existing properties</DropdownMenuLabel>
+                      {existingKeysToAdd.map(({ key, type }) => (
+                        <DropdownMenuItem
+                          key={key}
+                          onClick={() => void handleAddExistingProperty(key, type)}
+                          className="gap-2"
+                        >
+                          {typeIcon(type)}
+                          <span className="truncate">{key}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>New property</DropdownMenuLabel>
+                  {PROPERTY_TYPES.map((t) => (
+                    <DropdownMenuItem key={t.value} onClick={() => void handleAddProperty(t.value)}>
+                      {t.icon}
+                      {t.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-        <div className="min-w-0" aria-hidden />
-      </div>
+      </Reorder.Group>
     </div>
   );
 }

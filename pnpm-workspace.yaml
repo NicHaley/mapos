@@ -2,9 +2,28 @@ packages:
   - "apps/*"
   - "packages/*"
 
+allowBuilds:
+  '@biomejs/biome': true
+  '@google/genai': true
+  better-sqlite3: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
+  workerd: true
+
 # pnpm 10 no longer reads the "pnpm" field in package.json; the build-script allowlist lives here now.
 onlyBuiltDependencies:
+  - "@biomejs/biome"
+  - "@google/genai"
   - better-sqlite3
   - electron
+  - electron-winstaller
   - esbuild
   - node-llama-cpp
+  - protobufjs
+  - sharp
+  - unrs-resolver
+  - workerd

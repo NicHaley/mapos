@@ -344,7 +344,6 @@ function App(): React.JSX.Element {
 
   const isFullscreen = useFullscreen();
 
-  usePlacesWatcher({ selectedPlaceRef, clearPlace });
   const placesByPath = usePlacesIndex();
   useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
 
@@ -959,6 +958,8 @@ function App(): React.JSX.Element {
     clearPlace,
     onNavEmpty
   });
+
+  usePlacesWatcher({ handleDeletedPath });
 
   // Place-card title renames are always single files; route them through the one
   // relocation function so every path-holding store stays in sync. Remember the

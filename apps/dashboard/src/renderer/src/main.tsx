@@ -19,6 +19,7 @@ mq.addEventListener("change", () => {
 });
 import { TooltipProvider } from "@mapos/ui/components/tooltip";
 import { useEffect, useState } from "react";
+import { MapProvider } from "react-map-gl/maplibre";
 import App from "./app";
 import { OnboardingScreen } from "./components/onboarding/onboarding-screen";
 import { MapViewportProvider } from "./contexts/map-viewport";
@@ -33,9 +34,11 @@ function Root(): React.JSX.Element | null {
   if (pending === null) return null;
   if (pending) return <OnboardingScreen />;
   return (
-    <MapViewportProvider>
-      <App />
-    </MapViewportProvider>
+    <MapProvider>
+      <MapViewportProvider>
+        <App />
+      </MapViewportProvider>
+    </MapProvider>
   );
 }
 

@@ -18,6 +18,8 @@ import MapView, {
   type PlaceRecord,
   type SelectionPulseAnchor
 } from "./components/map-view";
+import { MapControls } from "./components/map/map-controls";
+import type { UserLocation } from "./components/map/user-location-layer";
 import { NavTabs } from "./components/nav-tabs";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
@@ -151,6 +153,8 @@ function App(): React.JSX.Element {
   /** Places linked from [[wikilinks]] in the currently-open file; rendered gray. */
   const [linkedPlaces, setLinkedPlaces] = useState<PlaceRecord[]>([]);
   const mapRef = useRef<MapViewHandle>(null);
+  // Current position from the top-bar locate control; fed to MapView's location layer.
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
 
@@ -1083,6 +1087,7 @@ function App(): React.JSX.Element {
           linkedPlaces={linkedPlaces}
           presentedPlaces={presentedPlaces}
           openPlace={mapPeekPlace ? selectedPlace : null}
+          userLocation={userLocation}
         />
       </div>
 
@@ -1090,7 +1095,7 @@ function App(): React.JSX.Element {
       <motion.div
         layoutRoot
         className={cn(
-          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground bg-sidebar/75 backdrop-blur-md border-b border-sidebar-border",
+          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground",
           isFullscreen ? "pl-2" : "pl-21"
         )}
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -1138,6 +1143,9 @@ function App(): React.JSX.Element {
             onBack={handleNavBack}
             onForward={handleNavForward}
           />
+        </div>
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <MapControls userLocation={userLocation} onUserLocationChange={setUserLocation} />
         </div>
       </motion.div>
 

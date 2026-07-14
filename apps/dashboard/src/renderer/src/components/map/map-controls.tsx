@@ -1,22 +1,16 @@
 import { Button } from "@mapos/ui/components/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import { buffer } from "@turf/buffer";
-import { point } from "@turf/helpers";
 import { InfoIcon, LoaderCircleIcon, MinusIcon, NavigationIcon, PlusIcon } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
-import { Layer, Marker, Source, useMap } from "react-map-gl/maplibre";
+import { useEffect, useState } from "react";
+import { useMap } from "react-map-gl/maplibre";
+import type { UserLocation } from "./user-location-layer";
 
-function stop(e: React.SyntheticEvent): void {
-  e.stopPropagation();
-}
-
-// Glassy floating chrome, used only for the transient error pill now that the
-// buttons themselves are ghost (Felt-style: transparent until hover).
+// Glassy chrome for the transient error pill; the buttons themselves are ghost.
 const surface = "border border-border bg-background/70 shadow-sm backdrop-blur-md";
 
-// A soft shadow keeps the ghost icons legible over any map background.
+// A soft shadow keeps the ghost icons legible when the top bar is transparent.
 const ICON = "size-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]";
 
 // Tick marks around the dial: 12 spokes (every 30°), cardinals longer/bolder.
@@ -69,7 +63,7 @@ function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
   );
 }
 
-/** Ghost icon button — transparent until hover, with the map-click guard. */
+/** Ghost icon button — transparent until hover. */
 function ControlButton({
   label,
   onClick,
@@ -90,52 +84,36 @@ function ControlButton({
             size="icon"
             aria-label={label}
             disabled={disabled}
-            className="pointer-events-auto"
-            onPointerDown={stop}
-            onClick={(e) => {
-              stop(e);
-              onClick();
-            }}
+            onClick={onClick}
           >
             {children}
           </Button>
         }
       />
-      <TooltipContent side="top">{label}</TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   );
 }
 
 /**
- * Bottom-right map controls (Felt-style): ghost icon buttons, evenly spaced. A
- * compass that appears only when the map is rotated and snaps it back to north,
- * zoom in/out, and a locate button that centers on the user's current position.
- * Lives as a child of <MapGL> so it can read the live map via useMap() and drop
- * a location marker directly into the map.
+ * Map controls that live in the top bar (right side): a compass that appears
+ * only when the map is rotated and snaps it back to north, zoom in/out, a locate
+ * button, and attribution. Reads the map via useMap() — so it must render inside
+ * the <MapProvider> — and lifts the resolved location up to App, which feeds it
+ * back to <UserLocationLayer> inside the map.
  */
-export function MapControls(): React.JSX.Element {
+export function MapControls({
+  userLocation,
+  onUserLocationChange
+}: {
+  userLocation: UserLocation | null;
+  onUserLocationChange: (location: UserLocation) => void;
+}): React.JSX.Element {
   const maps = useMap();
-  const mapRef = maps.current;
+  const mapRef = maps.main ?? maps.current;
   const [camera, setCamera] = useState({ bearing: 0, zoom: 0 });
   const [locating, setLocating] = useState(false);
-  const [userLoc, setUserLoc] = useState<{ lng: number; lat: number; accuracy: number } | null>(
-    null
-  );
   const [locateError, setLocateError] = useState<string | null>(null);
-
-  // Accuracy ring as a real GeoJSON circle (radius in meters), so it scales with
-  // zoom and tells the truth about how coarse desktop (wifi) positioning is.
-  const accuracyCircle = useMemo(() => {
-    if (!userLoc || userLoc.accuracy <= 0) return null;
-    return buffer(point([userLoc.lng, userLoc.lat]), userLoc.accuracy / 1000, { steps: 64 });
-  }, [userLoc]);
-
-  // Auto-dismiss the location error so it doesn't linger in the corner.
-  useEffect(() => {
-    if (!locateError) return;
-    const id = setTimeout(() => setLocateError(null), 4000);
-    return () => clearTimeout(id);
-  }, [locateError]);
 
   useEffect(() => {
     const map = mapRef?.getMap();
@@ -154,6 +132,13 @@ export function MapControls(): React.JSX.Element {
     };
   }, [mapRef]);
 
+  // Auto-dismiss the location error so it doesn't linger in the bar.
+  useEffect(() => {
+    if (!locateError) return;
+    const id = setTimeout(() => setLocateError(null), 4000);
+    return () => clearTimeout(id);
+  }, [locateError]);
+
   const map = mapRef?.getMap();
   const atMax = map ? camera.zoom >= map.getMaxZoom() : false;
   const atMin = map ? camera.zoom <= map.getMinZoom() : false;
@@ -167,7 +152,7 @@ export function MapControls(): React.JSX.Element {
       (pos) => {
         setLocating(false);
         const { longitude, latitude, accuracy } = pos.coords;
-        setUserLoc({ lng: longitude, lat: latitude, accuracy });
+        onUserLocationChange({ lng: longitude, lat: latitude, accuracy });
         map.flyTo({
           center: [longitude, latitude],
           zoom: Math.max(map.getZoom(), 14),
@@ -190,76 +175,46 @@ export function MapControls(): React.JSX.Element {
   };
 
   return (
-    <>
-      {accuracyCircle && (
-        <Source id="user-location-accuracy" type="geojson" data={accuracyCircle}>
-          <Layer
-            id="user-location-accuracy-fill"
-            type="fill"
-            paint={{ "fill-color": "#0ea5e9", "fill-opacity": 0.12 }}
-          />
-          <Layer
-            id="user-location-accuracy-line"
-            type="line"
-            paint={{ "line-color": "#0ea5e9", "line-width": 1, "line-opacity": 0.35 }}
-          />
-        </Source>
-      )}
-      {userLoc && (
-        <Marker longitude={userLoc.lng} latitude={userLoc.lat}>
-          <div className="size-3.5 rounded-full border-2 border-white bg-sky-500 shadow-md" />
-        </Marker>
-      )}
-      <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex flex-col items-end gap-1">
-        {locateError && (
-          <div
-            className={cn(
-              "pointer-events-auto flex h-8 items-center rounded-full px-3 text-xs text-muted-foreground",
-              surface
-            )}
-          >
-            {locateError}
-          </div>
-        )}
-        <div className="flex flex-row items-center gap-1">
-          {rotated && (
-            <ControlButton label="Reset north" onClick={() => map?.resetNorth()}>
-              <CompassRose bearing={camera.bearing} />
-            </ControlButton>
+    <div className="flex items-center gap-1">
+      {locateError && (
+        <div
+          className={cn(
+            "mr-1 flex h-7 items-center rounded-full px-3 text-xs text-muted-foreground",
+            surface
           )}
-          <ControlButton label="My location" disabled={locating} onClick={locate}>
-            {locating ? (
-              <LoaderCircleIcon className={cn(ICON, "animate-spin")} />
-            ) : (
-              <NavigationIcon className={cn(ICON, userLoc && "fill-sky-500 text-sky-500")} />
-            )}
-          </ControlButton>
-          <ControlButton label="Zoom out" disabled={atMin} onClick={() => map?.zoomOut()}>
-            <MinusIcon className={ICON} />
-          </ControlButton>
-          <ControlButton label="Zoom in" disabled={atMax} onClick={() => map?.zoomIn()}>
-            <PlusIcon className={ICON} />
-          </ControlButton>
-          {/* Attribution shown on hover; mirrors ATTRIBUTION in main/region-protocol.ts. */}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Map data attribution"
-                  className="pointer-events-auto"
-                  onPointerDown={stop}
-                  onClick={stop}
-                >
-                  <InfoIcon className={ICON} />
-                </Button>
-              }
-            />
-            <TooltipContent side="top">© OpenStreetMap contributors · © Protomaps</TooltipContent>
-          </Tooltip>
+        >
+          {locateError}
         </div>
-      </div>
-    </>
+      )}
+      {rotated && (
+        <ControlButton label="Reset north" onClick={() => map?.resetNorth()}>
+          <CompassRose bearing={camera.bearing} />
+        </ControlButton>
+      )}
+      <ControlButton label="My location" disabled={locating} onClick={locate}>
+        {locating ? (
+          <LoaderCircleIcon className={cn(ICON, "animate-spin")} />
+        ) : (
+          <NavigationIcon className={cn(ICON, userLocation && "fill-sky-500 text-sky-500")} />
+        )}
+      </ControlButton>
+      <ControlButton label="Zoom out" disabled={atMin} onClick={() => map?.zoomOut()}>
+        <MinusIcon className={ICON} />
+      </ControlButton>
+      <ControlButton label="Zoom in" disabled={atMax} onClick={() => map?.zoomIn()}>
+        <PlusIcon className={ICON} />
+      </ControlButton>
+      {/* Attribution shown on hover; mirrors ATTRIBUTION in main/region-protocol.ts. */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button variant="ghost" size="icon" aria-label="Map data attribution">
+              <InfoIcon className={ICON} />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">© OpenStreetMap contributors · © Protomaps</TooltipContent>
+      </Tooltip>
+    </div>
   );
 }

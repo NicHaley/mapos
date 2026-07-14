@@ -36,8 +36,8 @@ import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shar
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
-import { MapControls } from "./map/map-controls";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
+import { type UserLocation, UserLocationLayer } from "./map/user-location-layer";
 
 export type { PlaceRecord };
 
@@ -499,6 +499,8 @@ const MapView = forwardRef<
     presentedPlaces?: PlaceRecord[];
     /** The still-open file while a map peek is active: rendered in the selected style, but without the pulse. */
     openPlace?: PlaceRecord | null;
+    /** The user's current position (from the top-bar locate control); drawn as a dot + accuracy ring. */
+    userLocation?: UserLocation | null;
   }
 >(function MapView(
   {
@@ -516,7 +518,8 @@ const MapView = forwardRef<
     selectionPulseAnchor = null,
     linkedPlaces = [],
     presentedPlaces = [],
-    openPlace = null
+    openPlace = null,
+    userLocation = null
   },
   ref
 ) {
@@ -1228,6 +1231,7 @@ const MapView = forwardRef<
           }
           return { longitude: 0, latitude: 20, zoom: 2 };
         })()}
+        id="main"
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
         // Keep the map top-down: rotation stays (the compass reflects it) but tilt is off.
@@ -1578,7 +1582,7 @@ const MapView = forwardRef<
           })}
         {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
         <RegionCoverageIndicator />
-        <MapControls />
+        {userLocation && <UserLocationLayer location={userLocation} />}
       </MapGL>
       <DropdownMenu
         modal

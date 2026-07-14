@@ -5,7 +5,9 @@ packages:
 allowBuilds:
   '@biomejs/biome': true
   '@google/genai': true
-  better-sqlite3: true
+  # built for Electron's ABI by the dashboard's electron-rebuild postinstall,
+  # not by pnpm — its own prebuild-install would fetch a system-Node binary (wrong ABI)
+  better-sqlite3: false
   electron: true
   electron-winstaller: true
   esbuild: true
@@ -13,17 +15,3 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
-
-# pnpm 10 no longer reads the "pnpm" field in package.json; the build-script allowlist lives here now.
-onlyBuiltDependencies:
-  - "@biomejs/biome"
-  - "@google/genai"
-  - better-sqlite3
-  - electron
-  - electron-winstaller
-  - esbuild
-  - node-llama-cpp
-  - protobufjs
-  - sharp
-  - unrs-resolver
-  - workerd

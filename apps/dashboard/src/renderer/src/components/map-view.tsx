@@ -36,6 +36,7 @@ import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shar
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
+import { MapControls } from "./map/map-controls";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
 
 export type { PlaceRecord };
@@ -1571,6 +1572,7 @@ const MapView = forwardRef<
           })}
         {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
         <RegionCoverageIndicator />
+        <MapControls />
       </MapGL>
       <DropdownMenu
         modal

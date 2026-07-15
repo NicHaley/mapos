@@ -1,18 +1,11 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
-import { Separator } from "@mapos/ui/components/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  FolderIcon,
-  MessageCircleIcon,
-  XIcon
-} from "lucide-react";
+import { FolderIcon, MessageCircleIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo } from "react";
 
@@ -24,15 +17,11 @@ export type NavTabData =
 type NavTabsProps = {
   tabs: NavTabData[];
   activeTabIndex: number;
-  canBack: boolean;
-  canForward: boolean;
   /** convIds whose chat stream is currently in flight; renders a spinner in place of the tab icon. */
   streamingConvIds: Set<string>;
   onTabActivate: (index: number) => void;
   onTabClose: (index: number) => void;
   onTabReorder: (newOrder: string[]) => void;
-  onBack: () => void;
-  onForward: () => void;
 };
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
@@ -47,56 +36,15 @@ function tabIcon(tab: NavTabData): React.ElementType {
 export const NavTabs = memo(function NavTabs({
   tabs,
   activeTabIndex,
-  canBack,
-  canForward,
   streamingConvIds,
   onTabActivate,
   onTabClose,
-  onTabReorder,
-  onBack,
-  onForward
+  onTabReorder
 }: NavTabsProps) {
   if (tabs.length === 0) return null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5" style={dragRegion}>
-      <div className="flex shrink-0 items-center gap-0.5" style={noDrag}>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button variant="ghost" size="icon-sm" onClick={onBack} disabled={!canBack}>
-                <ChevronLeftIcon />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">
-            Back
-            <KbdGroup>
-              <Kbd>{modSymbol}</Kbd>
-              <Kbd>[</Kbd>
-            </KbdGroup>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button variant="ghost" size="icon-sm" onClick={onForward} disabled={!canForward}>
-                <ChevronRightIcon />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">
-            Forward
-            <KbdGroup>
-              <Kbd>{modSymbol}</Kbd>
-              <Kbd>]</Kbd>
-            </KbdGroup>
-          </TooltipContent>
-        </Tooltip>
-
-        <Separator orientation="vertical" className="mx-0.5 h-4! self-auto" />
-      </div>
-
       <motion.div
         layoutScroll
         className="flex min-h-0 min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

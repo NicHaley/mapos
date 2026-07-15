@@ -553,7 +553,9 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   }
 
   return (
-    <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
+    <Sidebar collapsible="offcanvas" variant="sidebar">
+      {/* Clears the floating top-bar controls that sit over the sidebar's top edge. */}
+      <div className="h-10 shrink-0" aria-hidden />
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>

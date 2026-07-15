@@ -1,5 +1,6 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
+import { Separator } from "@mapos/ui/components/separator";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
@@ -7,7 +8,7 @@ import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
-import { PanelLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatPane } from "./components/chat-pane";
@@ -42,8 +43,10 @@ import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./
 
 const BASE_UNITS = 16;
 
-const PROJECT_SIDEBAR_DEFAULT_WIDTH = 14 * BASE_UNITS;
-const PROJECT_SIDEBAR_MIN_WIDTH = 12 * BASE_UNITS;
+const PROJECT_SIDEBAR_DEFAULT_WIDTH = 16 * BASE_UNITS;
+// Wide enough that the sidebar-anchored controls (toggle + search + back/forward,
+// plus the traffic-light inset) never overflow into the tab strip.
+const PROJECT_SIDEBAR_MIN_WIDTH = 15 * BASE_UNITS;
 const PROJECT_SIDEBAR_MAX_WIDTH = 30 * BASE_UNITS;
 const MAIN_PANE_DEFAULT_WIDTH = 22 * BASE_UNITS;
 const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS;
@@ -1094,60 +1097,156 @@ function App(): React.JSX.Element {
       {/* Top bar */}
       <motion.div
         layoutRoot
-        className={cn(
-          "fixed top-0 inset-x-0 z-30 flex items-center gap-1 pr-2 text-sidebar-foreground",
-          isFullscreen ? "pl-2" : "pl-21"
-        )}
+        className="fixed top-0 inset-x-0 z-30 flex items-stretch text-sidebar-foreground"
         style={{ height: TOP_BAR_HEIGHT, WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setProjectSidebarOpen((o) => !o)}
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                <PanelLeftIcon className="size-4" />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">
-            Project
-            <KbdGroup>
-              <Kbd>{modSymbol}</Kbd>
-              <Kbd>{"\\"}</Kbd>
-            </KbdGroup>
-          </TooltipContent>
-        </Tooltip>
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <GeocodeSearchPopover
-            onSelectResult={handleGeocodeSearchResult}
-            files={indexedFiles}
-            onSelectFile={handleSearchSelectFile}
-            conversations={conversations}
-            onSelectConversation={handleSearchSelectConversation}
-          />
+        {/* Left zone — panel toggle + search + back/forward, anchored to the sidebar's
+            right edge when open, or immediately right of the traffic lights when collapsed. */}
+        <div
+          className={cn("flex shrink-0 items-center", isFullscreen ? "pl-2" : "pl-21")}
+          style={projectSidebarOpen ? { width: projectSidebarWidth } : undefined}
+        >
+          {projectSidebarOpen && <div className="flex-1" aria-hidden />}
+          <div
+            className="flex items-center gap-1 pr-3"
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setProjectSidebarOpen((o) => !o)}
+                  >
+                    <PanelLeftIcon className="size-4" />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                Project
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>{"\\"}</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+            <GeocodeSearchPopover
+              onSelectResult={handleGeocodeSearchResult}
+              files={indexedFiles}
+              onSelectFile={handleSearchSelectFile}
+              conversations={conversations}
+              onSelectConversation={handleSearchSelectConversation}
+            />
+            <Separator orientation="vertical" className="h-4! self-center" />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handleNavBack}
+                    disabled={!canBack}
+                  >
+                    <ChevronLeftIcon />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                Back
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>[</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handleNavForward}
+                    disabled={!canForward}
+                  >
+                    <ChevronRightIcon />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                Forward
+                <KbdGroup>
+                  <Kbd>{modSymbol}</Kbd>
+                  <Kbd>]</Kbd>
+                </KbdGroup>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-        <div className="flex-1 min-w-0 flex items-center h-full min-h-0">
+        {/* Tabs zone — tab strip, anchored just outside the sidebar's right edge. */}
+        <div className="flex-1 min-w-0 flex items-center h-full min-h-0 px-4">
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}
-            canBack={canBack}
-            canForward={canForward}
             streamingConvIds={streamingConvIds}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
             onTabReorder={handleNavTabReorder}
-            onBack={handleNavBack}
-            onForward={handleNavForward}
           />
         </div>
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div
+          className="flex shrink-0 items-center pr-2"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
           <MapControls userLocation={userLocation} onUserLocationChange={setUserLocation} />
         </div>
       </motion.div>
+
+      {/* Left sidebar — full viewport height, flush left, sitting under the top-bar
+          controls (its content is padded down to clear them). */}
+      <SidebarProvider
+        name="sidebar-left"
+        open={projectSidebarOpen}
+        onOpenChange={setProjectSidebarOpen}
+        keyboardShortcut={SIDEBAR_KB_PROJECT}
+        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+        style={{ "--sidebar-width": `${projectSidebarWidth}px` } as React.CSSProperties}
+      >
+        <ProjectSidebar
+          selectedFilePath={selectedFilePathForSidebar}
+          selectedFolderPath={selectedFolder ?? undefined}
+          activeChatConvId={activeChatConvId}
+          conversations={conversations}
+          streamingConvIds={streamingConvIds}
+          onSelectPlace={handleSelectPlaceFromSidebar}
+          onSelectFolder={handleSelectFolder}
+          onSelectGeoJson={handleSelectGeoJsonFromSidebar}
+          onDeletePath={handleDeletedPath}
+          onRenamePath={handlePathRelocated}
+          onMoved={handlePathRelocated}
+          onNewChat={handleNewChat}
+          onSelectChat={handleSwitchChatConv}
+          onDeleteChat={handleDeleteChatFromSidebar}
+          onRenameChat={handleSidebarRenameChat}
+          onStopChat={chatStore.abort}
+        />
+      </SidebarProvider>
+
+      {/* Sidebar resize rail — full content height, starting below the top-bar
+          controls so it doesn't overlap the search control at the sidebar edge. */}
+      {projectSidebarOpen && (
+        <div
+          className="fixed z-[25] pointer-events-auto"
+          style={{ top: TOP_BAR_HEIGHT, bottom: 0, left: projectSidebarWidth, width: 0 }}
+        >
+          <ResizeHandle
+            side="right"
+            ariaLabel="Resize sidebar"
+            offset={4}
+            onPointerDown={startProjectSidebarResize}
+          />
+        </div>
+      )}
 
       {/* Content wrapper: top offset + layout containment creates a new containing
           block so all fixed children are relative to this wrapper, not the viewport.
@@ -1155,13 +1254,13 @@ function App(): React.JSX.Element {
           compositor layer over the WebGL canvas, which makes Chromium drop the
           backdrop-filter surfaces for a frame on hover/scroll (UI flicker). */}
       <div
-        className="fixed inset-x-0 bottom-0 pointer-events-none"
+        className="fixed inset-x-0 bottom-0 z-20 pointer-events-none"
         style={{ top: TOP_BAR_HEIGHT, contain: "layout" }}
       >
         {/* Main pane — full-height place panel and chat tab share this column. */}
         {((isFull && selectedPlace) || activeChatConvId) && (
           <div
-            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2"
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2 pb-4 pl-4"
             style={{
               left: projectSidebarOpen ? projectSidebarWidth : 0,
               width: mainPaneWidth
@@ -1289,52 +1388,6 @@ function App(): React.JSX.Element {
               defaultParentFolderPath={parentFolderForNewFiles}
               onOpenFolder={handleSelectFolder}
               onExpand={mapPeekPlace.previewMarkdown !== undefined ? undefined : handleExpandPeek}
-            />
-          </div>
-        )}
-
-        {/* Left sidebar overlay */}
-        <SidebarProvider
-          name="sidebar-left"
-          open={projectSidebarOpen}
-          onOpenChange={setProjectSidebarOpen}
-          keyboardShortcut={SIDEBAR_KB_PROJECT}
-          className="fixed inset-0 z-10 pointer-events-none bg-transparent"
-          style={{ "--sidebar-width": `${projectSidebarWidth}px` } as React.CSSProperties}
-        >
-          <ProjectSidebar
-            selectedFilePath={selectedFilePathForSidebar}
-            selectedFolderPath={selectedFolder ?? undefined}
-            activeChatConvId={activeChatConvId}
-            conversations={conversations}
-            streamingConvIds={streamingConvIds}
-            onSelectPlace={handleSelectPlaceFromSidebar}
-            onSelectFolder={handleSelectFolder}
-            onSelectGeoJson={handleSelectGeoJsonFromSidebar}
-            onDeletePath={handleDeletedPath}
-            onRenamePath={handlePathRelocated}
-            onMoved={handlePathRelocated}
-            onNewChat={handleNewChat}
-            onSelectChat={handleSwitchChatConv}
-            onDeleteChat={handleDeleteChatFromSidebar}
-            onRenameChat={handleSidebarRenameChat}
-            onStopChat={chatStore.abort}
-          />
-        </SidebarProvider>
-
-        {/* Sidebar resize rail — rendered outside the floating sidebar so it
-            spans full content height (not constrained by Sidebar's p-2) and
-            sits above the main pane (z-20) when chat/place pane is open. */}
-        {projectSidebarOpen && (
-          <div
-            className="absolute z-[25] pointer-events-auto"
-            style={{ top: 0, bottom: 0, left: projectSidebarWidth, width: 0 }}
-          >
-            <ResizeHandle
-              side="right"
-              ariaLabel="Resize sidebar"
-              offset={4}
-              onPointerDown={startProjectSidebarResize}
             />
           </div>
         )}

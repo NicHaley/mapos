@@ -7,7 +7,7 @@ import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
 import { FolderIcon, MessageCircleIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
-import { memo } from "react";
+import { memo, useRef, useState } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
@@ -41,11 +41,18 @@ export const NavTabs = memo(function NavTabs({
   onTabClose,
   onTabReorder
 }: NavTabsProps) {
+  // Tabs animate their layout only while a drag is in flight; opening, closing,
+  // or switching tabs repositions instantly (transition duration 0).
+  const [isDragging, setIsDragging] = useState(false);
+  // Confines a dragged tab to the visible strip so it can't be flung out of view.
+  const constraintsRef = useRef<HTMLDivElement>(null);
+
   if (tabs.length === 0) return null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5" style={dragRegion}>
       <motion.div
+        ref={constraintsRef}
         layoutScroll
         className="flex min-h-0 min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ ...noDrag, flex: "0 1 auto" } as React.CSSProperties}
@@ -66,6 +73,11 @@ export const NavTabs = memo(function NavTabs({
                 key={tab.id}
                 value={tab.id}
                 layout="position"
+                transition={{ duration: isDragging ? 0.18 : 0 }}
+                dragConstraints={constraintsRef}
+                dragElastic={0}
+                onDragStart={() => setIsDragging(true)}
+                onDragEnd={() => setIsDragging(false)}
                 as="div"
                 role="tab"
                 tabIndex={0}
@@ -76,10 +88,10 @@ export const NavTabs = memo(function NavTabs({
                 style={noDrag}
                 className={cn(
                   // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                  "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                  "group relative inline-flex h-8 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding pr-1 pl-2 text-[0.8rem] font-medium outline-none backdrop-blur-md select-none transition-colors",
                   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   isActive
-                    ? "bg-sidebar-accent text-sidebar-foreground hover:bg-sidebar-accent"
+                    ? "bg-sidebar-accent/85 text-sidebar-foreground hover:bg-sidebar-accent/85"
                     : "bg-sidebar-accent/40 text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80"
                 )}
               >

@@ -170,18 +170,18 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       );
   }
 
-  // top-12 (48px) clears the app's top bar (TOP_BAR_HEIGHT = 2.5 * BASE_UNITS ≈ 40px).
+  // Bottom-right status slot, clear of the top-bar chrome and the sidebar.
   // AnimatePresence (mode="wait") fades the pill in/out and crossfades between states;
   // keying on the slot kind means progress updates within a state don't re-trigger it.
   return (
-    <div className="pointer-events-none absolute right-2 top-12 z-10">
+    <div className="pointer-events-none absolute right-2 bottom-2 z-10">
       <AnimatePresence mode="wait">
         {slotContent && (
           <motion.div
             key={slotKey}
-            initial={{ opacity: 0, y: -4 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
+            exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
           >
             {slotContent}

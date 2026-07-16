@@ -13,51 +13,28 @@ const surface = "border border-border bg-background/70 shadow-sm backdrop-blur-m
 // A soft shadow keeps the ghost icons legible when the top bar is transparent.
 const ICON = "size-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]";
 
-// Tick marks around the dial: 12 spokes (every 30°), cardinals longer/bolder.
-const COMPASS_TICKS = Array.from({ length: 12 }, (_, i) => {
-  const rad = (i * 30 * Math.PI) / 180;
-  const cardinal = i % 3 === 0;
-  const outer = 11;
-  const inner = cardinal ? 8 : 9.5;
-  return {
-    deg: i * 30,
-    x1: 12 + outer * Math.sin(rad),
-    y1: 12 - outer * Math.cos(rad),
-    x2: 12 + inner * Math.sin(rad),
-    y2: 12 - inner * Math.cos(rad),
-    cardinal
-  };
-});
-
 /**
- * Custom compass rose. The whole dial — tick ring and needle — rotates by
- * -bearing so the red north arm always points to true north; clicking the
- * button resets the map to north-up.
+ * Compass needle in Lucide's stroke style (Felt-inspired). A diamond needle
+ * that rotates by -bearing so the filled north half always points to true
+ * north; clicking the button resets the map to north-up.
  */
 function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
   return (
     <svg
       viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className="size-5 text-foreground drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
       aria-hidden="true"
     >
       <title>Compass</title>
       <g transform={`rotate(${-bearing} 12 12)`}>
-        {COMPASS_TICKS.map((t) => (
-          <line
-            key={t.deg}
-            x1={t.x1}
-            y1={t.y1}
-            x2={t.x2}
-            y2={t.y2}
-            stroke="currentColor"
-            strokeWidth={t.cardinal ? 1 : 0.75}
-            strokeLinecap="round"
-            opacity={t.cardinal ? 0.7 : 0.3}
-          />
-        ))}
-        <path d="M12 5 L14.5 12 L12 11 L9.5 12 Z" className="fill-red-500" />
-        <path d="M12 19 L14.5 12 L12 13 L9.5 12 Z" className="fill-muted-foreground" />
+        {/* North (pointing) half filled for contrast; full diamond outlined. */}
+        <path d="M12 2.5 L16 13 L8 13 Z" fill="currentColor" stroke="none" />
+        <path d="M12 2.5 L16 13 L12 21.5 L8 13 Z" />
       </g>
     </svg>
   );
@@ -142,7 +119,8 @@ export function MapControls({
   const map = mapRef?.getMap();
   const atMax = map ? camera.zoom >= map.getMaxZoom() : false;
   const atMin = map ? camera.zoom <= map.getMinZoom() : false;
-  const rotated = Math.abs(camera.bearing) > 0.5;
+  // Current map bearing normalized to 0–359° for the compass tooltip.
+  const heading = Math.round((camera.bearing % 360) + 360) % 360;
 
   const locate = (): void => {
     if (!map) return;
@@ -186,11 +164,9 @@ export function MapControls({
           {locateError}
         </div>
       )}
-      {rotated && (
-        <ControlButton label="Reset north" onClick={() => map?.resetNorth()}>
-          <CompassRose bearing={camera.bearing} />
-        </ControlButton>
-      )}
+      <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
+        <CompassRose bearing={camera.bearing} />
+      </ControlButton>
       <ControlButton label="My location" disabled={locating} onClick={locate}>
         {locating ? (
           <LoaderCircleIcon className={cn(ICON, "animate-spin")} />

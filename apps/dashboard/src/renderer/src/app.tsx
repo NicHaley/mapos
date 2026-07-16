@@ -1,6 +1,5 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { Separator } from "@mapos/ui/components/separator";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
@@ -1116,7 +1115,7 @@ function App(): React.JSX.Element {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon"
                     onClick={() => setProjectSidebarOpen((o) => !o)}
                   >
                     <PanelLeftIcon className="size-4" />
@@ -1124,7 +1123,7 @@ function App(): React.JSX.Element {
                 }
               />
               <TooltipContent side="bottom">
-                Project
+                Toggle sidebar
                 <KbdGroup>
                   <Kbd>{modSymbol}</Kbd>
                   <Kbd>{"\\"}</Kbd>
@@ -1138,16 +1137,10 @@ function App(): React.JSX.Element {
               conversations={conversations}
               onSelectConversation={handleSearchSelectConversation}
             />
-            <Separator orientation="vertical" className="h-4! self-center" />
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleNavBack}
-                    disabled={!canBack}
-                  >
+                  <Button variant="ghost" size="icon" onClick={handleNavBack} disabled={!canBack}>
                     <ChevronLeftIcon />
                   </Button>
                 }
@@ -1165,7 +1158,7 @@ function App(): React.JSX.Element {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon"
                     onClick={handleNavForward}
                     disabled={!canForward}
                   >
@@ -1184,7 +1177,7 @@ function App(): React.JSX.Element {
           </div>
         </div>
         {/* Tabs zone — tab strip, anchored just outside the sidebar's right edge. */}
-        <div className="flex-1 min-w-0 flex items-center h-full min-h-0 px-4">
+        <div className="flex-1 min-w-0 flex items-center h-full min-h-0 px-2">
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}
@@ -1232,17 +1225,17 @@ function App(): React.JSX.Element {
         />
       </SidebarProvider>
 
-      {/* Sidebar resize rail — full content height, starting below the top-bar
-          controls so it doesn't overlap the search control at the sidebar edge. */}
+      {/* Sidebar resize rail — spans the full sidebar height (top bar sits above it,
+          so the controls at the sidebar edge stay clickable). */}
       {projectSidebarOpen && (
         <div
           className="fixed z-[25] pointer-events-auto"
-          style={{ top: TOP_BAR_HEIGHT, bottom: 0, left: projectSidebarWidth, width: 0 }}
+          style={{ top: 0, bottom: 0, left: projectSidebarWidth, width: 0 }}
         >
           <ResizeHandle
             side="right"
             ariaLabel="Resize sidebar"
-            offset={4}
+            offset={0}
             onPointerDown={startProjectSidebarResize}
           />
         </div>
@@ -1260,7 +1253,7 @@ function App(): React.JSX.Element {
         {/* Main pane — full-height place panel and chat tab share this column. */}
         {((isFull && selectedPlace) || activeChatConvId) && (
           <div
-            className="absolute top-0 bottom-0 z-20 pointer-events-auto p-2 pb-4 pl-4"
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
             style={{
               left: projectSidebarOpen ? projectSidebarWidth : 0,
               width: mainPaneWidth
@@ -1321,10 +1314,12 @@ function App(): React.JSX.Element {
                 onOpenFeature={handleOpenFeatureFromChat}
               />
             )}
+            {/* Rail tracks the card edges: offset = -(right padding), bottom = bottom padding. */}
             <ResizeHandle
               side="right"
               ariaLabel="Resize main pane"
-              offset={-4}
+              offset={0}
+              className="bottom-2"
               onPointerDown={startMainPaneResize}
             />
           </div>

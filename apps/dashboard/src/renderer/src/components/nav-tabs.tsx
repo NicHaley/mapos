@@ -1,13 +1,14 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
+import { Surface } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
 import { FolderIcon, MessageCircleIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
-import { memo, useRef, useState } from "react";
+import { memo, useState } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
@@ -44,98 +45,101 @@ export const NavTabs = memo(function NavTabs({
   // Tabs animate their layout only while a drag is in flight; opening, closing,
   // or switching tabs repositions instantly (transition duration 0).
   const [isDragging, setIsDragging] = useState(false);
-  // Confines a dragged tab to the visible strip so it can't be flung out of view.
-  const constraintsRef = useRef<HTMLDivElement>(null);
 
   if (tabs.length === 0) return null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 items-center gap-0.5" style={dragRegion}>
-      <motion.div
-        ref={constraintsRef}
-        layoutScroll
-        className="flex min-h-0 min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      {/* One glass cluster (mirrors the left controls + map controls) holding the tabs as segments. */}
+      <Surface
+        variant="cluster"
+        className="min-h-0 min-w-0 shrink px-0.5"
         style={{ ...noDrag, flex: "0 1 auto" } as React.CSSProperties}
       >
-        <Reorder.Group
-          axis="x"
-          values={tabs.map((t) => t.id)}
-          onReorder={onTabReorder}
-          as="div"
-          className="flex w-max max-w-full items-center gap-0.5"
+        {/* py/-my pair: gives the active tab's shadow vertical room to bleed past the
+            cluster (overflow-x-auto forces overflow-y to clip) without changing height. */}
+        <motion.div
+          layoutScroll
+          className="-my-1.5 flex min-h-0 min-w-0 items-center overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {tabs.map((tab, i) => {
-            const isActive = i === activeTabIndex;
-            const isStreaming = tab.kind === "chat" && streamingConvIds.has(tab.convId);
-            const Icon = tabIcon(tab);
-            return (
-              <Reorder.Item
-                key={tab.id}
-                value={tab.id}
-                layout="position"
-                transition={{ duration: isDragging ? 0.18 : 0 }}
-                dragConstraints={constraintsRef}
-                dragElastic={0}
-                onDragStart={() => setIsDragging(true)}
-                onDragEnd={() => setIsDragging(false)}
-                as="div"
-                role="tab"
-                tabIndex={0}
-                onClick={() => onTabActivate(i)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") onTabActivate(i);
-                }}
-                style={noDrag}
-                className={cn(
-                  // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                  "group relative inline-flex h-8 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-sidebar-border bg-clip-padding pr-1 pl-2 text-[0.8rem] font-medium outline-none backdrop-blur-md select-none transition-colors",
-                  "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                  isActive
-                    ? "bg-card/80 text-sidebar-foreground hover:bg-card/80 dark:bg-sidebar-accent/85 dark:hover:bg-sidebar-accent/85"
-                    : "bg-card/50 text-sidebar-foreground/50 hover:bg-card/70 hover:text-sidebar-foreground/80 dark:bg-sidebar-accent/40 dark:hover:bg-sidebar-accent/60"
-                )}
-              >
-                {isStreaming ? (
-                  <PulseLoader aria-label="Streaming" color="text-white" />
-                ) : (
-                  <Icon className="size-3.5 shrink-0 opacity-70" />
-                )}
-                <span className="truncate">{tab.title}</span>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onTabClose(i);
-                        }}
-                        className={cn(
-                          "shrink-0 rounded",
-                          isActive
-                            ? "opacity-60 hover:opacity-100"
-                            : "opacity-0 group-hover:opacity-60 hover:opacity-100!"
-                        )}
-                      >
-                        <XIcon />
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom">
-                    Close tab
-                    <KbdGroup>
-                      <Kbd>{modSymbol}</Kbd>
-                      <Kbd>W</Kbd>
-                    </KbdGroup>
-                  </TooltipContent>
-                </Tooltip>
-              </Reorder.Item>
-            );
-          })}
-        </Reorder.Group>
-      </motion.div>
+          <Reorder.Group
+            axis="x"
+            values={tabs.map((t) => t.id)}
+            onReorder={onTabReorder}
+            as="div"
+            className="flex w-max max-w-full items-center gap-0.5"
+          >
+            {tabs.map((tab, i) => {
+              const isActive = i === activeTabIndex;
+              const isStreaming = tab.kind === "chat" && streamingConvIds.has(tab.convId);
+              const Icon = tabIcon(tab);
+              return (
+                <Reorder.Item
+                  key={tab.id}
+                  value={tab.id}
+                  layout="position"
+                  transition={{ duration: isDragging ? 0.18 : 0 }}
+                  onDragStart={() => setIsDragging(true)}
+                  onDragEnd={() => setIsDragging(false)}
+                  as="div"
+                  role="tab"
+                  tabIndex={0}
+                  onClick={() => onTabActivate(i)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onTabActivate(i);
+                  }}
+                  style={noDrag}
+                  className={cn(
+                    // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
+                    "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                    "focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                    isActive
+                      ? "bg-card text-sidebar-foreground shadow-sm dark:bg-sidebar-accent"
+                      : "text-sidebar-foreground/50 hover:bg-hover hover:text-sidebar-foreground/80"
+                  )}
+                >
+                  {isStreaming ? (
+                    <PulseLoader aria-label="Streaming" color="text-white" />
+                  ) : (
+                    <Icon className="size-3.5 shrink-0 opacity-70" />
+                  )}
+                  <span className="truncate">{tab.title}</span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTabClose(i);
+                          }}
+                          className={cn(
+                            "shrink-0 rounded",
+                            isActive
+                              ? "opacity-60 hover:opacity-100"
+                              : "opacity-0 group-hover:opacity-60 hover:opacity-100!"
+                          )}
+                        >
+                          <XIcon />
+                        </Button>
+                      }
+                    />
+                    <TooltipContent side="bottom">
+                      Close tab
+                      <KbdGroup>
+                        <Kbd>{modSymbol}</Kbd>
+                        <Kbd>W</Kbd>
+                      </KbdGroup>
+                    </TooltipContent>
+                  </Tooltip>
+                </Reorder.Item>
+              );
+            })}
+          </Reorder.Group>
+        </motion.div>
+      </Surface>
 
       {/* Fills remaining top-bar width so the window can be dragged beside the tab strip */}
       <div className="min-h-0 min-w-0 flex-1 self-stretch" style={dragRegion} aria-hidden />

@@ -10,10 +10,9 @@ import type { UserLocation } from "./user-location-layer";
 // Glassy chrome for the transient error pill; the buttons themselves are ghost.
 const surface = "border border-border bg-background/70 shadow-sm backdrop-blur-md";
 
-// A soft halo keeps the ghost icons legible over the map: a light glow behind the
-// dark icons in light mode, a dark shadow behind the light icons in dark mode.
-const ICON =
-  "size-4 drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]";
+// Icons sit on the control pill's surface, so they match the plain ghost icons
+// in the left-side cluster — no over-map legibility halo needed.
+const ICON = "size-4";
 
 /**
  * Compass needle in Lucide's stroke style (Felt-inspired). A diamond needle
@@ -29,7 +28,7 @@ function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5 drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
+      className="size-5"
       aria-hidden="true"
     >
       <title>Compass</title>
@@ -159,40 +158,43 @@ export function MapControls({
       {locateError && (
         <div
           className={cn(
-            "mr-1 flex h-7 items-center rounded-full px-3 text-xs text-muted-foreground",
+            "mr-1 flex h-7 items-center rounded-lg px-3 text-xs text-muted-foreground",
             surface
           )}
         >
           {locateError}
         </div>
       )}
-      <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
-        <CompassRose bearing={camera.bearing} />
-      </ControlButton>
-      <ControlButton label="My location" disabled={locating} onClick={locate}>
-        {locating ? (
-          <LoaderCircleIcon className={cn(ICON, "animate-spin")} />
-        ) : (
-          <NavigationIcon className={cn(ICON, userLocation && "fill-sky-500 text-sky-500")} />
-        )}
-      </ControlButton>
-      <ControlButton label="Zoom out" disabled={atMin} onClick={() => map?.zoomOut()}>
-        <MinusIcon className={ICON} />
-      </ControlButton>
-      <ControlButton label="Zoom in" disabled={atMax} onClick={() => map?.zoomIn()}>
-        <PlusIcon className={ICON} />
-      </ControlButton>
-      {/* Attribution shown on hover; mirrors ATTRIBUTION in main/region-protocol.ts. */}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button variant="ghost" size="icon" aria-label="Map data attribution">
-              <InfoIcon className={ICON} />
-            </Button>
-          }
-        />
-        <TooltipContent side="bottom">© OpenStreetMap contributors · © Protomaps</TooltipContent>
-      </Tooltip>
+      {/* Floating cluster mirroring the left-side controls and the mini place-card actions. */}
+      <div className="flex h-8 items-center gap-0.5 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+        <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
+          <CompassRose bearing={camera.bearing} />
+        </ControlButton>
+        <ControlButton label="My location" disabled={locating} onClick={locate}>
+          {locating ? (
+            <LoaderCircleIcon className={cn(ICON, "animate-spin")} />
+          ) : (
+            <NavigationIcon className={cn(ICON, userLocation && "fill-sky-500 text-sky-500")} />
+          )}
+        </ControlButton>
+        <ControlButton label="Zoom out" disabled={atMin} onClick={() => map?.zoomOut()}>
+          <MinusIcon className={ICON} />
+        </ControlButton>
+        <ControlButton label="Zoom in" disabled={atMax} onClick={() => map?.zoomIn()}>
+          <PlusIcon className={ICON} />
+        </ControlButton>
+        {/* Attribution shown on hover; mirrors ATTRIBUTION in main/region-protocol.ts. */}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="ghost" size="icon" aria-label="Map data attribution">
+                <InfoIcon className={ICON} />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">© OpenStreetMap contributors · © Protomaps</TooltipContent>
+        </Tooltip>
+      </div>
     </div>
   );
 }

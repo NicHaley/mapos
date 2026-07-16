@@ -91,7 +91,7 @@ export const NavTabs = memo(function NavTabs({
                   "group relative inline-flex h-8 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-sidebar-border bg-clip-padding pr-1 pl-2 text-[0.8rem] font-medium outline-none backdrop-blur-md select-none transition-colors",
                   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   isActive
-                    ? "bg-card text-sidebar-foreground hover:bg-card dark:bg-sidebar-accent/85 dark:hover:bg-sidebar-accent/85"
+                    ? "bg-card/80 text-sidebar-foreground hover:bg-card/80 dark:bg-sidebar-accent/85 dark:hover:bg-sidebar-accent/85"
                     : "bg-card/50 text-sidebar-foreground/50 hover:bg-card/70 hover:text-sidebar-foreground/80 dark:bg-sidebar-accent/40 dark:hover:bg-sidebar-accent/60"
                 )}
               >

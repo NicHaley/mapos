@@ -1107,7 +1107,13 @@ function App(): React.JSX.Element {
         >
           {projectSidebarOpen && <div className="flex-1" aria-hidden />}
           <div
-            className="flex items-center gap-1 pr-3"
+            className={cn(
+              "flex items-center",
+              projectSidebarOpen
+                ? "gap-1 pr-3"
+                : // Collapsed: a light floating cluster mirroring the mini place-card actions.
+                  "h-8 gap-0.5 rounded-lg bg-sidebar/60 backdrop-blur-sm"
+            )}
             style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           >
             <Tooltip>

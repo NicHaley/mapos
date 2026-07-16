@@ -632,7 +632,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 render={
                   <SidebarGroupAction
                     title="Add"
-                    className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 data-open:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+                    className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 data-open:opacity-100 hover:bg-hover-strong hover:text-sidebar-accent-foreground"
                   >
                     <PlusIcon />
                     <span className="sr-only">Add file or folder</span>
@@ -748,7 +748,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
             />
             <SidebarGroupAction
               title="New chat"
-              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-sidebar-accent-foreground"
               onClick={() => {
                 setConversationsGroupOpen(true);
                 onNewChat?.();
@@ -796,7 +796,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                             render={
                               <SidebarMenuButton
                                 isActive={isActive}
-                                className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
+                                className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground"
                                 onClick={(e) => {
                                   if (isRenaming) {
                                     e.preventDefault();
@@ -866,7 +866,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                             render={
                               <SidebarMenuAction
                                 showOnHover
-                                className="hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100"
+                                className="hover:bg-hover-strong hover:text-sidebar-accent-foreground data-open:bg-hover-strong data-open:text-sidebar-accent-foreground data-open:opacity-100"
                               >
                                 <EllipsisIcon />
                                 <span className="sr-only">More actions</span>

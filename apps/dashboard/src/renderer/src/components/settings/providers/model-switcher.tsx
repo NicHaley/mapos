@@ -42,7 +42,7 @@ export function ModelSwitcher({
     : undefined;
 
   const triggerClass = cn(
-    "flex h-7 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground",
+    "flex h-7 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground text-xs transition-colors hover:bg-hover hover:text-foreground",
     className
   );
 

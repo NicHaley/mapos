@@ -53,7 +53,7 @@ export function OauthProgress({ connect }: { connect: KnownProviderConnect }): R
             </code>
             <button
               type="button"
-              className="rounded-md border px-2 py-1 text-xs hover:bg-accent/40"
+              className="rounded-md border px-2 py-1 text-xs hover:bg-hover"
               onClick={() => void navigator.clipboard.writeText(deviceCode.userCode)}
             >
               Copy

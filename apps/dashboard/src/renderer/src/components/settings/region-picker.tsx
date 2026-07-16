@@ -89,7 +89,7 @@ function RegionRowItem({
   return (
     <div
       data-region-slug={row.slug}
-      className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
+      className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-hover"
       onMouseEnter={() => onHover(row.slug)}
       onMouseLeave={() => onHover(null)}
     >

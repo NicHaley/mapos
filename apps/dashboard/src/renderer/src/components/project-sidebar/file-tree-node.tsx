@@ -287,7 +287,7 @@ export function FileTreeNode({
   );
 
   const itemActionClass =
-    "hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100";
+    "hover:bg-hover-strong hover:text-sidebar-accent-foreground data-open:bg-hover-strong data-open:text-sidebar-accent-foreground data-open:opacity-100";
 
   if (node.type === "directory") {
     const isActive =
@@ -302,9 +302,9 @@ export function FileTreeNode({
                 <div
                   className={cn(
                     "flex min-h-8 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md pl-1 pr-2 ring-sidebar-ring outline-hidden transition-[color,background-color,box-shadow]",
-                    "group-hover/folder-row:bg-sidebar-accent group-hover/folder-row:text-sidebar-accent-foreground",
+                    "group-hover/folder-row:bg-hover group-hover/folder-row:text-sidebar-accent-foreground",
                     "group-has-data-[sidebar=menu-action]/folder-row:pr-8",
-                    isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+                    isActive && "bg-hover font-medium text-sidebar-accent-foreground",
                     folderDropZone && "bg-sidebar-accent"
                   )}
                   draggable={Boolean(dnd) && !isRenaming}
@@ -337,7 +337,7 @@ export function FileTreeNode({
                 className={cn(
                   "my-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md outline-none transition-[color,background-color]",
                   "text-sidebar-foreground/50 hover:text-sidebar-accent-foreground",
-                  "hover:bg-sidebar-accent-foreground/10",
+                  "hover:bg-hover-strong",
                   "focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-0"
                 )}
                 onClick={() => {
@@ -438,7 +438,7 @@ export function FileTreeNode({
           render={
             <SidebarMenuButton
               isActive={isActive}
-              className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
+              className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground data-active:bg-hover"
               draggable={Boolean(dnd) && !isRenaming}
               onDragStart={(e) => {
                 if (!dnd || isRenaming) return;

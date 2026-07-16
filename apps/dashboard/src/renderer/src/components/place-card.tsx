@@ -375,7 +375,7 @@ function PlaceCardMarkdownPane({
                   "rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
                   editor.isActive("bold")
                     ? "bg-sidebar-accent text-sidebar-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover"
                 )}
               >
                 B
@@ -387,7 +387,7 @@ function PlaceCardMarkdownPane({
                   "rounded px-1.5 py-0.5 text-xs italic transition-colors",
                   editor.isActive("italic")
                     ? "bg-sidebar-accent text-sidebar-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover"
                 )}
               >
                 I
@@ -397,7 +397,7 @@ function PlaceCardMarkdownPane({
                 <button
                   type="button"
                   onClick={() => editor.chain().focus().unsetLink().run()}
-                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover transition-colors"
                   title="Remove link"
                 >
                   <Link2OffIcon className="size-3" />
@@ -406,7 +406,7 @@ function PlaceCardMarkdownPane({
                 <button
                   type="button"
                   onClick={openLinkInput}
-                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover transition-colors"
                   title="Add link"
                 >
                   <Link2Icon className="size-3" />
@@ -1054,7 +1054,7 @@ export const PlaceCard = memo(function PlaceCard({
                       render={
                         <button
                           type="button"
-                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
                         >
                           {place.geometry ? (
                             <MapPinIcon className="size-4 shrink-0" />

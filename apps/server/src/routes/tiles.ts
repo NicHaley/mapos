@@ -45,13 +45,14 @@ export function registerTiles(app: Hono): void {
     })
   );
 
-  // Proxied style JSON. Light fetches the upstream Protomaps style with the API
-  // key and rewrites its tile-source URLs to point back at this server so the
-  // key never reaches the client. Dark can't be proxied: the hosted "black"
-  // flavor defines no POI colors or icons, so its style has no pois layer at
-  // all. Instead the dark style is generated here with @protomaps/basemaps —
-  // black flavor plus the dark flavor's POI palette and sprite sheet — matching
-  // the offline path (see the dashboard's region-protocol.ts).
+  // Proxied style JSON. Tinted light fetches the upstream Protomaps style with
+  // the API key and rewrites its tile-source URLs to point back at this server
+  // so the key never reaches the client. The other three variants can't be
+  // proxied: the hosted monochrome flavors ("black" / "white") define no POI
+  // colors or icons, so their styles have no pois layer at all. Those (and dark)
+  // are generated here with @protomaps/basemaps — monochrome flavor plus the
+  // tinted flavor's POI palette and sprite sheet — matching the offline path
+  // (see the dashboard's region-protocol.ts).
   app.get("/v1/tiles/style.json", async (c) => {
     const env = loadEnv(c.env);
     if (!env.PROTOMAPS_API_KEY) {
@@ -62,11 +63,14 @@ export function registerTiles(app: Hono): void {
     const proxyBase = `${publicBaseUrl(c.req.url)}/v1/tiles`;
     if (variant === "dark") {
       // Dark is generated locally (the hosted flavors' POI handling differs).
-      return c.json(darkStyle(proxyBase, monochrome));
+      return c.json(generatedStyle(proxyBase, variant, monochrome));
     }
-    // Light theme proxies the hosted flavor: "white" (monochrome) or "light" (tinted).
-    const flavor = monochrome ? "white" : "light";
-    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/${flavor}/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
+    if (monochrome) {
+      // Monochrome light ("white") is generated locally too, for the same reason.
+      return c.json(generatedStyle(proxyBase, variant, monochrome));
+    }
+    // Tinted light proxies the hosted flavor.
+    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/light/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
     const res = await fetch(upstream, { signal: c.req.raw.signal });
     if (!res.ok) {
       return errorResponse(
@@ -139,21 +143,26 @@ const ATTRIBUTION =
   '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
 
 /**
- * Dark style, generated rather than proxied. Black flavor with the dark
- * flavor's POI palette grafted on; the dark sprite sheet is a superset of
- * black's icons and is drawn for dark backdrops. Glyphs/sprites come from the
- * public Protomaps assets CDN (no API key), tiles from this server's proxy.
+ * Style generated rather than proxied, for dark and both monochrome flavors.
+ * The monochrome flavors ("black" / "white") define no POI colors or icons, so
+ * graft the tinted flavor's POI palette on and reuse its sprite sheet (a
+ * superset of the monochrome icons). Glyphs/sprites come from the public
+ * Protomaps assets CDN (no API key), tiles from this server's proxy.
  */
-function darkStyle(proxyBase: string, monochrome: boolean): Record<string, unknown> {
-  // Monochrome dark ("black") defines no POI colors/icons — graft the dark
-  // flavor's POI palette on. Tinted dark uses the dark flavor as-is.
+function generatedStyle(
+  proxyBase: string,
+  variant: "light" | "dark",
+  monochrome: boolean
+): Record<string, unknown> {
+  const tinted = variant === "dark" ? "dark" : "light";
+  const mono = variant === "dark" ? "black" : "white";
   const flavor = monochrome
-    ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
-    : namedFlavor("dark");
+    ? { ...namedFlavor(mono), pois: namedFlavor(tinted).pois }
+    : namedFlavor(tinted);
   return {
     version: 8,
     glyphs: `${ASSETS_BASE}/fonts/{fontstack}/{range}.pbf`,
-    sprite: `${ASSETS_BASE}/sprites/v4/dark`,
+    sprite: `${ASSETS_BASE}/sprites/v4/${tinted}`,
     sources: {
       protomaps: {
         type: "vector",

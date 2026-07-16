@@ -109,16 +109,16 @@ type StyleLayer = {
 };
 
 function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: boolean): Response {
-  // Theme × "Map color" → Protomaps flavor. The monochrome dark ("black")
-  // flavor defines no POI colors or icons, so graft the dark flavor's POI
-  // palette onto it and use the dark sprite sheet (a superset of black's icons).
+  // Theme × "Map color" → Protomaps flavor. The monochrome flavors ("black" /
+  // "white") define no POI colors or icons, so graft the tinted flavor's POI
+  // palette onto them (and reuse the tinted sprite sheet, a superset of icons).
   const flavor =
     theme === "dark"
       ? monochrome
         ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
         : namedFlavor("dark")
       : monochrome
-        ? namedFlavor("white")
+        ? { ...namedFlavor("white"), pois: namedFlavor("light").pois }
         : namedFlavor("light");
   // Only light/dark sprites are bundled; the monochrome flavors reuse them
   // (their POI icons read fine on the white/black backdrops).

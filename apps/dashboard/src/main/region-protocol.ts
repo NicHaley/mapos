@@ -56,8 +56,9 @@ export function registerRegionProtocol(regionsDir: string, worldPmtilesPath: str
     }
     if (rel === "style.json") {
       const theme = url.searchParams.get("theme") === "dark" ? "dark" : "light";
+      const monochrome = url.searchParams.get("mono") === "1";
       // Host is a sentinel (`_all`) — the style spans every downloaded pack.
-      return styleResponse(regionsDir, theme);
+      return styleResponse(regionsDir, theme, monochrome);
     }
     const tile = TILE_RE.exec(rel);
     if (tile) {
@@ -107,15 +108,20 @@ type StyleLayer = {
   [key: string]: unknown;
 };
 
-function styleResponse(regionsDir: string, theme: "light" | "dark"): Response {
-  // Dark mode is the "black" flavor, but black defines no POI colors (so
-  // `layers()` would emit no pois layer) and its sprite sheet ships no POI
-  // icons. Graft the dark flavor's POI palette onto black and use the dark
-  // sprite sheet — a superset of black's icons, drawn for dark backdrops.
+function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: boolean): Response {
+  // Theme × "Map color" → Protomaps flavor. The monochrome dark ("black")
+  // flavor defines no POI colors or icons, so graft the dark flavor's POI
+  // palette onto it and use the dark sprite sheet (a superset of black's icons).
   const flavor =
     theme === "dark"
-      ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
-      : namedFlavor("light");
+      ? monochrome
+        ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
+        : namedFlavor("dark")
+      : monochrome
+        ? namedFlavor("white")
+        : namedFlavor("light");
+  // Only light/dark sprites are bundled; the monochrome flavors reuse them
+  // (their POI icons read fine on the white/black backdrops).
   const spriteName = theme === "dark" ? "dark" : "light";
 
   // World backdrop (z0–6, overzoomed by MapLibre to cover all higher zooms). Its

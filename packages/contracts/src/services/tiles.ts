@@ -7,6 +7,9 @@
 import { z } from "zod";
 
 export const TileStyleRequestSchema = z.object({
-  isDark: z.boolean()
+  isDark: z.boolean(),
+  // Monochrome basemap ("Map color: Monochrome" = white/black flavor) vs the
+  // default tinted light/dark flavor. Optional so older callers still parse.
+  monochrome: z.boolean().default(false)
 });
 export type TileStyleRequest = z.infer<typeof TileStyleRequestSchema>;

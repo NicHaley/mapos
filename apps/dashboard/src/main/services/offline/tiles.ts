@@ -11,7 +11,8 @@ import { REGION_SCHEME } from "../../region-protocol";
  */
 function styleUrl(req: TileStyleRequest, _ep: Endpoint): string {
   const theme = req.isDark ? "dark" : "light";
-  return `${REGION_SCHEME}://_all/style.json?theme=${theme}`;
+  const mono = req.monochrome ? "1" : "0";
+  return `${REGION_SCHEME}://_all/style.json?theme=${theme}&mono=${mono}`;
 }
 
 export const offlineTiles: TileCapability = { styleUrl };

@@ -32,6 +32,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { useMapColor } from "@renderer/lib/map-color";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
@@ -49,6 +50,7 @@ export type { PlaceRecord };
  */
 function useDarkMapStyle(): string | null {
   const isDark = useDarkMode();
+  const mapColor = useMapColor();
   const [styleUrl, setStyleUrl] = useState<string | null>(null);
   // Bumped when packs are added/removed. Re-resolves the style URL and — since the
   // offline style URL (mapos-region://_all/style.json) is stable while its contents
@@ -60,7 +62,7 @@ function useDarkMapStyle(): string | null {
   useEffect(() => {
     let cancelled = false;
     window.api.services
-      .tilesStyleUrl({ isDark })
+      .tilesStyleUrl({ isDark, monochrome: mapColor === "monochrome" })
       .then((url) => {
         if (cancelled) return;
         const busted = revision > 0 ? `${url}${url.includes("?") ? "&" : "?"}rev=${revision}` : url;
@@ -73,7 +75,7 @@ function useDarkMapStyle(): string | null {
     return () => {
       cancelled = true;
     };
-  }, [isDark, revision]);
+  }, [isDark, mapColor, revision]);
 
   return styleUrl;
 }
@@ -320,8 +322,12 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
 
 const SELECTION_PULSE_IMAGE_ID = "mapos-selection-pulse";
 
-/** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”. */
-function createSelectionPulsingDot(map: { triggerRepaint: () => void }) {
+/** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”.
+ * Colors invert with the theme so the dot reads on both the light and dark basemaps:
+ * a light core with a dark halo in dark mode, a dark core with a light halo in light mode. */
+function createSelectionPulsingDot(map: { triggerRepaint: () => void }, isDark: boolean) {
+  const core = isDark ? "255, 255, 255" : "100, 116, 139";
+  const halo = isDark ? "30, 30, 35" : "255, 255, 255";
   const size = 64;
   const dot = {
     width: size,
@@ -344,17 +350,17 @@ function createSelectionPulsingDot(map: { triggerRepaint: () => void }) {
       ctx.clearRect(0, 0, size, size);
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, outerRadius + 1.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(30, 30, 35, ${0.22 * (1 - t)})`;
+      ctx.strokeStyle = `rgba(${halo}, ${0.22 * (1 - t)})`;
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * (1 - t)})`;
+      ctx.fillStyle = `rgba(${core}, ${0.55 * (1 - t)})`;
       ctx.fill();
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 255, 255, 1)";
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.fillStyle = `rgba(${core}, 1)`;
+      ctx.strokeStyle = `rgba(${core}, 0.92)`;
       ctx.lineWidth = 1.75 + 2.4 * (1 - t);
       ctx.fill();
       ctx.stroke();
@@ -389,6 +395,7 @@ function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
 function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
   const maps = useMap();
   const mapRef = maps.current;
+  const isDark = useDarkMode();
   const [imageReady, setImageReady] = useState(false);
   useLayoutEffect(() => {
     if (!mapRef) return;
@@ -398,7 +405,7 @@ function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
     const install = () => {
       if (cancelled) return;
       try {
-        const pulsingDot = createSelectionPulsingDot(map);
+        const pulsingDot = createSelectionPulsingDot(map, isDark);
         if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
         map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
         setImageReady(true);
@@ -419,7 +426,7 @@ function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
       }
       setImageReady(false);
     };
-  }, [mapRef]);
+  }, [mapRef, isDark]);
 
   const pulseCoordsKey =
     data.features[0]?.geometry.type === "Point"

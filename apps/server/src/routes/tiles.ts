@@ -37,8 +37,11 @@ export function registerTiles(app: Hono): void {
   app.post("/v1/tiles/style-url", (c) =>
     handleContractPost(c, TileStyleRequestSchema, StyleUrlResponseSchema, (req) => {
       const variant = req.isDark ? "dark" : "light";
+      const mono = req.monochrome ? "1" : "0";
       const base = publicBaseUrl(c.req.url);
-      return Promise.resolve({ url: `${base}/v1/tiles/style.json?variant=${variant}` });
+      return Promise.resolve({
+        url: `${base}/v1/tiles/style.json?variant=${variant}&mono=${mono}`
+      });
     })
   );
 
@@ -55,11 +58,15 @@ export function registerTiles(app: Hono): void {
       return errorResponse(c, "server_misconfigured", "PROTOMAPS_API_KEY is required for tiles");
     }
     const variant = variantFromQuery(c.req.query("variant"));
+    const monochrome = c.req.query("mono") === "1";
     const proxyBase = `${publicBaseUrl(c.req.url)}/v1/tiles`;
     if (variant === "dark") {
-      return c.json(darkStyle(proxyBase));
+      // Dark is generated locally (the hosted flavors' POI handling differs).
+      return c.json(darkStyle(proxyBase, monochrome));
     }
-    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/${variant}/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
+    // Light theme proxies the hosted flavor: "white" (monochrome) or "light" (tinted).
+    const flavor = monochrome ? "white" : "light";
+    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/${flavor}/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
     const res = await fetch(upstream, { signal: c.req.raw.signal });
     if (!res.ok) {
       return errorResponse(
@@ -137,8 +144,12 @@ const ATTRIBUTION =
  * black's icons and is drawn for dark backdrops. Glyphs/sprites come from the
  * public Protomaps assets CDN (no API key), tiles from this server's proxy.
  */
-function darkStyle(proxyBase: string): Record<string, unknown> {
-  const flavor = { ...namedFlavor("black"), pois: namedFlavor("dark").pois };
+function darkStyle(proxyBase: string, monochrome: boolean): Record<string, unknown> {
+  // Monochrome dark ("black") defines no POI colors/icons — graft the dark
+  // flavor's POI palette on. Tinted dark uses the dark flavor as-is.
+  const flavor = monochrome
+    ? { ...namedFlavor("black"), pois: namedFlavor("dark").pois }
+    : namedFlavor("dark");
   return {
     version: 8,
     glyphs: `${ASSETS_BASE}/fonts/{fontstack}/{range}.pbf`,

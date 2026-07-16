@@ -27,7 +27,9 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { type MapColor, applyMapColor, readStoredMapColor } from "../lib/map-color";
 import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
+import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
 import { OfflineTab } from "./settings/offline-tab";
 import { AiModelTab } from "./settings/providers/ai-model-tab";
@@ -191,16 +193,28 @@ function GeneralPage({
 
 function AppearancePage() {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
+  const [mapColor, setMapColorState] = useState<MapColor>(readStoredMapColor);
 
   function handleTheme(t: Theme) {
     setThemeState(t);
     applyTheme(t);
   }
 
+  function handleMapColor(c: MapColor) {
+    setMapColorState(c);
+    applyMapColor(c);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
         <ThemePicker value={theme} onChange={handleTheme} />
+      </Section>
+      <Section
+        title="Map color"
+        description="Full uses the tinted basemap; Monochrome uses a clean white or black one."
+      >
+        <MapColorPicker value={mapColor} onChange={handleMapColor} />
       </Section>
     </div>
   );

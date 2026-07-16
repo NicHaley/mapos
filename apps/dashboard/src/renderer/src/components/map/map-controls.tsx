@@ -1,4 +1,5 @@
 import { Button } from "@mapos/ui/components/button";
+import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { InfoIcon, LoaderCircleIcon, MinusIcon, NavigationIcon, PlusIcon } from "lucide-react";
@@ -6,9 +7,6 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
 import type { UserLocation } from "./user-location-layer";
-
-// Glassy chrome for the transient error pill; the buttons themselves are ghost.
-const surface = "border border-border bg-background/70 shadow-sm backdrop-blur-md";
 
 // Icons sit on the control pill's surface, so they match the plain ghost icons
 // in the left-side cluster — no over-map legibility halo needed.
@@ -159,14 +157,14 @@ export function MapControls({
         <div
           className={cn(
             "mr-1 flex h-7 items-center rounded-lg px-3 text-xs text-muted-foreground",
-            surface
+            surfaceVariants({ variant: "pill" })
           )}
         >
           {locateError}
         </div>
       )}
       {/* Floating cluster mirroring the left-side controls and the mini place-card actions. */}
-      <div className="flex h-8 items-center gap-0.5 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+      <Surface variant="cluster">
         <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
           <CompassRose bearing={camera.bearing} />
         </ControlButton>
@@ -194,7 +192,7 @@ export function MapControls({
           />
           <TooltipContent side="bottom">© OpenStreetMap contributors · © Protomaps</TooltipContent>
         </Tooltip>
-      </div>
+      </Surface>
     </div>
   );
 }

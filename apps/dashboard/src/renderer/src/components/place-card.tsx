@@ -32,6 +32,7 @@ import {
   PopoverTrigger
 } from "@mapos/ui/components/popover";
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
+import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import {
@@ -944,7 +945,8 @@ export const PlaceCard = memo(function PlaceCard({
       />
       <div
         className={cn(
-          "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
+          surfaceVariants({ variant: "panel" }),
+          "relative overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-84"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
@@ -952,9 +954,9 @@ export const PlaceCard = memo(function PlaceCard({
       >
         {mode === "mini" ? (
           /* Compact popup: actions pinned top-right over the content. */
-          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+          <Surface variant="cluster" className="absolute top-2 right-2 z-10">
             {actionButtons}
-          </div>
+          </Surface>
         ) : (
           /* Static top bar (mirrors ChatPane): breadcrumb left, actions right.
           Everything else — cover included — scrolls beneath it. */

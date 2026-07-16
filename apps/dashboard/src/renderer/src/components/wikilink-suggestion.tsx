@@ -5,6 +5,7 @@ import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/d
  * which steals editor focus and breaks TipTap's keyboard routing.
  * Positioning uses @floating-ui/dom (same lib base-ui uses internally).
  */
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -111,7 +112,10 @@ export const WikilinkSuggestion = forwardRef<WikilinkSuggestionRef, WikilinkSugg
         // DropdownMenuContent styling (minus anchor-width / transform-origin CSS vars that need
         // base-ui). Scrolling lives on an inner element: the before: backdrop-blur layer is only
         // viewport-sized, so it would scroll out of view with the content.
-        className="z-50 min-w-32 rounded-lg text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none relative bg-popover/70 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150"
+        className={cn(
+          surfaceVariants({ variant: "popover" }),
+          "relative z-50 min-w-32 rounded-lg text-popover-foreground shadow-md outline-none before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150"
+        )}
       >
         <div className="max-h-72 overflow-y-auto rounded-[inherit] p-1">
           {items.map((item, i) => (

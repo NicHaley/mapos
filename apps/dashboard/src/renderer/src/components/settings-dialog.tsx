@@ -25,6 +25,8 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
+import { surfaceVariants } from "@mapos/ui/components/surface";
+import { cn } from "@mapos/ui/lib/utils";
 import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { type MapColor, applyMapColor, readStoredMapColor } from "../lib/map-color";
@@ -268,7 +270,12 @@ export function SettingsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[720px] p-0 gap-0 overflow-hidden bg-sidebar/80 backdrop-blur-md">
+        <DialogContent
+          className={cn(
+            surfaceVariants({ variant: "panel" }),
+            "sm:max-w-[720px] p-0 gap-0 overflow-hidden"
+          )}
+        >
           <SidebarProvider
             className="h-[620px] min-h-0 overflow-hidden"
             style={{ "--sidebar-width": "180px" } as React.CSSProperties}

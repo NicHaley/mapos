@@ -1,6 +1,7 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
 import { type SidebarKeyboardShortcutConfig, SidebarProvider } from "@mapos/ui/components/sidebar";
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
@@ -45,7 +46,7 @@ const BASE_UNITS = 16;
 const PROJECT_SIDEBAR_DEFAULT_WIDTH = 16 * BASE_UNITS;
 // Wide enough that the sidebar-anchored controls (toggle + search + back/forward,
 // plus the traffic-light inset) never overflow into the tab strip.
-const PROJECT_SIDEBAR_MIN_WIDTH = 15 * BASE_UNITS;
+const PROJECT_SIDEBAR_MIN_WIDTH = 14 * BASE_UNITS;
 const PROJECT_SIDEBAR_MAX_WIDTH = 30 * BASE_UNITS;
 const MAIN_PANE_DEFAULT_WIDTH = 22 * BASE_UNITS;
 const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS;
@@ -1102,17 +1103,16 @@ function App(): React.JSX.Element {
         {/* Left zone — panel toggle + search + back/forward, anchored to the sidebar's
             right edge when open, or immediately right of the traffic lights when collapsed. */}
         <div
-          className={cn("flex shrink-0 items-center", isFullscreen ? "pl-2" : "pl-21")}
+          className={cn("flex shrink-0 items-center", isFullscreen ? "pl-2" : "pl-23")}
           style={projectSidebarOpen ? { width: projectSidebarWidth } : undefined}
         >
           {projectSidebarOpen && <div className="flex-1" aria-hidden />}
           <div
             className={cn(
-              "flex items-center",
               projectSidebarOpen
-                ? "gap-1 pr-3"
+                ? "flex items-center gap-0.5 pr-3"
                 : // Collapsed: a light floating cluster mirroring the mini place-card actions.
-                  "h-8 gap-0.5 rounded-lg bg-sidebar/60 backdrop-blur-sm"
+                  surfaceVariants({ variant: "cluster" })
             )}
             style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           >

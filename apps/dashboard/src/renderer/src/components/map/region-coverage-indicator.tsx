@@ -1,6 +1,8 @@
 import { Button } from "@mapos/ui/components/button";
 import { CircularProgress } from "@mapos/ui/components/circular-progress";
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { formatBytes } from "@renderer/lib/format";
 import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage";
@@ -120,7 +122,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
         <Tooltip>
           <TooltipTrigger
             render={
-              <div className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur">
+              <div
+                className={cn(
+                  surfaceVariants({ variant: "pill" }),
+                  "pointer-events-auto h-8 gap-1.5 rounded-full px-3 text-xs text-muted-foreground"
+                )}
+              >
                 <GlobeIcon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="max-w-40 truncate">{coverage.name}</span>
                 <span className="shrink-0">• {formatBytes(coverage.pack.totalBytes)}</span>
@@ -132,7 +139,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       ) : coverage.kind === "downloading" ? (
         <DownloadingPill row={coverage.row} onCancel={() => packs.cancel(coverage.row.slug)} />
       ) : coverage.kind === "error" ? (
-        <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+        <div
+          className={cn(
+            surfaceVariants({ variant: "pill" }),
+            "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+          )}
+        >
           <span className="max-w-40 truncate text-destructive">
             Couldn’t download {coverage.row.name}
           </span>
@@ -150,7 +162,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
           </Button>
         </div>
       ) : (
-        <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+        <div
+          className={cn(
+            surfaceVariants({ variant: "pill" }),
+            "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+          )}
+        >
           <span className="max-w-40 truncate text-muted-foreground">{coverage.row.name}</span>
           {/* Size lives in the button (shrink-0), so a long region name truncates
               without ever pushing the download size out of view. */}
@@ -221,7 +238,12 @@ function UpdatePill({
 
   if (update.phase === "downloading") {
     return (
-      <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-2.5 pr-1 text-xs shadow-sm backdrop-blur">
+      <div
+        className={cn(
+          surfaceVariants({ variant: "pill" }),
+          "pointer-events-auto h-8 gap-2 rounded-full pl-2.5 pr-1 text-xs"
+        )}
+      >
         <CircularProgress percent={Math.round(update.percent)} size={14} className="text-sky-500" />
         <span className="max-w-40 truncate text-muted-foreground">Downloading update…</span>
         {clearButton}
@@ -231,7 +253,12 @@ function UpdatePill({
 
   if (update.phase === "downloaded") {
     return (
-      <div className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+      <div
+        className={cn(
+          surfaceVariants({ variant: "pill" }),
+          "pointer-events-auto h-8 gap-1.5 rounded-full pl-3 pr-1 text-xs"
+        )}
+      >
         <span className="max-w-40 truncate text-foreground">Update {update.version} ready</span>
         <Button
           size="sm"
@@ -250,7 +277,12 @@ function UpdatePill({
   }
 
   return (
-    <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+    <div
+      className={cn(
+        surfaceVariants({ variant: "pill" }),
+        "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+      )}
+    >
       <span className="max-w-40 truncate text-destructive" title={update.message || undefined}>
         Update {update.version} failed
       </span>
@@ -283,7 +315,12 @@ function DownloadingPill({
       ? Math.min(100, Math.round((row.progress.received / row.progress.total) * 100))
       : 0;
   return (
-    <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-2.5 pr-1 text-xs shadow-sm backdrop-blur">
+    <div
+      className={cn(
+        surfaceVariants({ variant: "pill" }),
+        "pointer-events-auto h-8 gap-2 rounded-full pl-2.5 pr-1 text-xs"
+      )}
+    >
       <CircularProgress percent={percent} size={14} className="text-amber-500" />
       <span className="max-w-40 truncate text-muted-foreground">
         {row.status === "verifying" ? "Verifying" : "Downloading"} {row.name}…

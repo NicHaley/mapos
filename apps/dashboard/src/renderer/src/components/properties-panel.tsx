@@ -692,8 +692,12 @@ function PropertyValue({
 
   // text / number
   const linkUrl = detailLinkUrl(propKey, value);
+  const startEdit = () => {
+    setDraft(toDisplayString(value));
+    setEditing(true);
+  };
   return (
-    <div className="relative flex min-h-8 min-w-0 w-full items-start gap-1">
+    <div className="relative flex min-h-8 min-w-0 w-full items-center gap-1">
       {editing ? (
         <div
           className="flex min-h-8 min-w-0 flex-1 items-start rounded-md bg-sidebar-background px-2 py-1.5 ring-2 ring-inset ring-input"
@@ -716,13 +720,23 @@ function PropertyValue({
             className="text-sm text-sidebar-foreground"
           />
         </div>
+      ) : linkUrl ? (
+        // Linkable value: text hugs its content with the open-link button right
+        // beside it, both centered inside a full-width pill.
+        <div className="flex min-h-8 min-w-0 w-full items-center gap-1 rounded-md px-2 transition-colors hover:bg-sidebar-accent">
+          <button
+            type="button"
+            onClick={startEdit}
+            className="min-w-0 max-w-full cursor-text py-1.5 text-left text-sm break-words text-sidebar-foreground outline-hidden ring-sidebar-ring focus-visible:ring-2"
+          >
+            {toDisplayString(value)}
+          </button>
+          <OpenLinkButton url={linkUrl} />
+        </div>
       ) : (
         <button
           type="button"
-          onClick={() => {
-            setDraft(toDisplayString(value));
-            setEditing(true);
-          }}
+          onClick={startEdit}
           className="flex min-h-8 min-w-0 flex-1 cursor-text items-center rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
         >
           {isEmpty ? (
@@ -732,7 +746,6 @@ function PropertyValue({
           )}
         </button>
       )}
-      {linkUrl && !editing && <OpenLinkButton url={linkUrl} />}
     </div>
   );
 }

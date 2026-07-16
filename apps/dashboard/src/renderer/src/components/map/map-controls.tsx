@@ -10,8 +10,10 @@ import type { UserLocation } from "./user-location-layer";
 // Glassy chrome for the transient error pill; the buttons themselves are ghost.
 const surface = "border border-border bg-background/70 shadow-sm backdrop-blur-md";
 
-// A soft shadow keeps the ghost icons legible when the top bar is transparent.
-const ICON = "size-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]";
+// A soft halo keeps the ghost icons legible over the map: a light glow behind the
+// dark icons in light mode, a dark shadow behind the light icons in dark mode.
+const ICON =
+  "size-4 drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]";
 
 /**
  * Compass needle in Lucide's stroke style (Felt-inspired). A diamond needle
@@ -27,7 +29,7 @@ function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5 text-foreground drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
+      className="size-5 text-foreground drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
       aria-hidden="true"
     >
       <title>Compass</title>

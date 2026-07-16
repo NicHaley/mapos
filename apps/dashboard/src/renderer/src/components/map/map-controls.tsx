@@ -26,10 +26,10 @@ function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5 text-foreground drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
+      className="size-5 drop-shadow-[0_0_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
       aria-hidden="true"
     >
       <title>Compass</title>

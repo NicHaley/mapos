@@ -16,21 +16,83 @@ export type Accent =
 export type AccentOption = {
   id: Accent;
   label: string;
-  /** null for monochrome — means "fall back to the stylesheet's adaptive greys". */
+  /** The -500 hue. null for monochrome — means "fall back to the stylesheet's adaptive greys". */
   hex: string | null;
   /** Readable foreground on top of `hex` (white for most, near-black for yellow). */
   foreground: string;
+  /** Soft -200 tint for the vault-icon container background (null = monochrome default). */
+  softBg: string | null;
+  /** Strong -700 shade for the vault icon itself, legible on `softBg` (null = monochrome default). */
+  strongFg: string | null;
 };
 
+// Tailwind -500 (hue), -200 (soft container bg), -700 (strong icon). Monochrome keeps the
+// stylesheet's adaptive greys, so it carries no hexes.
 export const ACCENT_PALETTE: AccentOption[] = [
-  { id: "monochrome", label: "Monochrome", hex: null, foreground: "#ffffff" },
-  { id: "blue", label: "Blue", hex: "#3b82f6", foreground: "#ffffff" },
-  { id: "purple", label: "Purple", hex: "#a855f7", foreground: "#ffffff" },
-  { id: "pink", label: "Pink", hex: "#ec4899", foreground: "#ffffff" },
-  { id: "red", label: "Red", hex: "#ef4444", foreground: "#ffffff" },
-  { id: "orange", label: "Orange", hex: "#f97316", foreground: "#ffffff" },
-  { id: "yellow", label: "Yellow", hex: "#eab308", foreground: "#1c1917" },
-  { id: "green", label: "Green", hex: "#22c55e", foreground: "#ffffff" }
+  {
+    id: "monochrome",
+    label: "Monochrome",
+    hex: null,
+    foreground: "#ffffff",
+    softBg: null,
+    strongFg: null
+  },
+  {
+    id: "blue",
+    label: "Blue",
+    hex: "#3b82f6",
+    foreground: "#ffffff",
+    softBg: "#bfdbfe",
+    strongFg: "#1d4ed8"
+  },
+  {
+    id: "purple",
+    label: "Purple",
+    hex: "#a855f7",
+    foreground: "#ffffff",
+    softBg: "#e9d5ff",
+    strongFg: "#7e22ce"
+  },
+  {
+    id: "pink",
+    label: "Pink",
+    hex: "#ec4899",
+    foreground: "#ffffff",
+    softBg: "#fbcfe8",
+    strongFg: "#be185d"
+  },
+  {
+    id: "red",
+    label: "Red",
+    hex: "#ef4444",
+    foreground: "#ffffff",
+    softBg: "#fecaca",
+    strongFg: "#b91c1c"
+  },
+  {
+    id: "orange",
+    label: "Orange",
+    hex: "#f97316",
+    foreground: "#ffffff",
+    softBg: "#fed7aa",
+    strongFg: "#c2410c"
+  },
+  {
+    id: "yellow",
+    label: "Yellow",
+    hex: "#eab308",
+    foreground: "#1c1917",
+    softBg: "#fef08a",
+    strongFg: "#a16207"
+  },
+  {
+    id: "green",
+    label: "Green",
+    hex: "#22c55e",
+    foreground: "#ffffff",
+    softBg: "#bbf7d0",
+    strongFg: "#15803d"
+  }
 ];
 
 export const ACCENT_KEY = "mapos_accent";
@@ -51,17 +113,20 @@ export function readStoredAccent(): Accent {
 
 /** Override the primary/sidebar-primary CSS custom properties inline on the root
  * element (beats both the :root and .dark stylesheet blocks) for a coloured accent,
- * or remove them so the adaptive greyscale returns for monochrome. */
+ * or remove them so the adaptive greyscale returns for monochrome. Buttons get the
+ * solid -500; the vault-icon container gets a soft -200 bg with a -700 icon. */
 export function applyAccent(accent: Accent): void {
-  const { hex, foreground } = optionFor(accent);
+  const { hex, foreground, softBg, strongFg } = optionFor(accent);
   const root = document.documentElement.style;
-  const vars = ["--primary", "--sidebar-primary"];
-  const fgVars = ["--primary-foreground", "--sidebar-primary-foreground"];
-  if (hex) {
-    for (const v of vars) root.setProperty(v, hex);
-    for (const v of fgVars) root.setProperty(v, foreground);
-  } else {
-    for (const v of [...vars, ...fgVars]) root.removeProperty(v);
+  const props: Record<string, string | null> = {
+    "--primary": hex,
+    "--primary-foreground": hex ? foreground : null,
+    "--sidebar-primary": softBg,
+    "--sidebar-primary-foreground": strongFg
+  };
+  for (const [key, value] of Object.entries(props)) {
+    if (value) root.setProperty(key, value);
+    else root.removeProperty(key);
   }
   localStorage.setItem(ACCENT_KEY, accent);
   // Notify same-document listeners (the `storage` event only fires cross-tab).

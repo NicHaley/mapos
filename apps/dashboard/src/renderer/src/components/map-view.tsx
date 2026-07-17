@@ -1279,18 +1279,6 @@ const MapView = forwardRef<
         {folderGeoJSON && (
           <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
             <Layer
-              id="folder-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], featureColor],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id="folder-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
@@ -1329,12 +1317,8 @@ const MapView = forwardRef<
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
-          </Source>
-        )}
-        {linkedGeoJSON && (
-          <Source id="linked-geojson" type="geojson" data={linkedGeoJSON}>
             <Layer
-              id="linked-circle"
+              id="folder-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.point}
@@ -1345,6 +1329,10 @@ const MapView = forwardRef<
                 "circle-stroke-color": "#ffffff"
               }}
             />
+          </Source>
+        )}
+        {linkedGeoJSON && (
+          <Source id="linked-geojson" type="geojson" data={linkedGeoJSON}>
             <Layer
               id="linked-fill"
               type="fill"
@@ -1384,12 +1372,8 @@ const MapView = forwardRef<
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
-          </Source>
-        )}
-        {showOverlay && presentedGeoJSON && (
-          <Source id="presented-geojson" type="geojson" data={presentedGeoJSON}>
             <Layer
-              id="presented-circle"
+              id="linked-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.point}
@@ -1400,6 +1384,10 @@ const MapView = forwardRef<
                 "circle-stroke-color": "#ffffff"
               }}
             />
+          </Source>
+        )}
+        {showOverlay && presentedGeoJSON && (
+          <Source id="presented-geojson" type="geojson" data={presentedGeoJSON}>
             <Layer
               id="presented-fill"
               type="fill"
@@ -1439,22 +1427,22 @@ const MapView = forwardRef<
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
+            <Layer
+              id="presented-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.point}
+              paint={{
+                "circle-radius": 5,
+                "circle-color": ["coalesce", ["get", "color"], featureColor],
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff"
+              }}
+            />
           </Source>
         )}
         {selectedGeoJSON && (
           <Source id="selected-geojson" type="geojson" data={selectedGeoJSON}>
-            <Layer
-              id="selected-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], overlayColor],
-                "circle-stroke-width": 2.5,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
             <Layer
               id="selected-fill"
               type="fill"
@@ -1494,6 +1482,18 @@ const MapView = forwardRef<
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
             />
+            <Layer
+              id="selected-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 5,
+                "circle-color": ["coalesce", ["get", "color"], overlayColor],
+                "circle-stroke-width": 2.5,
+                "circle-stroke-color": "#ffffff"
+              }}
+            />
           </Source>
         )}
         {showOverlay &&
@@ -1530,18 +1530,6 @@ const MapView = forwardRef<
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source key={sourceId} id={sourceId} type="geojson" data={data}>
             <Layer
-              id={`${sourceId}-circle`}
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": featureColor,
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id={`${sourceId}-fill`}
               type="fill"
               // @ts-expect-error - MapLibre filter expression
@@ -1561,6 +1549,18 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
               paint={{ "line-color": featureColor, "line-width": 2 }}
+            />
+            <Layer
+              id={`${sourceId}-circle`}
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={{
+                "circle-radius": 5,
+                "circle-color": featureColor,
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff"
+              }}
             />
           </Source>
         ))}

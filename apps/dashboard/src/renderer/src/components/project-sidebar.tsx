@@ -796,7 +796,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                             render={
                               <SidebarMenuButton
                                 isActive={isActive}
-                                className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground"
+                                className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground data-active:bg-hover"
                                 onClick={(e) => {
                                   if (isRenaming) {
                                     e.preventDefault();

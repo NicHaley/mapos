@@ -16,8 +16,11 @@ const surfaceVariants = cva("", {
       pill: "flex items-center bg-sidebar/60 shadow-sm backdrop-blur-sm",
       // Large translucent container surface (chat pane, place card, dialogs).
       panel: "bg-sidebar/95 backdrop-blur-md",
-      // Glass popover surface (matches PopoverContent's recipe).
-      popover: "bg-popover/70 ring-1 ring-foreground/10"
+      // Glass popover surface (matches PopoverContent / dropdown recipe): translucent
+      // fill plus a viewport-blur layer behind the content. Needs a rounded corner on
+      // the element for `before:rounded-[inherit]`.
+      popover:
+        "relative bg-popover/70 ring-1 ring-foreground/10 before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150"
     }
   },
   defaultVariants: {

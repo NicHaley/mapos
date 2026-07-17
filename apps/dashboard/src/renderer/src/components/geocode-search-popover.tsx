@@ -93,6 +93,8 @@ export function GeocodeSearchPopover({
           <PopoverTitle className="sr-only">Search places</PopoverTitle>
           <GeocodeSearchPanel
             active={open}
+            // Command ships an opaque bg-popover; drop it so the frosted PopoverContent shows.
+            className="bg-transparent"
             placeholder="Search places, files, conversations…"
             onSelectResult={handleSelect}
             files={files}

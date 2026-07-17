@@ -22,6 +22,8 @@ import {
   SidebarMenuItem,
   useSidebar
 } from "@mapos/ui/components/sidebar";
+import { surfaceVariants } from "@mapos/ui/components/surface";
+import { cn } from "@mapos/ui/lib/utils";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -218,7 +220,12 @@ export function VaultSwitcher() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <DialogContent className="sm:max-w-md" showCloseButton={!addVaultBusy}>
+          <DialogContent
+            // `fixed` re-asserts the dialog's centering — the popover variant's `relative`
+            // (for its before: blur layer) would otherwise clobber DialogContent's position.
+            className={cn(surfaceVariants({ variant: "popover" }), "fixed sm:max-w-md")}
+            showCloseButton={!addVaultBusy}
+          >
             {addVaultStep === "choose" ? (
               <>
                 <DialogHeader>

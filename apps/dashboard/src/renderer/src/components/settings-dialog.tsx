@@ -29,8 +29,10 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { type Accent, applyAccent, readStoredAccent } from "../lib/accent";
 import { type MapColor, applyMapColor, readStoredMapColor } from "../lib/map-color";
 import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
+import { AccentPicker } from "./accent-picker";
 import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
 import { OfflineTab } from "./settings/offline-tab";
@@ -196,6 +198,7 @@ function GeneralPage({
 function AppearancePage() {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   const [mapColor, setMapColorState] = useState<MapColor>(readStoredMapColor);
+  const [accent, setAccentState] = useState<Accent>(readStoredAccent);
 
   function handleTheme(t: Theme) {
     setThemeState(t);
@@ -207,8 +210,19 @@ function AppearancePage() {
     applyMapColor(c);
   }
 
+  function handleAccent(a: Accent) {
+    setAccentState(a);
+    applyAccent(a);
+  }
+
   return (
     <div className="flex flex-col gap-6">
+      <Section
+        title="Accent color"
+        description="Tints buttons, the vault icon, and map features. Monochrome follows the theme."
+      >
+        <AccentPicker value={accent} onChange={handleAccent} />
+      </Section>
       <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
         <ThemePicker value={theme} onChange={handleTheme} />
       </Section>

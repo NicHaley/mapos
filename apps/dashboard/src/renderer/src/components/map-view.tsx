@@ -32,6 +32,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { useMapColor } from "@renderer/lib/map-color";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
@@ -322,12 +323,25 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
 
 const SELECTION_PULSE_IMAGE_ID = "mapos-selection-pulse";
 
+/** "#rrggbb" → "r, g, b" for rgba() templates. */
+function hexToRgbTriple(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
 /** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”.
- * Colors invert with the theme so the dot reads on both the light and dark basemaps:
- * a light core with a dark halo in dark mode, a dark core with a light halo in light mode. */
-function createSelectionPulsingDot(map: { triggerRepaint: () => void }, isDark: boolean) {
-  const core = isDark ? "255, 255, 255" : "100, 116, 139";
-  const halo = isDark ? "30, 30, 35" : "255, 255, 255";
+ * The core/halo use the accent hue when one is set (with a white border so it reads on any
+ * basemap); when monochrome, they invert with the theme instead. */
+function createSelectionPulsingDot(
+  map: { triggerRepaint: () => void },
+  isDark: boolean,
+  accentColor: string | null
+) {
+  const accentRgb = accentColor ? hexToRgbTriple(accentColor) : null;
+  const core = accentRgb ?? (isDark ? "255, 255, 255" : "100, 116, 139");
+  const halo = accentRgb ?? (isDark ? "30, 30, 35" : "255, 255, 255");
+  // White border around the solid core (falls back to the core hue when monochrome).
+  const border = accentRgb ? "255, 255, 255" : core;
   const size = 64;
   const dot = {
     width: size,
@@ -360,7 +374,7 @@ function createSelectionPulsingDot(map: { triggerRepaint: () => void }, isDark: 
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${core}, 1)`;
-      ctx.strokeStyle = `rgba(${core}, 0.92)`;
+      ctx.strokeStyle = `rgba(${border}, 0.95)`;
       ctx.lineWidth = 1.75 + 2.4 * (1 - t);
       ctx.fill();
       ctx.stroke();
@@ -392,7 +406,10 @@ function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
   }
 }
 
-function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
+function SelectionPulseLayers({
+  data,
+  accentColor
+}: { data: SelectionPulseGeoJSON; accentColor: string | null }) {
   const maps = useMap();
   const mapRef = maps.current;
   const isDark = useDarkMode();
@@ -405,7 +422,7 @@ function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
     const install = () => {
       if (cancelled) return;
       try {
-        const pulsingDot = createSelectionPulsingDot(map, isDark);
+        const pulsingDot = createSelectionPulsingDot(map, isDark, accentColor);
         if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
         map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
         setImageReady(true);
@@ -426,7 +443,7 @@ function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
       }
       setImageReady(false);
     };
-  }, [mapRef, isDark]);
+  }, [mapRef, isDark, accentColor]);
 
   const pulseCoordsKey =
     data.features[0]?.geometry.type === "Point"
@@ -535,6 +552,12 @@ const MapView = forwardRef<
   const mapStyle = useDarkMapStyle();
   const isDark = useDarkMode();
   const foregroundColor = isDark ? "#fafafa" : "#252525";
+  const accent = useAccent();
+  // Default colour for features with no explicit `color`: the accent hue (grey when monochrome).
+  const featureColor = featureDefaultColor(accent);
+  // Accent hue for selection + chat overlays; falls back to the theme foreground when monochrome.
+  const accentColor = accentHex(accent);
+  const overlayColor = accentColor ?? foregroundColor;
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
@@ -1262,7 +1285,7 @@ const MapView = forwardRef<
               filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "circle-color": ["coalesce", ["get", "color"], featureColor],
                 "circle-stroke-width": 2,
                 "circle-stroke-color": "#ffffff"
               }}
@@ -1273,7 +1296,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-color": ["coalesce", ["get", "color"], featureColor],
                 "fill-opacity": 0.25
               }}
             />
@@ -1283,7 +1306,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 2
               }}
             />
@@ -1301,7 +1324,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -1317,7 +1340,7 @@ const MapView = forwardRef<
               filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "circle-color": ["coalesce", ["get", "color"], featureColor],
                 "circle-stroke-width": 2,
                 "circle-stroke-color": "#ffffff"
               }}
@@ -1328,7 +1351,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-color": ["coalesce", ["get", "color"], featureColor],
                 "fill-opacity": 0.25
               }}
             />
@@ -1338,7 +1361,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 2
               }}
             />
@@ -1356,7 +1379,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -1372,7 +1395,7 @@ const MapView = forwardRef<
               filter={unselectedFilters.point}
               paint={{
                 "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "circle-color": ["coalesce", ["get", "color"], featureColor],
                 "circle-stroke-width": 2,
                 "circle-stroke-color": "#ffffff"
               }}
@@ -1383,7 +1406,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "fill-color": ["coalesce", ["get", "color"], featureColor],
                 "fill-opacity": 0.25
               }}
             />
@@ -1393,7 +1416,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 2
               }}
             />
@@ -1411,7 +1434,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
+                "line-color": ["coalesce", ["get", "color"], featureColor],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -1427,7 +1450,7 @@ const MapView = forwardRef<
               filter={POINT_FILTER}
               paint={{
                 "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], foregroundColor],
+                "circle-color": ["coalesce", ["get", "color"], overlayColor],
                 "circle-stroke-width": 2.5,
                 "circle-stroke-color": "#ffffff"
               }}
@@ -1438,7 +1461,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{
-                "fill-color": ["coalesce", ["get", "color"], foregroundColor],
+                "fill-color": ["coalesce", ["get", "color"], overlayColor],
                 "fill-opacity": 0.35
               }}
             />
@@ -1448,7 +1471,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], foregroundColor],
+                "line-color": ["coalesce", ["get", "color"], overlayColor],
                 "line-width": 2.5
               }}
             />
@@ -1466,7 +1489,7 @@ const MapView = forwardRef<
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
               paint={{
-                "line-color": ["coalesce", ["get", "color"], foregroundColor],
+                "line-color": ["coalesce", ["get", "color"], overlayColor],
                 "line-width": 3
               }}
               layout={{ "line-cap": "round", "line-join": "round" }}
@@ -1491,8 +1514,10 @@ const MapView = forwardRef<
                     width: 12,
                     height: 12,
                     borderRadius: "50%",
-                    backgroundColor: "#8b5cf6",
-                    border: "2px dashed white",
+                    // Accent chip with a white dashed border; monochrome adapts to the theme
+                    // (light-on-dark / dark-on-light) so the chip and border always contrast.
+                    backgroundColor: accentColor ?? foregroundColor,
+                    border: `2px dashed ${accentColor ? "white" : isDark ? "#111111" : "#ffffff"}`,
                     boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                     opacity: dimmed ? UNFOCUSED_OPACITY : 1,
                     transition: "opacity 120ms ease-out"
@@ -1511,7 +1536,7 @@ const MapView = forwardRef<
               filter={POINT_FILTER}
               paint={{
                 "circle-radius": 5,
-                "circle-color": "#6b7280",
+                "circle-color": featureColor,
                 "circle-stroke-width": 2,
                 "circle-stroke-color": "#ffffff"
               }}
@@ -1521,21 +1546,21 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "fill-color": "#6b7280", "fill-opacity": 0.25 }}
+              paint={{ "fill-color": featureColor, "fill-opacity": 0.25 }}
             />
             <Layer
               id={`${sourceId}-fill-outline`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+              paint={{ "line-color": featureColor, "line-width": 2 }}
             />
             <Layer
               id={`${sourceId}-line`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+              paint={{ "line-color": featureColor, "line-width": 2 }}
             />
           </Source>
         ))}
@@ -1551,7 +1576,7 @@ const MapView = forwardRef<
                   type="fill"
                   // @ts-expect-error - MapLibre filter expression; types are strict
                   filter={POLYGON_FILTER}
-                  paint={{ "fill-color": "#8b5cf6", "fill-opacity": fillOpacity }}
+                  paint={{ "fill-color": overlayColor, "fill-opacity": fillOpacity }}
                 />
                 <Layer
                   id={`${sourceId}-polygon-outline`}
@@ -1559,7 +1584,7 @@ const MapView = forwardRef<
                   // @ts-expect-error - MapLibre filter expression
                   filter={POLYGON_FILTER}
                   paint={{
-                    "line-color": "#8b5cf6",
+                    "line-color": overlayColor,
                     "line-width": 2,
                     "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
@@ -1578,7 +1603,7 @@ const MapView = forwardRef<
                   // @ts-expect-error - MapLibre filter expression
                   filter={LINESTRING_FILTER}
                   paint={{
-                    "line-color": "#8b5cf6",
+                    "line-color": overlayColor,
                     "line-width": 2,
                     "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
@@ -1587,7 +1612,9 @@ const MapView = forwardRef<
               </Source>
             );
           })}
-        {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
+        {selectionPulseGeoJSON && (
+          <SelectionPulseLayers data={selectionPulseGeoJSON} accentColor={accentColor} />
+        )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}
       </MapGL>

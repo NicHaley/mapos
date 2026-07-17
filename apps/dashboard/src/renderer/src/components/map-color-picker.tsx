@@ -1,6 +1,6 @@
+import { Checkbox } from "@mapos/ui/components/checkbox";
 import { cn } from "@mapos/ui/lib/utils";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
-import { CheckIcon } from "lucide-react";
 import type { MapColor } from "../lib/map-color";
 
 type Palette = { land: string; road: string; water: string; park: string; border: string };
@@ -98,15 +98,13 @@ export function MapColorPicker({
               <CityThumbnail color={option} isDark={isDark} />
             </span>
             <span className="flex items-center justify-center gap-2 text-sm font-medium">
-              <span
+              <Checkbox
+                checked={selected}
+                readOnly
+                tabIndex={-1}
                 aria-hidden
-                className={cn(
-                  "flex size-4 items-center justify-center rounded-full border transition-colors",
-                  selected ? "border-foreground bg-foreground text-background" : "border-border"
-                )}
-              >
-                {selected && <CheckIcon className="size-2.5" strokeWidth={3} />}
-              </span>
+                className="pointer-events-none rounded-full"
+              />
               {label}
             </span>
           </button>

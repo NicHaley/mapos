@@ -8,7 +8,7 @@ import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
 import { FolderIcon, MessageCircleIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
-import { memo, useRef, useState } from "react";
+import { memo, useState } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
@@ -45,8 +45,6 @@ export const NavTabs = memo(function NavTabs({
   // Tabs animate their layout only while a drag is in flight; opening, closing,
   // or switching tabs repositions instantly (transition duration 0).
   const [isDragging, setIsDragging] = useState(false);
-  // Confines a dragged tab to the visible strip so it can't be flung out of view.
-  const constraintsRef = useRef<HTMLDivElement>(null);
 
   if (tabs.length === 0) return null;
 
@@ -58,15 +56,18 @@ export const NavTabs = memo(function NavTabs({
         className="min-h-0 min-w-0 shrink px-0.5"
         style={{ ...noDrag, flex: "0 1 auto" } as React.CSSProperties}
       >
-        {/* No scrolling: tabs shrink to share the available width (Linear-style). Overflow
-            stays visible so the active tab's shadow bleeds past the cluster. */}
-        <motion.div ref={constraintsRef} className="flex min-h-0 min-w-0 items-center">
+        {/* py/-my pair: gives the active tab's shadow vertical room to bleed past the
+            cluster (overflow-x-auto forces overflow-y to clip) without changing height. */}
+        <motion.div
+          layoutScroll
+          className="-my-1.5 flex min-h-0 min-w-0 items-center overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           <Reorder.Group
             axis="x"
             values={tabs.map((t) => t.id)}
             onReorder={onTabReorder}
             as="div"
-            className="flex min-w-0 max-w-full items-center gap-0.5"
+            className="flex w-max max-w-full items-center gap-0.5"
           >
             {tabs.map((tab, i) => {
               const isActive = i === activeTabIndex;
@@ -78,8 +79,6 @@ export const NavTabs = memo(function NavTabs({
                   value={tab.id}
                   layout="position"
                   transition={{ duration: isDragging ? 0.18 : 0 }}
-                  dragConstraints={constraintsRef}
-                  dragElastic={0}
                   onDragStart={() => setIsDragging(true)}
                   onDragEnd={() => setIsDragging(false)}
                   as="div"
@@ -92,7 +91,7 @@ export const NavTabs = memo(function NavTabs({
                   style={noDrag}
                   className={cn(
                     // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                    "group relative inline-flex h-7 min-w-[4rem] max-w-[160px] cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                    "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
                     "focus-visible:ring-[3px] focus-visible:ring-ring/50",
                     isActive
                       ? "bg-card text-sidebar-foreground shadow-sm dark:bg-accent"
@@ -104,7 +103,7 @@ export const NavTabs = memo(function NavTabs({
                   ) : (
                     <Icon className="size-3.5 shrink-0 opacity-70" />
                   )}
-                  <span className="min-w-0 truncate">{tab.title}</span>
+                  <span className="truncate">{tab.title}</span>
                   <Tooltip>
                     <TooltipTrigger
                       render={

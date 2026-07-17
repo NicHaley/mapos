@@ -17,6 +17,12 @@ syncFromStorage();
 mq.addEventListener("change", () => {
   if (readTheme() === "system") applyDark(mq.matches);
 });
+
+// Apply the stored accent colour before React mounts so buttons/vault icon don't
+// flash the default before the first render.
+import { applyAccent, readStoredAccent } from "./lib/accent";
+applyAccent(readStoredAccent());
+
 import { TooltipProvider } from "@mapos/ui/components/tooltip";
 import { useEffect, useState } from "react";
 import { MapProvider } from "react-map-gl/maplibre";

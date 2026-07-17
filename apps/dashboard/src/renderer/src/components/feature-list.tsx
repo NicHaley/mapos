@@ -206,7 +206,7 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
   const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
 
   return (
-    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
+    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/30">
       {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}

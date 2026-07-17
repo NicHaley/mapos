@@ -11,8 +11,9 @@ const surfaceVariants = cva("", {
     variant: {
       // Floating translucent toolbar holding ghost icon buttons (over map / sidebar).
       cluster: "flex h-8 items-center gap-0.5 rounded-lg bg-sidebar/60 backdrop-blur-sm",
-      // Glass info pill over the map (coverage / status). Shape + padding at call site.
-      pill: "flex items-center border border-border bg-background/80 shadow-sm backdrop-blur-md",
+      // Glass info pill over the map (coverage / status) — same sidebar glass as the
+      // clusters, plus a subtle shadow since it floats alone. Shape + padding at call site.
+      pill: "flex items-center bg-sidebar/60 shadow-sm backdrop-blur-sm",
       // Large translucent container surface (chat pane, place card, dialogs).
       panel: "bg-sidebar/95 backdrop-blur-md",
       // Glass popover surface (matches PopoverContent's recipe).

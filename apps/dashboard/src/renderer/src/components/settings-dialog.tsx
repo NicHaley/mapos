@@ -271,22 +271,27 @@ export function SettingsDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className={cn(
-            surfaceVariants({ variant: "panel" }),
-            "sm:max-w-[720px] p-0 gap-0 overflow-hidden"
-          )}
+          // Transparent so the translucent sidebar rail shows the (blurred) app
+          // behind the dialog. The opaque panel fill lives on the content zone only.
+          className="overflow-hidden gap-0 bg-transparent p-0 sm:max-w-[720px]"
         >
           <SidebarProvider
             className="h-[620px] min-h-0 overflow-hidden"
             style={{ "--sidebar-width": "180px" } as React.CSSProperties}
           >
-            <Sidebar collapsible="none" className="border-r bg-transparent">
+            <Sidebar collapsible="none" className="border-r bg-sidebar/75 backdrop-blur-md">
               <SidebarContent>
                 <SidebarGroup>
                   <SidebarMenu className="gap-0.5">
                     {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
                       <SidebarMenuItem key={id}>
-                        <SidebarMenuButton isActive={page === id} onClick={() => setPage(id)}>
+                        <SidebarMenuButton
+                          isActive={page === id}
+                          onClick={() => setPage(id)}
+                          // The default active fill (opaque bg-sidebar-accent) washes out on
+                          // the translucent rail; use the same dark hover veil so it stays legible.
+                          className="data-active:bg-hover"
+                        >
                           <Icon />
                           <span>{label}</span>
                         </SidebarMenuButton>
@@ -298,7 +303,12 @@ export function SettingsDialog({
             </Sidebar>
 
             <SettingsSheetSlotContext.Provider value={sheetSlot}>
-              <div className="relative flex-1 overflow-hidden">
+              <div
+                className={cn(
+                  surfaceVariants({ variant: "panel" }),
+                  "relative flex-1 overflow-hidden"
+                )}
+              >
                 {/* `translateZ(0)` puts this scroll container on its own compositor layer.
                     Without it, fast scrolls share a layer with the stacked backdrop-filter
                     regions (dialog overlay + inner sidebar + app chrome) and Chromium

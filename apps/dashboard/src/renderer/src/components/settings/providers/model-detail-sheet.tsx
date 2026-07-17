@@ -139,7 +139,7 @@ function InfoTable({ heading, rows }: { heading: string; rows: InfoRow[] }): Rea
   return (
     <div className="flex flex-col gap-2">
       <div className="font-medium text-muted-foreground text-xs">{heading}</div>
-      <div className="overflow-hidden rounded-lg border">
+      <div className="overflow-hidden rounded-lg border bg-sidebar-accent/30">
         <table className="w-full text-sm">
           <tbody className="divide-y divide-border">
             {rows.map((r) => (

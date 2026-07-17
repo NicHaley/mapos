@@ -34,6 +34,18 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { useMapColor } from "@renderer/lib/map-color";
+import {
+  ROUND_LINE_LAYOUT,
+  SELECTED_OUTLINE_PAINT,
+  featureCirclePaint,
+  featureFillOutlinePaint,
+  featureFillPaint,
+  featureLinePaint,
+  selectedCirclePaint,
+  selectedFillOutlinePaint,
+  selectedFillPaint,
+  selectedLinePaint
+} from "@renderer/lib/map-styles";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
@@ -330,18 +342,13 @@ function hexToRgbTriple(hex: string): string {
 }
 
 /** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”.
- * The core/halo use the accent hue when one is set (with a white border so it reads on any
- * basemap); when monochrome, they invert with the theme instead. */
-function createSelectionPulsingDot(
-  map: { triggerRepaint: () => void },
-  isDark: boolean,
-  accentColor: string | null
-) {
-  const accentRgb = accentColor ? hexToRgbTriple(accentColor) : null;
-  const core = accentRgb ?? (isDark ? "255, 255, 255" : "100, 116, 139");
-  const halo = accentRgb ?? (isDark ? "30, 30, 35" : "255, 255, 255");
-  // White border around the solid core (falls back to the core hue when monochrome).
-  const border = accentRgb ? "255, 255, 255" : core;
+ * `coreColor` is the selection hue (accent, or the theme foreground when monochrome); the
+ * expanding pulse ring and the core's border are always white, so every accent + theme
+ * combination renders through the identical path — only the core hue changes. */
+function createSelectionPulsingDot(map: { triggerRepaint: () => void }, coreColor: string) {
+  const core = hexToRgbTriple(coreColor);
+  const pulse = "255, 255, 255";
+  const border = "255, 255, 255";
   const size = 64;
   const dot = {
     width: size,
@@ -364,18 +371,18 @@ function createSelectionPulsingDot(
       ctx.clearRect(0, 0, size, size);
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, outerRadius + 1.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${halo}, ${0.22 * (1 - t)})`;
+      ctx.strokeStyle = `rgba(${pulse}, ${0.22 * (1 - t)})`;
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${core}, ${0.55 * (1 - t)})`;
+      ctx.fillStyle = `rgba(${pulse}, ${0.55 * (1 - t)})`;
       ctx.fill();
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${core}, 1)`;
       ctx.strokeStyle = `rgba(${border}, 0.95)`;
-      ctx.lineWidth = 1.75 + 2.4 * (1 - t);
+      ctx.lineWidth = 2;
       ctx.fill();
       ctx.stroke();
       this.data = new Uint8Array(ctx.getImageData(0, 0, size, size).data);
@@ -408,11 +415,10 @@ function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
 
 function SelectionPulseLayers({
   data,
-  accentColor
-}: { data: SelectionPulseGeoJSON; accentColor: string | null }) {
+  coreColor
+}: { data: SelectionPulseGeoJSON; coreColor: string }) {
   const maps = useMap();
   const mapRef = maps.current;
-  const isDark = useDarkMode();
   const [imageReady, setImageReady] = useState(false);
   useLayoutEffect(() => {
     if (!mapRef) return;
@@ -422,7 +428,7 @@ function SelectionPulseLayers({
     const install = () => {
       if (cancelled) return;
       try {
-        const pulsingDot = createSelectionPulsingDot(map, isDark, accentColor);
+        const pulsingDot = createSelectionPulsingDot(map, coreColor);
         if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
         map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
         setImageReady(true);
@@ -443,7 +449,7 @@ function SelectionPulseLayers({
       }
       setImageReady(false);
     };
-  }, [mapRef, isDark, accentColor]);
+  }, [mapRef, coreColor]);
 
   const pulseCoordsKey =
     data.features[0]?.geometry.type === "Point"
@@ -474,6 +480,10 @@ function SelectionPulseLayers({
 
   return (
     <Source id="selection-pulse" type="geojson" data={data}>
+      {/* The selection "dot": the same crisp circle a selected point gets, drawn here so a
+          line/polygon click-anchor renders the identical marker (circle + pulse) — one system,
+          not two. For a selected point this coincides with the selected-geojson circle. */}
+      <Layer id="selection-marker-circle" type="circle" paint={selectedCirclePaint(coreColor)} />
       <Layer
         id={SELECTION_PULSE_LAYER_ID}
         type="symbol"
@@ -1057,7 +1067,7 @@ const MapView = forwardRef<
         lng = selectionPulseAnchor.lng;
         lat = selectionPulseAnchor.lat;
       } else {
-        // Non-point with no click anchor: rely on the dashed selected-line/fill styling
+        // Non-point with no click anchor: rely on the accent-glow selected-line/fill styling
         // for highlighting. A bbox-center pulse looked like a stray marker.
         return null;
       }
@@ -1066,7 +1076,8 @@ const MapView = forwardRef<
         features: [
           {
             type: "Feature",
-            properties: {},
+            // Carry the feature colour so the marker circle matches a custom-coloured feature.
+            properties: selectedPlace.color ? { color: selectedPlace.color } : {},
             geometry: { type: "Point", coordinates: [lng, lat] }
           }
         ]
@@ -1210,16 +1221,16 @@ const MapView = forwardRef<
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
     if (folderGeoJSON) {
-      ids.push("folder-circle", "folder-fill", "folder-line", "folder-line-casing");
+      ids.push("folder-circle", "folder-fill", "folder-line");
     }
     if (linkedGeoJSON) {
-      ids.push("linked-circle", "linked-fill", "linked-line", "linked-line-casing");
+      ids.push("linked-circle", "linked-fill", "linked-line");
     }
     if (showOverlay && presentedGeoJSON) {
-      ids.push("presented-circle", "presented-fill", "presented-line", "presented-line-casing");
+      ids.push("presented-circle", "presented-fill", "presented-line");
     }
     if (selectedGeoJSON) {
-      ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
+      ids.push("selected-circle", "selected-fill", "selected-line");
     }
     for (const { sourceId } of overlayLayerSources) {
       ids.push(`${sourceId}-polygons`, `${sourceId}-lines-hit`, `${sourceId}-lines`);
@@ -1283,51 +1294,29 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], featureColor],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="folder-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="folder-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="folder-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="folder-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], featureColor],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
@@ -1338,51 +1327,29 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], featureColor],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="linked-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="linked-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="linked-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="linked-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], featureColor],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
@@ -1393,51 +1360,29 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], featureColor],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="presented-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="presented-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="presented-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], featureColor],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="presented-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], featureColor],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
@@ -1448,51 +1393,47 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], overlayColor],
-                "fill-opacity": 0.35
-              }}
+              paint={selectedFillPaint(featureColor)}
+            />
+            {/* White outline beneath the accent boundary — the polygon selection highlight. Miter
+                joins (no round layout) to match the accent outline's corners. */}
+            <Layer
+              id="selected-fill-highlight"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={SELECTED_OUTLINE_PAINT}
             />
             <Layer
               id="selected-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], overlayColor],
-                "line-width": 2.5
-              }}
+              paint={selectedFillOutlinePaint(featureColor)}
             />
+            {/* White outline beneath the accent line — the line selection highlight. */}
             <Layer
-              id="selected-line-casing"
+              id="selected-line-highlight"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": "rgba(0,0,0,0.6)", "line-width": 5.5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={SELECTED_OUTLINE_PAINT}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="selected-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], overlayColor],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={selectedLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="selected-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], overlayColor],
-                "circle-stroke-width": 2.5,
-                "circle-stroke-color": "#ffffff"
-              }}
+              paint={selectedCirclePaint(featureColor)}
             />
           </Source>
         )}
@@ -1534,33 +1475,29 @@ const MapView = forwardRef<
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "fill-color": featureColor, "fill-opacity": 0.25 }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id={`${sourceId}-fill-outline`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "line-color": featureColor, "line-width": 2 }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id={`${sourceId}-line`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": featureColor, "line-width": 2 }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id={`${sourceId}-circle`}
               type="circle"
               // @ts-expect-error - MapLibre filter expression
               filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": featureColor,
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         ))}
@@ -1613,7 +1550,7 @@ const MapView = forwardRef<
             );
           })}
         {selectionPulseGeoJSON && (
-          <SelectionPulseLayers data={selectionPulseGeoJSON} accentColor={accentColor} />
+          <SelectionPulseLayers data={selectionPulseGeoJSON} coreColor={featureColor} />
         )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}

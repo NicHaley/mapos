@@ -143,11 +143,11 @@ app.whenReady().then(() => {
     });
   });
 
-  // Grant renderer permission requests (currently just geolocation, for the "My
-  // location" map control). macOS still gates native CoreLocation behind the
-  // packaged app's NSLocation usage string; this only clears the web layer.
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
-    callback(true);
+  // Grant geolocation only (the "My location" map control); deny everything else.
+  // macOS still gates native CoreLocation behind the packaged app's NSLocation
+  // usage string; this only clears the web layer.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "geolocation");
   });
 
   const mainWindow = createWindow();

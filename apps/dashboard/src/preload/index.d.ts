@@ -178,6 +178,9 @@ declare global {
         /** Returns a cleanup function; call it to unregister. */
         onFullscreenChange: (cb: (isFullscreen: boolean) => void) => () => void;
       };
+      system: {
+        openLocationSettings: () => Promise<{ ok: boolean }>;
+      };
       ai: {
         getState: () => Promise<AiState>;
         getStatus: () => Promise<{

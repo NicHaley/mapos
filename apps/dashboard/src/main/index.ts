@@ -119,6 +119,21 @@ app.whenReady().then(() => {
     return win?.isFullScreen() ?? false;
   });
 
+  // Deep-link to System Settings → Privacy & Security → Location Services, so the
+  // "My location" control can offer one-click recovery when the OS has location
+  // off for MapOS. macOS-only; the URL scheme is meaningless elsewhere.
+  ipcMain.handle("system:open-location-settings", async () => {
+    if (process.platform !== "darwin") return { ok: false };
+    try {
+      await shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+      );
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {

@@ -38,7 +38,11 @@ export function UserLocationLayer({ location }: { location: UserLocation }): Rea
         </Source>
       )}
       <Marker longitude={location.lng} latitude={location.lat}>
-        <div className="size-3.5 rounded-full border-2 border-white bg-sky-500 shadow-md" />
+        <div className="relative flex items-center justify-center">
+          {/* Breathing halo behind the dot — the distinctive "live position" motion. */}
+          <div className="absolute size-3.5 rounded-full bg-sky-500 animate-location-pulse" />
+          <div className="relative size-3.5 rounded-full border-2 border-white bg-sky-500 shadow-md" />
+        </div>
       </Marker>
     </>
   );

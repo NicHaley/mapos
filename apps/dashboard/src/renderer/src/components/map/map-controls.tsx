@@ -2,7 +2,14 @@ import { Button } from "@mapos/ui/components/button";
 import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import { InfoIcon, LoaderCircleIcon, MinusIcon, NavigationIcon, PlusIcon } from "lucide-react";
+import {
+  InfoIcon,
+  LoaderCircleIcon,
+  MinusIcon,
+  NavigationIcon,
+  PlusIcon,
+  XIcon
+} from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
@@ -42,11 +49,14 @@ function CompassRose({ bearing }: { bearing: number }): React.JSX.Element {
 /** Ghost icon button — transparent until hover. */
 function ControlButton({
   label,
+  tooltip,
   onClick,
   disabled,
   children
 }: {
   label: string;
+  // Hover-tooltip text when it should differ from the aria label (e.g. a state hint).
+  tooltip?: string;
   onClick: () => void;
   disabled?: boolean;
   children: React.ReactNode;
@@ -66,7 +76,7 @@ function ControlButton({
           </Button>
         }
       />
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="bottom">{tooltip ?? label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -83,13 +93,18 @@ export function MapControls({
   onUserLocationChange
 }: {
   userLocation: UserLocation | null;
-  onUserLocationChange: (location: UserLocation) => void;
+  // App owns the camera move so it can respect sidebar/main-pane padding; we hand
+  // up the resolved location and the zoom we'd like (never zooming further out).
+  onUserLocationChange: (location: UserLocation, targetZoom: number) => void;
 }): React.JSX.Element {
   const maps = useMap();
   const mapRef = maps.main ?? maps.current;
   const [camera, setCamera] = useState({ bearing: 0, zoom: 0 });
   const [locating, setLocating] = useState(false);
+  // Last geolocation failure. Sticky (no auto-dismiss): the pill and amber needle
+  // stay until the next attempt, so the recovery action stays reachable.
   const [locateError, setLocateError] = useState<string | null>(null);
+  const isMac = window.electron.process.platform === "darwin";
 
   useEffect(() => {
     const map = mapRef?.getMap();
@@ -108,13 +123,6 @@ export function MapControls({
     };
   }, [mapRef]);
 
-  // Auto-dismiss the location error so it doesn't linger in the bar.
-  useEffect(() => {
-    if (!locateError) return;
-    const id = setTimeout(() => setLocateError(null), 4000);
-    return () => clearTimeout(id);
-  }, [locateError]);
-
   const map = mapRef?.getMap();
   const atMax = map ? camera.zoom >= map.getMaxZoom() : false;
   const atMin = map ? camera.zoom <= map.getMinZoom() : false;
@@ -129,12 +137,10 @@ export function MapControls({
       (pos) => {
         setLocating(false);
         const { longitude, latitude, accuracy } = pos.coords;
-        onUserLocationChange({ lng: longitude, lat: latitude, accuracy });
-        map.flyTo({
-          center: [longitude, latitude],
-          zoom: Math.max(map.getZoom(), 14),
-          duration: 1200
-        });
+        onUserLocationChange(
+          { lng: longitude, lat: latitude, accuracy },
+          Math.max(map.getZoom(), 14)
+        );
       },
       (err) => {
         setLocating(false);
@@ -156,11 +162,28 @@ export function MapControls({
       {locateError && (
         <div
           className={cn(
-            "mr-1 flex h-7 items-center rounded-lg px-3 text-xs text-muted-foreground",
+            "mr-1 flex h-8 items-center gap-2 rounded-lg px-3 text-xs text-muted-foreground",
             surfaceVariants({ variant: "pill" })
           )}
         >
-          {locateError}
+          <span>{locateError}</span>
+          {isMac && (
+            <button
+              type="button"
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+              onClick={() => void window.api.system.openLocationSettings()}
+            >
+              Open Settings
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="-mr-1 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setLocateError(null)}
+          >
+            <XIcon className="size-3.5" />
+          </button>
         </div>
       )}
       {/* Floating cluster mirroring the left-side controls and the mini place-card actions. */}
@@ -168,11 +191,27 @@ export function MapControls({
         <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
           <CompassRose bearing={camera.bearing} />
         </ControlButton>
-        <ControlButton label="My location" disabled={locating} onClick={locate}>
+        <ControlButton
+          label="My location"
+          tooltip={
+            locating
+              ? "Locating…"
+              : locateError
+                ? "Can't access your location. Check your system's location settings."
+                : "My location"
+          }
+          disabled={locating}
+          onClick={locate}
+        >
           {locating ? (
             <LoaderCircleIcon className={cn(ICON, "animate-spin")} />
           ) : (
-            <NavigationIcon className={cn(ICON, userLocation && "fill-sky-500 text-sky-500")} />
+            <NavigationIcon
+              className={cn(
+                ICON,
+                locateError ? "text-amber-500" : userLocation && "fill-sky-500 text-sky-500"
+              )}
+            />
           )}
         </ControlButton>
         <ControlButton label="Zoom out" disabled={atMin} onClick={() => map?.zoomOut()}>

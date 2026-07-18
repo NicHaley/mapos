@@ -333,67 +333,7 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 }
 
-const SELECTION_PULSE_IMAGE_ID = "mapos-selection-pulse";
-
-/** "#rrggbb" → "r, g, b" for rgba() templates. */
-function hexToRgbTriple(hex: string): string {
-  const n = Number.parseInt(hex.slice(1), 16);
-  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
-}
-
-/** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”.
- * `coreColor` is the selection hue (accent, or the theme foreground when monochrome); the
- * expanding pulse ring and the core's border are always white, so every accent + theme
- * combination renders through the identical path — only the core hue changes. */
-function createSelectionPulsingDot(map: { triggerRepaint: () => void }, coreColor: string) {
-  const core = hexToRgbTriple(coreColor);
-  const pulse = "255, 255, 255";
-  const border = "255, 255, 255";
-  const size = 64;
-  const dot = {
-    width: size,
-    height: size,
-    data: new Uint8Array(size * size * 4),
-    context: undefined as CanvasRenderingContext2D | undefined,
-    onAdd(this: typeof dot) {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      this.context = canvas.getContext("2d") ?? undefined;
-    },
-    render(this: typeof dot) {
-      const ctx = this.context;
-      if (!ctx) return false;
-      const duration = 1600;
-      const t = (performance.now() % duration) / duration;
-      const radius = (size / 2) * 0.3125;
-      const outerRadius = (size / 2) * 0.58 * t + radius;
-      ctx.clearRect(0, 0, size, size);
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, outerRadius + 1.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${pulse}, ${0.22 * (1 - t)})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${pulse}, ${0.55 * (1 - t)})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${core}, 1)`;
-      ctx.strokeStyle = `rgba(${border}, 0.95)`;
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-      this.data = new Uint8Array(ctx.getImageData(0, 0, size, size).data);
-      map.triggerRepaint();
-      return true;
-    }
-  };
-  return dot;
-}
-
-type SelectionPulseGeoJSON = {
+type SelectionAnchorGeoJSON = {
   type: "FeatureCollection";
   features: Array<{
     type: "Feature";
@@ -402,102 +342,33 @@ type SelectionPulseGeoJSON = {
   }>;
 };
 
-const SELECTION_PULSE_LAYER_ID = "selection-pulse-symbol";
-
-/** Keep the pulse above basemap labels and our own circle/line layers after style churn. */
-function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
-  try {
-    if (map.getLayer(SELECTION_PULSE_LAYER_ID)) map.moveLayer(SELECTION_PULSE_LAYER_ID);
-  } catch {
-    /* layer or style unavailable */
-  }
-}
-
-function SelectionPulseLayers({
+/**
+ * The selection anchor marker: a dot that pops in and holds a larger size, marking
+ * the selected point — or, for a selected line/polygon, the spot the user clicked.
+ * An HTML <Marker> (like the overlay/user-location dots) so it animates via CSS and
+ * sidesteps the style-churn dance the old canvas pulse needed. The caller keys it on
+ * the anchor coords so a fresh selection remounts and replays the pop.
+ */
+function SelectionMarker({
   data,
-  coreColor
-}: { data: SelectionPulseGeoJSON; coreColor: string }) {
-  const maps = useMap();
-  const mapRef = maps.current;
-  const [imageReady, setImageReady] = useState(false);
-  useLayoutEffect(() => {
-    if (!mapRef) return;
-    const map = mapRef.getMap();
-    let cancelled = false;
-
-    const install = () => {
-      if (cancelled) return;
-      try {
-        const pulsingDot = createSelectionPulsingDot(map, coreColor);
-        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
-        map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
-        setImageReady(true);
-      } catch {
-        /* style not fully loaded */
-      }
-    };
-
-    install();
-    map.on("style.load", install);
-    return () => {
-      cancelled = true;
-      map.off("style.load", install);
-      try {
-        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
-      } catch {
-        /* map torn down */
-      }
-      setImageReady(false);
-    };
-  }, [mapRef, coreColor]);
-
-  const pulseCoordsKey =
-    data.features[0]?.geometry.type === "Point"
-      ? `${data.features[0].geometry.coordinates[0]},${data.features[0].geometry.coordinates[1]}`
-      : "";
-
-  /** Pulse Source/Layer mounts only after imageReady; pin layer above circles/labels after paint & on style churn.
-   * Re-run when coordinates change so the raised layer stays after GeoJSON Source updates. */
-  useLayoutEffect(() => {
-    void pulseCoordsKey;
-    if (!mapRef || !imageReady) return;
-    const map = mapRef.getMap();
-    const bump = () => movePulseLayerToTop(map);
-    bump();
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(bump);
-    });
-    map.on("style.load", bump);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      map.off("style.load", bump);
-    };
-  }, [mapRef, imageReady, pulseCoordsKey]);
-
-  if (!imageReady) return null;
-
+  color
+}: { data: SelectionAnchorGeoJSON; color: string }): React.JSX.Element {
   return (
-    <Source id="selection-pulse" type="geojson" data={data}>
-      {/* The selection "dot": the same crisp circle a selected point gets, drawn here so a
-          line/polygon click-anchor renders the identical marker (circle + pulse) — one system,
-          not two. For a selected point this coincides with the selected-geojson circle. */}
-      <Layer id="selection-marker-circle" type="circle" paint={selectedCirclePaint(coreColor)} />
-      <Layer
-        id={SELECTION_PULSE_LAYER_ID}
-        type="symbol"
-        layout={{
-          "icon-image": SELECTION_PULSE_IMAGE_ID,
-          // ~1.5× previous on-screen size; circles use map plane — match so centers stay aligned
-          "icon-size": 1.35,
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-          "icon-pitch-alignment": "map",
-          "icon-rotation-alignment": "map"
-        }}
-      />
-    </Source>
+    <>
+      {data.features.map((f) => {
+        const [lng, lat] = f.geometry.coordinates;
+        // Per-feature `color` (custom-coloured place) wins over the accent default.
+        const fill = (f.properties.color as string | undefined) ?? color;
+        return (
+          <Marker key={`${lng},${lat}`} longitude={lng} latitude={lat} anchor="center">
+            <div
+              className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
+              style={{ backgroundColor: fill }}
+            />
+          </Marker>
+        );
+      })}
+    </>
   );
 }
 
@@ -1041,7 +912,7 @@ const MapView = forwardRef<
 
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
-  // drives the pulse (selectionPulseGeoJSON below).
+  // gets the animated grow marker (selectionAnchorGeoJSON below).
   const selectedGeoJSON = useMemo(() => {
     const places = [selectedPlace, openPlace]
       .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p?.geometry))
@@ -1054,8 +925,8 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, openPlace, toFeature]);
 
-  /** Pulse position: Points use geometry; lines/polygons only pulse where the user clicked. */
-  const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
+  /** Anchor position: Points use geometry; lines/polygons anchor where the user clicked. */
+  const selectionAnchorGeoJSON = useMemo((): SelectionAnchorGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
     try {
       const geo = parseGeometry(selectedPlace.geometry);
@@ -1428,11 +1299,14 @@ const MapView = forwardRef<
               paint={selectedLinePaint(featureColor)}
               layout={ROUND_LINE_LAYOUT}
             />
+            {/* The selected place's own point is drawn by the animated SelectionMarker;
+                exclude it here so they don't stack. A peeked (open) place keeps this
+                static selected circle. */}
             <Layer
               id="selected-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
+              filter={["all", POINT_FILTER, ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]]}
               paint={selectedCirclePaint(featureColor)}
             />
           </Source>
@@ -1549,8 +1423,8 @@ const MapView = forwardRef<
               </Source>
             );
           })}
-        {selectionPulseGeoJSON && (
-          <SelectionPulseLayers data={selectionPulseGeoJSON} coreColor={featureColor} />
+        {selectionAnchorGeoJSON && (
+          <SelectionMarker data={selectionAnchorGeoJSON} color={featureColor} />
         )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}

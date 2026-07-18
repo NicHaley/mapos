@@ -22,6 +22,8 @@ function withColor(defaultColor: string): DataDrivenPropertyValueSpecification<s
   return ["coalesce", ["get", "color"], defaultColor] as ExpressionSpecification;
 }
 
+// Matches the user-location dot: radius 5 + a 2px stroke = a 14px circle, the same
+// outer size as that HTML marker (size-3.5 + border-2).
 export const FEATURE_CIRCLE_RADIUS = 5;
 
 /** Round caps/joins for line + fill-outline layers so paths and corners read cleanly. */

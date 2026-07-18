@@ -235,6 +235,10 @@ const api = {
       };
     }
   },
+  system: {
+    openLocationSettings: () =>
+      ipcRenderer.invoke("system:open-location-settings") as Promise<{ ok: boolean }>
+  },
   ai: {
     getState: () => ipcRenderer.invoke("ai:get-state") as Promise<AiState>,
     getStatus: () =>

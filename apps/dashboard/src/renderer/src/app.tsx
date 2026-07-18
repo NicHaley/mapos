@@ -381,6 +381,21 @@ function App(): React.JSX.Element {
     return () => window.api.map.removeListeners();
   }, [getMapPadding, activeChatConvId]);
 
+  /** "My location" control: store the fix for the marker layer and center on it
+   * through the same padding-aware handle so it isn't hidden behind open panes. */
+  const handleUserLocationChange = useCallback(
+    (location: UserLocation, targetZoom: number) => {
+      setUserLocation(location);
+      const mainPaneOpen =
+        (placeMode === "full" && selectedPlace !== null) || activeChatConvId !== null;
+      mapRef.current?.flyTo(location.lat, location.lng, {
+        zoom: targetZoom,
+        padding: getMapPadding(mainPaneOpen)
+      });
+    },
+    [getMapPadding, placeMode, selectedPlace, activeChatConvId]
+  );
+
   /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */
   const geoJsonLayerPlacePath =
     selectedPlace?.type === "GeoJsonLayer" ? selectedPlace.filePath : null;
@@ -1197,7 +1212,7 @@ function App(): React.JSX.Element {
           className="flex shrink-0 items-center pr-2"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
-          <MapControls userLocation={userLocation} onUserLocationChange={setUserLocation} />
+          <MapControls userLocation={userLocation} onUserLocationChange={handleUserLocationChange} />
         </div>
       </motion.div>
 

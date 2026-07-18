@@ -1212,7 +1212,10 @@ function App(): React.JSX.Element {
           className="flex shrink-0 items-center pr-2"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
-          <MapControls userLocation={userLocation} onUserLocationChange={handleUserLocationChange} />
+          <MapControls
+            userLocation={userLocation}
+            onUserLocationChange={handleUserLocationChange}
+          />
         </div>
       </motion.div>
 

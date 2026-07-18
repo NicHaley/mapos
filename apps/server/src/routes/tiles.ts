@@ -1,4 +1,4 @@
-import { TileStyleRequestSchema } from "@mapos/contracts";
+import { MAP_ATTRIBUTION_HTML, TileStyleRequestSchema } from "@mapos/contracts";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -139,9 +139,6 @@ export function registerTiles(app: Hono): void {
 }
 
 const ASSETS_BASE = "https://protomaps.github.io/basemaps-assets";
-const ATTRIBUTION =
-  '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
-
 /**
  * Style generated rather than proxied, for dark and both monochrome flavors.
  * The monochrome flavors ("black" / "white") define no POI colors or icons, so
@@ -168,7 +165,7 @@ function generatedStyle(
         type: "vector",
         tiles: [`${proxyBase}/{z}/{x}/{y}.mvt`],
         maxzoom: 15,
-        attribution: ATTRIBUTION
+        attribution: MAP_ATTRIBUTION_HTML
       }
     },
     layers: layers("protomaps", flavor, { lang: "en" })

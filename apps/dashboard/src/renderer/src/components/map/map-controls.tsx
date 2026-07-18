@@ -2,14 +2,7 @@ import { Button } from "@mapos/ui/components/button";
 import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import {
-  InfoIcon,
-  LoaderCircleIcon,
-  MinusIcon,
-  NavigationIcon,
-  PlusIcon,
-  XIcon
-} from "lucide-react";
+import { LoaderCircleIcon, MinusIcon, NavigationIcon, PlusIcon, XIcon } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
@@ -220,17 +213,6 @@ export function MapControls({
         <ControlButton label="Zoom in" disabled={atMax} onClick={() => map?.zoomIn()}>
           <PlusIcon className={ICON} />
         </ControlButton>
-        {/* Attribution shown on hover; mirrors ATTRIBUTION in main/region-protocol.ts. */}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button variant="ghost" size="icon" aria-label="Map data attribution">
-                <InfoIcon className={ICON} />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">© OpenStreetMap contributors · © Protomaps</TooltipContent>
-        </Tooltip>
       </Surface>
     </div>
   );

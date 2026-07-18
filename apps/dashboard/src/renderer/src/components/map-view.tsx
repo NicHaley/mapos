@@ -1306,7 +1306,11 @@ const MapView = forwardRef<
               id="selected-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={["all", POINT_FILTER, ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]]}
+              filter={[
+                "all",
+                POINT_FILTER,
+                ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
+              ]}
               paint={selectedCirclePaint(featureColor)}
             />
           </Source>

@@ -91,7 +91,7 @@ export const NavTabs = memo(function NavTabs({
                   style={noDrag}
                   className={cn(
                     // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                    "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                    "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-0.5 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
                     "focus-visible:ring-[3px] focus-visible:ring-ring/50",
                     isActive
                       ? "bg-card text-sidebar-foreground shadow-sm dark:bg-accent"

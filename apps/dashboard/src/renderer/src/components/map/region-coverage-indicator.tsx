@@ -1,3 +1,4 @@
+import { MAP_ATTRIBUTIONS } from "@mapos/contracts";
 import { Button } from "@mapos/ui/components/button";
 import { CircularProgress } from "@mapos/ui/components/circular-progress";
 import { surfaceVariants } from "@mapos/ui/components/surface";
@@ -9,7 +10,7 @@ import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage
 import { DownloadIcon, GlobeIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
 import type { InstalledRegionPack } from "../../../shared/types";
 import { type AppUpdateState, useAppUpdate } from "../../hooks/use-app-update";
@@ -187,11 +188,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       );
   }
 
-  // Bottom-right status slot, clear of the top-bar chrome and the sidebar.
-  // AnimatePresence (mode="wait") fades the pill in/out and crossfades between states;
-  // keying on the slot kind means progress updates within a state don't re-trigger it.
+  // Bottom-right "map facts" corner: the always-visible data credit anchors it,
+  // and the status pill animates in above it. AnimatePresence (mode="wait") fades
+  // the pill in/out and crossfades between states; keying on the slot kind means
+  // progress updates within a state don't re-trigger it.
   return (
-    <div className="pointer-events-none absolute right-2 bottom-2 z-10">
+    <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex flex-col items-end gap-1.5">
       <AnimatePresence mode="wait">
         {slotContent && (
           <motion.div
@@ -205,7 +207,30 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
           </motion.div>
         )}
       </AnimatePresence>
+      <MapAttribution />
     </div>
+  );
+}
+
+/**
+ * Map data credit, always visible per the OSMF attribution guidelines (corner of
+ * the map, no interaction required). Bare hushed text rather than a pill so it
+ * recedes; a background-colored halo keeps it legible over any basemap. Links
+ * open in the default browser via main's window-open handler.
+ */
+function MapAttribution(): React.JSX.Element {
+  return (
+    <span className="pointer-events-auto text-[10px] leading-4 text-muted-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]">
+      {MAP_ATTRIBUTIONS.map((a, i) => (
+        <Fragment key={a.name}>
+          {i > 0 && " · "}©{" "}
+          <a href={a.url} target="_blank" rel="noreferrer" className="hover:underline">
+            {a.name}
+          </a>
+          {a.suffix}
+        </Fragment>
+      ))}
+    </span>
   );
 }
 

@@ -1,6 +1,7 @@
 import { closeSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { MAP_ATTRIBUTION_HTML } from "@mapos/contracts";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { protocol } from "electron";
 import { PMTiles } from "pmtiles";
@@ -84,9 +85,6 @@ export function registerAssetProtocol(assetsDir: string): void {
   });
 }
 
-const ATTRIBUTION =
-  '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
-
 // Zero bytes is a valid empty protobuf (no layers / no glyphs). Serving it for a
 // missing tile or glyph range keeps MapLibre quiet (no 404 log) while it falls
 // back to the overzoomed world / local glyph rendering.
@@ -140,7 +138,7 @@ function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: 
       tiles: [`${REGION_SCHEME}://_all/world/{z}/{x}/{y}.pbf`],
       minzoom: 0,
       maxzoom: WORLD_MAXZOOM,
-      attribution: ATTRIBUTION
+      attribution: MAP_ATTRIBUTION_HTML
     }
   };
 
@@ -156,7 +154,7 @@ function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: 
       tiles: [`${REGION_SCHEME}://${r.region}/region/{z}/{x}/{y}.pbf`],
       minzoom: REGION_MINZOOM,
       maxzoom: REGION_MAXZOOM,
-      attribution: ATTRIBUTION
+      attribution: MAP_ATTRIBUTION_HTML
     };
     const base = layers(srcId, flavor, { lang: "en" }) as unknown as StyleLayer[];
     for (const l of base) {

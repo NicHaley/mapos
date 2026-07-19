@@ -177,7 +177,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
               </div>
               <div className="mt-1.5 flex flex-wrap flex-col items-center justify-center gap-3.5">
                 <a
-                  className="inline-flex items-center gap-2 rounded-lg bg-neutral-50 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-neutral-950 no-underline transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:translate-y-px [&_svg]:-mt-px"
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-blue-600 active:translate-y-px [&_svg]:-mt-px"
                   href="/download"
                 >
                   <SiApple size={14} aria-hidden="true" />
@@ -262,7 +262,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                     className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/30 p-6"
                     key={feature.title}
                   >
-                    <div className="flex size-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200">
+                    <div className="flex size-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-blue-500">
                       <Icon aria-hidden="true" size={18} />
                     </div>
                     <h3 className="m-0 text-base font-medium text-neutral-50">{feature.title}</h3>
@@ -314,7 +314,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             </h2>
             <div className="flex flex-col items-center gap-3.5">
               <a
-                className="inline-flex items-center gap-2 rounded-lg bg-neutral-50 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-neutral-950 no-underline transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:translate-y-px [&_svg]:-mt-px"
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-medium tracking-[-0.005em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-blue-600 active:translate-y-px [&_svg]:-mt-px"
                 href="/download"
               >
                 <SiApple size={14} aria-hidden="true" />

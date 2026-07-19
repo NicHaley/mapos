@@ -190,10 +190,16 @@
 .tiptap a {
   cursor: pointer;
 }
-/* Wikilinks render as span[role=link] (an <a> would get hijacked by the Link
-   extension's click handler); restyle them to match prose links. */
+/* Links take the UI accent colour (--editor-link, set by the accent module for
+   coloured accents). The fallback keeps the default prose-links colour when the
+   accent is monochrome, where --editor-link is left unset. Wikilinks render as
+   span[role=link] (an <a> would get hijacked by the Link extension's click
+   handler); restyle them to match prose links. */
+.tiptap a:not([data-wikilink]),
 .tiptap span[data-wikilink] {
-  color: var(--tw-prose-links);
+  color: var(--editor-link, var(--tw-prose-links));
+}
+.tiptap span[data-wikilink] {
   text-decoration: underline;
   font-weight: 500;
 }

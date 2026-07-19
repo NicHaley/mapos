@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /** UI accent colour — orthogonal to the light/dark theme and the map-color setting.
- * Monochrome is the adaptive greyscale default (tracks light/dark); every other
- * option is a fixed Tailwind -500 hue that reads the same in both themes. */
+ * Blue is the default; every fixed option is a Tailwind -500 hue that reads the same
+ * in both themes. Monochrome is the adaptive greyscale option (tracks light/dark). */
 export type Accent =
   | "monochrome"
   | "blue"
@@ -29,14 +29,6 @@ export type AccentOption = {
 // Tailwind -500 (hue), -200 (soft container bg), -700 (strong icon). Monochrome keeps the
 // stylesheet's adaptive greys, so it carries no hexes.
 export const ACCENT_PALETTE: AccentOption[] = [
-  {
-    id: "monochrome",
-    label: "Monochrome",
-    hex: null,
-    foreground: "#ffffff",
-    softBg: null,
-    strongFg: null
-  },
   {
     id: "blue",
     label: "Blue",
@@ -92,6 +84,14 @@ export const ACCENT_PALETTE: AccentOption[] = [
     foreground: "#ffffff",
     softBg: "#bbf7d0",
     strongFg: "#15803d"
+  },
+  {
+    id: "monochrome",
+    label: "Monochrome",
+    hex: null,
+    foreground: "#ffffff",
+    softBg: null,
+    strongFg: null
   }
 ];
 
@@ -104,14 +104,14 @@ const MONOCHROME_FEATURE_COLOR = "#6b7280";
 // The canonical value lives in the vault's appearance.json; this module keeps a
 // synchronous in-memory mirror (hydrated at boot, before first paint) so
 // useSyncExternalStore snapshots stay sync.
-let currentAccent: Accent = "monochrome";
+let currentAccent: Accent = "blue";
 
 function optionFor(accent: Accent): AccentOption {
   return ACCENT_PALETTE.find((o) => o.id === accent) ?? ACCENT_PALETTE[0];
 }
 
 export function parseAccent(value: unknown): Accent {
-  return ACCENT_PALETTE.some((o) => o.id === value) ? (value as Accent) : "monochrome";
+  return ACCENT_PALETTE.some((o) => o.id === value) ? (value as Accent) : "blue";
 }
 
 export function getAccent(): Accent {
@@ -121,7 +121,9 @@ export function getAccent(): Accent {
 /** Override the primary/sidebar-primary CSS custom properties inline on the root
  * element (beats both the :root and .dark stylesheet blocks) for a coloured accent,
  * or remove them so the adaptive greyscale returns for monochrome. Buttons get the
- * solid -500; the vault-icon container gets a soft -200 bg with a -700 icon. */
+ * solid -500; the vault-icon container gets a soft -200 bg with a -700 icon.
+ * `--editor-link` is the note editor's link colour; unset for monochrome so links
+ * keep their default prose colour (the stylesheet falls back). */
 function applyAccentDom(accent: Accent): void {
   const { hex, foreground, softBg, strongFg } = optionFor(accent);
   const root = document.documentElement.style;
@@ -129,7 +131,8 @@ function applyAccentDom(accent: Accent): void {
     "--primary": hex,
     "--primary-foreground": hex ? foreground : null,
     "--sidebar-primary": softBg,
-    "--sidebar-primary-foreground": strongFg
+    "--sidebar-primary-foreground": strongFg,
+    "--editor-link": hex
   };
   for (const [key, value] of Object.entries(props)) {
     if (value) root.setProperty(key, value);

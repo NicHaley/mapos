@@ -10,7 +10,6 @@ import { vaultDotDir } from "./mapos-config";
 export const VAULT_CONFIG_FILES = [
   "appearance.json",
   "app.json",
-  "ai.json",
   "hotkeys.json",
   "workspace.json"
 ] as const;

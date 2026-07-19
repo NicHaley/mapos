@@ -27,7 +27,7 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
-import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
+import { GlobeIcon, InfoIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { setAccent, useAccent } from "../lib/accent";
 import { setMapColor, useMapColor } from "../lib/map-color";
@@ -36,7 +36,6 @@ import { AccentPicker } from "./accent-picker";
 import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
 import { OfflineTab } from "./settings/offline-tab";
-import { AiModelTab } from "./settings/providers/ai-model-tab";
 import { ThemePicker } from "./theme-picker";
 
 // ── Settings sheet slot ───────────────────────────────────────────────────────
@@ -55,7 +54,7 @@ export function useSettingsSheetSlot(): HTMLDivElement | null {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SettingsPage = "general" | "appearance" | "ai" | "offline" | "about";
+type SettingsPage = "general" | "appearance" | "offline" | "about";
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
@@ -228,7 +227,6 @@ function AppearancePage() {
 const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "ai", label: "AI Models", icon: LayersIcon },
   { id: "offline", label: "Offline", icon: GlobeIcon },
   { id: "about", label: "About", icon: InfoIcon }
 ];
@@ -328,7 +326,6 @@ export function SettingsDialog({
                       />
                     )}
                     {page === "appearance" && <AppearancePage />}
-                    {page === "ai" && <AiModelTab />}
                     {page === "offline" && <OfflineTab />}
                     {page === "about" && <AboutTab />}
                   </div>

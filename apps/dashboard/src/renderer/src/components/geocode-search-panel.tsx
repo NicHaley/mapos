@@ -1,4 +1,4 @@
-import { FileTextIcon, Loader2Icon, MapPinIcon, MessageCircleIcon, SearchIcon } from "lucide-react";
+import { FileTextIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -16,10 +16,10 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
-import type { ConversationMeta, PlaceRecord } from "@shared/types";
+import type { PlaceRecord } from "@shared/types";
 
 const DEBOUNCE_MS = 300;
-/** Cap local (file / conversation) matches so the popover stays scannable. */
+/** Cap local (file) matches so the popover stays scannable. */
 const LOCAL_RESULT_LIMIT = 6;
 /** ⌘1–⌘9 select the Nth visible result; one keyboard row's worth. */
 const MAX_HOTKEYS = 9;
@@ -54,16 +54,6 @@ function fileRelativeDir(filePath: string, vaultRoot: string): string {
   return slash > 0 ? rel.slice(0, slash) : "";
 }
 
-function conversationTitle(c: ConversationMeta): string {
-  return c.title || c.preview || "Chat";
-}
-
-function formatConversationDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
 /**
  * Electron wraps IPC failures as "Error invoking remote method '…': SomeError: <msg>".
  * Strip the invoke wrapper and the error-class prefix so the user sees the human
@@ -78,10 +68,9 @@ function cleanErrorMessage(e: unknown): string {
   return cleaned || "Search failed";
 }
 
-/** A row reachable via ⌘N, in display order (files → conversations → places). */
+/** A row reachable via ⌘N, in display order (files → places). */
 type HotkeyTarget =
   | { kind: "file"; file: PlaceRecord }
-  | { kind: "conversation"; conversation: ConversationMeta }
   | { kind: "place"; result: GeocodeSearchResult };
 
 /**
@@ -110,9 +99,6 @@ export type GeocodeSearchPanelProps = {
   /** Indexed vault files to search locally (matched by title and path). */
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
-  /** Saved conversations to search locally (matched by title and preview). */
-  conversations?: ConversationMeta[];
-  onSelectConversation?: (conversation: ConversationMeta) => void;
   className?: string;
   /** Shown to the right of the search field (e.g. clear action). */
   inputEndSlot?: ReactNode;
@@ -124,8 +110,6 @@ export function GeocodeSearchPanel({
   onSelectResult,
   files,
   onSelectFile,
-  conversations,
-  onSelectConversation,
   className,
   inputEndSlot
 }: GeocodeSearchPanelProps): React.JSX.Element {
@@ -205,13 +189,6 @@ export function GeocodeSearchPanel({
       .slice(0, LOCAL_RESULT_LIMIT);
   }, [files, needle]);
 
-  const conversationMatches = useMemo(() => {
-    if (!needle || !conversations) return [];
-    return conversations
-      .filter((c) => conversationTitle(c).toLowerCase().includes(needle))
-      .slice(0, LOCAL_RESULT_LIMIT);
-  }, [conversations, needle]);
-
   const pick = useCallback(
     (r: GeocodeSearchResult) => {
       onSelectResult(r);
@@ -226,12 +203,9 @@ export function GeocodeSearchPanel({
     () =>
       [
         ...fileMatches.map((file) => ({ kind: "file", file }) as const),
-        ...conversationMatches.map(
-          (conversation) => ({ kind: "conversation", conversation }) as const
-        ),
         ...results.map((result) => ({ kind: "place", result }) as const)
       ].slice(0, MAX_HOTKEYS),
-    [fileMatches, conversationMatches, results]
+    [fileMatches, results]
   );
 
   useShortcuts(
@@ -247,14 +221,12 @@ export function GeocodeSearchPanel({
         const target = hotkeyTargets[i];
         if (!target) return;
         if (target.kind === "place") pick(target.result);
-        else if (target.kind === "file") onSelectFile?.(target.file);
-        else onSelectConversation?.(target.conversation);
+        else onSelectFile?.(target.file);
       }
     }))
   );
 
-  const hasAnyResults =
-    results.length > 0 || fileMatches.length > 0 || conversationMatches.length > 0;
+  const hasAnyResults = results.length > 0 || fileMatches.length > 0;
 
   return (
     <Command shouldFilter={false} loop className={cn("flex flex-col", className)}>
@@ -287,9 +259,7 @@ export function GeocodeSearchPanel({
               <SearchIcon className="size-5 opacity-70" aria-hidden />
             </div>
             <p className="text-base font-medium">Search</p>
-            <p className="max-w-[16rem] text-xs text-muted-foreground">
-              Find places, files, and conversations.
-            </p>
+            <p className="max-w-[16rem] text-xs text-muted-foreground">Find places and files.</p>
           </div>
         ) : null}
         {fileMatches.length > 0 ? (
@@ -320,36 +290,6 @@ export function GeocodeSearchPanel({
             })}
           </CommandGroup>
         ) : null}
-        {conversationMatches.length > 0 ? (
-          <CommandGroup heading="Conversations">
-            {conversationMatches.map((c, index) => {
-              const title = conversationTitle(c);
-              const secondary =
-                c.title && c.preview ? c.preview : formatConversationDate(c.updated_at);
-              return (
-                <CommandItem
-                  key={`conv-${c.id}`}
-                  value={`conv-${c.id}`}
-                  onSelect={() => onSelectConversation?.(c)}
-                  className="rounded-md"
-                >
-                  <MessageCircleIcon className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
-                    <span className="max-w-full shrink-0 truncate font-medium leading-tight">
-                      {title}
-                    </span>
-                    {secondary ? (
-                      <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
-                        {capitalize(secondary)}
-                      </span>
-                    ) : null}
-                  </div>
-                  <HotkeyHint index={fileMatches.length + index} />
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-        ) : null}
         {results.length > 0 ? (
           <CommandGroup heading="Places">
             {results.map((r, index) => {
@@ -375,7 +315,7 @@ export function GeocodeSearchPanel({
                       </span>
                     ) : null}
                   </div>
-                  <HotkeyHint index={fileMatches.length + conversationMatches.length + index} />
+                  <HotkeyHint index={fileMatches.length + index} />
                 </CommandItem>
               );
             })}

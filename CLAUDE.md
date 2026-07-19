@@ -1,10 +1,11 @@
 # MapOS — Developer Guide
 
-Guidance for working on the **MapOS codebase** (this repo). This file is loaded into Claude Code's context, so it's about *building* MapOS — not the runtime behavior of the in-app agent.
+Guidance for working on the **MapOS codebase** (this repo). This file is loaded into Claude Code's context, so it's about *building* MapOS.
 
-> The in-app agent's system prompt and tools are **not** here. They live in code:
-> `apps/dashboard/src/main/mcp-server.ts` (`buildMaposSystemPrompt`, `buildMaposCustomTools`).
-> If you change how the shipped agent behaves, edit that file — not this one.
+> The embedded Pi-SDK chat agent has been removed. MapOS is moving to an **MCP** model where
+> any MCP-capable chat client drives the app. The tool implementations + system prompt survive,
+> Pi-free, in `apps/dashboard/src/main/mcp-server.ts` (`buildMaposSystemPrompt`,
+> `buildMaposCustomTools`) — staged for the MCP server (not yet wired to a runtime).
 
 ---
 
@@ -24,7 +25,7 @@ pnpm + Turbo workspace (`apps/*`, `packages/*`).
 
 | Path | What it is |
 |---|---|
-| `apps/dashboard` | The Electron desktop app — the product. Main / preload / renderer. Hosts the spatial index, the AI chat agent, map services, and the file watcher. |
+| `apps/dashboard` | The Electron desktop app — the product. Main / preload / renderer. Hosts the spatial index, map services, and the file watcher. |
 | `apps/server` | Hono API proxy for map services (geocode, routing, isochrone, tiles, web search). Runs on Node or as a Cloudflare Worker. Backs the app's **cloud** services mode. |
 | `apps/web` | Next.js web client. Early/minimal. |
 | `packages/contracts` | Shared Zod schemas for service requests/responses (GeocodeResult, Route, Isochrone, …). |
@@ -40,18 +41,16 @@ Electron three-process split with a context-isolated IPC bridge.
 
 **`src/main/`** (Node):
 - `index.ts` — app entry: window, session/CSP policy, IPC registration, watcher, updater.
-- `chat.ts` — the AI agent loop. Built on the **Pi SDK** (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`) for model resolution + streaming. Owns session state, the undo stack, and wires in the tools/prompt from `mcp-server.ts`.
-- `mcp-server.ts` — **the in-app agent's tools and system prompt** (large file). Spatial queries, geocoding/routing wrappers, vault file I/O tools, presentation tools.
-- `db.ts` — spatial index (better-sqlite3 + Drizzle). Schema is canonical-string + hash-based drop/recreate migration; rtree bbox virtual table. **Only derived data** — never conversations/undo/config.
+- `mcp-server.ts` — **the agent's tools and system prompt** (large file), Pi-free (`tool-defs.ts` holds the local `ToolDefinition`/`defineTool`). Spatial queries, geocoding/routing wrappers, vault file I/O tools, presentation tools. Currently has no runtime consumer — staged for the future MCP server.
+- `db.ts` — spatial index (better-sqlite3 + Drizzle). Schema is canonical-string + hash-based drop/recreate migration; rtree bbox virtual table. **Only derived data** — never config.
 - `watcher.ts` — chokidar watch over the vault; parses YAML frontmatter (`gray-matter`), extracts WKT geometry, keeps the index in sync.
 - `wkt.ts` / `geo-compute.ts` / `bbox.ts` — WKT↔GeoJSON (`wellknown`) and Turf.js geometry ops.
-- `ai.ts` / `ai-auth.ts` / `ai-ipc.ts` — AI provider/model config, secret storage (Electron `safeStorage`), OAuth.
 - `services/` — service-mode resolution. `offline/` holds local Photon (geocode SQLite from region packs) and Valhalla (N-API addon, `@valhallajs/valhallajs`) routing; cloud mode proxies to `apps/server`.
 - `mapos-config.ts` / `mapos-ipc.ts` — app-level `mapos.json` in Electron userData (vault registry, active vault, services mode) and vault management.
-- `vault-config.ts` — shared allowlisted read/merge/write for `.mapos/*.json` intent files. `appearance.ts` is a thin domain wrapper; AI default model uses `.mapos/ai.json` the same way.
+- `vault-config.ts` — shared allowlisted read/merge/write for `.mapos/*.json` intent files. `appearance.ts` is a thin domain wrapper.
 - `region-packs.ts` / `region-protocol.ts` — download/manage region packs; `mapos://` protocol.
 
-**`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `fs.*`, `chat.*`, `ai.*`, `regions.*`). All payloads are plain JSON.
+**`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `fs.*`, `regions.*`). All payloads are plain JSON. (`map.*` overlay/pan/viewport channels have no producer right now — dormant until the MCP server drives them.)
 
 **`src/renderer/`** — React client (`app.tsx` orchestrates the MapView + chat sidebar). Uses `@mapos/ui` and `maplibre-gl`.
 
@@ -80,8 +79,8 @@ pnpm check          # biome check --write (lint + format fix)
 ## Conventions
 
 - **Geometry is WKT** in place-file frontmatter (`geometry: "POINT(lng lat)"`), converted to GeoJSON for queries/render. Point, LineString, Polygon. Use Turf for computation — there are no spatial SQL `ST_*` functions. `geometry` and `color` are reserved frontmatter keys (special meaning to the renderer).
-- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). Per-vault user intent lives in `.mapos/` JSON files; conversations/undo in `.mapos/conversations/`; machine identity in Electron userData. Never persist canonical state only in the index.
-- **All vault mutations go through the file-write path** so the index and undo stack stay in sync — the in-app agent uses `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
+- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). Per-vault user intent lives in `.mapos/` JSON files; machine identity in Electron userData. Never persist canonical state only in the index.
+- **All vault mutations go through the file-write path** so the index stays in sync — the agent tools use `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
 - **Persisted state follows the Obsidian model — three tiers.** See [`.mapos/` layout](#mapos-layout) below.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
@@ -95,8 +94,8 @@ Mirrors Obsidian's `.obsidian/`: domain JSON files under the vault, created **la
 
 | Kind | Where | Examples |
 |---|---|---|
-| Machine identity / secrets | Electron `userData/` | Provider list, API keys, OAuth (`ai.json` + AuthStorage), vault registry (`mapos.json`), services mode |
-| Canonical vault intent (sync/git with the vault) | `.mapos/<domain>.json` | Appearance, default AI model, hotkeys, vault emoji |
+| Machine identity / secrets | Electron `userData/` | Vault registry (`mapos.json`), services mode |
+| Canonical vault intent (sync/git with the vault) | `.mapos/<domain>.json` | Appearance, hotkeys, vault emoji |
 | Ephemeral workspace (noisy, device-ish) | Vault-scoped localStorage today; `.mapos/workspace.json` later if needed | Open tabs, map viewport, pane widths |
 | Rebuildable cache | `.mapos/` but sync-excluded | `index.db` |
 
@@ -106,10 +105,8 @@ Mirrors Obsidian's `.obsidian/`: domain JSON files under the vault, created **la
 |---|---|
 | `appearance.json` | Look — accent, map colour, theme |
 | `app.json` | General vault prefs (e.g. workspace emoji) — when built |
-| `ai.json` | Vault AI preference only (`active` model selection). **Not** providers or credentials |
 | `hotkeys.json` | Custom shortcuts — when built |
 | `workspace.json` | Layout snapshot — only if tier-2 graduates off localStorage |
-| `conversations/` | Chat history + undo |
 | `index.db` | Spatial index (derived) |
 
 **Rules:** secrets never enter `.mapos/`. UI locale stays app-global (don't flip language on vault switch). Prefer a new domain file over growing a kitchen-sink blob. Tier-2 localStorage keys are `` `base:${vaultRoot}` `` via `useVaultRoot()` — persistence waits until the root resolves so state doesn't leak across vaults.

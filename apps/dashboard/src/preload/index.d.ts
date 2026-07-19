@@ -5,21 +5,7 @@ import type {
   GeocodeReverseRequest,
   TileStyleRequest
 } from "@mapos/contracts";
-import type { ModelCapabilities } from "../shared/ai-models";
 import type {
-  AiState,
-  FetchedModel,
-  KnownProviderOption,
-  ProviderInput
-} from "../shared/ai-providers";
-import type {
-  ChatChunkPayload,
-  ChatDonePayload,
-  ChatErrorPayload,
-  ChatToolCallPayload,
-  ChatToolResultPayload,
-  ConversationLoadResult,
-  ConversationMeta,
   FileNode,
   InstalledRegionPack,
   MapOverlayLayer,
@@ -209,61 +195,6 @@ declare global {
       system: {
         openLocationSettings: () => Promise<{ ok: boolean }>;
       };
-      ai: {
-        getState: () => Promise<AiState>;
-        getStatus: () => Promise<{
-          configured: boolean;
-          activeProvider: "anthropic" | "local";
-          model: string;
-        }>;
-        addProvider: (
-          input: ProviderInput
-        ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-        updateProvider: (
-          id: string,
-          patch: ProviderInput
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        removeProvider: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-        setActive: (
-          providerId: string,
-          model: string,
-          capabilities: ModelCapabilities
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        clearActive: () => Promise<{ ok: true }>;
-        listModels: (
-          providerId: string
-        ) => Promise<{ ok: true; models: FetchedModel[] } | { ok: false; error: string }>;
-        testProvider: (
-          input: ProviderInput,
-          providerId?: string
-        ) => Promise<{ ok: true; modelCount: number } | { ok: false; error: string }>;
-        revealSecret: (
-          providerId: string
-        ) => Promise<{ ok: true; secret: string } | { ok: false; error: string }>;
-        listKnownProviders: () => Promise<KnownProviderOption[]>;
-        addKnownProvider: (
-          provider: string
-        ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-        setApiKey: (
-          provider: string,
-          key: string
-        ) => Promise<{ ok: true } | { ok: false; error: string }>;
-        oauthLogin: (provider: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-        oauthCancel: () => Promise<{ ok: true }>;
-        disconnect: (provider: string) => Promise<{ ok: true }>;
-        /** Returns a cleanup function. */
-        onOAuthProgress: (
-          cb: (data: {
-            provider: string;
-            status: string;
-            url?: string;
-            userCode?: string;
-            verificationUri?: string;
-          }) => void
-        ) => () => void;
-        /** Returns a cleanup function. */
-        onChanged: (cb: () => void) => () => void;
-      };
       updater: {
         install: () => Promise<void>;
         retry: () => Promise<void>;
@@ -279,21 +210,6 @@ declare global {
         onProgress: (cb: (data: { percent: number }) => void) => () => void;
         /** Returns a cleanup function. */
         onError: (cb: (data: { message: string }) => void) => () => void;
-      };
-      chat: {
-        send: (convId: string, message: string) => void;
-        abort: (convId: string) => void;
-        loadConversation: (convId: string) => Promise<ConversationLoadResult>;
-        listConversations: () => Promise<ConversationMeta[]>;
-        deleteConversation: (id: string) => Promise<void>;
-        onChunk: (cb: (data: ChatChunkPayload) => void) => void;
-        onThinkingChunk: (cb: (data: ChatChunkPayload) => void) => void;
-        onDone: (cb: (data: ChatDonePayload) => void) => void;
-        undo: (convId: string) => Promise<{ success: boolean; error?: string; errors?: string[] }>;
-        onError: (cb: (data: ChatErrorPayload) => void) => void;
-        onToolCall: (cb: (data: ChatToolCallPayload) => void) => void;
-        onToolResult: (cb: (data: ChatToolResultPayload) => void) => void;
-        removeListeners: () => void;
       };
       services: {
         geocodingForward: (req: GeocodeForwardRequest) => Promise<GeocodeResult[]>;

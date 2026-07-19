@@ -1,25 +1,21 @@
 import { Button } from "@mapos/ui/components/button";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import { Surface } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import { FolderIcon, MessageCircleIcon, XIcon } from "lucide-react";
+import { FolderIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
-  | { id: string; title: string; kind: "folder" }
-  | { id: string; title: string; kind: "chat"; convId: string };
+  | { id: string; title: string; kind: "folder" };
 
 type NavTabsProps = {
   tabs: NavTabData[];
   activeTabIndex: number;
-  /** convIds whose chat stream is currently in flight; renders a spinner in place of the tab icon. */
-  streamingConvIds: Set<string>;
   onTabActivate: (index: number) => void;
   onTabClose: (index: number) => void;
   onTabReorder: (newOrder: string[]) => void;
@@ -29,7 +25,6 @@ const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
 
 function tabIcon(tab: NavTabData): React.ElementType {
-  if (tab.kind === "chat") return MessageCircleIcon;
   if (tab.kind === "folder") return FolderIcon;
   return iconForFilename(tab.filePath);
 }
@@ -37,7 +32,6 @@ function tabIcon(tab: NavTabData): React.ElementType {
 export const NavTabs = memo(function NavTabs({
   tabs,
   activeTabIndex,
-  streamingConvIds,
   onTabActivate,
   onTabClose,
   onTabReorder
@@ -71,7 +65,6 @@ export const NavTabs = memo(function NavTabs({
           >
             {tabs.map((tab, i) => {
               const isActive = i === activeTabIndex;
-              const isStreaming = tab.kind === "chat" && streamingConvIds.has(tab.convId);
               const Icon = tabIcon(tab);
               return (
                 <Reorder.Item
@@ -98,11 +91,7 @@ export const NavTabs = memo(function NavTabs({
                       : "text-sidebar-foreground/50 hover:bg-hover hover:text-sidebar-foreground/80"
                   )}
                 >
-                  {isStreaming ? (
-                    <PulseLoader aria-label="Streaming" color="text-white" />
-                  ) : (
-                    <Icon className="size-3.5 shrink-0 opacity-70" />
-                  )}
+                  <Icon className="size-3.5 shrink-0 opacity-70" />
                   <span className="truncate">{tab.title}</span>
                   <Tooltip>
                     <TooltipTrigger

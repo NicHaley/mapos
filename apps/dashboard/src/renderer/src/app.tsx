@@ -5,13 +5,12 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
-import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
+import type { MapOverlayLayer } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChatPane } from "./components/chat-pane";
 import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
   type MapSelectPlaceMeta,
@@ -25,12 +24,9 @@ import { NavTabs } from "./components/nav-tabs";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
-import { useChatStore, useStreamingConvIds } from "./hooks/use-chat-store";
-import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
 import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
-import { useOverlayVaultSync } from "./hooks/use-overlay-vault-sync";
 import { usePathSync } from "./hooks/use-path-sync";
 import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
@@ -134,15 +130,14 @@ function App(): React.JSX.Element {
   const [placeMode, setPlaceMode] = useState<"mini" | "full">("mini");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
-  const [activeChatConvId, setActiveChatConvId] = useState<string | null>(null);
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
   /** Map selection while full PlaceCard is open (floating mini card + highlight). */
   const [mapPeekPlace, setMapPeekPlace] = useState<PlaceRecord | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
-  /** Accumulated overlay layers across this conversation's result sets. */
+  /** Accumulated overlay layers currently rendered on the map (driven over map:overlay-add). */
   const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
-  /** Overlay feature to emphasize on the map (the hovered chat row); null = all full opacity. */
+  /** Overlay feature to emphasize on the map; null = all full opacity. */
   const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
     null
@@ -192,24 +187,11 @@ function App(): React.JSX.Element {
     [projectSidebarOpen, projectSidebarWidth, mainPaneWidth]
   );
 
-  const chatStore = useChatStore();
-  const { conversations, refresh: refreshConversations } = useConversations(chatStore);
-
-  /** convIds whose stream is currently in flight (renderer view); drives spinners on tabs and
-   * the sidebar list. Identity changes only when a stream starts/ends, so streaming chunks
-   * don't re-render App (the chat pane subscribes to its own conversation slice). */
-  const streamingConvIds = useStreamingConvIds(chatStore);
-
   const addLayer = useCallback((layer: MapOverlayLayer) => {
     setOverlayLayers((prev) => [...prev.filter((l) => l.id !== layer.id), layer]);
   }, []);
   const clearLayers = useCallback(() => {
     setOverlayLayers([]);
-    setFocusedFeatureId(null);
-  }, []);
-  /** Replace the on-screen layer set when switching/reopening a conversation. */
-  const handleLayersRestore = useCallback((layers: MapOverlayLayer[]) => {
-    setOverlayLayers(layers);
     setFocusedFeatureId(null);
   }, []);
 
@@ -301,7 +283,6 @@ function App(): React.JSX.Element {
   const openEntry = useCallback(
     (entry: NavEntry) => {
       if (entry.kind === "place") {
-        setActiveChatConvId(null);
         setSelectedPlace(entry.place);
         setPlaceMode("full");
         setSelectedFolder(null);
@@ -309,8 +290,7 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
         mapRef.current?.fitToPlace(entry.place, getMapPadding(true));
-      } else if (entry.kind === "folder") {
-        setActiveChatConvId(null);
+      } else {
         setSelectedFolder(entry.folderPath);
         setSelectedPlace(null);
         setPlaceMode("mini");
@@ -318,26 +298,14 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
         mapRef.current?.fitToFolder(entry.folderPath, getMapPadding(false));
-      } else {
-        // chat: render chat pane in main-pane slot; clear place/folder selection.
-        setActiveChatConvId(entry.convId);
-        setSelectedPlace(null);
-        setPlaceMode("mini");
-        setSelectedFolder(null);
-        setFeatureScreenPos(null);
-        setMapPeekPlace(null);
-        setSelectionPulseAnchor(null);
-        // Lazy-load conversation; restore its saved overlay layers once loaded.
-        void chatStore.loadConversation(entry.convId).then(handleLayersRestore);
       }
     },
-    [getMapPadding, chatStore, handleLayersRestore]
+    [getMapPadding]
   );
 
   const onNavEmpty = useCallback(() => {
     clearPlace();
     setSelectedFolder(null);
-    setActiveChatConvId(null);
   }, [clearPlace]);
 
   const {
@@ -359,9 +327,9 @@ function App(): React.JSX.Element {
   const placesByPath = usePlacesIndex();
   useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
 
-  /** Vault places presented by chat (present_features `path` entries), resolved
-   * against the live index. They may lie outside the selected folder, so the map
-   * draws them alongside the overlay layers they arrived with. */
+  /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
+   * live index. They may lie outside the selected folder, so the map draws them
+   * alongside the overlay layers they arrived with. */
   const presentedPlaces = useMemo(() => {
     const seen = new Set<string>();
     const places: PlaceRecord[] = [];
@@ -376,29 +344,28 @@ function App(): React.JSX.Element {
     return places;
   }, [overlayLayers, placesByPath]);
 
-  /** AI `pan_to` from chat: route through the map handle so the camera respects
+  /** `pan_to` map command: route through the map handle so the camera respects
    * sidebar/main-pane padding instead of centering behind them. */
   useEffect(() => {
     window.api.map.onPanTo(({ lat, lng, zoom }) => {
-      const padding = getMapPadding(activeChatConvId !== null);
-      mapRef.current?.flyTo(lat, lng, { zoom, padding });
+      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
+      mapRef.current?.flyTo(lat, lng, { zoom, padding: getMapPadding(mainPaneOpen) });
     });
     return () => window.api.map.removeListeners();
-  }, [getMapPadding, activeChatConvId]);
+  }, [getMapPadding, placeMode, selectedPlace]);
 
   /** "My location" control: store the fix for the marker layer and center on it
    * through the same padding-aware handle so it isn't hidden behind open panes. */
   const handleUserLocationChange = useCallback(
     (location: UserLocation, targetZoom: number) => {
       setUserLocation(location);
-      const mainPaneOpen =
-        (placeMode === "full" && selectedPlace !== null) || activeChatConvId !== null;
+      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
       mapRef.current?.flyTo(location.lat, location.lng, {
         zoom: targetZoom,
         padding: getMapPadding(mainPaneOpen)
       });
     },
-    [getMapPadding, placeMode, selectedPlace, activeChatConvId]
+    [getMapPadding, placeMode, selectedPlace]
   );
 
   /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */
@@ -482,76 +449,6 @@ function App(): React.JSX.Element {
     return off;
   }, [activeGeoJsonLayers]);
 
-  const handleNewChat = useCallback(() => {
-    const convId = crypto.randomUUID();
-    const entry: NavEntry = { kind: "chat", convId, title: "New Chat" };
-    dispatchNav({ type: "navigate", entry, newTab: true, activate: true });
-    openEntry(entry);
-  }, [dispatchNav, openEntry]);
-
-  const handleSwitchChatConv = useCallback(
-    (convId: string, title: string, newTab = false) => {
-      const entry: NavEntry = { kind: "chat", convId, title };
-      if (newTab) {
-        dispatchNav({ type: "navigate", entry, newTab: true });
-        return;
-      }
-      dispatchNav({ type: "navigate", entry, newTab: false });
-      openEntry(entry);
-    },
-    [dispatchNav, openEntry]
-  );
-
-  const handleChatDeleted = useCallback(
-    (convId: string) => {
-      // The conversation file is gone; close any tabs showing it.
-      let i = nav.tabs.length;
-      while (i--) {
-        const e = nav.tabs[i].history[nav.tabs[i].cursor];
-        if (e.kind === "chat" && e.convId === convId) {
-          handleNavTabClose(i);
-        }
-      }
-      void refreshConversations();
-    },
-    [nav.tabs, handleNavTabClose, refreshConversations]
-  );
-
-  const handleSidebarDeleteChat = useCallback(
-    async (convId: string) => {
-      await chatStore.deleteConversation(convId);
-      handleChatDeleted(convId);
-    },
-    [chatStore, handleChatDeleted]
-  );
-
-  const handleSidebarRenameChat = useCallback(
-    async (convId: string, title: string) => {
-      const result = await chatStore.renameConversation(convId, title);
-      if (result.success) await refreshConversations();
-      return result;
-    },
-    [chatStore, refreshConversations]
-  );
-
-  /** Topbar chat tabs cache their title in the nav entry (defaulted to "New Chat"
-   * at creation). Sync it from the conversations index so the tab follows the
-   * same `title || preview || "Chat"` rule the sidebar uses — without this the
-   * topbar stays on "New Chat" until the tab is closed and reopened. */
-  useEffect(() => {
-    const convsById = new Map(conversations.map((c) => [c.id, c]));
-    for (const tab of nav.tabs) {
-      const current = tab.history[tab.cursor];
-      if (current?.kind !== "chat") continue;
-      const conv = convsById.get(current.convId);
-      if (!conv) continue;
-      const expected = conv.title || conv.preview || "Chat";
-      if (expected !== current.title) {
-        dispatchNav({ type: "update-chat-title", convId: current.convId, title: expected });
-      }
-    }
-  }, [conversations, nav.tabs, dispatchNav]);
-
   useShortcuts([
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
@@ -573,16 +470,9 @@ function App(): React.JSX.Element {
     {
       def: { code: "BracketRight", meta: true, shift: true, enabled: navTabsData.length > 1 },
       handler: () => handleNavTabActivate((activeTabIndex + 1) % navTabsData.length)
-    },
-    {
-      def: { key: "o", meta: true },
-      handler: handleNewChat
     }
   ]);
 
-  /** Closing a chat tab keeps the stream running so the assistant message still completes
-   * and persists to disk. The chat remains accessible via the sidebar conversation list,
-   * with a streaming indicator while in flight. */
   const handleCloseTab = useCallback(
     (index: number) => {
       handleNavTabClose(index);
@@ -646,7 +536,6 @@ function App(): React.JSX.Element {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
-      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -657,20 +546,6 @@ function App(): React.JSX.Element {
       }
     },
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
-  );
-
-  /** Chat feature-list row click: pan to the feature and open it in mini mode. */
-  const handleOpenFeatureFromChat = useCallback(
-    (place: PlaceRecord) => {
-      setSelectionPulseAnchor(null);
-      setMapPeekPlace(null);
-      setSelectedPlace(place);
-      setPlaceMode("mini");
-      setFeatureScreenPos(null);
-      // Chat pane is open when this fires (the click came from it), so the main pane occupies left padding.
-      mapRef.current?.fitToPlace(place, getMapPadding(true));
-    },
-    [getMapPadding]
   );
 
   /** Wikilink click in a place card body: mini card over the target feature
@@ -693,9 +568,9 @@ function App(): React.JSX.Element {
       setMapPeekPlace(null);
       setSelectedPlace(place);
       setPlaceMode("mini");
-      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
+      mapRef.current?.fitToPlace(place, getMapPadding(false));
     },
-    [placeMode, selectedPlace, activeChatConvId, getMapPadding, handleSelectPlaceFromSidebar]
+    [placeMode, selectedPlace, getMapPadding, handleSelectPlaceFromSidebar]
   );
 
   // Sidebar folder click — navigate within active tab (or background tab on cmd/ctrl+click)
@@ -712,7 +587,6 @@ function App(): React.JSX.Element {
       }
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
-      setActiveChatConvId(null);
       setSelectedFolder(folderPath);
       setSelectedPlace(null);
       setPlaceMode("mini");
@@ -739,7 +613,6 @@ function App(): React.JSX.Element {
           filePath
       );
       const place: PlaceRecord = { filePath, type: "GeoJsonLayer", title };
-      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -781,9 +654,9 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
+      mapRef.current?.fitToPlace(place, getMapPadding(false));
     },
-    [getMapPadding, activeChatConvId]
+    [getMapPadding]
   );
 
   // Flattened view of the indexed vault for the search popover's "Files" group.
@@ -798,13 +671,6 @@ function App(): React.JSX.Element {
       handleSelectPlaceFromSidebar(file);
     },
     [handleSelectGeoJson, handleSelectPlaceFromSidebar]
-  );
-
-  const handleSearchSelectConversation = useCallback(
-    (conversation: ConversationMeta) => {
-      handleSwitchChatConv(conversation.id, conversation.title || conversation.preview || "Chat");
-    },
-    [handleSwitchChatConv]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -941,7 +807,6 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         mapRef.current?.fitToPlace(created, getMapPadding(false));
       } else {
-        setActiveChatConvId(null);
         setSelectedPlace(created);
         setPlaceMode("full");
         setFeatureScreenPos(null);
@@ -961,16 +826,6 @@ function App(): React.JSX.Element {
       await savePreviewPlaceToVault(selectedPlace, folderPath);
     },
     [selectedPlace, savePreviewPlaceToVault]
-  );
-
-  const { addLayerToVault } = useOverlayVaultSync();
-  /** Add a result layer's features to the vault. The overlay stays on the map so the
-   *  card's rows remain resolvable and visible afterward. */
-  const handleAddLayerToVault = useCallback(
-    async (layer: MapOverlayLayer, parentFolderPath: string | null) => {
-      await addLayerToVault(layer, parentFolderPath);
-    },
-    [addLayerToVault]
   );
 
   const { handlePathRelocated, handleDeletedPath } = usePathSync({
@@ -1061,11 +916,6 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson]
   );
 
-  const handleDeleteChatFromSidebar = useCallback(
-    (convId: string) => void handleSidebarDeleteChat(convId),
-    [handleSidebarDeleteChat]
-  );
-
   const handleMapClickEmpty = useCallback(() => {
     if (isMini) {
       clearPlace();
@@ -1103,7 +953,7 @@ function App(): React.JSX.Element {
           onSelectedFeaturePosition={handleFeatureScreenPos}
           overlayLayers={overlayLayers}
           focusedFeatureId={focusedFeatureId}
-          showOverlay={activeChatConvId !== null}
+          showOverlay={overlayLayers.length > 0}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
@@ -1160,8 +1010,6 @@ function App(): React.JSX.Element {
               onSelectResult={handleGeocodeSearchResult}
               files={indexedFiles}
               onSelectFile={handleSearchSelectFile}
-              conversations={conversations}
-              onSelectConversation={handleSearchSelectConversation}
             />
             <Tooltip>
               <TooltipTrigger
@@ -1207,7 +1055,6 @@ function App(): React.JSX.Element {
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}
-            streamingConvIds={streamingConvIds}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
             onTabReorder={handleNavTabReorder}
@@ -1237,20 +1084,12 @@ function App(): React.JSX.Element {
         <ProjectSidebar
           selectedFilePath={selectedFilePathForSidebar}
           selectedFolderPath={selectedFolder ?? undefined}
-          activeChatConvId={activeChatConvId}
-          conversations={conversations}
-          streamingConvIds={streamingConvIds}
           onSelectPlace={handleSelectPlaceFromSidebar}
           onSelectFolder={handleSelectFolder}
           onSelectGeoJson={handleSelectGeoJsonFromSidebar}
           onDeletePath={handleDeletedPath}
           onRenamePath={handlePathRelocated}
           onMoved={handlePathRelocated}
-          onNewChat={handleNewChat}
-          onSelectChat={handleSwitchChatConv}
-          onDeleteChat={handleDeleteChatFromSidebar}
-          onRenameChat={handleSidebarRenameChat}
-          onStopChat={chatStore.abort}
         />
       </SidebarProvider>
 
@@ -1279,8 +1118,8 @@ function App(): React.JSX.Element {
         className="fixed inset-x-0 bottom-0 z-20 pointer-events-none"
         style={{ top: TOP_BAR_HEIGHT, contain: "layout" }}
       >
-        {/* Main pane — full-height place panel and chat tab share this column. */}
-        {((isFull && selectedPlace) || activeChatConvId) && (
+        {/* Main pane — full-height place panel. */}
+        {isFull && selectedPlace && (
           <div
             className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
             style={{
@@ -1288,61 +1127,19 @@ function App(): React.JSX.Element {
               width: mainPaneWidth
             }}
           >
-            {isFull && selectedPlace && (
-              <PlaceCard
-                key={selectedPlaceCardKey}
-                place={selectedPlace}
-                mode="full"
-                onClose={handlePlaceCardClose}
-                onNavigate={handleSelectPlaceFromSidebar}
-                onOpenWikilink={handleOpenWikilink}
-                onRename={handlePlaceRename}
-                onCommitPointLocation={commitVaultPointLocation}
-                onClearPointLocation={clearVaultPointLocation}
-                onDelete={handleDeletePlaceFile}
-                onOpenFolder={handleSelectFolder}
-              />
-            )}
-            {activeChatConvId && (
-              <ChatPane
-                key={activeChatConvId}
-                convId={activeChatConvId}
-                convTitle={(() => {
-                  const c = conversations.find((c) => c.id === activeChatConvId);
-                  return c?.title || c?.preview || "New Chat";
-                })()}
-                chatStore={chatStore}
-                overlayLayers={overlayLayers}
-                focusFeature={setFocusedFeatureId}
-                defaultParentFolderPath={parentFolderForNewFiles}
-                isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
-                onAddLayerToVault={handleAddLayerToVault}
-                onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
-                onOpenInNewTab={() => {
-                  const c = conversations.find((c) => c.id === activeChatConvId);
-                  handleSwitchChatConv(
-                    activeChatConvId,
-                    c?.title || c?.preview || "New Chat",
-                    true
-                  );
-                }}
-                onAbort={() => chatStore.abort(activeChatConvId)}
-                onRename={(title) => handleSidebarRenameChat(activeChatConvId, title)}
-                onUndo={() => void chatStore.undo(activeChatConvId)}
-                onClose={() => {
-                  if (activeTabIndex >= 0) handleCloseTab(activeTabIndex);
-                  else setActiveChatConvId(null);
-                }}
-                onDeleted={handleChatDeleted}
-                onOpenFile={async (filePath) => {
-                  const place = await window.api.places.getByPath(filePath);
-                  if (place) handleSelectPlaceFromSidebar(place);
-                }}
-                placesByPath={placesByPath}
-                selectedFilePath={selectedPlace?.filePath ?? null}
-                onOpenFeature={handleOpenFeatureFromChat}
-              />
-            )}
+            <PlaceCard
+              key={selectedPlaceCardKey}
+              place={selectedPlace}
+              mode="full"
+              onClose={handlePlaceCardClose}
+              onNavigate={handleSelectPlaceFromSidebar}
+              onOpenWikilink={handleOpenWikilink}
+              onRename={handlePlaceRename}
+              onCommitPointLocation={commitVaultPointLocation}
+              onClearPointLocation={clearVaultPointLocation}
+              onDelete={handleDeletePlaceFile}
+              onOpenFolder={handleSelectFolder}
+            />
             {/* Rail tracks the card edges: offset = -(right padding), bottom = bottom padding. */}
             <ResizeHandle
               side="right"

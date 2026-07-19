@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, sep } from "node:path";
-import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
@@ -13,13 +12,7 @@ import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
-import {
-  type MapOverlayLayer,
-  type PlaceRecord,
-  type StashedGeometry,
-  type VaultOperation,
-  orderDetailProperties
-} from "../shared/types";
+import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
 import { computeBbox } from "./bbox";
 import {
   queryNear,
@@ -33,9 +26,32 @@ import {
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
+import { type ToolDefinition, defineTool } from "./tool-defs";
 import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
 import { downloadWikidataImage } from "./wiki-image";
 import { geometryToWkt } from "./wkt";
+
+/**
+ * A large geometry stashed server-side so its coordinates never cross the LLM boundary.
+ * The agent gets back an opaque id (`route_N`, `iso_N`, `geom_N`) and passes that id to
+ * render/query/save/geo_compute; the tool layer resolves it here.
+ */
+export type StashedGeometry = {
+  kind: "route" | "isochrone" | "geometry";
+  /** GeoJSON geometry (Point | LineString | Polygon | MultiPolygon | …). */
+  geometry: Geometry;
+  /** route only: summary facts, so saving a route derives them from the source. */
+  distanceMeters?: number;
+  durationSeconds?: number;
+  mode?: string;
+  /** isochrone only: the contour's minute value. */
+  minutes?: number;
+};
+
+export type VaultOperation = {
+  path: string;
+  previousContent: string | null; // null = file was created this turn (undo = delete it)
+};
 
 function errorPayload(err: unknown): string {
   if (err instanceof MapServiceError) {
@@ -1129,7 +1145,7 @@ export function buildMaposCustomTools(
       within_id: Type.Optional(
         Type.String({
           description:
-            "Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id). Results are hard-filtered to those inside this polygon, and it also biases ranking toward the polygon's area. Use this for \"within an isochrone/area\" queries — unlike bbox it excludes POIs outside the shape."
+            'Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id). Results are hard-filtered to those inside this polygon, and it also biases ranking toward the polygon\'s area. Use this for "within an isochrone/area" queries — unlike bbox it excludes POIs outside the shape.'
         })
       ),
       isochrone_id: Type.Optional(Type.String({ description: "Alias for within_id." })),
@@ -1464,7 +1480,7 @@ export function buildMaposCustomTools(
           route_id: Type.Optional(
             Type.String({
               description:
-                "The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. \"Home to Café Olimpico\"); leave lat/lng unset."
+                'The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. "Home to Café Olimpico"); leave lat/lng unset.'
             })
           ),
           geometry_id: Type.Optional(

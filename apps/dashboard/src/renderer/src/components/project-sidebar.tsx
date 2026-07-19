@@ -12,18 +12,15 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuTrigger
 } from "@mapos/ui/components/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { Kbd, KbdGroup } from "@mapos/ui/components/kbd";
-import { PulseLoader } from "@mapos/ui/components/pulse-loader";
 import {
   Sidebar,
   SidebarContent,
@@ -31,31 +28,13 @@ import {
   SidebarGroup,
   SidebarGroupAction,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem
 } from "@mapos/ui/components/sidebar";
-import {
-  ErrorTooltip,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger
-} from "@mapos/ui/components/tooltip";
-import { cn } from "@mapos/ui/lib/utils";
-import { type ConversationMeta, type FileNode, isServableImageFile } from "@shared/types";
-import {
-  EllipsisIcon,
-  FolderPlusIcon,
-  MessageCircleIcon,
-  MessageCirclePlusIcon,
-  PencilIcon,
-  PlusIcon,
-  SettingsIcon,
-  SquareIcon,
-  SquarePenIcon,
-  Trash2Icon
-} from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { type FileNode, isServableImageFile } from "@shared/types";
+import { FolderPlusIcon, PlusIcon, SettingsIcon, SquarePenIcon } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { useVaultRoot } from "../hooks/use-vault-root";
@@ -88,37 +67,21 @@ const SET_STORAGE = {
 export const ProjectSidebar = memo(function ProjectSidebar({
   selectedFilePath,
   selectedFolderPath,
-  activeChatConvId,
-  conversations,
-  streamingConvIds,
   onSelectPlace,
   onSelectFolder,
   onSelectGeoJson,
   onDeletePath,
   onRenamePath,
-  onMoved,
-  onNewChat,
-  onSelectChat,
-  onDeleteChat,
-  onRenameChat,
-  onStopChat
+  onMoved
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
-  activeChatConvId?: string | null;
-  conversations: ConversationMeta[];
-  streamingConvIds: Set<string>;
   onSelectPlace?: (place: PlaceRecord, newTab?: boolean) => void;
   onSelectFolder?: (path: string, newTab?: boolean) => void;
   onSelectGeoJson?: (path: string) => void;
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
-  onNewChat?: () => void;
-  onSelectChat?: (convId: string, title: string, newTab?: boolean) => void;
-  onDeleteChat?: (convId: string) => void;
-  onRenameChat?: (convId: string, title: string) => Promise<{ success: boolean; error?: string }>;
-  onStopChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const vaultRoot = useVaultRoot();
@@ -130,11 +93,10 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialPage, setSettingsInitialPage] = useState<"general" | "appearance" | "ai">(
+  const [settingsInitialPage, setSettingsInitialPage] = useState<"general" | "appearance">(
     "general"
   );
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
-  const [conversationsGroupOpen, setConversationsGroupOpen] = useState(true);
   // Folders the user has expanded, persisted per vault. Folders default closed
   // (Obsidian / Finder behavior); the key is null until the vault root resolves,
   // so the hook stays in-memory until then.
@@ -145,64 +107,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   );
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [pathAnchor, setPathAnchor] = useState<string | null>(null);
-  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
-  const [convAnchor, setConvAnchor] = useState<string | null>(null);
-  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
-  const [convRenameDraft, setConvRenameDraft] = useState("");
-  const [convRenameError, setConvRenameError] = useState<string | null>(null);
-  const convRenameInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (renamingConvId) {
-      convRenameInputRef.current?.focus();
-      convRenameInputRef.current?.select();
-    }
-  }, [renamingConvId]);
-
-  const startRenameConv = useCallback((convId: string, currentTitle: string) => {
-    setRenamingConvId(convId);
-    setConvRenameDraft(currentTitle);
-    setConvRenameError(null);
-  }, []);
-
-  const cancelRenameConv = useCallback(() => {
-    setRenamingConvId(null);
-    setConvRenameError(null);
-  }, []);
-
-  const commitRenameConv = useCallback(async () => {
-    if (!renamingConvId || !onRenameChat) {
-      cancelRenameConv();
-      return;
-    }
-    const draft = convRenameDraft.trim();
-    if (!draft) {
-      setConvRenameError("Title cannot be empty");
-      convRenameInputRef.current?.focus();
-      return;
-    }
-    const result = await onRenameChat(renamingConvId, draft);
-    if (!result.success) {
-      setConvRenameError(result.error ?? "Rename failed");
-      convRenameInputRef.current?.focus();
-      return;
-    }
-    setRenamingConvId(null);
-    setConvRenameError(null);
-  }, [renamingConvId, convRenameDraft, onRenameChat, cancelRenameConv]);
-
-  const handleRenameConvKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        void commitRenameConv();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        cancelRenameConv();
-      }
-    },
-    [commitRenameConv, cancelRenameConv]
-  );
 
   const setFolderOpen = useCallback(
     (path: string, open: boolean) => {
@@ -371,10 +275,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
 
   const handlePathClick = useCallback(
     (node: FileNode, e: React.MouseEvent) => {
-      // Clicking in the files scope clears the conversations multi-selection.
-      setSelectedConvIds((prev) => (prev.size === 0 ? prev : new Set()));
-      setConvAnchor(null);
-
       if (e.shiftKey && pathAnchor) {
         const flat = flatVisiblePaths();
         const a = flat.findIndex((x) => x.path === pathAnchor);
@@ -405,70 +305,35 @@ export const ProjectSidebar = memo(function ProjectSidebar({
     [openPath]
   );
 
-  const handleConvClick = useCallback(
-    (conv: ConversationMeta, title: string, e: React.MouseEvent, orderedIds: string[]) => {
-      // Clicking in the conversations scope clears the files multi-selection.
-      setSelectedPaths((prev) => (prev.size === 0 ? prev : new Set()));
-      setPathAnchor(null);
-
-      if (e.shiftKey && convAnchor) {
-        const a = orderedIds.indexOf(convAnchor);
-        const b = orderedIds.indexOf(conv.id);
-        if (a >= 0 && b >= 0) {
-          const [lo, hi] = a < b ? [a, b] : [b, a];
-          setSelectedConvIds(new Set(orderedIds.slice(lo, hi + 1)));
-          return;
-        }
-      }
-      if (e.metaKey || e.ctrlKey) {
-        // Cmd/Ctrl+click → open in a new (background) tab, browser convention.
-        onSelectChat?.(conv.id, title, true);
-        return;
-      }
-      setSelectedConvIds(new Set([conv.id]));
-      setConvAnchor(conv.id);
-      onSelectChat?.(conv.id, title, false);
-    },
-    [convAnchor, onSelectChat]
-  );
-
   async function confirmDelete() {
     if (!pendingDelete || isDeleting) return;
     setDeleteError(null);
     setIsDeleting(true);
-    if (pendingDelete.kind === "files") {
-      // Deleting a folder removes its contents; skip any selected descendants
-      // so we don't error out trying to delete files that already vanished.
-      const folderPaths = pendingDelete.nodes
-        .filter((n) => n.type === "directory")
-        .map((n) => n.path);
-      const toDelete = pendingDelete.nodes.filter((n) => {
-        for (const folder of folderPaths) {
-          if (n.path === folder) continue;
-          if (n.path.startsWith(`${folder}/`) || n.path.startsWith(`${folder}\\`)) {
-            return false;
-          }
+    // Deleting a folder removes its contents; skip any selected descendants
+    // so we don't error out trying to delete files that already vanished.
+    const folderPaths = pendingDelete.nodes
+      .filter((n) => n.type === "directory")
+      .map((n) => n.path);
+    const toDelete = pendingDelete.nodes.filter((n) => {
+      for (const folder of folderPaths) {
+        if (n.path === folder) continue;
+        if (n.path.startsWith(`${folder}/`) || n.path.startsWith(`${folder}\\`)) {
+          return false;
         }
-        return true;
-      });
-      for (const node of toDelete) {
-        const result = await window.api.fs.deletePath(node.path);
-        if (!result.success) {
-          setDeleteError(result.error);
-          setIsDeleting(false);
-          return;
-        }
-        onDeletePath?.(node.path, node.type);
       }
-      setSelectedPaths(new Set());
-      setPathAnchor(null);
-    } else {
-      for (const id of pendingDelete.ids) {
-        onDeleteChat?.(id);
+      return true;
+    });
+    for (const node of toDelete) {
+      const result = await window.api.fs.deletePath(node.path);
+      if (!result.success) {
+        setDeleteError(result.error);
+        setIsDeleting(false);
+        return;
       }
-      setSelectedConvIds(new Set());
-      setConvAnchor(null);
+      onDeletePath?.(node.path, node.type);
     }
+    setSelectedPaths(new Set());
+    setPathAnchor(null);
     setIsDeleting(false);
     setPendingDelete(null);
     await load();
@@ -481,22 +346,12 @@ export const ProjectSidebar = memo(function ProjectSidebar({
       if (nodes.length === 0) return;
       setDeleteError(null);
       setPendingDelete({ kind: "files", nodes });
-    } else if (selectedConvIds.size > 0) {
-      const ids = [...selectedConvIds];
-      const titles = ids.map((id) => {
-        const c = conversations.find((x) => x.id === id);
-        return c?.title || c?.preview || "Chat";
-      });
-      setDeleteError(null);
-      setPendingDelete({ kind: "conversations", ids, titles });
     }
-  }, [pendingDelete, selectedPaths, selectedConvIds, collectNodesByPaths, conversations]);
+  }, [pendingDelete, selectedPaths, collectNodesByPaths]);
 
   const clearMultiSelection = useCallback(() => {
     setSelectedPaths((prev) => (prev.size === 0 ? prev : new Set()));
     setPathAnchor(null);
-    setSelectedConvIds((prev) => (prev.size === 0 ? prev : new Set()));
-    setConvAnchor(null);
   }, []);
 
   useShortcuts([
@@ -513,10 +368,10 @@ export const ProjectSidebar = memo(function ProjectSidebar({
     { def: { key: "Escape" }, handler: clearMultiSelection }
   ]);
 
-  // Allow other components (e.g. chat empty state) to deep-link into a specific settings page.
+  // Allow other components to deep-link into a specific settings page.
   useEffect(() => {
     function handleOpenSettings(e: Event): void {
-      const detail = (e as CustomEvent<{ section?: "general" | "appearance" | "ai" }>).detail;
+      const detail = (e as CustomEvent<{ section?: "general" | "appearance" }>).detail;
       setSettingsInitialPage(detail?.section ?? "general");
       setSettingsOpen(true);
     }
@@ -574,24 +429,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 <KbdGroup>
                   <Kbd>{modSymbol}</Kbd>
                   <Kbd>N</Kbd>
-                </KbdGroup>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <SidebarMenuItem>
-                    <SidebarMenuButton onClick={onNewChat}>
-                      <MessageCirclePlusIcon /> New Chat
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                }
-              />
-              <TooltipContent side="right">
-                Start a chat with the agent
-                <KbdGroup>
-                  <Kbd>{modSymbol}</Kbd>
-                  <Kbd>O</Kbd>
                 </KbdGroup>
               </TooltipContent>
             </Tooltip>
@@ -737,172 +574,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 </ContextMenuContent>
               </ContextMenu>
             </div>
-          )}
-        </SidebarGroup>
-        <SidebarGroup className="pt-0">
-          <div className="group/group-header relative mb-0.5 flex flex-col">
-            <CollapsibleGroupLabel
-              label="Conversations"
-              open={conversationsGroupOpen}
-              onToggle={() => setConversationsGroupOpen((o) => !o)}
-            />
-            <SidebarGroupAction
-              title="New chat"
-              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-sidebar-accent-foreground"
-              onClick={() => {
-                setConversationsGroupOpen(true);
-                onNewChat?.();
-              }}
-            >
-              <PlusIcon />
-              <span className="sr-only">New chat</span>
-            </SidebarGroupAction>
-          </div>
-          {conversationsGroupOpen && (
-            <SidebarMenu className="gap-0.5">
-              {conversations.length === 0 ? (
-                <li className="px-2 py-1 text-xs text-sidebar-foreground/50">No conversations</li>
-              ) : (
-                (() => {
-                  const orderedIds = conversations.map((c) => c.id);
-                  return conversations.map((conv) => {
-                    const title = conv.title || conv.preview || "Chat";
-                    const isActive =
-                      selectedConvIds.size > 1
-                        ? selectedConvIds.has(conv.id)
-                        : conv.id === activeChatConvId;
-                    const isStreaming = streamingConvIds.has(conv.id);
-                    const isRenaming = renamingConvId === conv.id;
-                    const requestDeleteConv = () => {
-                      if (selectedConvIds.size > 1 && selectedConvIds.has(conv.id)) {
-                        const ids = [...selectedConvIds];
-                        const titles = ids.map((id) => {
-                          const c = conversations.find((x) => x.id === id);
-                          return c?.title || c?.preview || "Chat";
-                        });
-                        setPendingDelete({ kind: "conversations", ids, titles });
-                      } else {
-                        setPendingDelete({
-                          kind: "conversations",
-                          ids: [conv.id],
-                          titles: [title]
-                        });
-                      }
-                    };
-                    return (
-                      <SidebarMenuItem key={conv.id}>
-                        <ContextMenu>
-                          <ContextMenuTrigger
-                            render={
-                              <SidebarMenuButton
-                                isActive={isActive}
-                                className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground data-active:bg-hover"
-                                onClick={(e) => {
-                                  if (isRenaming) {
-                                    e.preventDefault();
-                                    return;
-                                  }
-                                  handleConvClick(conv, title, e, orderedIds);
-                                }}
-                              />
-                            }
-                          >
-                            {isStreaming ? (
-                              <PulseLoader aria-label="Streaming" color="text-white" />
-                            ) : (
-                              <MessageCircleIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
-                            )}
-                            {isRenaming ? (
-                              <ErrorTooltip error={convRenameError}>
-                                <input
-                                  ref={convRenameInputRef}
-                                  value={convRenameDraft}
-                                  onChange={(e) => {
-                                    setConvRenameDraft(e.target.value);
-                                    setConvRenameError(null);
-                                  }}
-                                  onKeyDown={handleRenameConvKeyDown}
-                                  onBlur={() => void commitRenameConv()}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className={cn(
-                                    "min-w-0 flex-1 h-5 box-border rounded p-0 text-sm leading-5",
-                                    "bg-sidebar-background text-sidebar-foreground border-0 outline-none appearance-none",
-                                    convRenameError
-                                      ? "ring-2 ring-inset ring-destructive"
-                                      : "ring-2 ring-inset ring-blue-500"
-                                  )}
-                                />
-                              </ErrorTooltip>
-                            ) : (
-                              <span className="truncate">{title}</span>
-                            )}
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem onClick={() => onSelectChat?.(conv.id, title, true)}>
-                              <PlusIcon />
-                              Open in New Tab
-                            </ContextMenuItem>
-                            {isStreaming && (
-                              <ContextMenuItem onClick={() => onStopChat?.(conv.id)}>
-                                <SquareIcon />
-                                Stop
-                              </ContextMenuItem>
-                            )}
-                            <ContextMenuSeparator />
-                            <ContextMenuItem onClick={() => startRenameConv(conv.id, title)}>
-                              <PencilIcon />
-                              Rename
-                            </ContextMenuItem>
-                            <ContextMenuItem variant="destructive" onClick={requestDeleteConv}>
-                              <Trash2Icon />
-                              {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)
-                                ? `Delete ${selectedConvIds.size} conversations`
-                                : "Delete"}
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            render={
-                              <SidebarMenuAction
-                                showOnHover
-                                className="hover:bg-hover-strong hover:text-sidebar-accent-foreground data-open:bg-hover-strong data-open:text-sidebar-accent-foreground data-open:opacity-100"
-                              >
-                                <EllipsisIcon />
-                                <span className="sr-only">More actions</span>
-                              </SidebarMenuAction>
-                            }
-                          />
-                          <DropdownMenuContent side="right" align="start" className="w-auto">
-                            <DropdownMenuItem onClick={() => onSelectChat?.(conv.id, title, true)}>
-                              <PlusIcon />
-                              Open in New Tab
-                            </DropdownMenuItem>
-                            {isStreaming && (
-                              <DropdownMenuItem onClick={() => onStopChat?.(conv.id)}>
-                                <SquareIcon />
-                                Stop
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => startRenameConv(conv.id, title)}>
-                              <PencilIcon />
-                              Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onClick={requestDeleteConv}>
-                              <Trash2Icon />
-                              {selectedConvIds.size > 1 && selectedConvIds.has(conv.id)
-                                ? `Delete ${selectedConvIds.size} conversations`
-                                : "Delete"}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </SidebarMenuItem>
-                    );
-                  });
-                })()
-              )}
-            </SidebarMenu>
           )}
         </SidebarGroup>
       </SidebarContent>

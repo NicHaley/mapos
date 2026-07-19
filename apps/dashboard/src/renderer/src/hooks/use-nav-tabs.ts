@@ -4,8 +4,7 @@ import { useVaultRoot } from "./use-vault-root";
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
-  | { kind: "folder"; folderPath: string; label: string }
-  | { kind: "chat"; convId: string; title: string };
+  | { kind: "folder"; folderPath: string; label: string };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
@@ -20,8 +19,7 @@ export type NavAction =
   | { type: "restore"; tabs: NavTab[]; activeTab: number }
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
-  | { type: "update-entry"; filePath: string; place: PlaceRecord }
-  | { type: "update-chat-title"; convId: string; title: string };
+  | { type: "update-entry"; filePath: string; place: PlaceRecord };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -43,7 +41,6 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
-  if (entry.kind === "chat") return entry;
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -79,10 +76,7 @@ function relocateEntry(
   };
 }
 
-type PersistedTab =
-  | { kind: "place"; filePath: string }
-  | { kind: "folder"; folderPath: string }
-  | { kind: "chat"; convId: string; title: string };
+type PersistedTab = { kind: "place"; filePath: string } | { kind: "folder"; folderPath: string };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 // Scoped per vault — see useVaultRoot. The bare key predates scoping and is
@@ -94,7 +88,6 @@ export function folderLabel(folderPath: string): string {
 }
 
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
-  if (entry.kind === "chat") return false;
   if (entry.kind === "place") {
     if (isFolder) {
       return (
@@ -222,19 +215,6 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
-    case "update-chat-title": {
-      return {
-        ...state,
-        tabs: state.tabs.map((tab) => ({
-          ...tab,
-          history: tab.history.map((entry) =>
-            entry.kind === "chat" && entry.convId === action.convId
-              ? { ...entry, title: action.title }
-              : entry
-          )
-        }))
-      };
-    }
     default:
       return state;
   }
@@ -263,8 +243,6 @@ export function useNavTabs({
       tabs: nav.tabs.map((tab) => {
         const current = tab.history[tab.cursor];
         if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
-        if (current.kind === "chat")
-          return { kind: "chat", convId: current.convId, title: current.title };
         return { kind: "folder", folderPath: current.folderPath };
       }),
       activeTab: nav.activeTab
@@ -297,13 +275,6 @@ export function useNavTabs({
             history: [
               { kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }
             ],
-            cursor: 0
-          };
-        }
-        if (tab.kind === "chat") {
-          return {
-            id: crypto.randomUUID(),
-            history: [{ kind: "chat", convId: tab.convId, title: tab.title }],
             cursor: 0
           };
         }
@@ -392,14 +363,6 @@ export function useNavTabs({
         }
         if (current?.kind === "folder") {
           return { id: tab.id, title: current.label, kind: "folder" as const };
-        }
-        if (current?.kind === "chat") {
-          return {
-            id: tab.id,
-            title: current.title,
-            kind: "chat" as const,
-            convId: current.convId
-          };
         }
         return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
       }),

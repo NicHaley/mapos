@@ -1,6 +1,3 @@
-import type { Message } from "@earendil-works/pi-ai";
-import type { Geometry } from "geojson";
-
 export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
@@ -119,79 +116,11 @@ export type MapOverlayLayer = MapOverlayPayload & {
   vaultPaths?: string[];
 };
 
-/**
- * A large geometry stashed server-side so its coordinates never cross the LLM boundary.
- * The agent gets back an opaque id (`route_N`, `iso_N`, `geom_N`) and passes that id to
- * render/query/save/geo_compute; the tool layer resolves it here. Persisted per
- * conversation in `<id>.state.json` so a handle survives an app restart (the user can
- * still see the rendered layer, so the handle must still resolve).
- */
-export type StashedGeometry = {
-  kind: "route" | "isochrone" | "geometry";
-  /** GeoJSON geometry (Point | LineString | Polygon | MultiPolygon | …). */
-  geometry: Geometry;
-  /** route only: summary facts, so saving a route derives them from the source. */
-  distanceMeters?: number;
-  durationSeconds?: number;
-  mode?: string;
-  /** isochrone only: the contour's minute value. */
-  minutes?: number;
-};
-
 export type FileNode = {
   name: string;
   path: string;
   type: "file" | "directory";
   children?: FileNode[];
-};
-
-export type ChatToolCallPayload = {
-  convId: string;
-  id: string;
-  name: string;
-  input: unknown;
-};
-
-export type ChatToolResultPayload = {
-  convId: string;
-  tool_use_id: string;
-  content: string;
-  isError: boolean;
-};
-
-export type ChatChunkPayload = { convId: string; text: string };
-export type ChatDonePayload = {
-  convId: string;
-  canUndo: boolean;
-  /** Pi-native messages that the agent appended this turn (assistant + toolResult rows). */
-  newMessages: Message[];
-};
-export type ChatErrorPayload = {
-  convId: string;
-  message: string;
-  /** Structured code so the renderer can render targeted affordances (e.g. Reconfigure link). */
-  code?: "AI_NOT_CONFIGURED" | "AI_DECRYPT_FAILED";
-  /** When set, the renderer should surface a "Reconfigure" link that deep-links to a settings section. */
-  reconfigureProvider?: "ai";
-};
-
-export type ConversationMeta = {
-  id: string;
-  created_at: string;
-  updated_at: string;
-  messageCount: number;
-  preview: string;
-  /** User-renamed title. When unset, the UI falls back to `preview`. */
-  title?: string;
-};
-
-export type VaultOperation = {
-  path: string;
-  previousContent: string | null; // null = file was created this turn (undo = delete it)
-};
-
-export type UndoEntry = {
-  operations: VaultOperation[];
 };
 
 // ── Region packs (offline map data) ───────────────────────────────────────────
@@ -287,10 +216,3 @@ export function isServableImageFile(name: string): boolean {
   const lower = name.toLowerCase();
   return SERVABLE_IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
-
-/** Returned by chat:load-history and chat:switch-conversation. */
-export type ConversationLoadResult = {
-  messages: Message[];
-  /** All accumulated overlay layers for this conversation, in order. */
-  layers: MapOverlayLayer[];
-};

@@ -22,8 +22,6 @@
     "release": "./scripts/publish-release.sh"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.80.5",
-    "@earendil-works/pi-coding-agent": "^0.80.5",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@mapos/contracts": "workspace:*",
@@ -79,7 +77,6 @@
     "@types/wellknown": "^0.5.8",
     "@vitejs/plugin-react": "^5.1.1",
     "@xyflow/react": "^12.10.1",
-    "ai": "^6.0.116",
     "chokidar": "^3",
     "date-fns": "^4.1.0",
     "diff": "^8.0.4",

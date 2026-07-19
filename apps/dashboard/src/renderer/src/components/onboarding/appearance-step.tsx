@@ -1,7 +1,6 @@
 import { Button } from "@mapos/ui/components/button";
 import { ArrowLeftIcon } from "lucide-react";
-import { useState } from "react";
-import { type Theme, applyTheme, readStoredTheme } from "../../lib/theme";
+import { setTheme, useTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { ThemePicker } from "../theme-picker";
 import { CmdEnterHint } from "./cmd-enter-hint";
@@ -13,12 +12,7 @@ export function AppearanceStep({
   onBack: () => void;
   onNext: () => void;
 }): React.JSX.Element {
-  const [theme, setTheme] = useState<Theme>(readStoredTheme);
-
-  function handleTheme(t: Theme): void {
-    setTheme(t);
-    applyTheme(t);
-  }
+  const theme = useTheme();
 
   useCmdEnter(onNext);
 
@@ -31,7 +25,7 @@ export function AppearanceStep({
       </p>
 
       <div className="mt-6">
-        <ThemePicker value={theme} onChange={handleTheme} />
+        <ThemePicker value={theme} onChange={setTheme} />
       </div>
 
       <div className="mt-8 flex items-center justify-between">

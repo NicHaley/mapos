@@ -64,12 +64,14 @@ export function VaultStep({
         setError(r.error);
         return;
       }
-      onDraftChange({
-        kind: "create",
-        name: name.trim(),
-        targetPath: r.targetPath,
-        parentPath: r.parentPath
-      });
+      if ("ok" in r && r.ok) {
+        onDraftChange({
+          kind: "create",
+          name: name.trim(),
+          targetPath: r.targetPath,
+          parentPath: r.parentPath
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -85,7 +87,9 @@ export function VaultStep({
         setError(r.error);
         return;
       }
-      onDraftChange({ kind: "existing", path: r.path });
+      if ("ok" in r && r.ok) {
+        onDraftChange({ kind: "existing", path: r.path });
+      }
     } finally {
       setBusy(false);
     }

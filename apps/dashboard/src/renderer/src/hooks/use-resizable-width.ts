@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseResizableWidthOptions {
-  storageKey: string;
+  /** May be `null` while it is still being resolved (e.g. an async vault path);
+   * the hook is purely in-memory until a key arrives. */
+  storageKey: string | null;
+  /** Pre-scoping key to seed from (and clean up) when `storageKey` has no value yet. */
+  legacyStorageKey?: string;
   defaultWidth: number;
   minWidth: number;
   maxWidth: number;
@@ -17,10 +21,12 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max);
 }
 
-function readInitialWidth(opts: UseResizableWidthOptions): number {
+function readInitialWidth(opts: UseResizableWidthOptions, key: string): number {
   if (typeof window === "undefined") return opts.defaultWidth;
   try {
-    const raw = window.localStorage.getItem(opts.storageKey);
+    const raw =
+      window.localStorage.getItem(key) ??
+      (opts.legacyStorageKey != null ? window.localStorage.getItem(opts.legacyStorageKey) : null);
     if (raw == null) return opts.defaultWidth;
     const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) return opts.defaultWidth;
@@ -31,16 +37,29 @@ function readInitialWidth(opts: UseResizableWidthOptions): number {
 }
 
 export function useResizableWidth(opts: UseResizableWidthOptions): UseResizableWidthResult {
-  const { storageKey, minWidth, maxWidth } = opts;
-  const [width, setWidthState] = useState<number>(() => readInitialWidth(opts));
+  const { storageKey, legacyStorageKey, minWidth, maxWidth } = opts;
+  const [width, setWidthState] = useState<number>(() =>
+    storageKey != null ? readInitialWidth(opts, storageKey) : opts.defaultWidth
+  );
+
+  // Re-read when the key changes (async resolution or a switch). Adjusting state
+  // during render — not in an effect — so the persist effect below never sees
+  // (and writes) the stale default under the new key.
+  const [prevKey, setPrevKey] = useState(storageKey);
+  if (storageKey !== prevKey) {
+    setPrevKey(storageKey);
+    setWidthState(storageKey != null ? readInitialWidth(opts, storageKey) : opts.defaultWidth);
+  }
 
   useEffect(() => {
+    if (storageKey == null) return;
     try {
       window.localStorage.setItem(storageKey, String(width));
+      if (legacyStorageKey != null) window.localStorage.removeItem(legacyStorageKey);
     } catch {
       // ignore quota / privacy errors
     }
-  }, [storageKey, width]);
+  }, [storageKey, legacyStorageKey, width]);
 
   const setWidth = useCallback(
     (w: number) => {

@@ -29,9 +29,9 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { type Accent, applyAccent, readStoredAccent } from "../lib/accent";
-import { type MapColor, applyMapColor, readStoredMapColor } from "../lib/map-color";
-import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
+import { setAccent, useAccent } from "../lib/accent";
+import { setMapColor, useMapColor } from "../lib/map-color";
+import { setTheme, useTheme } from "../lib/theme";
 import { AccentPicker } from "./accent-picker";
 import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
@@ -196,24 +196,11 @@ function GeneralPage({
 // ── Appearance page ───────────────────────────────────────────────────────────
 
 function AppearancePage() {
-  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
-  const [mapColor, setMapColorState] = useState<MapColor>(readStoredMapColor);
-  const [accent, setAccentState] = useState<Accent>(readStoredAccent);
-
-  function handleTheme(t: Theme) {
-    setThemeState(t);
-    applyTheme(t);
-  }
-
-  function handleMapColor(c: MapColor) {
-    setMapColorState(c);
-    applyMapColor(c);
-  }
-
-  function handleAccent(a: Accent) {
-    setAccentState(a);
-    applyAccent(a);
-  }
+  // Accent, map colour, and theme are per-vault stores; the hooks re-render on
+  // change, so the pickers stay controlled without local state mirrors.
+  const accent = useAccent();
+  const mapColor = useMapColor();
+  const theme = useTheme();
 
   return (
     <div className="flex flex-col gap-6">
@@ -221,16 +208,16 @@ function AppearancePage() {
         title="Accent color"
         description="Tints buttons, the vault icon, and map features. Monochrome follows the theme."
       >
-        <AccentPicker value={accent} onChange={handleAccent} />
+        <AccentPicker value={accent} onChange={setAccent} />
       </Section>
       <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
-        <ThemePicker value={theme} onChange={handleTheme} />
+        <ThemePicker value={theme} onChange={setTheme} />
       </Section>
       <Section
         title="Map color"
         description="Full uses the tinted basemap; Monochrome uses a clean white or black one."
       >
-        <MapColorPicker value={mapColor} onChange={handleMapColor} />
+        <MapColorPicker value={mapColor} onChange={setMapColor} />
       </Section>
     </div>
   );

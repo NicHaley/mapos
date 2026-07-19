@@ -15,6 +15,7 @@ import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
 import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
+import { readVaultAppearance, writeVaultAppearance } from "./appearance";
 import {
   closeDb,
   getAllPropertyKeysWithTypes,
@@ -792,6 +793,12 @@ export function setupPlacesWatcher(
 
   ipcMain.handle("fs:get-vault-root", () => vaultRoot);
 
+  ipcMain.handle("appearance:get", () => readVaultAppearance(vaultRoot));
+
+  ipcMain.handle("appearance:set", (_event, patch: Record<string, string | null>) =>
+    writeVaultAppearance(vaultRoot, patch)
+  );
+
   ipcMain.handle(
     "fs:create-folder",
     (_event, args: { parentFolderPath: string; folderName: string }) => {
@@ -990,6 +997,8 @@ export function setupPlacesWatcher(
     "fs:delete-path",
     "fs:reveal-in-finder",
     "fs:get-vault-root",
+    "appearance:get",
+    "appearance:set",
     "fs:create-folder",
     "fs:import-attachment",
     "fs:create-place-file",

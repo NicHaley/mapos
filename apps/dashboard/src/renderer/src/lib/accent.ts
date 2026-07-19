@@ -95,6 +95,8 @@ export const ACCENT_PALETTE: AccentOption[] = [
   }
 ];
 
+/** Legacy global localStorage key from before accent became per-vault state in
+ * `.mapos/appearance.json`. Read only by the one-time boot migration. */
 export const ACCENT_KEY = "mapos_accent";
 const CHANGE_EVENT = "mapos:accent-changed";
 
@@ -102,20 +104,28 @@ const CHANGE_EVENT = "mapos:accent-changed";
  * the historical default so monochrome behaves exactly as before this feature. */
 const MONOCHROME_FEATURE_COLOR = "#6b7280";
 
+// The canonical value lives in the vault's appearance.json; this module keeps a
+// synchronous in-memory mirror (hydrated at boot, before first paint) so
+// useSyncExternalStore snapshots stay sync.
+let currentAccent: Accent = "monochrome";
+
 function optionFor(accent: Accent): AccentOption {
   return ACCENT_PALETTE.find((o) => o.id === accent) ?? ACCENT_PALETTE[0];
 }
 
-export function readStoredAccent(): Accent {
-  const stored = localStorage.getItem(ACCENT_KEY);
-  return ACCENT_PALETTE.some((o) => o.id === stored) ? (stored as Accent) : "monochrome";
+export function parseAccent(value: unknown): Accent {
+  return ACCENT_PALETTE.some((o) => o.id === value) ? (value as Accent) : "monochrome";
+}
+
+export function getAccent(): Accent {
+  return currentAccent;
 }
 
 /** Override the primary/sidebar-primary CSS custom properties inline on the root
  * element (beats both the :root and .dark stylesheet blocks) for a coloured accent,
  * or remove them so the adaptive greyscale returns for monochrome. Buttons get the
  * solid -500; the vault-icon container gets a soft -200 bg with a -700 icon. */
-export function applyAccent(accent: Accent): void {
+function applyAccentDom(accent: Accent): void {
   const { hex, foreground, softBg, strongFg } = optionFor(accent);
   const root = document.documentElement.style;
   const props: Record<string, string | null> = {
@@ -128,9 +138,24 @@ export function applyAccent(accent: Accent): void {
     if (value) root.setProperty(key, value);
     else root.removeProperty(key);
   }
-  localStorage.setItem(ACCENT_KEY, accent);
-  // Notify same-document listeners (the `storage` event only fires cross-tab).
+}
+
+/** Apply without persisting — used at boot with the value read from appearance.json. */
+export function hydrateAccent(accent: Accent): void {
+  currentAccent = accent;
+  applyAccentDom(accent);
   window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+/** Apply and persist to the active vault's appearance.json. */
+export function setAccent(accent: Accent): void {
+  hydrateAccent(accent);
+  void window.api.appearance
+    .set({ accent })
+    .then((r) => {
+      if (!r.ok) console.error("Failed to save accent:", r.error);
+    })
+    .catch((e) => console.error("Failed to save accent:", e));
 }
 
 /** The default colour for map features with no explicit `color` frontmatter:
@@ -147,13 +172,11 @@ export function accentHex(accent: Accent): string | null {
 
 function subscribe(cb: () => void): () => void {
   window.addEventListener(CHANGE_EVENT, cb);
-  window.addEventListener("storage", cb);
   return () => {
     window.removeEventListener(CHANGE_EVENT, cb);
-    window.removeEventListener("storage", cb);
   };
 }
 
 export function useAccent(): Accent {
-  return useSyncExternalStore(subscribe, readStoredAccent);
+  return useSyncExternalStore(subscribe, getAccent);
 }

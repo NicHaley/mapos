@@ -36,6 +36,7 @@ import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
+import { useVaultRoot } from "./hooks/use-vault-root";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
@@ -161,14 +162,18 @@ function App(): React.JSX.Element {
   const selectedPlaceRef = useRef(selectedPlace);
   selectedPlaceRef.current = selectedPlace;
 
+  // Pane widths are per-vault workspace state (like tabs and viewport).
+  const vaultRoot = useVaultRoot();
   const { width: projectSidebarWidth, startDrag: startProjectSidebarResize } = useResizableWidth({
-    storageKey: "mapos.projectSidebarWidth",
+    storageKey: vaultRoot ? `mapos.projectSidebarWidth:${vaultRoot}` : null,
+    legacyStorageKey: "mapos.projectSidebarWidth",
     defaultWidth: PROJECT_SIDEBAR_DEFAULT_WIDTH,
     minWidth: PROJECT_SIDEBAR_MIN_WIDTH,
     maxWidth: PROJECT_SIDEBAR_MAX_WIDTH
   });
   const { width: mainPaneWidth, startDrag: startMainPaneResize } = useResizableWidth({
-    storageKey: "mapos.mainPaneWidth",
+    storageKey: vaultRoot ? `mapos.mainPaneWidth:${vaultRoot}` : null,
+    legacyStorageKey: "mapos.mainPaneWidth",
     defaultWidth: MAIN_PANE_DEFAULT_WIDTH,
     minWidth: MAIN_PANE_MIN_WIDTH,
     maxWidth: MAIN_PANE_MAX_WIDTH

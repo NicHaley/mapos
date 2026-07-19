@@ -151,6 +151,32 @@ declare global {
         onFileContentChanged: (cb: (payload: { filePath: string }) => void) => () => void;
         removeListeners: () => void;
       };
+      appearance: {
+        get: () => Promise<Record<string, unknown>>;
+        set: (patch: {
+          accent?: string | null;
+          mapColor?: string | null;
+          theme?: string | null;
+        }) => Promise<{ ok: true } | { ok: false; error: string }>;
+      };
+      onboarding: {
+        getState: () => Promise<{ pending: boolean }>;
+        pickCreateLocation: (
+          name: string
+        ) => Promise<
+          | { canceled: true }
+          | { ok: false; error: string }
+          | { ok: true; targetPath: string; parentPath: string }
+        >;
+        pickExistingVault: () => Promise<
+          { canceled: true } | { ok: false; error: string } | { ok: true; path: string }
+        >;
+        complete: (
+          draft:
+            | { kind: "create"; targetPath: string; name: string }
+            | { kind: "existing"; path: string }
+        ) => Promise<{ ok: true } | { ok: false; error: string }>;
+      };
       mapos: {
         getVaultsConfig: () => Promise<{ vaults: string[]; activeVaultPath: string }>;
         setFolderAsVault: () => Promise<

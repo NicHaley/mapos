@@ -47,7 +47,8 @@ Electron three-process split with a context-isolated IPC bridge.
 - `wkt.ts` / `geo-compute.ts` / `bbox.ts` — WKT↔GeoJSON (`wellknown`) and Turf.js geometry ops.
 - `ai.ts` / `ai-auth.ts` / `ai-ipc.ts` — AI provider/model config, secret storage (Electron `safeStorage`), OAuth.
 - `services/` — service-mode resolution. `offline/` holds local Photon (geocode SQLite from region packs) and Valhalla (N-API addon, `@valhallajs/valhallajs`) routing; cloud mode proxies to `apps/server`.
-- `mapos-config.ts` / `mapos-ipc.ts` — `.mapos/config.json` (canonical user intent) and vault management.
+- `mapos-config.ts` / `mapos-ipc.ts` — app-level `mapos.json` in Electron userData (vault registry, active vault, services mode) and vault management.
+- `appearance.ts` — per-vault `.mapos/appearance.json` (accent, map colour, theme); read/merge/write via `appearance:get`/`appearance:set` IPC.
 - `region-packs.ts` / `region-protocol.ts` — download/manage region packs; `mapos://` protocol.
 
 **`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `fs.*`, `chat.*`, `ai.*`, `regions.*`). All payloads are plain JSON.
@@ -79,9 +80,9 @@ pnpm check          # biome check --write (lint + format fix)
 ## Conventions
 
 - **Geometry is WKT** in place-file frontmatter (`geometry: "POINT(lng lat)"`), converted to GeoJSON for queries/render. Point, LineString, Polygon. Use Turf for computation — there are no spatial SQL `ST_*` functions. `geometry` and `color` are reserved frontmatter keys (special meaning to the renderer).
-- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). User intent lives in `.mapos/config.json`; conversations/undo in `.mapos/conversations/`. Never persist canonical state only in the index.
+- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). Per-vault user intent lives in `.mapos/` JSON files (`appearance.json`); conversations/undo in `.mapos/conversations/`; the vault registry in app-level `mapos.json` (Electron userData). Never persist canonical state only in the index.
 - **All vault mutations go through the file-write path** so the index and undo stack stay in sync — the in-app agent uses `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
-- **Renderer localStorage must be vault-scoped when the state is vault-derived** (open tabs, map viewport, expanded folders, …): key is `` `base:${vaultRoot}` `` via `useVaultRoot()`, and persistence waits (key stays `null`) until the root resolves. All vaults share the renderer origin, so an unscoped key leaks state across vault switches. Only true app-level preferences (theme, accent, pane widths) may use unscoped keys.
+- **Persisted state follows the Obsidian model — three tiers.** (1) Canonical per-vault intent (accent, map colour, theme) → `.mapos/` JSON files via dedicated IPC (`appearance.json` pattern). (2) Ephemeral per-vault workspace state (open tabs, map viewport, expanded folders, pane widths) → vault-scoped localStorage: key is `` `base:${vaultRoot}` `` via `useVaultRoot()`, persistence waits (key stays `null`) until the root resolves — all vaults share the renderer origin, so an unscoped key leaks state across vault switches. (3) App-global (vault registry) → userData `mapos.json` / unscoped localStorage.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
 - Code style: match the surrounding file. Comments are sparse and reserved for non-obvious logic.

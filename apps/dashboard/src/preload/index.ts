@@ -167,6 +167,13 @@ const api = {
       ipcRenderer.removeAllListeners("fs:changed");
     }
   },
+  appearance: {
+    get: () => ipcRenderer.invoke("appearance:get") as Promise<Record<string, unknown>>,
+    set: (patch: { accent?: string | null; mapColor?: string | null; theme?: string | null }) =>
+      ipcRenderer.invoke("appearance:set", patch) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >
+  },
   onboarding: {
     getState: () => ipcRenderer.invoke("onboarding:get-state") as Promise<{ pending: boolean }>,
     pickCreateLocation: (name: string) =>

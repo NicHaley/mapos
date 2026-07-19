@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRegionPacks } from "../../hooks/use-region-packs";
-import { readStoredTheme } from "../../lib/theme";
+import { getTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { CmdEnterHint } from "./cmd-enter-hint";
 import type { VaultDraft } from "./vault-step";
@@ -44,7 +44,7 @@ export function DoneStep({
   }, []);
 
   const regionCount = installedPacks.length;
-  const theme = readStoredTheme();
+  const theme = getTheme();
   const themeLabel = `${theme[0].toUpperCase()}${theme.slice(1)} theme`;
   const themeIcon =
     theme === "light" ? <SunIcon /> : theme === "dark" ? <MoonIcon /> : <MonitorIcon />;

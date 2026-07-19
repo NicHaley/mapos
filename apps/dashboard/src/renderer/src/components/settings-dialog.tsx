@@ -304,36 +304,39 @@ export function SettingsDialog({
             </Sidebar>
 
             <SettingsSheetSlotContext.Provider value={sheetSlot}>
-              <div
-                className={cn(
-                  surfaceVariants({ variant: "panel" }),
-                  "relative flex-1 overflow-hidden"
-                )}
-              >
-                {/* `translateZ(0)` puts this scroll container on its own compositor layer.
-                    Without it, fast scrolls share a layer with the stacked backdrop-filter
-                    regions (dialog overlay + inner sidebar + app chrome) and Chromium
-                    occasionally drops a composite frame, briefly blanking the whole DOM. */}
-                <div
-                  className="h-full overflow-y-auto bg-transparent p-6"
-                  style={{ transform: "translateZ(0)" }}
-                >
-                  {page === "general" && (
-                    <GeneralPage
-                      onRequestDelete={(name, isLastVault) => {
-                        setDeleteError(null);
-                        setPendingDelete({ name, isLastVault });
-                      }}
-                    />
-                  )}
-                  {page === "appearance" && <AppearancePage />}
-                  {page === "ai" && <AiModelTab />}
-                  {page === "offline" && <OfflineTab />}
-                  {page === "about" && <AboutTab />}
+              {/* Plain relative cell: no backdrop-filter here, so it does NOT form a
+                  stacking context. The glass fill lives on an inner layer instead —
+                  keeping it off this wrapper lets the sheet slot's z-index promote
+                  into the dialog's stacking context and win against the dialog's
+                  close button (a sibling of the whole body, painted after it). */}
+              <div className="relative flex-1 overflow-hidden">
+                <div className={cn(surfaceVariants({ variant: "panel" }), "absolute inset-0")}>
+                  {/* `translateZ(0)` puts this scroll container on its own compositor layer.
+                      Without it, fast scrolls share a layer with the stacked backdrop-filter
+                      regions (dialog overlay + inner sidebar + app chrome) and Chromium
+                      occasionally drops a composite frame, briefly blanking the whole DOM. */}
+                  <div
+                    className="h-full overflow-y-auto bg-transparent p-6"
+                    style={{ transform: "translateZ(0)" }}
+                  >
+                    {page === "general" && (
+                      <GeneralPage
+                        onRequestDelete={(name, isLastVault) => {
+                          setDeleteError(null);
+                          setPendingDelete({ name, isLastVault });
+                        }}
+                      />
+                    )}
+                    {page === "appearance" && <AppearancePage />}
+                    {page === "ai" && <AiModelTab />}
+                    {page === "offline" && <OfflineTab />}
+                    {page === "about" && <AboutTab />}
+                  </div>
                 </div>
                 {/* Sheets and other floating panels portal into this slot so they
-                    stay bounded to the Settings dialog body. */}
-                <div ref={setSheetSlot} className="pointer-events-none absolute inset-0" />
+                    stay bounded to the Settings dialog body. `z-10` lifts an open
+                    drawer above the dialog's close button (the X). */}
+                <div ref={setSheetSlot} className="pointer-events-none absolute inset-0 z-10" />
               </div>
             </SettingsSheetSlotContext.Provider>
           </SidebarProvider>

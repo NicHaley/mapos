@@ -423,6 +423,7 @@ function App(): React.JSX.Element {
     }
 
     setActiveGeoJsonLayers([]);
+    return undefined;
   }, [geoJsonLayerPlacePath, selectedFolder]);
 
   /** Live-refresh a .geojson on disk if it's currently rendered on the map (e.g. an

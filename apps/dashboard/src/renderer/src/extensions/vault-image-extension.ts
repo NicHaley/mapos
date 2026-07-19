@@ -52,7 +52,7 @@ function safeDecode(href: string): string {
 
 export const VaultImage = Image.extend<VaultImageOptions>({
   addOptions() {
-    return { ...this.parent?.(), onImageClick: undefined };
+    return { ...this.parent?.(), onImageClick: undefined } as VaultImageOptions;
   },
 
   // CommonMark forbids raw spaces in image destinations, so markdown on disk

@@ -104,7 +104,7 @@ function pickValhallaTar(regionsDir: string, lng: number, lat: number): string {
   return hit.valhalla;
 }
 
-function toServiceError(url: string, err: unknown): MapServiceError {
+function toServiceError(url: string, err: unknown): MapServiceError | MapServiceValidationError {
   if (err instanceof MapServiceError || err instanceof MapServiceValidationError) return err;
   const message = err instanceof Error ? err.message : String(err);
   return new MapServiceError(`Local Valhalla error: ${message}`, { status: 500, url });

@@ -1,13 +1,12 @@
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { bbox } from "@turf/bbox";
-import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
+import type { DataDrivenPropertyValueSpecification, FilterSpecification } from "maplibre-gl";
 import {
   forwardRef,
   memo,
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -17,8 +16,7 @@ import MapGL, {
   type MapLayerMouseEvent,
   type MapRef,
   Marker,
-  Source,
-  useMap
+  Source
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
@@ -1316,12 +1314,13 @@ const MapView = forwardRef<
             <Layer
               id="selected-circle"
               type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={[
-                "all",
-                POINT_FILTER,
-                ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
-              ]}
+              filter={
+                [
+                  "all",
+                  POINT_FILTER,
+                  ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
+                ] as unknown as FilterSpecification
+              }
               paint={selectedCirclePaint(featureColor)}
             />
           </Source>
@@ -1395,7 +1394,6 @@ const MapView = forwardRef<
             const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
             const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
             return (
-              // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
                 <Layer
                   id={`${sourceId}-polygons`}

@@ -1,5 +1,4 @@
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
-import * as React from "react";
 
 import { cn } from "@mapos/ui/lib/utils";
 

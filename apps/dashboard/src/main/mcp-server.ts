@@ -113,7 +113,10 @@ function countPositions(geom: Geometry): number {
 // call fails with a confusing "features.0: must be object". Tools that take such an
 // array declare the param with `jsonArrayParam` (accepts either shape) and normalize
 // the value with `coerceJsonArray` at the top of their handler.
-function jsonArrayParam(item: TSchema, options: { minItems?: number; description: string }) {
+function jsonArrayParam<T extends TSchema>(
+  item: T,
+  options: { minItems?: number; description: string }
+) {
   return Type.Union([Type.Array(item, options), Type.String()], {
     description: `${options.description} Pass a JSON array of objects; a JSON string of that same array is also accepted.`
   });

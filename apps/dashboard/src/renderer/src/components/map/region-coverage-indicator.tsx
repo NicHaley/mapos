@@ -7,12 +7,12 @@ import { cn } from "@mapos/ui/lib/utils";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { formatBytes } from "@renderer/lib/format";
 import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage";
+import type { InstalledRegionPack } from "@shared/types";
 import { DownloadIcon, GlobeIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
-import type { InstalledRegionPack } from "../../../shared/types";
 import { type AppUpdateState, useAppUpdate } from "../../hooks/use-app-update";
 import { type RegionRow, useRegionPacks } from "../../hooks/use-region-packs";
 

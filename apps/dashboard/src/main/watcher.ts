@@ -9,7 +9,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import chokidar from "chokidar";
 import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
@@ -17,7 +17,6 @@ import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import { readVaultAppearance, writeVaultAppearance } from "./appearance";
 import {
-  closeDb,
   getAllPropertyKeysWithTypes,
   getFeatureCount,
   indexFeatures,
@@ -274,7 +273,7 @@ export function initVaultOnDisk(vaultRoot: string): void {
 export function setupPlacesWatcher(
   mainWindow: BrowserWindow,
   vaultRoot: string,
-  appStateDir: string
+  _appStateDir: string
 ): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
   initVaultOnDisk(vaultRoot);
 

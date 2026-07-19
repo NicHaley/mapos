@@ -379,7 +379,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
     return () => window.removeEventListener("mapos:open-settings", handleOpenSettings);
   }, []);
 
-  async function createNoteIn(parentPath: string) {
+  async function createNoteIn(parentPath: string | null) {
     if (!parentPath) return;
     const result = await window.api.fs.createNoteFile({ parentFolderPath: parentPath });
     if (result.success) {
@@ -396,7 +396,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
     }
   }
 
-  async function createFolderIn(parentPath: string) {
+  async function createFolderIn(parentPath: string | null) {
     if (!parentPath) return;
     const result = await window.api.fs.createFolder({
       parentFolderPath: parentPath,

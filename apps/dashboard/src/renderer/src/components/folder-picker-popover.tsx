@@ -46,7 +46,7 @@ export function FolderPickerPopover({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  trigger: React.ReactNode;
+  trigger: React.ReactElement;
   /** Highlighted as the recommended default in the list. `null` = vault root. */
   defaultParentFolderPath: string | null;
   /** Called with the chosen folder path; `null` means vault root. */

@@ -202,6 +202,11 @@ app.whenReady().then(() => {
     // and were never torn down here, so they kept the process alive on quit.
     invalidateServiceClient();
     vaultActive = false;
+    // Drop the vault binding so AI config (bindAiVaultRoot) reports "no vault" while torn
+    // down. Otherwise deleting the last vault leaves `vaultRoot` pointing at the removed
+    // folder, and onboarding would read/write its `.mapos/ai.json` instead of staging in
+    // userData. Re-boot paths (switch/rename/onboarding-complete) set `vaultRoot` again.
+    vaultRoot = "";
   }
 
   function bootVault(): Promise<void> {

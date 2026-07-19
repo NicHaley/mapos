@@ -154,12 +154,18 @@ function loadActive(): ActiveStored | null {
   if (vault) {
     const file = readVaultConfig(vault, "ai.json");
     if ("active" in file) {
+      // This vault has its own selection, so any userData `active` is stale onboarding
+      // leftover. Drop it now so it can't later seed a *different* vault that has no
+      // `active` key of its own. (No-op when nothing is staged.)
+      clearStagedActive();
       return file.active === null ? null : parseActiveStored(file.active);
     }
     const staged = parseActiveStored(load().active ?? null);
     if (staged) {
-      writeVaultConfig(vault, "ai.json", { active: staged });
-      clearStagedActive();
+      // Only drop the staging once it's safely landed in the vault file — a failed write
+      // (read-only volume, disk full, permissions) must keep the pick so the next boot retries.
+      const result = writeVaultConfig(vault, "ai.json", { active: staged });
+      if (result.ok) clearStagedActive();
       return staged;
     }
     return null;

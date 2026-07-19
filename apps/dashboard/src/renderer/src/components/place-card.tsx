@@ -32,6 +32,7 @@ import {
   PopoverTrigger
 } from "@mapos/ui/components/popover";
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
+import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import {
@@ -375,7 +376,7 @@ function PlaceCardMarkdownPane({
                   "rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
                   editor.isActive("bold")
                     ? "bg-sidebar-accent text-sidebar-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover"
                 )}
               >
                 B
@@ -387,7 +388,7 @@ function PlaceCardMarkdownPane({
                   "rounded px-1.5 py-0.5 text-xs italic transition-colors",
                   editor.isActive("italic")
                     ? "bg-sidebar-accent text-sidebar-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover"
                 )}
               >
                 I
@@ -397,7 +398,7 @@ function PlaceCardMarkdownPane({
                 <button
                   type="button"
                   onClick={() => editor.chain().focus().unsetLink().run()}
-                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover transition-colors"
                   title="Remove link"
                 >
                   <Link2OffIcon className="size-3" />
@@ -406,7 +407,7 @@ function PlaceCardMarkdownPane({
                 <button
                   type="button"
                   onClick={openLinkInput}
-                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                  className="rounded p-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-hover transition-colors"
                   title="Add link"
                 >
                   <Link2Icon className="size-3" />
@@ -944,7 +945,8 @@ export const PlaceCard = memo(function PlaceCard({
       />
       <div
         className={cn(
-          "relative bg-sidebar/95 backdrop-blur-md overflow-hidden flex flex-col",
+          surfaceVariants({ variant: "panel" }),
+          "relative overflow-hidden flex flex-col",
           mode === "mini"
             ? "rounded-lg border border-sidebar-border shadow-lg max-h-84"
             : "h-full rounded-lg shadow-sm ring-1 ring-sidebar-border"
@@ -952,9 +954,9 @@ export const PlaceCard = memo(function PlaceCard({
       >
         {mode === "mini" ? (
           /* Compact popup: actions pinned top-right over the content. */
-          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-lg bg-sidebar/60 backdrop-blur-sm">
+          <Surface variant="cluster" className="absolute top-2 right-2 z-10">
             {actionButtons}
-          </div>
+          </Surface>
         ) : (
           /* Static top bar (mirrors ChatPane): breadcrumb left, actions right.
           Everything else — cover included — scrolls beneath it. */
@@ -1054,7 +1056,7 @@ export const PlaceCard = memo(function PlaceCard({
                       render={
                         <button
                           type="button"
-                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
                         >
                           {place.geometry ? (
                             <MapPinIcon className="size-4 shrink-0" />

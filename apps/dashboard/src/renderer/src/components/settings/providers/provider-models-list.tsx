@@ -125,18 +125,18 @@ function ProviderModelGroup({
       </div>
 
       {models === null ? (
-        <div className="flex items-center gap-2 rounded-lg border px-3 py-4 text-muted-foreground text-sm">
+        <div className="flex items-center gap-2 rounded-lg border bg-sidebar-accent/30 px-3 py-4 text-muted-foreground text-sm">
           <Loader2Icon className="size-4 animate-spin" />
           Loading models…
         </div>
       ) : models.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-3 py-4 text-center text-muted-foreground text-sm">
+        <div className="rounded-lg border border-dashed bg-sidebar-accent/30 px-3 py-4 text-center text-muted-foreground text-sm">
           {provider.auth.configured
             ? "No models available."
             : "Connect this provider to see models."}
         </div>
       ) : (
-        <div className="divide-y divide-border overflow-hidden rounded-lg border">
+        <div className="divide-y divide-border overflow-hidden rounded-lg border bg-sidebar-accent/30">
           {visible?.map((m) => {
             const isActive = active?.providerId === provider.id && active.model === m.id;
             return (
@@ -144,7 +144,7 @@ function ProviderModelGroup({
                 key={m.id}
                 type="button"
                 onClick={() => onOpenModel(m)}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover"
               >
                 <span className="min-w-0 flex-1 truncate font-mono text-sm">{m.id}</span>
                 {isActive && (
@@ -168,7 +168,7 @@ function ProviderModelGroup({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="w-full px-3 py-1.5 text-center font-medium text-muted-foreground text-sm transition-colors hover:bg-accent/40"
+              className="w-full px-3 py-1.5 text-center font-medium text-muted-foreground text-sm transition-colors hover:bg-hover"
             >
               {expanded ? "Show less" : "Show all"}
             </button>

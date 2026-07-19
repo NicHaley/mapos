@@ -64,12 +64,14 @@ export function VaultStep({
         setError(r.error);
         return;
       }
-      onDraftChange({
-        kind: "create",
-        name: name.trim(),
-        targetPath: r.targetPath,
-        parentPath: r.parentPath
-      });
+      if ("ok" in r && r.ok) {
+        onDraftChange({
+          kind: "create",
+          name: name.trim(),
+          targetPath: r.targetPath,
+          parentPath: r.parentPath
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -85,7 +87,9 @@ export function VaultStep({
         setError(r.error);
         return;
       }
-      onDraftChange({ kind: "existing", path: r.path });
+      if ("ok" in r && r.ok) {
+        onDraftChange({ kind: "existing", path: r.path });
+      }
     } finally {
       setBusy(false);
     }
@@ -121,7 +125,7 @@ export function VaultStep({
           selected={mode === "create"}
           disabled={busy}
           onClick={() => changeMode("create")}
-          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >
           <FolderPlusIcon className="size-5 text-muted-foreground" />
           <ItemContent className="flex-none">
@@ -135,7 +139,7 @@ export function VaultStep({
           selected={mode === "existing"}
           disabled={busy}
           onClick={() => changeMode("existing")}
-          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+          className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >
           <FolderInputIcon className="size-5 text-muted-foreground" />
           <ItemContent className="flex-none">

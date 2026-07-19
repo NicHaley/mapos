@@ -1,6 +1,6 @@
 /**
  * Storage + model fetching for the AI provider model (see shared/ai-providers.ts): the providers
- * list, the single `active` selection, and live model fetching. Persisted to `ai.json` in userData.
+ * list (app-global in userData `ai.json`) and the per-vault `active` selection (`.mapos/ai.json`).
  * {@link resolveActive} turns the active selection into the shape the chat path consumes.
  */
 
@@ -32,6 +32,9 @@ import {
   knownProviderLabel,
   listKnownProviders as listKnownProvidersImpl
 } from "./ai-auth";
+import { aiVaultRoot } from "./ai-vault";
+import { vaultDotDir } from "./mapos-config";
+import { readVaultConfig, vaultConfigPath, writeVaultConfig } from "./vault-config";
 
 const AI_FILENAME = "ai.json";
 const FETCH_TIMEOUT_MS = 6000;
@@ -84,21 +87,22 @@ const ProviderSchema = z.object({
   preset: z.string().nullable().catch(null)
 });
 
-const ActiveSchema = z
-  .object({
-    providerId: z.string(),
-    model: z.string(),
-    capabilities: CapabilitiesSchema
-  })
-  .nullable()
-  .catch(null);
+const ActiveStoredSchema = z.object({
+  providerId: z.string(),
+  model: z.string(),
+  capabilities: CapabilitiesSchema
+});
 
+type ActiveStored = z.infer<typeof ActiveStoredSchema>;
+
+/** userData `ai.json` — providers only. `active` is optional staging used before a vault exists. */
 const AiSchema = z
   .object({
     providers: z.array(ProviderSchema).catch([]),
-    active: ActiveSchema
+    /** Onboarding staging only — canonical default model lives in `.mapos/ai.json`. */
+    active: ActiveStoredSchema.nullable().optional()
   })
-  .catch(() => ({ providers: [], active: null }));
+  .catch(() => ({ providers: [] }));
 
 type AiStored = z.infer<typeof AiSchema>;
 type ProviderStored = z.infer<typeof ProviderSchema>;
@@ -122,9 +126,76 @@ function load(): AiStored {
       /* corrupt — fall through to a fresh empty config */
     }
   }
-  const seeded: AiStored = { providers: [], active: null };
+  const seeded: AiStored = { providers: [] };
   write(seeded);
   return seeded;
+}
+
+function parseActiveStored(raw: unknown): ActiveStored | null {
+  const parsed = ActiveStoredSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Drop onboarding-staged `active` from userData after it's been written to the vault. */
+function clearStagedActive(): void {
+  const st = load();
+  if (st.active === undefined) return;
+  const { active: _removed, ...rest } = st;
+  write(rest);
+}
+
+/**
+ * Resolve the vault's default model selection. With a vault: `.mapos/ai.json`.
+ * Without (onboarding): userData staging so the pick survives until the vault boots.
+ * First vault read promotes any staged value into the vault file once.
+ */
+function loadActive(): ActiveStored | null {
+  const vault = aiVaultRoot();
+  if (vault) {
+    const file = readVaultConfig(vault, "ai.json");
+    if ("active" in file) {
+      // This vault has its own selection, so any userData `active` is stale onboarding
+      // leftover. Drop it now so it can't later seed a *different* vault that has no
+      // `active` key of its own. (No-op when nothing is staged.)
+      clearStagedActive();
+      return file.active === null ? null : parseActiveStored(file.active);
+    }
+    const staged = parseActiveStored(load().active ?? null);
+    if (staged) {
+      // Only drop the staging once it's safely landed in the vault file — a failed write
+      // (read-only volume, disk full, permissions) must keep the pick so the next boot retries.
+      const result = writeVaultConfig(vault, "ai.json", { active: staged });
+      if (result.ok) clearStagedActive();
+      return staged;
+    }
+    return null;
+  }
+  return parseActiveStored(load().active ?? null);
+}
+
+function persistActive(active: ActiveStored | null): { ok: true } | { ok: false; error: string } {
+  const vault = aiVaultRoot();
+  if (vault) {
+    // Set the key including JSON null (writeVaultConfig's null means "delete key").
+    const next = readVaultConfig(vault, "ai.json");
+    next.active = active;
+    try {
+      mkdirSync(vaultDotDir(vault), { recursive: true });
+      writeFileSync(
+        vaultConfigPath(vault, "ai.json"),
+        `${JSON.stringify(next, null, 2)}\n`,
+        "utf-8"
+      );
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+    clearStagedActive();
+    return { ok: true };
+  }
+  // Onboarding staging — no vault yet.
+  const st = load();
+  write({ ...st, active });
+  return { ok: true };
 }
 
 function encrypt(plaintext: string): string {
@@ -195,15 +266,16 @@ export function addKnownProvider(
 
 export function getAiState(): AiState {
   const st = load();
+  const activeStored = loadActive();
   const active = (() => {
-    if (!st.active) return null;
-    const provider = st.providers.find((x) => x.id === st.active?.providerId);
+    if (!activeStored) return null;
+    const provider = st.providers.find((x) => x.id === activeStored.providerId);
     if (!provider) return null;
     return {
-      providerId: st.active.providerId,
+      providerId: activeStored.providerId,
       providerLabel: provider.label,
-      model: st.active.model,
-      capabilities: st.active.capabilities
+      model: activeStored.model,
+      capabilities: activeStored.capabilities
     };
   })();
   return { providers: st.providers.map(toView), active };
@@ -297,8 +369,11 @@ export function removeProvider(id: string): { ok: true } | { ok: false; error: s
   const target = st.providers.find((x) => x.id === id);
   if (!target) return { ok: false, error: "Provider not found." };
   const providers = st.providers.filter((x) => x.id !== id);
-  const active = st.active?.providerId === id ? null : st.active;
-  write({ ...st, providers, active });
+  write({ ...st, providers });
+  const active = loadActive();
+  if (active?.providerId === id) {
+    persistActive(null);
+  }
   return { ok: true };
 }
 
@@ -311,14 +386,12 @@ export function setActive(
   if (!st.providers.some((x) => x.id === providerId)) {
     return { ok: false, error: "Provider not found." };
   }
-  write({ ...st, active: { providerId, model, capabilities } });
-  return { ok: true };
+  return persistActive({ providerId, model, capabilities });
 }
 
-export function clearActive(): { ok: true } {
-  const st = load();
-  write({ ...st, active: null });
-  return { ok: true };
+export function clearActive(): { ok: true } | { ok: false; error: string } {
+  const result = persistActive(null);
+  return result.ok ? { ok: true } : result;
 }
 
 // ── Model fetching ──────────────────────────────────────────────────────────
@@ -601,14 +674,15 @@ export async function testProvider(
  */
 export function resolveActive(): ResolvedAiRequestConfig | null {
   const st = load();
-  if (!st.active) return null;
+  const active = loadActive();
+  if (!active) return null;
 
   // A stale embedded ("local-embedded") selection no longer resolves — it falls through here, the
   // provider lookup misses, and we return null so the user is prompted to pick a model.
-  const provider = st.providers.find((x) => x.id === st.active?.providerId);
+  const provider = st.providers.find((x) => x.id === active.providerId);
   if (!provider) return null;
-  const capabilities = st.active.capabilities;
-  const model = st.active.model;
+  const capabilities = active.capabilities;
+  const model = active.model;
 
   // Known providers resolve auth (API key or OAuth, auto-refreshed) through Pi's AuthStorage at
   // request time — the `piProvider` marker tells chat.ts to use the persistent store + getModel.

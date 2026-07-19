@@ -45,7 +45,7 @@ export type {
   RouteMatrixRequest
 } from "./services/routing";
 
-export { TileStyleRequestSchema } from "./services/tiles";
+export { MAP_ATTRIBUTION_HTML, MAP_ATTRIBUTIONS, TileStyleRequestSchema } from "./services/tiles";
 export type { TileStyleRequest } from "./services/tiles";
 
 export {

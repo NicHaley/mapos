@@ -25,9 +25,15 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from "@mapos/ui/components/sidebar";
+import { surfaceVariants } from "@mapos/ui/components/surface";
+import { cn } from "@mapos/ui/lib/utils";
 import { GlobeIcon, InfoIcon, LayersIcon, PaletteIcon, SettingsIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { type Theme, applyTheme, readStoredTheme } from "../lib/theme";
+import { setAccent, useAccent } from "../lib/accent";
+import { setMapColor, useMapColor } from "../lib/map-color";
+import { setTheme, useTheme } from "../lib/theme";
+import { AccentPicker } from "./accent-picker";
+import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
 import { OfflineTab } from "./settings/offline-tab";
 import { AiModelTab } from "./settings/providers/ai-model-tab";
@@ -190,17 +196,28 @@ function GeneralPage({
 // ── Appearance page ───────────────────────────────────────────────────────────
 
 function AppearancePage() {
-  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
-
-  function handleTheme(t: Theme) {
-    setThemeState(t);
-    applyTheme(t);
-  }
+  // Accent, map colour, and theme are per-vault stores; the hooks re-render on
+  // change, so the pickers stay controlled without local state mirrors.
+  const accent = useAccent();
+  const mapColor = useMapColor();
+  const theme = useTheme();
 
   return (
     <div className="flex flex-col gap-6">
+      <Section
+        title="Accent color"
+        description="Tints buttons, the vault icon, and map features. Monochrome follows the theme."
+      >
+        <AccentPicker value={accent} onChange={setAccent} />
+      </Section>
       <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
-        <ThemePicker value={theme} onChange={handleTheme} />
+        <ThemePicker value={theme} onChange={setTheme} />
+      </Section>
+      <Section
+        title="Map color"
+        description="Full uses the tinted basemap; Monochrome uses a clean white or black one."
+      >
+        <MapColorPicker value={mapColor} onChange={setMapColor} />
       </Section>
     </div>
   );
@@ -254,18 +271,28 @@ export function SettingsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[720px] p-0 gap-0 overflow-hidden bg-sidebar/80 backdrop-blur-md">
+        <DialogContent
+          // Transparent so the translucent sidebar rail shows the (blurred) app
+          // behind the dialog. The opaque panel fill lives on the content zone only.
+          className="overflow-hidden gap-0 bg-transparent p-0 sm:max-w-[720px]"
+        >
           <SidebarProvider
             className="h-[620px] min-h-0 overflow-hidden"
             style={{ "--sidebar-width": "180px" } as React.CSSProperties}
           >
-            <Sidebar collapsible="none" className="border-r bg-transparent">
+            <Sidebar collapsible="none" className="border-r bg-sidebar/75 backdrop-blur-md">
               <SidebarContent>
                 <SidebarGroup>
                   <SidebarMenu className="gap-0.5">
                     {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
                       <SidebarMenuItem key={id}>
-                        <SidebarMenuButton isActive={page === id} onClick={() => setPage(id)}>
+                        <SidebarMenuButton
+                          isActive={page === id}
+                          onClick={() => setPage(id)}
+                          // The default active fill (opaque bg-sidebar-accent) washes out on
+                          // the translucent rail; use the same dark hover veil so it stays legible.
+                          className="data-active:bg-hover"
+                        >
                           <Icon />
                           <span>{label}</span>
                         </SidebarMenuButton>
@@ -277,31 +304,39 @@ export function SettingsDialog({
             </Sidebar>
 
             <SettingsSheetSlotContext.Provider value={sheetSlot}>
+              {/* Plain relative cell: no backdrop-filter here, so it does NOT form a
+                  stacking context. The glass fill lives on an inner layer instead —
+                  keeping it off this wrapper lets the sheet slot's z-index promote
+                  into the dialog's stacking context and win against the dialog's
+                  close button (a sibling of the whole body, painted after it). */}
               <div className="relative flex-1 overflow-hidden">
-                {/* `translateZ(0)` puts this scroll container on its own compositor layer.
-                    Without it, fast scrolls share a layer with the stacked backdrop-filter
-                    regions (dialog overlay + inner sidebar + app chrome) and Chromium
-                    occasionally drops a composite frame, briefly blanking the whole DOM. */}
-                <div
-                  className="h-full overflow-y-auto bg-transparent p-6"
-                  style={{ transform: "translateZ(0)" }}
-                >
-                  {page === "general" && (
-                    <GeneralPage
-                      onRequestDelete={(name, isLastVault) => {
-                        setDeleteError(null);
-                        setPendingDelete({ name, isLastVault });
-                      }}
-                    />
-                  )}
-                  {page === "appearance" && <AppearancePage />}
-                  {page === "ai" && <AiModelTab />}
-                  {page === "offline" && <OfflineTab />}
-                  {page === "about" && <AboutTab />}
+                <div className={cn(surfaceVariants({ variant: "panel" }), "absolute inset-0")}>
+                  {/* `translateZ(0)` puts this scroll container on its own compositor layer.
+                      Without it, fast scrolls share a layer with the stacked backdrop-filter
+                      regions (dialog overlay + inner sidebar + app chrome) and Chromium
+                      occasionally drops a composite frame, briefly blanking the whole DOM. */}
+                  <div
+                    className="h-full overflow-y-auto bg-transparent p-6"
+                    style={{ transform: "translateZ(0)" }}
+                  >
+                    {page === "general" && (
+                      <GeneralPage
+                        onRequestDelete={(name, isLastVault) => {
+                          setDeleteError(null);
+                          setPendingDelete({ name, isLastVault });
+                        }}
+                      />
+                    )}
+                    {page === "appearance" && <AppearancePage />}
+                    {page === "ai" && <AiModelTab />}
+                    {page === "offline" && <OfflineTab />}
+                    {page === "about" && <AboutTab />}
+                  </div>
                 </div>
                 {/* Sheets and other floating panels portal into this slot so they
-                    stay bounded to the Settings dialog body. */}
-                <div ref={setSheetSlot} className="pointer-events-none absolute inset-0" />
+                    stay bounded to the Settings dialog body. `z-10` lifts an open
+                    drawer above the dialog's close button (the X). */}
+                <div ref={setSheetSlot} className="pointer-events-none absolute inset-0 z-10" />
               </div>
             </SettingsSheetSlotContext.Provider>
           </SidebarProvider>

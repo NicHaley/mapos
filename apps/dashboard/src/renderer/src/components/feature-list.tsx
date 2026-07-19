@@ -147,7 +147,7 @@ function FeatureRow({ resolved }: { resolved: Resolved }): React.JSX.Element {
       onMouseLeave={() => focusFeature(null)}
       className={cn(
         "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors",
-        "hover:bg-sidebar-accent/50",
+        "hover:bg-hover",
         isSelected && "bg-sidebar-accent/60",
         stale && "cursor-default opacity-50 hover:bg-transparent"
       )}
@@ -206,7 +206,7 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
   const visible = expanded || !hasOverflow ? resolved : resolved.slice(0, COLLAPSE_THRESHOLD);
 
   return (
-    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/20">
+    <div className="not-prose my-2 flex flex-col overflow-hidden rounded-lg border border-sidebar-border/60 divide-y divide-sidebar-border bg-sidebar-accent/30">
       {visible.map((r) => (
         <FeatureRow key={r.entry.ref} resolved={r} />
       ))}
@@ -214,7 +214,7 @@ export function FeatureList(props: { refs?: string }): React.JSX.Element | null 
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex w-full items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+          className="flex w-full items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
         >
           {expanded ? "Show fewer" : `Show all ${resolved.length}`}
           <ChevronDownIcon

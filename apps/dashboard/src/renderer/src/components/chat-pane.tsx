@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { PulseLoader } from "@mapos/ui/components/pulse-loader";
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import type { AiState } from "@shared/ai-providers";
@@ -824,7 +825,12 @@ export function ChatPane({
 
   return (
     <FeatureResolverProvider value={featureResolverValue}>
-      <div className="flex h-full flex-col rounded-lg ring-1 ring-sidebar-border bg-sidebar/95 backdrop-blur-md shadow-sm overflow-hidden">
+      <div
+        className={cn(
+          surfaceVariants({ variant: "panel" }),
+          "flex h-full flex-col rounded-lg ring-1 ring-sidebar-border shadow-sm overflow-hidden"
+        )}
+      >
         <div className="flex min-h-12 items-center justify-between gap-1 p-2">
           {renaming ? (
             <ErrorTooltip error={renameError}>

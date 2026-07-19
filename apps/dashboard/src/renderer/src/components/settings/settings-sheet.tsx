@@ -1,4 +1,5 @@
 import { Button } from "@mapos/ui/components/button";
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { XIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
@@ -96,7 +97,8 @@ export function SettingsSheet({
         aria-describedby={description ? descId : undefined}
         style={{ width: `${width}px` }}
         className={cn(
-          "pointer-events-auto absolute inset-y-0 z-10 flex max-w-full flex-col bg-sidebar/80 text-sm text-foreground shadow-xl outline-none backdrop-blur-md transition-transform duration-200 ease-out",
+          surfaceVariants({ variant: "panel" }),
+          "pointer-events-auto absolute inset-y-0 z-10 flex max-w-full flex-col text-sm text-foreground shadow-xl outline-none transition-transform duration-200 ease-out",
           side === "right" ? "right-0 border-l" : "left-0 border-r",
           !active && offscreen
         )}

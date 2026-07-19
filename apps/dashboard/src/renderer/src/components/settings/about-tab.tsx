@@ -10,7 +10,7 @@ const LINKS: { label: string; href: string; icon: React.ElementType }[] = [
     icon: MegaphoneIcon
   },
   { label: "Website", href: "https://mapos.md", icon: GlobeIcon },
-  { label: "Email", href: "mailto:hello@nichaley.com", icon: MailIcon }
+  { label: "Email", href: "mailto:hello@mapos.md", icon: MailIcon }
 ];
 
 // Open-source projects and data MapOS is built on. OpenStreetMap is listed

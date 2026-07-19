@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-beta.6",
+  "version": "1.0.0-beta.7",
   "description": "An Electron application with React and TypeScript",
   "type": "module",
   "main": "./out/main/index.js",

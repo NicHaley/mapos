@@ -175,7 +175,7 @@ export function DemoCarousel() {
                   )}
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/60 to-transparent" />
                   <div className="absolute inset-x-0 top-0 flex flex-col items-start gap-1 p-5 text-left">
-                    <span className="inline-flex rounded-md bg-neutral-50 px-2 py-0.5 text-xs font-medium text-neutral-950">
+                    <span className="inline-flex rounded-md bg-blue-500 px-2 py-0.5 text-xs font-medium text-white">
                       {slide.tag}
                     </span>
                     <span className="text-lg font-medium text-neutral-50">{slide.title}</span>

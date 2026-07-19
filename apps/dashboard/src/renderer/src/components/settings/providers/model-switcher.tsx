@@ -13,9 +13,9 @@ import { ProviderBadge } from "./provider-badge";
 
 /**
  * Compact, Cursor-style model switcher: a small trigger showing the active model that opens a
- * popover wrapping the shared {@link ModelPickerList}. Selecting sets the single global active
- * model, so changing it here changes it everywhere. Embedded in the chat composer (and onboarding)
- * so users never need the settings page just to switch models.
+ * popover wrapping the shared {@link ModelPickerList}. Selecting sets the vault's default
+ * model, so changing it here updates Settings and new chats in this vault. Embedded in the chat
+ * composer (and onboarding) so users never need the settings page just to switch models.
  *
  * When no provider is connected there's nothing to pick, so the trigger routes to provider setup
  * via {@link onConfigure} instead of opening an empty popover.
@@ -42,7 +42,7 @@ export function ModelSwitcher({
     : undefined;
 
   const triggerClass = cn(
-    "flex h-7 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground",
+    "flex h-7 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground text-xs transition-colors hover:bg-hover hover:text-foreground",
     className
   );
 

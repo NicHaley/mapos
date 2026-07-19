@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
+import { useVaultRoot } from "./use-vault-root";
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
@@ -84,6 +85,8 @@ type PersistedTab =
   | { kind: "chat"; convId: string; title: string };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
+// Scoped per vault — see useVaultRoot. The bare key predates scoping and is
+// removed on restore so stale cross-vault tabs don't linger.
 const NAV_STORAGE_KEY = "mapos-nav-tabs";
 
 export function folderLabel(folderPath: string): string {
@@ -246,12 +249,14 @@ export function useNavTabs({
 }) {
   const [nav, dispatchNav] = useReducer(navReducer, { tabs: [], activeTab: -1 });
   const navRestoredRef = useRef(false);
+  const vaultRoot = useVaultRoot();
+  const storageKey = vaultRoot ? `${NAV_STORAGE_KEY}:${vaultRoot}` : null;
 
   // Persist current tab heads to localStorage whenever nav changes
   useEffect(() => {
-    if (!navRestoredRef.current) return;
+    if (!storageKey || !navRestoredRef.current) return;
     if (nav.tabs.length === 0) {
-      localStorage.removeItem(NAV_STORAGE_KEY);
+      localStorage.removeItem(storageKey);
       return;
     }
     const toSave: PersistedNavState = {
@@ -264,13 +269,15 @@ export function useNavTabs({
       }),
       activeTab: nav.activeTab
     };
-    localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(toSave));
-  }, [nav]);
+    localStorage.setItem(storageKey, JSON.stringify(toSave));
+  }, [nav, storageKey]);
 
-  // Restore persisted tabs on mount (history is not restored, only the current entry)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only restore; openEntry matches initial layout for fit padding
+  // Restore persisted tabs once the vault root resolves (history is not restored, only the current entry)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot restore; openEntry matches initial layout for fit padding
   useEffect(() => {
-    const saved = localStorage.getItem(NAV_STORAGE_KEY);
+    if (!storageKey || navRestoredRef.current) return;
+    localStorage.removeItem(NAV_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (!saved) {
       navRestoredRef.current = true;
       return;
@@ -322,7 +329,7 @@ export function useNavTabs({
       }
       navRestoredRef.current = true;
     });
-  }, []);
+  }, [storageKey]);
 
   const handleNavTabActivate = useCallback(
     (index: number) => {

@@ -47,7 +47,8 @@ Electron three-process split with a context-isolated IPC bridge.
 - `wkt.ts` / `geo-compute.ts` / `bbox.ts` — WKT↔GeoJSON (`wellknown`) and Turf.js geometry ops.
 - `ai.ts` / `ai-auth.ts` / `ai-ipc.ts` — AI provider/model config, secret storage (Electron `safeStorage`), OAuth.
 - `services/` — service-mode resolution. `offline/` holds local Photon (geocode SQLite from region packs) and Valhalla (N-API addon, `@valhallajs/valhallajs`) routing; cloud mode proxies to `apps/server`.
-- `mapos-config.ts` / `mapos-ipc.ts` — `.mapos/config.json` (canonical user intent) and vault management.
+- `mapos-config.ts` / `mapos-ipc.ts` — app-level `mapos.json` in Electron userData (vault registry, active vault, services mode) and vault management.
+- `vault-config.ts` — shared allowlisted read/merge/write for `.mapos/*.json` intent files. `appearance.ts` is a thin domain wrapper; AI default model uses `.mapos/ai.json` the same way.
 - `region-packs.ts` / `region-protocol.ts` — download/manage region packs; `mapos://` protocol.
 
 **`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `fs.*`, `chat.*`, `ai.*`, `regions.*`). All payloads are plain JSON.
@@ -79,8 +80,36 @@ pnpm check          # biome check --write (lint + format fix)
 ## Conventions
 
 - **Geometry is WKT** in place-file frontmatter (`geometry: "POINT(lng lat)"`), converted to GeoJSON for queries/render. Point, LineString, Polygon. Use Turf for computation — there are no spatial SQL `ST_*` functions. `geometry` and `color` are reserved frontmatter keys (special meaning to the renderer).
-- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). User intent lives in `.mapos/config.json`; conversations/undo in `.mapos/conversations/`. Never persist canonical state only in the index.
+- **Files are the source of truth.** `index.db` is a derived cache (sync-excluded, rebuildable). Per-vault user intent lives in `.mapos/` JSON files; conversations/undo in `.mapos/conversations/`; machine identity in Electron userData. Never persist canonical state only in the index.
 - **All vault mutations go through the file-write path** so the index and undo stack stay in sync — the in-app agent uses `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
+- **Persisted state follows the Obsidian model — three tiers.** See [`.mapos/` layout](#mapos-layout) below.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
 - Code style: match the surrounding file. Comments are sparse and reserved for non-obvious logic.
+
+### `.mapos/` layout
+
+Mirrors Obsidian's `.obsidian/`: domain JSON files under the vault, created **lazily** on first write (never empty stubs at vault init). One file ≈ one settings surface / sync unit. Shared IO lives in `vault-config.ts` (allowlisted basenames + opaque merge; unknown keys survive round-trips).
+
+**Where does a setting go?**
+
+| Kind | Where | Examples |
+|---|---|---|
+| Machine identity / secrets | Electron `userData/` | Provider list, API keys, OAuth (`ai.json` + AuthStorage), vault registry (`mapos.json`), services mode |
+| Canonical vault intent (sync/git with the vault) | `.mapos/<domain>.json` | Appearance, default AI model, hotkeys, vault emoji |
+| Ephemeral workspace (noisy, device-ish) | Vault-scoped localStorage today; `.mapos/workspace.json` later if needed | Open tabs, map viewport, pane widths |
+| Rebuildable cache | `.mapos/` but sync-excluded | `index.db` |
+
+**Reserved basenames** (only create when the feature writes):
+
+| File | Role |
+|---|---|
+| `appearance.json` | Look — accent, map colour, theme |
+| `app.json` | General vault prefs (e.g. workspace emoji) — when built |
+| `ai.json` | Vault AI preference only (`active` model selection). **Not** providers or credentials |
+| `hotkeys.json` | Custom shortcuts — when built |
+| `workspace.json` | Layout snapshot — only if tier-2 graduates off localStorage |
+| `conversations/` | Chat history + undo |
+| `index.db` | Spatial index (derived) |
+
+**Rules:** secrets never enter `.mapos/`. UI locale stays app-global (don't flip language on vault switch). Prefer a new domain file over growing a kitchen-sink blob. Tier-2 localStorage keys are `` `base:${vaultRoot}` `` via `useVaultRoot()` — persistence waits until the root resolves so state doesn't leak across vaults.

@@ -167,6 +167,13 @@ const api = {
       ipcRenderer.removeAllListeners("fs:changed");
     }
   },
+  appearance: {
+    get: () => ipcRenderer.invoke("appearance:get") as Promise<Record<string, unknown>>,
+    set: (patch: { accent?: string | null; mapColor?: string | null; theme?: string | null }) =>
+      ipcRenderer.invoke("appearance:set", patch) as Promise<
+        { ok: true } | { ok: false; error: string }
+      >
+  },
   onboarding: {
     getState: () => ipcRenderer.invoke("onboarding:get-state") as Promise<{ pending: boolean }>,
     pickCreateLocation: (name: string) =>
@@ -196,7 +203,9 @@ const api = {
       }>,
     setFolderAsVault: () =>
       ipcRenderer.invoke("mapos:set-folder-as-vault") as Promise<
-        { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
+        | { canceled: true }
+        | { ok: false; error: string }
+        | { ok: true; path: string; vaults: string[] }
       >,
     createNewVault: (name: string) =>
       ipcRenderer.invoke("mapos:create-new-vault", name) as Promise<
@@ -234,6 +243,10 @@ const api = {
         ipcRenderer.off("window:fullscreen-change", listener);
       };
     }
+  },
+  system: {
+    openLocationSettings: () =>
+      ipcRenderer.invoke("system:open-location-settings") as Promise<{ ok: boolean }>
   },
   ai: {
     getState: () => ipcRenderer.invoke("ai:get-state") as Promise<AiState>,

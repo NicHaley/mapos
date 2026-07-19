@@ -9,9 +9,9 @@ import { ProviderBadge } from "./provider-badge";
 /**
  * Detail drawer for a single model: its capabilities and metadata (provider, context window,
  * pricing) laid out as basic tables, plus the "make default" action. Opened from a model row in
- * {@link ProviderModelsList}. Selecting sets the global active model via the same `setActive` path
- * the chat switcher uses. Locked when the provider isn't connected — connecting happens through the
- * group's Edit action, not here.
+ * {@link ProviderModelsList}. Selecting sets this vault's default model via the same `setActive`
+ * path the chat switcher uses. Locked when the provider isn't connected — connecting happens
+ * through the group's Edit action, not here.
  */
 export function ModelDetailSheet({
   open,
@@ -139,7 +139,7 @@ function InfoTable({ heading, rows }: { heading: string; rows: InfoRow[] }): Rea
   return (
     <div className="flex flex-col gap-2">
       <div className="font-medium text-muted-foreground text-xs">{heading}</div>
-      <div className="overflow-hidden rounded-lg border">
+      <div className="overflow-hidden rounded-lg border bg-sidebar-accent/30">
         <table className="w-full text-sm">
           <tbody className="divide-y divide-border">
             {rows.map((r) => (

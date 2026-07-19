@@ -43,7 +43,7 @@ export function AddProviderSheet({
       description="Pick a provider from the catalog or add a custom endpoint."
     >
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+        <div className="flex items-center gap-3 rounded-lg border bg-sidebar-accent/30 px-3 py-2.5">
           <SlidersHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">Custom endpoint</div>
@@ -68,7 +68,7 @@ export function AddProviderSheet({
               All catalog providers have been added.
             </div>
           ) : (
-            <div className="divide-y divide-border overflow-hidden rounded-lg border">
+            <div className="divide-y divide-border overflow-hidden rounded-lg border bg-sidebar-accent/30">
               {available.map((k) => (
                 <div key={k.name} className="flex items-center gap-3 px-3 py-2.5">
                   <PlugZapIcon className="size-4 shrink-0 text-muted-foreground" />

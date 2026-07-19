@@ -40,7 +40,7 @@ export function ProvidersEmptyState({
             key={p.name}
             type="button"
             onClick={() => onPick(p.name, p.label)}
-            className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40"
+            className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-hover"
           >
             <ProviderBadge knownProvider={p.name} label={p.label} size="lg" />
             <span className="text-xs font-medium leading-tight">{p.label}</span>
@@ -49,7 +49,7 @@ export function ProvidersEmptyState({
         <button
           type="button"
           onClick={onCustom}
-          className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-accent/40"
+          className="flex w-20 flex-col items-center gap-2 rounded-lg p-2 transition-colors hover:bg-hover"
         >
           <ProviderBadge label="Custom" size="lg" />
           <span className="text-xs font-medium leading-tight">Custom</span>

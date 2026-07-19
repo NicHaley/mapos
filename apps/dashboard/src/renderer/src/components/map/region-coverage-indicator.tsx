@@ -1,13 +1,16 @@
+import { MAP_ATTRIBUTIONS } from "@mapos/contracts";
 import { Button } from "@mapos/ui/components/button";
 import { CircularProgress } from "@mapos/ui/components/circular-progress";
+import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
+import { cn } from "@mapos/ui/lib/utils";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { formatBytes } from "@renderer/lib/format";
 import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage";
 import { DownloadIcon, GlobeIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
 import type { InstalledRegionPack } from "../../../shared/types";
 import { type AppUpdateState, useAppUpdate } from "../../hooks/use-app-update";
@@ -120,7 +123,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
         <Tooltip>
           <TooltipTrigger
             render={
-              <div className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur">
+              <div
+                className={cn(
+                  surfaceVariants({ variant: "pill" }),
+                  "pointer-events-auto h-8 gap-1.5 rounded-full px-3 text-xs text-muted-foreground"
+                )}
+              >
                 <GlobeIcon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="max-w-40 truncate">{coverage.name}</span>
                 <span className="shrink-0">• {formatBytes(coverage.pack.totalBytes)}</span>
@@ -132,7 +140,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       ) : coverage.kind === "downloading" ? (
         <DownloadingPill row={coverage.row} onCancel={() => packs.cancel(coverage.row.slug)} />
       ) : coverage.kind === "error" ? (
-        <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+        <div
+          className={cn(
+            surfaceVariants({ variant: "pill" }),
+            "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+          )}
+        >
           <span className="max-w-40 truncate text-destructive">
             Couldn’t download {coverage.row.name}
           </span>
@@ -150,7 +163,12 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
           </Button>
         </div>
       ) : (
-        <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+        <div
+          className={cn(
+            surfaceVariants({ variant: "pill" }),
+            "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+          )}
+        >
           <span className="max-w-40 truncate text-muted-foreground">{coverage.row.name}</span>
           {/* Size lives in the button (shrink-0), so a long region name truncates
               without ever pushing the download size out of view. */}
@@ -170,25 +188,49 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
       );
   }
 
-  // top-12 (48px) clears the app's top bar (TOP_BAR_HEIGHT = 2.5 * BASE_UNITS ≈ 40px).
-  // AnimatePresence (mode="wait") fades the pill in/out and crossfades between states;
-  // keying on the slot kind means progress updates within a state don't re-trigger it.
+  // Bottom-right "map facts" corner: the always-visible data credit anchors it,
+  // and the status pill animates in above it. AnimatePresence (mode="wait") fades
+  // the pill in/out and crossfades between states; keying on the slot kind means
+  // progress updates within a state don't re-trigger it.
   return (
-    <div className="pointer-events-none absolute right-2 top-12 z-10">
+    <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex flex-col items-end gap-1.5">
       <AnimatePresence mode="wait">
         {slotContent && (
           <motion.div
             key={slotKey}
-            initial={{ opacity: 0, y: -4 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
+            exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
           >
             {slotContent}
           </motion.div>
         )}
       </AnimatePresence>
+      <MapAttribution />
     </div>
+  );
+}
+
+/**
+ * Map data credit, always visible per the OSMF attribution guidelines (corner of
+ * the map, no interaction required). Bare hushed text rather than a pill so it
+ * recedes; a background-colored halo keeps it legible over any basemap. Links
+ * open in the default browser via main's window-open handler.
+ */
+function MapAttribution(): React.JSX.Element {
+  return (
+    <span className="pointer-events-auto text-[10px] leading-4 text-muted-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]">
+      {MAP_ATTRIBUTIONS.map((a, i) => (
+        <Fragment key={a.name}>
+          {i > 0 && " · "}©{" "}
+          <a href={a.url} target="_blank" rel="noreferrer" className="hover:underline">
+            {a.name}
+          </a>
+          {a.suffix}
+        </Fragment>
+      ))}
+    </span>
   );
 }
 
@@ -221,7 +263,12 @@ function UpdatePill({
 
   if (update.phase === "downloading") {
     return (
-      <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-2.5 pr-1 text-xs shadow-sm backdrop-blur">
+      <div
+        className={cn(
+          surfaceVariants({ variant: "pill" }),
+          "pointer-events-auto h-8 gap-2 rounded-full pl-2.5 pr-1 text-xs"
+        )}
+      >
         <CircularProgress percent={Math.round(update.percent)} size={14} className="text-sky-500" />
         <span className="max-w-40 truncate text-muted-foreground">Downloading update…</span>
         {clearButton}
@@ -231,7 +278,12 @@ function UpdatePill({
 
   if (update.phase === "downloaded") {
     return (
-      <div className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+      <div
+        className={cn(
+          surfaceVariants({ variant: "pill" }),
+          "pointer-events-auto h-8 gap-1.5 rounded-full pl-3 pr-1 text-xs"
+        )}
+      >
         <span className="max-w-40 truncate text-foreground">Update {update.version} ready</span>
         <Button
           size="sm"
@@ -250,7 +302,12 @@ function UpdatePill({
   }
 
   return (
-    <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-3 pr-1 text-xs shadow-sm backdrop-blur">
+    <div
+      className={cn(
+        surfaceVariants({ variant: "pill" }),
+        "pointer-events-auto h-8 gap-2 rounded-full pl-3 pr-1 text-xs"
+      )}
+    >
       <span className="max-w-40 truncate text-destructive" title={update.message || undefined}>
         Update {update.version} failed
       </span>
@@ -283,7 +340,12 @@ function DownloadingPill({
       ? Math.min(100, Math.round((row.progress.received / row.progress.total) * 100))
       : 0;
   return (
-    <div className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-border bg-background/80 pl-2.5 pr-1 text-xs shadow-sm backdrop-blur">
+    <div
+      className={cn(
+        surfaceVariants({ variant: "pill" }),
+        "pointer-events-auto h-8 gap-2 rounded-full pl-2.5 pr-1 text-xs"
+      )}
+    >
       <CircularProgress percent={percent} size={14} className="text-amber-500" />
       <span className="max-w-40 truncate text-muted-foreground">
         {row.status === "verifying" ? "Verifying" : "Downloading"} {row.name}…

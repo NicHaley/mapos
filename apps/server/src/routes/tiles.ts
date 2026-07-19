@@ -1,4 +1,4 @@
-import { TileStyleRequestSchema } from "@mapos/contracts";
+import { MAP_ATTRIBUTION_HTML, TileStyleRequestSchema } from "@mapos/contracts";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -37,29 +37,40 @@ export function registerTiles(app: Hono): void {
   app.post("/v1/tiles/style-url", (c) =>
     handleContractPost(c, TileStyleRequestSchema, StyleUrlResponseSchema, (req) => {
       const variant = req.isDark ? "dark" : "light";
+      const mono = req.monochrome ? "1" : "0";
       const base = publicBaseUrl(c.req.url);
-      return Promise.resolve({ url: `${base}/v1/tiles/style.json?variant=${variant}` });
+      return Promise.resolve({
+        url: `${base}/v1/tiles/style.json?variant=${variant}&mono=${mono}`
+      });
     })
   );
 
-  // Proxied style JSON. Light fetches the upstream Protomaps style with the API
-  // key and rewrites its tile-source URLs to point back at this server so the
-  // key never reaches the client. Dark can't be proxied: the hosted "black"
-  // flavor defines no POI colors or icons, so its style has no pois layer at
-  // all. Instead the dark style is generated here with @protomaps/basemaps —
-  // black flavor plus the dark flavor's POI palette and sprite sheet — matching
-  // the offline path (see the dashboard's region-protocol.ts).
+  // Proxied style JSON. Tinted light fetches the upstream Protomaps style with
+  // the API key and rewrites its tile-source URLs to point back at this server
+  // so the key never reaches the client. The other three variants can't be
+  // proxied: the hosted monochrome flavors ("black" / "white") define no POI
+  // colors or icons, so their styles have no pois layer at all. Those (and dark)
+  // are generated here with @protomaps/basemaps — monochrome flavor plus the
+  // tinted flavor's POI palette and sprite sheet — matching the offline path
+  // (see the dashboard's region-protocol.ts).
   app.get("/v1/tiles/style.json", async (c) => {
     const env = loadEnv(c.env);
     if (!env.PROTOMAPS_API_KEY) {
       return errorResponse(c, "server_misconfigured", "PROTOMAPS_API_KEY is required for tiles");
     }
     const variant = variantFromQuery(c.req.query("variant"));
+    const monochrome = c.req.query("mono") === "1";
     const proxyBase = `${publicBaseUrl(c.req.url)}/v1/tiles`;
     if (variant === "dark") {
-      return c.json(darkStyle(proxyBase));
+      // Dark is generated locally (the hosted flavors' POI handling differs).
+      return c.json(generatedStyle(proxyBase, variant, monochrome));
     }
-    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/${variant}/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
+    if (monochrome) {
+      // Monochrome light ("white") is generated locally too, for the same reason.
+      return c.json(generatedStyle(proxyBase, variant, monochrome));
+    }
+    // Tinted light proxies the hosted flavor.
+    const upstream = `${env.PROTOMAPS_STYLE_URL_BASE}/styles/v5/light/en.json?key=${encodeURIComponent(env.PROTOMAPS_API_KEY)}`;
     const res = await fetch(upstream, { signal: c.req.raw.signal });
     if (!res.ok) {
       return errorResponse(
@@ -128,27 +139,33 @@ export function registerTiles(app: Hono): void {
 }
 
 const ASSETS_BASE = "https://protomaps.github.io/basemaps-assets";
-const ATTRIBUTION =
-  '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://protomaps.com">Protomaps</a>';
-
 /**
- * Dark style, generated rather than proxied. Black flavor with the dark
- * flavor's POI palette grafted on; the dark sprite sheet is a superset of
- * black's icons and is drawn for dark backdrops. Glyphs/sprites come from the
- * public Protomaps assets CDN (no API key), tiles from this server's proxy.
+ * Style generated rather than proxied, for dark and both monochrome flavors.
+ * The monochrome flavors ("black" / "white") define no POI colors or icons, so
+ * graft the tinted flavor's POI palette on and reuse its sprite sheet (a
+ * superset of the monochrome icons). Glyphs/sprites come from the public
+ * Protomaps assets CDN (no API key), tiles from this server's proxy.
  */
-function darkStyle(proxyBase: string): Record<string, unknown> {
-  const flavor = { ...namedFlavor("black"), pois: namedFlavor("dark").pois };
+function generatedStyle(
+  proxyBase: string,
+  variant: "light" | "dark",
+  monochrome: boolean
+): Record<string, unknown> {
+  const tinted = variant === "dark" ? "dark" : "light";
+  const mono = variant === "dark" ? "black" : "white";
+  const flavor = monochrome
+    ? { ...namedFlavor(mono), pois: namedFlavor(tinted).pois }
+    : namedFlavor(tinted);
   return {
     version: 8,
     glyphs: `${ASSETS_BASE}/fonts/{fontstack}/{range}.pbf`,
-    sprite: `${ASSETS_BASE}/sprites/v4/dark`,
+    sprite: `${ASSETS_BASE}/sprites/v4/${tinted}`,
     sources: {
       protomaps: {
         type: "vector",
         tiles: [`${proxyBase}/{z}/{x}/{y}.mvt`],
         maxzoom: 15,
-        attribution: ATTRIBUTION
+        attribution: MAP_ATTRIBUTION_HTML
       }
     },
     layers: layers("protomaps", flavor, { lang: "en" })

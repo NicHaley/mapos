@@ -26,7 +26,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 const cache = new Map<string, WikiImage | null>();
 
 function userAgent(): string {
-  return `MapOS/${app.getVersion()} (hello@nichaley.com)`;
+  return `MapOS/${app.getVersion()} (hello@mapos.md)`;
 }
 
 async function fetchJson(url: string): Promise<unknown> {

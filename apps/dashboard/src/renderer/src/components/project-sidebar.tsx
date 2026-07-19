@@ -58,6 +58,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { useVaultRoot } from "../hooks/use-vault-root";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
@@ -120,7 +121,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onStopChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
-  const [vaultRoot, setVaultRoot] = useState<string>("");
+  const vaultRoot = useVaultRoot();
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -224,7 +225,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
 
   useEffect(() => {
     void load();
-    void window.api.fs.getVaultRoot().then(setVaultRoot);
     window.api.fs.onChange(() => {
       void load();
     });
@@ -553,7 +553,9 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   }
 
   return (
-    <Sidebar className="pr-0" collapsible="offcanvas" variant="floating">
+    <Sidebar collapsible="offcanvas" variant="sidebar">
+      {/* Clears the floating top-bar controls that sit over the sidebar's top edge. */}
+      <div className="h-10 shrink-0" aria-hidden />
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
@@ -630,7 +632,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 render={
                   <SidebarGroupAction
                     title="Add"
-                    className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 data-open:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+                    className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 data-open:opacity-100 hover:bg-hover-strong hover:text-sidebar-accent-foreground"
                   >
                     <PlusIcon />
                     <span className="sr-only">Add file or folder</span>
@@ -746,7 +748,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
             />
             <SidebarGroupAction
               title="New chat"
-              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground"
+              className="top-1.5 right-1 opacity-0 transition-opacity group-hover/group-header:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-sidebar-accent-foreground"
               onClick={() => {
                 setConversationsGroupOpen(true);
                 onNewChat?.();
@@ -794,7 +796,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                             render={
                               <SidebarMenuButton
                                 isActive={isActive}
-                                className="group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
+                                className="group-hover/menu-item:bg-hover group-hover/menu-item:text-sidebar-accent-foreground data-active:bg-hover"
                                 onClick={(e) => {
                                   if (isRenaming) {
                                     e.preventDefault();
@@ -864,7 +866,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                             render={
                               <SidebarMenuAction
                                 showOnHover
-                                className="hover:bg-sidebar-accent-foreground/10 hover:text-sidebar-accent-foreground data-open:bg-sidebar-accent-foreground/10 data-open:text-sidebar-accent-foreground data-open:opacity-100"
+                                className="hover:bg-hover-strong hover:text-sidebar-accent-foreground data-open:bg-hover-strong data-open:text-sidebar-accent-foreground data-open:opacity-100"
                               >
                                 <EllipsisIcon />
                                 <span className="sr-only">More actions</span>

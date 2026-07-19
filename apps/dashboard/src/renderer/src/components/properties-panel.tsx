@@ -161,7 +161,7 @@ function OpenLinkButton({ url }: { url: string }): React.JSX.Element {
         e.stopPropagation();
         window.open(url, "_blank", "noopener");
       }}
-      className="shrink-0 rounded p-0.5 text-sidebar-foreground/40 outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 ring-sidebar-ring"
+      className="shrink-0 rounded p-0.5 text-sidebar-foreground/40 outline-hidden transition-colors hover:bg-hover hover:text-sidebar-foreground focus-visible:ring-2 ring-sidebar-ring"
       aria-label="Open link"
       title={url}
     >
@@ -264,7 +264,7 @@ function PropertyKey({
       <DropdownMenuTrigger
         onPointerDown={handleTriggerPointerDown}
         onPointerUp={handleTriggerPointerUp}
-        className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+        className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
       >
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="flex w-full justify-center opacity-100 transition-opacity group-hover:opacity-0">
@@ -390,7 +390,7 @@ function MultiSelectPropertyValue({
           if (v) setDraft("");
         }}
       >
-        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {items.length === 0 ? (
             <span className="text-sidebar-foreground/60">Empty</span>
           ) : (
@@ -519,7 +519,7 @@ function DatePropertyValue({
   return (
     <div className="relative flex h-8 min-w-0 w-full items-center">
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+        <PopoverTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2">
           {/* <CalendarIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" aria-hidden /> */}
           {isEmpty || !hasDate ? (
             <span className="text-sidebar-foreground/60">Empty</span>
@@ -663,7 +663,7 @@ function PropertyValue({
       <div className="relative flex h-8 min-w-0 w-full items-center">
         <button
           type="button"
-          className="flex h-full w-full cursor-pointer items-center rounded-md px-2 ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+          className="flex h-full w-full cursor-pointer items-center rounded-md px-2 ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('[role="switch"]')) return;
             onValueChange(propKey, !(value === true || value === "true"));
@@ -692,8 +692,12 @@ function PropertyValue({
 
   // text / number
   const linkUrl = detailLinkUrl(propKey, value);
+  const startEdit = () => {
+    setDraft(toDisplayString(value));
+    setEditing(true);
+  };
   return (
-    <div className="relative flex min-h-8 min-w-0 w-full items-start gap-1">
+    <div className="relative flex min-h-8 min-w-0 w-full items-center gap-1">
       {editing ? (
         <div
           className="flex min-h-8 min-w-0 flex-1 items-start rounded-md bg-sidebar-background px-2 py-1.5 ring-2 ring-inset ring-input"
@@ -716,14 +720,24 @@ function PropertyValue({
             className="text-sm text-sidebar-foreground"
           />
         </div>
+      ) : linkUrl ? (
+        // Linkable value: text hugs its content with the open-link button right
+        // beside it, both centered inside a full-width pill.
+        <div className="flex min-h-8 min-w-0 w-full items-center gap-1 rounded-md px-2 transition-colors hover:bg-hover">
+          <button
+            type="button"
+            onClick={startEdit}
+            className="min-w-0 max-w-full cursor-text py-1.5 text-left text-sm break-words text-sidebar-foreground outline-hidden ring-sidebar-ring focus-visible:ring-2"
+          >
+            {toDisplayString(value)}
+          </button>
+          <OpenLinkButton url={linkUrl} />
+        </div>
       ) : (
         <button
           type="button"
-          onClick={() => {
-            setDraft(toDisplayString(value));
-            setEditing(true);
-          }}
-          className="flex min-h-8 min-w-0 flex-1 cursor-text items-center rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
+          onClick={startEdit}
+          className="flex min-h-8 min-w-0 flex-1 cursor-text items-center rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
         >
           {isEmpty ? (
             <span className="text-sidebar-foreground/60">Empty</span>
@@ -732,7 +746,6 @@ function PropertyValue({
           )}
         </button>
       )}
-      {linkUrl && !editing && <OpenLinkButton url={linkUrl} />}
     </div>
   );
 }
@@ -945,7 +958,7 @@ function PropertiesPanelInner({
         <div className="col-span-2 grid min-h-8 grid-cols-subgrid items-center">
           <div className="flex min-h-0 min-w-0 items-center">
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2">
+              <DropdownMenuTrigger className="flex h-8 w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2">
                 <PlusIcon className="size-4" />
                 Add property
               </DropdownMenuTrigger>

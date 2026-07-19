@@ -32,11 +32,27 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { useVaultRoot } from "@renderer/hooks/use-vault-root";
+import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
+import { useMapColor } from "@renderer/lib/map-color";
+import {
+  ROUND_LINE_LAYOUT,
+  SELECTED_OUTLINE_PAINT,
+  featureCirclePaint,
+  featureFillOutlinePaint,
+  featureFillPaint,
+  featureLinePaint,
+  selectedCirclePaint,
+  selectedFillOutlinePaint,
+  selectedFillPaint,
+  selectedLinePaint
+} from "@renderer/lib/map-styles";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
+import { type UserLocation, UserLocationLayer } from "./map/user-location-layer";
 
 export type { PlaceRecord };
 
@@ -48,6 +64,7 @@ export type { PlaceRecord };
  */
 function useDarkMapStyle(): string | null {
   const isDark = useDarkMode();
+  const mapColor = useMapColor();
   const [styleUrl, setStyleUrl] = useState<string | null>(null);
   // Bumped when packs are added/removed. Re-resolves the style URL and — since the
   // offline style URL (mapos-region://_all/style.json) is stable while its contents
@@ -59,7 +76,7 @@ function useDarkMapStyle(): string | null {
   useEffect(() => {
     let cancelled = false;
     window.api.services
-      .tilesStyleUrl({ isDark })
+      .tilesStyleUrl({ isDark, monochrome: mapColor === "monochrome" })
       .then((url) => {
         if (cancelled) return;
         const busted = revision > 0 ? `${url}${url.includes("?") ? "&" : "?"}rev=${revision}` : url;
@@ -72,7 +89,7 @@ function useDarkMapStyle(): string | null {
     return () => {
       cancelled = true;
     };
-  }, [isDark, revision]);
+  }, [isDark, mapColor, revision]);
 
   return styleUrl;
 }
@@ -317,55 +334,7 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 }
 
-const SELECTION_PULSE_IMAGE_ID = "mapos-selection-pulse";
-
-/** Canvas-backed StyleImageInterface — see MapLibre “Add an animated icon to the map”. */
-function createSelectionPulsingDot(map: { triggerRepaint: () => void }) {
-  const size = 64;
-  const dot = {
-    width: size,
-    height: size,
-    data: new Uint8Array(size * size * 4),
-    context: undefined as CanvasRenderingContext2D | undefined,
-    onAdd(this: typeof dot) {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      this.context = canvas.getContext("2d") ?? undefined;
-    },
-    render(this: typeof dot) {
-      const ctx = this.context;
-      if (!ctx) return false;
-      const duration = 1600;
-      const t = (performance.now() % duration) / duration;
-      const radius = (size / 2) * 0.3125;
-      const outerRadius = (size / 2) * 0.58 * t + radius;
-      ctx.clearRect(0, 0, size, size);
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, outerRadius + 1.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(30, 30, 35, ${0.22 * (1 - t)})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * (1 - t)})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 255, 255, 1)";
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.lineWidth = 1.75 + 2.4 * (1 - t);
-      ctx.fill();
-      ctx.stroke();
-      this.data = new Uint8Array(ctx.getImageData(0, 0, size, size).data);
-      map.triggerRepaint();
-      return true;
-    }
-  };
-  return dot;
-}
-
-type SelectionPulseGeoJSON = {
+type SelectionAnchorGeoJSON = {
   type: "FeatureCollection";
   features: Array<{
     type: "Feature";
@@ -374,95 +343,33 @@ type SelectionPulseGeoJSON = {
   }>;
 };
 
-const SELECTION_PULSE_LAYER_ID = "selection-pulse-symbol";
-
-/** Keep the pulse above basemap labels and our own circle/line layers after style churn. */
-function movePulseLayerToTop(map: ReturnType<MapRef["getMap"]>) {
-  try {
-    if (map.getLayer(SELECTION_PULSE_LAYER_ID)) map.moveLayer(SELECTION_PULSE_LAYER_ID);
-  } catch {
-    /* layer or style unavailable */
-  }
-}
-
-function SelectionPulseLayers({ data }: { data: SelectionPulseGeoJSON }) {
-  const maps = useMap();
-  const mapRef = maps.current;
-  const [imageReady, setImageReady] = useState(false);
-  useLayoutEffect(() => {
-    if (!mapRef) return;
-    const map = mapRef.getMap();
-    let cancelled = false;
-
-    const install = () => {
-      if (cancelled) return;
-      try {
-        const pulsingDot = createSelectionPulsingDot(map);
-        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
-        map.addImage(SELECTION_PULSE_IMAGE_ID, pulsingDot, { pixelRatio: 2 });
-        setImageReady(true);
-      } catch {
-        /* style not fully loaded */
-      }
-    };
-
-    install();
-    map.on("style.load", install);
-    return () => {
-      cancelled = true;
-      map.off("style.load", install);
-      try {
-        if (map.hasImage(SELECTION_PULSE_IMAGE_ID)) map.removeImage(SELECTION_PULSE_IMAGE_ID);
-      } catch {
-        /* map torn down */
-      }
-      setImageReady(false);
-    };
-  }, [mapRef]);
-
-  const pulseCoordsKey =
-    data.features[0]?.geometry.type === "Point"
-      ? `${data.features[0].geometry.coordinates[0]},${data.features[0].geometry.coordinates[1]}`
-      : "";
-
-  /** Pulse Source/Layer mounts only after imageReady; pin layer above circles/labels after paint & on style churn.
-   * Re-run when coordinates change so the raised layer stays after GeoJSON Source updates. */
-  useLayoutEffect(() => {
-    void pulseCoordsKey;
-    if (!mapRef || !imageReady) return;
-    const map = mapRef.getMap();
-    const bump = () => movePulseLayerToTop(map);
-    bump();
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(bump);
-    });
-    map.on("style.load", bump);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      map.off("style.load", bump);
-    };
-  }, [mapRef, imageReady, pulseCoordsKey]);
-
-  if (!imageReady) return null;
-
+/**
+ * The selection anchor marker: a dot that pops in and holds a larger size, marking
+ * the selected point — or, for a selected line/polygon, the spot the user clicked.
+ * An HTML <Marker> (like the overlay/user-location dots) so it animates via CSS and
+ * sidesteps the style-churn dance the old canvas pulse needed. The caller keys it on
+ * the anchor coords so a fresh selection remounts and replays the pop.
+ */
+function SelectionMarker({
+  data,
+  color
+}: { data: SelectionAnchorGeoJSON; color: string }): React.JSX.Element {
   return (
-    <Source id="selection-pulse" type="geojson" data={data}>
-      <Layer
-        id={SELECTION_PULSE_LAYER_ID}
-        type="symbol"
-        layout={{
-          "icon-image": SELECTION_PULSE_IMAGE_ID,
-          // ~1.5× previous on-screen size; circles use map plane — match so centers stay aligned
-          "icon-size": 1.35,
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-          "icon-pitch-alignment": "map",
-          "icon-rotation-alignment": "map"
-        }}
-      />
-    </Source>
+    <>
+      {data.features.map((f) => {
+        const [lng, lat] = f.geometry.coordinates;
+        // Per-feature `color` (custom-coloured place) wins over the accent default.
+        const fill = (f.properties.color as string | undefined) ?? color;
+        return (
+          <Marker key={`${lng},${lat}`} longitude={lng} latitude={lat} anchor="center">
+            <div
+              className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
+              style={{ backgroundColor: fill }}
+            />
+          </Marker>
+        );
+      })}
+    </>
   );
 }
 
@@ -498,6 +405,8 @@ const MapView = forwardRef<
     presentedPlaces?: PlaceRecord[];
     /** The still-open file while a map peek is active: rendered in the selected style, but without the pulse. */
     openPlace?: PlaceRecord | null;
+    /** The user's current position (from the top-bar locate control); drawn as a dot + accuracy ring. */
+    userLocation?: UserLocation | null;
   }
 >(function MapView(
   {
@@ -515,15 +424,25 @@ const MapView = forwardRef<
     selectionPulseAnchor = null,
     linkedPlaces = [],
     presentedPlaces = [],
-    openPlace = null
+    openPlace = null,
+    userLocation = null
   },
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
   const { setViewportBBox } = useMapViewport();
   const mapStyle = useDarkMapStyle();
+  // Camera position is vault state — scope the persisted viewport per vault.
+  const vaultRoot = useVaultRoot();
+  const viewportKey = vaultRoot ? `mapos-viewport:${vaultRoot}` : null;
   const isDark = useDarkMode();
   const foregroundColor = isDark ? "#fafafa" : "#252525";
+  const accent = useAccent();
+  // Default colour for features with no explicit `color`: the accent hue (grey when monochrome).
+  const featureColor = featureDefaultColor(accent);
+  // Accent hue for selection + chat overlays; falls back to the theme foreground when monochrome.
+  const accentColor = accentHex(accent);
+  const overlayColor = accentColor ?? foregroundColor;
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
@@ -803,10 +722,12 @@ const MapView = forwardRef<
       centerLng: center.lng,
       zoom
     });
-    localStorage.setItem(
-      "mapos-viewport",
-      JSON.stringify({ longitude: center.lng, latitude: center.lat, zoom })
-    );
+    if (viewportKey) {
+      localStorage.setItem(
+        viewportKey,
+        JSON.stringify({ longitude: center.lng, latitude: center.lat, zoom })
+      );
+    }
   }, 150);
 
   const debouncedMove = useCallback(() => {
@@ -997,7 +918,7 @@ const MapView = forwardRef<
 
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
-  // drives the pulse (selectionPulseGeoJSON below).
+  // gets the animated grow marker (selectionAnchorGeoJSON below).
   const selectedGeoJSON = useMemo(() => {
     const places = [selectedPlace, openPlace]
       .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p?.geometry))
@@ -1010,8 +931,8 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, openPlace, toFeature]);
 
-  /** Pulse position: Points use geometry; lines/polygons only pulse where the user clicked. */
-  const selectionPulseGeoJSON = useMemo((): SelectionPulseGeoJSON | null => {
+  /** Anchor position: Points use geometry; lines/polygons anchor where the user clicked. */
+  const selectionAnchorGeoJSON = useMemo((): SelectionAnchorGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
     try {
       const geo = parseGeometry(selectedPlace.geometry);
@@ -1023,7 +944,7 @@ const MapView = forwardRef<
         lng = selectionPulseAnchor.lng;
         lat = selectionPulseAnchor.lat;
       } else {
-        // Non-point with no click anchor: rely on the dashed selected-line/fill styling
+        // Non-point with no click anchor: rely on the accent-glow selected-line/fill styling
         // for highlighting. A bbox-center pulse looked like a stray marker.
         return null;
       }
@@ -1032,7 +953,8 @@ const MapView = forwardRef<
         features: [
           {
             type: "Feature",
-            properties: {},
+            // Carry the feature colour so the marker circle matches a custom-coloured feature.
+            properties: selectedPlace.color ? { color: selectedPlace.color } : {},
             geometry: { type: "Point", coordinates: [lng, lat] }
           }
         ]
@@ -1176,16 +1098,16 @@ const MapView = forwardRef<
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
     if (folderGeoJSON) {
-      ids.push("folder-circle", "folder-fill", "folder-line", "folder-line-casing");
+      ids.push("folder-circle", "folder-fill", "folder-line");
     }
     if (linkedGeoJSON) {
-      ids.push("linked-circle", "linked-fill", "linked-line", "linked-line-casing");
+      ids.push("linked-circle", "linked-fill", "linked-line");
     }
     if (showOverlay && presentedGeoJSON) {
-      ids.push("presented-circle", "presented-fill", "presented-line", "presented-line-casing");
+      ids.push("presented-circle", "presented-fill", "presented-line");
     }
     if (selectedGeoJSON) {
-      ids.push("selected-circle", "selected-fill", "selected-line", "selected-line-casing");
+      ids.push("selected-circle", "selected-fill", "selected-line");
     }
     for (const { sourceId } of overlayLayerSources) {
       ids.push(`${sourceId}-polygons`, `${sourceId}-lines-hit`, `${sourceId}-lines`);
@@ -1207,9 +1129,10 @@ const MapView = forwardRef<
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
 
-  // Tile style URL is fetched async from main. Render an empty wrapper meanwhile
-  // so the layout doesn't shift; MapLibre can't handle a null/empty mapStyle.
-  if (!mapStyle) {
+  // Tile style URL and vault root are fetched async from main. Render an empty
+  // wrapper meanwhile so the layout doesn't shift; MapLibre can't handle a
+  // null/empty mapStyle, and the initial viewport needs the vault-scoped key.
+  if (!mapStyle || !viewportKey) {
     return <div style={{ position: "relative", width: "100%", height: "100%" }} />;
   }
 
@@ -1219,7 +1142,11 @@ const MapView = forwardRef<
         ref={mapRef}
         initialViewState={(() => {
           try {
-            const saved = localStorage.getItem("mapos-viewport");
+            // Fall back to the pre-scoping key once so the camera survives the
+            // upgrade, then drop it — unscoped state leaks across vaults.
+            const saved =
+              localStorage.getItem(viewportKey) ?? localStorage.getItem("mapos-viewport");
+            localStorage.removeItem("mapos-viewport");
             if (saved)
               return JSON.parse(saved) as { longitude: number; latitude: number; zoom: number };
           } catch {
@@ -1227,8 +1154,15 @@ const MapView = forwardRef<
           }
           return { longitude: 0, latitude: 20, zoom: 2 };
         })()}
+        id="main"
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
+        // Keep the map top-down: rotation stays (the compass reflects it) but tilt is off.
+        maxPitch={0}
+        touchPitch={false}
+        // Default attribution is re-rendered as a ghost control in MapControls, to
+        // match the rest of the cluster instead of MapLibre's dark chip.
+        attributionControl={false}
         onLoad={() => sendViewport()}
         onMove={debouncedMove}
         onContextMenu={handleContextMenu}
@@ -1238,220 +1172,157 @@ const MapView = forwardRef<
         {folderGeoJSON && (
           <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
             <Layer
-              id="folder-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id="folder-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="folder-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="folder-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="folder-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+            <Layer
+              id="folder-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.point}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
         {linkedGeoJSON && (
           <Source id="linked-geojson" type="geojson" data={linkedGeoJSON}>
             <Layer
-              id="linked-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id="linked-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="linked-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="linked-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="linked-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+            <Layer
+              id="linked-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.point}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
         {showOverlay && presentedGeoJSON && (
           <Source id="presented-geojson" type="geojson" data={presentedGeoJSON}>
             <Layer
-              id="presented-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id="presented-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "fill-opacity": 0.25
-              }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id="presented-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.polygon}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 2
-              }}
-            />
-            <Layer
-              id="presented-line-casing"
-              type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.line}
-              paint={{ "line-color": "rgba(0,0,0,0.55)", "line-width": 5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id="presented-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={unselectedFilters.line}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], "#6b7280"],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+            <Layer
+              id="presented-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.point}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         )}
         {selectedGeoJSON && (
           <Source id="selected-geojson" type="geojson" data={selectedGeoJSON}>
             <Layer
-              id="selected-circle"
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": ["coalesce", ["get", "color"], foregroundColor],
-                "circle-stroke-width": 2.5,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id="selected-fill"
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{
-                "fill-color": ["coalesce", ["get", "color"], foregroundColor],
-                "fill-opacity": 0.35
-              }}
+              paint={selectedFillPaint(featureColor)}
+            />
+            {/* White outline beneath the accent boundary — the polygon selection highlight. Miter
+                joins (no round layout) to match the accent outline's corners. */}
+            <Layer
+              id="selected-fill-highlight"
+              type="line"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POLYGON_FILTER}
+              paint={SELECTED_OUTLINE_PAINT}
             />
             <Layer
               id="selected-fill-outline"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], foregroundColor],
-                "line-width": 2.5
-              }}
+              paint={selectedFillOutlinePaint(featureColor)}
             />
+            {/* White outline beneath the accent line — the line selection highlight. */}
             <Layer
-              id="selected-line-casing"
+              id="selected-line-highlight"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": "rgba(0,0,0,0.6)", "line-width": 5.5 }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={SELECTED_OUTLINE_PAINT}
+              layout={ROUND_LINE_LAYOUT}
             />
             <Layer
               id="selected-line"
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{
-                "line-color": ["coalesce", ["get", "color"], foregroundColor],
-                "line-width": 3
-              }}
-              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={selectedLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+            {/* The selected place's own point is drawn by the animated SelectionMarker;
+                exclude it here so they don't stack. A peeked (open) place keeps this
+                static selected circle. */}
+            <Layer
+              id="selected-circle"
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={[
+                "all",
+                POINT_FILTER,
+                ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
+              ]}
+              paint={selectedCirclePaint(featureColor)}
             />
           </Source>
         )}
@@ -1473,8 +1344,10 @@ const MapView = forwardRef<
                     width: 12,
                     height: 12,
                     borderRadius: "50%",
-                    backgroundColor: "#8b5cf6",
-                    border: "2px dashed white",
+                    // Accent chip with a white dashed border; monochrome adapts to the theme
+                    // (light-on-dark / dark-on-light) so the chip and border always contrast.
+                    backgroundColor: accentColor ?? foregroundColor,
+                    border: `2px dashed ${accentColor ? "white" : isDark ? "#111111" : "#ffffff"}`,
                     boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                     opacity: dimmed ? UNFOCUSED_OPACITY : 1,
                     transition: "opacity 120ms ease-out"
@@ -1487,37 +1360,33 @@ const MapView = forwardRef<
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source key={sourceId} id={sourceId} type="geojson" data={data}>
             <Layer
-              id={`${sourceId}-circle`}
-              type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POINT_FILTER}
-              paint={{
-                "circle-radius": 5,
-                "circle-color": "#6b7280",
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffffff"
-              }}
-            />
-            <Layer
               id={`${sourceId}-fill`}
               type="fill"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "fill-color": "#6b7280", "fill-opacity": 0.25 }}
+              paint={featureFillPaint(featureColor)}
             />
             <Layer
               id={`${sourceId}-fill-outline`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={POLYGON_FILTER}
-              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+              paint={featureFillOutlinePaint(featureColor)}
             />
             <Layer
               id={`${sourceId}-line`}
               type="line"
               // @ts-expect-error - MapLibre filter expression
               filter={LINESTRING_FILTER}
-              paint={{ "line-color": "#6b7280", "line-width": 2 }}
+              paint={featureLinePaint(featureColor)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+            <Layer
+              id={`${sourceId}-circle`}
+              type="circle"
+              // @ts-expect-error - MapLibre filter expression
+              filter={POINT_FILTER}
+              paint={featureCirclePaint(featureColor)}
             />
           </Source>
         ))}
@@ -1533,7 +1402,7 @@ const MapView = forwardRef<
                   type="fill"
                   // @ts-expect-error - MapLibre filter expression; types are strict
                   filter={POLYGON_FILTER}
-                  paint={{ "fill-color": "#8b5cf6", "fill-opacity": fillOpacity }}
+                  paint={{ "fill-color": overlayColor, "fill-opacity": fillOpacity }}
                 />
                 <Layer
                   id={`${sourceId}-polygon-outline`}
@@ -1541,7 +1410,7 @@ const MapView = forwardRef<
                   // @ts-expect-error - MapLibre filter expression
                   filter={POLYGON_FILTER}
                   paint={{
-                    "line-color": "#8b5cf6",
+                    "line-color": overlayColor,
                     "line-width": 2,
                     "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
@@ -1560,7 +1429,7 @@ const MapView = forwardRef<
                   // @ts-expect-error - MapLibre filter expression
                   filter={LINESTRING_FILTER}
                   paint={{
-                    "line-color": "#8b5cf6",
+                    "line-color": overlayColor,
                     "line-width": 2,
                     "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
@@ -1569,8 +1438,11 @@ const MapView = forwardRef<
               </Source>
             );
           })}
-        {selectionPulseGeoJSON && <SelectionPulseLayers data={selectionPulseGeoJSON} />}
+        {selectionAnchorGeoJSON && (
+          <SelectionMarker data={selectionAnchorGeoJSON} color={featureColor} />
+        )}
         <RegionCoverageIndicator />
+        {userLocation && <UserLocationLayer location={userLocation} />}
       </MapGL>
       <DropdownMenu
         modal

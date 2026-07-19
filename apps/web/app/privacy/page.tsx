@@ -61,7 +61,7 @@ export default function PrivacyPage() {
         Because your data stays on your device, you remain in control of it. You can edit or delete
         your files at any time. We may update this policy from time to time; the &ldquo;last
         updated&rdquo; date at the top reflects the current version. If you have any questions,
-        contact <a href="mailto:hello@nichaley.com">hello@nichaley.com</a>.
+        contact <a href="mailto:hello@mapos.md">hello@mapos.md</a>.
       </p>
     </LegalPage>
   );

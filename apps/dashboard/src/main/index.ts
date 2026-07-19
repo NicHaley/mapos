@@ -7,6 +7,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { registerAiIpc } from "./ai-ipc";
+import { bindAiVaultRoot } from "./ai-vault";
 import { setupAppMenu } from "./app-menu";
 import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
@@ -45,7 +46,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 12 },
+    trafficLightPosition: { x: 12, y: 13 },
     autoHideMenuBar: true,
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
@@ -119,6 +120,21 @@ app.whenReady().then(() => {
     return win?.isFullScreen() ?? false;
   });
 
+  // Deep-link to System Settings → Privacy & Security → Location Services, so the
+  // "My location" control can offer one-click recovery when the OS has location
+  // off for MapOS. macOS-only; the URL scheme is meaningless elsewhere.
+  ipcMain.handle("system:open-location-settings", async () => {
+    if (process.platform !== "darwin") return { ok: false };
+    try {
+      await shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+      );
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -126,6 +142,13 @@ app.whenReady().then(() => {
         "Content-Security-Policy": [buildCsp()]
       }
     });
+  });
+
+  // Grant geolocation only (the "My location" map control); deny everything else.
+  // macOS still gates native CoreLocation behind the packaged app's NSLocation
+  // usage string; this only clears the web layer.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "geolocation");
   });
 
   const mainWindow = createWindow();
@@ -149,6 +172,8 @@ app.whenReady().then(() => {
   let maposConfig = loadOrInitMaposConfig(appStateDir);
   setActiveServicesForCsp(maposConfig.services);
   let vaultRoot = "";
+  // AI default-model reads this per request — empty during onboarding (stages in userData).
+  bindAiVaultRoot(() => vaultRoot);
   let places: Awaited<ReturnType<typeof setupPlacesWatcher>>["places"] = new Map();
   let stopWatcher: () => Promise<void> = async () => notReady();
   let stopChat: () => void = notReady;
@@ -177,6 +202,11 @@ app.whenReady().then(() => {
     // and were never torn down here, so they kept the process alive on quit.
     invalidateServiceClient();
     vaultActive = false;
+    // Drop the vault binding so AI config (bindAiVaultRoot) reports "no vault" while torn
+    // down. Otherwise deleting the last vault leaves `vaultRoot` pointing at the removed
+    // folder, and onboarding would read/write its `.mapos/ai.json` instead of staging in
+    // userData. Re-boot paths (switch/rename/onboarding-complete) set `vaultRoot` again.
+    vaultRoot = "";
   }
 
   function bootVault(): Promise<void> {
@@ -190,7 +220,8 @@ app.whenReady().then(() => {
     return bootPromise;
   }
 
-  // AI config handlers don't depend on vault state — register once for the lifetime of the window.
+  // AI config: providers are app-global; the active model is per-vault (see ai.ts).
+  // Handlers register once; vault root is read via bindAiVaultRoot.
   registerAiIpc(mainWindow);
   registerServicesIpc();
   registerRegionPacksIpc(mainWindow, appStateDir);

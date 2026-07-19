@@ -22,6 +22,8 @@ import {
   SidebarMenuItem,
   useSidebar
 } from "@mapos/ui/components/sidebar";
+import { surfaceVariants } from "@mapos/ui/components/surface";
+import { cn } from "@mapos/ui/lib/utils";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -108,8 +110,13 @@ export function VaultSwitcher() {
           return;
         }
         if ("ok" in r && r.ok) {
-          setAddVaultOpen(false);
-          reloadVaults();
+          // On success the switch reloads the renderer into the new vault, so the
+          // dialog never needs closing; on failure the vault is still registered.
+          const sw = await window.api.mapos.switchVault(r.path);
+          if (!sw.ok) {
+            setAddVaultError(sw.error);
+            reloadVaults();
+          }
         }
       } finally {
         setAddVaultBusy(false);
@@ -129,8 +136,13 @@ export function VaultSwitcher() {
         return;
       }
       if ("ok" in r && r.ok) {
-        setAddVaultOpen(false);
-        reloadVaults();
+        // On success the switch reloads the renderer into the new vault, so the
+        // dialog never needs closing; on failure the vault is still registered.
+        const sw = await window.api.mapos.switchVault(r.path);
+        if (!sw.ok) {
+          setAddVaultError(sw.error);
+          reloadVaults();
+        }
       }
     } finally {
       setAddVaultBusy(false);
@@ -218,14 +230,18 @@ export function VaultSwitcher() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <DialogContent className="sm:max-w-md" showCloseButton={!addVaultBusy}>
+          <DialogContent
+            // `fixed` re-asserts the dialog's centering — the popover variant's `relative`
+            // (for its before: blur layer) would otherwise clobber DialogContent's position.
+            className={cn(surfaceVariants({ variant: "popover" }), "fixed sm:max-w-md")}
+            showCloseButton={!addVaultBusy}
+          >
             {addVaultStep === "choose" ? (
               <>
                 <DialogHeader>
                   <DialogTitle>Add vault</DialogTitle>
                   <DialogDescription>
-                    Register another folder in MapOS. Select it from the vault switcher to relaunch
-                    with that vault active.
+                    Create a new vault or register an existing folder on disk.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2">
@@ -244,8 +260,7 @@ export function VaultSwitcher() {
                     <div className="grid min-w-0 gap-0.5">
                       <span className="font-medium">Create new vault</span>
                       <span className="text-muted-foreground text-xs font-normal">
-                        Pick a name and a parent location. MapOS creates the folder and adds it to
-                        your list.
+                        Pick a name and a parent location. MapOS creates the folder for you.
                       </span>
                     </div>
                   </Button>
@@ -260,7 +275,7 @@ export function VaultSwitcher() {
                     <div className="grid min-w-0 gap-0.5">
                       <span className="font-medium">Set folder as vault</span>
                       <span className="text-muted-foreground text-xs font-normal">
-                        Choose an existing folder on disk and add its path to your vault list.
+                        Choose an existing folder on disk to use as a vault.
                       </span>
                     </div>
                   </Button>

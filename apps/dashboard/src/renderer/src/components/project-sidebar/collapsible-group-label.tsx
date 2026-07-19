@@ -18,7 +18,7 @@ export function CollapsibleGroupLabel({
           type="button"
           aria-expanded={open}
           onClick={onToggle}
-          className="group/group-label cursor-pointer gap-1 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/group-header:bg-sidebar-accent group-hover/group-header:text-sidebar-accent-foreground"
+          className="group/group-label cursor-pointer gap-1 hover:bg-hover hover:text-sidebar-accent-foreground group-hover/group-header:bg-hover group-hover/group-header:text-sidebar-accent-foreground"
         />
       }
     >

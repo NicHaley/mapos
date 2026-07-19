@@ -11,5 +11,6 @@ import type { Endpoint, TileStyleRequest } from "@mapos/contracts";
  */
 export function styleUrl(req: TileStyleRequest, ep: Endpoint): string {
   const variant = req.isDark ? "dark" : "light";
-  return `${ep.url}/v1/tiles/style.json?variant=${variant}`;
+  const mono = req.monochrome ? "1" : "0";
+  return `${ep.url}/v1/tiles/style.json?variant=${variant}&mono=${mono}`;
 }

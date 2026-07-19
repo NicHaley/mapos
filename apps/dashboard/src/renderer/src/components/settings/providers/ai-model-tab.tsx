@@ -28,7 +28,7 @@ export function AiModelTab(): React.JSX.Element {
       <div>
         <h2 className="font-medium text-base">AI Models</h2>
         <p className="mt-0.5 text-muted-foreground text-sm">
-          Configure AI providers and set your default model.
+          Configure AI providers and set the default model for this vault.
         </p>
       </div>
 

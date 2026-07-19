@@ -95,9 +95,6 @@ export const ACCENT_PALETTE: AccentOption[] = [
   }
 ];
 
-/** Legacy global localStorage key from before accent became per-vault state in
- * `.mapos/appearance.json`. Read only by the one-time boot migration. */
-export const ACCENT_KEY = "mapos_accent";
 const CHANGE_EVENT = "mapos:accent-changed";
 
 /** Grey used for un-coloured map features when the accent is monochrome — matches

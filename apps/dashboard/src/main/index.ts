@@ -7,6 +7,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from "electron";
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
 import { registerAiIpc } from "./ai-ipc";
+import { bindAiVaultRoot } from "./ai-vault";
 import { setupAppMenu } from "./app-menu";
 import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
@@ -171,6 +172,8 @@ app.whenReady().then(() => {
   let maposConfig = loadOrInitMaposConfig(appStateDir);
   setActiveServicesForCsp(maposConfig.services);
   let vaultRoot = "";
+  // AI default-model reads this per request — empty during onboarding (stages in userData).
+  bindAiVaultRoot(() => vaultRoot);
   let places: Awaited<ReturnType<typeof setupPlacesWatcher>>["places"] = new Map();
   let stopWatcher: () => Promise<void> = async () => notReady();
   let stopChat: () => void = notReady;
@@ -212,7 +215,8 @@ app.whenReady().then(() => {
     return bootPromise;
   }
 
-  // AI config handlers don't depend on vault state — register once for the lifetime of the window.
+  // AI config: providers are app-global; the active model is per-vault (see ai.ts).
+  // Handlers register once; vault root is read via bindAiVaultRoot.
   registerAiIpc(mainWindow);
   registerServicesIpc();
   registerRegionPacksIpc(mainWindow, appStateDir);

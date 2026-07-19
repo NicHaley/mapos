@@ -9,9 +9,9 @@ import { ProviderBadge } from "./provider-badge";
 /**
  * Detail drawer for a single model: its capabilities and metadata (provider, context window,
  * pricing) laid out as basic tables, plus the "make default" action. Opened from a model row in
- * {@link ProviderModelsList}. Selecting sets the global active model via the same `setActive` path
- * the chat switcher uses. Locked when the provider isn't connected — connecting happens through the
- * group's Edit action, not here.
+ * {@link ProviderModelsList}. Selecting sets this vault's default model via the same `setActive`
+ * path the chat switcher uses. Locked when the provider isn't connected — connecting happens
+ * through the group's Edit action, not here.
  */
 export function ModelDetailSheet({
   open,

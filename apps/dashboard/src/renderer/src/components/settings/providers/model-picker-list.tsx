@@ -41,7 +41,7 @@ function shouldFetch(p: ProviderView): boolean {
 /**
  * The shared model selector body, built on the same Command primitives as the other search popovers
  * (e.g. the folder picker). Aggregates each configured provider's models into one searchable list
- * and sets the global active selection on pick. Select-only: models from a not-connected provider
+ * and sets the vault's default selection on pick. Select-only: models from a not-connected provider
  * render locked/disabled (connecting happens in the Providers list, never here).
  *
  * Mount this only while visible — it fetches model lists on mount. Both the settings sheet and the

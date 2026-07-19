@@ -2,9 +2,10 @@ import { useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark" | "system";
 
-/** Legacy global localStorage key from before theme became per-vault state in
- * `.mapos/appearance.json`. Read only by the one-time boot migration (and as a
- * staging write when appearance IPC is unavailable during onboarding). */
+/**
+ * Onboarding staging key — used only when appearance IPC isn't available yet so the
+ * theme pick survives the post-complete reload. Canonical store is `.mapos/appearance.json`.
+ */
 export const THEME_KEY = "mapos_theme";
 const CHANGE_EVENT = "mapos:theme-changed";
 
@@ -37,9 +38,8 @@ export function hydrateTheme(theme: Theme): void {
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-/** Apply and persist to the active vault's appearance.json. Falls back to the
- * legacy localStorage key when IPC isn't available yet (onboarding) so the
- * value survives the post-complete reload and can be migrated. */
+/** Apply and persist to the active vault's appearance.json. Stages to localStorage when
+ * IPC isn't available yet (onboarding) so the pick survives the post-complete reload. */
 export function setTheme(theme: Theme): void {
   hydrateTheme(theme);
   void window.api.appearance

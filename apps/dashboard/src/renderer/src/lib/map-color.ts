@@ -4,9 +4,6 @@ import { useSyncExternalStore } from "react";
  * Full = the tinted light/dark basemap; Monochrome = the pure white/black one. */
 export type MapColor = "full" | "monochrome";
 
-/** Legacy global localStorage key from before map colour became per-vault state in
- * `.mapos/appearance.json`. Read only by the one-time boot migration. */
-export const MAP_COLOR_KEY = "mapos_map_color";
 const CHANGE_EVENT = "mapos:map-color-changed";
 
 // The canonical value lives in the vault's appearance.json; this module keeps a

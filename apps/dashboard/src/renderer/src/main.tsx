@@ -11,7 +11,7 @@ import { MapViewportProvider } from "./contexts/map-viewport";
 import { hydrateAppearance } from "./lib/appearance-boot";
 import { THEME_KEY, getTheme, hydrateTheme, parseTheme } from "./lib/theme";
 
-// Seed dark mode from the legacy localStorage key for FOUC prevention before
+// Seed dark mode from onboarding staging (if any) for FOUC prevention before
 // hydrateAppearance resolves the vault's appearance.json. Always subscribe to
 // OS changes so System mode reacts even if the user switched into it after launch.
 hydrateTheme(parseTheme(localStorage.getItem(THEME_KEY)));

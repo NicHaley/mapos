@@ -58,6 +58,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
+import { useVaultRoot } from "../hooks/use-vault-root";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
@@ -120,7 +121,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onStopChat?: (convId: string) => void;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
-  const [vaultRoot, setVaultRoot] = useState<string>("");
+  const vaultRoot = useVaultRoot();
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -224,7 +225,6 @@ export const ProjectSidebar = memo(function ProjectSidebar({
 
   useEffect(() => {
     void load();
-    void window.api.fs.getVaultRoot().then(setVaultRoot);
     window.api.fs.onChange(() => {
       void load();
     });

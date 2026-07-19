@@ -154,7 +154,9 @@ declare global {
       mapos: {
         getVaultsConfig: () => Promise<{ vaults: string[]; activeVaultPath: string }>;
         setFolderAsVault: () => Promise<
-          { canceled: true } | { ok: false; error: string } | { ok: true; vaults: string[] }
+          | { canceled: true }
+          | { ok: false; error: string }
+          | { ok: true; path: string; vaults: string[] }
         >;
         createNewVault: (
           name: string

@@ -60,12 +60,17 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
       title: "Choose folder to use as a vault"
     });
     if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+    const path = resolve(picked.filePaths[0]);
     const appStateDir = app.getPath("userData");
-    const result = appendVaultToConfig(appStateDir, picked.filePaths[0]);
+    const result = appendVaultToConfig(appStateDir, path);
     if (!result.ok) return { ok: false as const, error: result.error };
-    initVaultOnDisk(resolve(picked.filePaths[0]));
+    initVaultOnDisk(path);
     closeDb();
-    return { ok: true as const, vaults: result.config.vaults.map((p) => resolve(p.trim())) };
+    return {
+      ok: true as const,
+      path,
+      vaults: result.config.vaults.map((p) => resolve(p.trim()))
+    };
   });
 
   ipcMain.handle("mapos:create-new-vault", async (_event, name: string) => {

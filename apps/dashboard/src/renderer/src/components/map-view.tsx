@@ -32,6 +32,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
+import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { useMapColor } from "@renderer/lib/map-color";
 import {
@@ -431,6 +432,9 @@ const MapView = forwardRef<
   const mapRef = useRef<MapRef>(null);
   const { setViewportBBox } = useMapViewport();
   const mapStyle = useDarkMapStyle();
+  // Camera position is vault state — scope the persisted viewport per vault.
+  const vaultRoot = useVaultRoot();
+  const viewportKey = vaultRoot ? `mapos-viewport:${vaultRoot}` : null;
   const isDark = useDarkMode();
   const foregroundColor = isDark ? "#fafafa" : "#252525";
   const accent = useAccent();
@@ -718,10 +722,12 @@ const MapView = forwardRef<
       centerLng: center.lng,
       zoom
     });
-    localStorage.setItem(
-      "mapos-viewport",
-      JSON.stringify({ longitude: center.lng, latitude: center.lat, zoom })
-    );
+    if (viewportKey) {
+      localStorage.setItem(
+        viewportKey,
+        JSON.stringify({ longitude: center.lng, latitude: center.lat, zoom })
+      );
+    }
   }, 150);
 
   const debouncedMove = useCallback(() => {
@@ -1123,9 +1129,10 @@ const MapView = forwardRef<
   /** Empty array prevents click handling in some react-map-gl builds; omit to query all layers. */
   const interactiveLayerIdsProp = interactiveLayerIds.length > 0 ? interactiveLayerIds : undefined;
 
-  // Tile style URL is fetched async from main. Render an empty wrapper meanwhile
-  // so the layout doesn't shift; MapLibre can't handle a null/empty mapStyle.
-  if (!mapStyle) {
+  // Tile style URL and vault root are fetched async from main. Render an empty
+  // wrapper meanwhile so the layout doesn't shift; MapLibre can't handle a
+  // null/empty mapStyle, and the initial viewport needs the vault-scoped key.
+  if (!mapStyle || !viewportKey) {
     return <div style={{ position: "relative", width: "100%", height: "100%" }} />;
   }
 
@@ -1135,7 +1142,11 @@ const MapView = forwardRef<
         ref={mapRef}
         initialViewState={(() => {
           try {
-            const saved = localStorage.getItem("mapos-viewport");
+            // Fall back to the pre-scoping key once so the camera survives the
+            // upgrade, then drop it — unscoped state leaks across vaults.
+            const saved =
+              localStorage.getItem(viewportKey) ?? localStorage.getItem("mapos-viewport");
+            localStorage.removeItem("mapos-viewport");
             if (saved)
               return JSON.parse(saved) as { longitude: number; latitude: number; zoom: number };
           } catch {

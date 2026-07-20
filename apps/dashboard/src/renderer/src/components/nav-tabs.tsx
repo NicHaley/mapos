@@ -5,13 +5,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import { FolderIcon, XIcon } from "lucide-react";
+import { FolderIcon, ListIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
-  | { id: string; title: string; kind: "folder" };
+  | { id: string; title: string; kind: "folder" }
+  | { id: string; title: string; kind: "list" };
 
 type NavTabsProps = {
   tabs: NavTabData[];
@@ -26,6 +27,7 @@ const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
 
 function tabIcon(tab: NavTabData): React.ElementType {
   if (tab.kind === "folder") return FolderIcon;
+  if (tab.kind === "list") return ListIcon;
   return iconForFilename(tab.filePath);
 }
 

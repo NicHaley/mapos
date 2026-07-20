@@ -1,10 +1,15 @@
+import type { MapOverlayLayer } from "@shared/types";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
 import { useVaultRoot } from "./use-vault-root";
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
-  | { kind: "folder"; folderPath: string; label: string };
+  | { kind: "folder"; folderPath: string; label: string }
+  // A working set of features. Carries its own overlay `layer` so the tab (and its
+  // markers) survive a refresh like any other tab — it is not path-based, so relocate
+  // and remove-path skip it. `label` is the overlay's name.
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
@@ -41,6 +46,8 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
+  // List tabs are not path-based — moves never touch them.
+  if (entry.kind === "list") return entry;
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -76,7 +83,10 @@ function relocateEntry(
   };
 }
 
-type PersistedTab = { kind: "place"; filePath: string } | { kind: "folder"; folderPath: string };
+type PersistedTab =
+  | { kind: "place"; filePath: string }
+  | { kind: "folder"; folderPath: string }
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 // Scoped per vault — see useVaultRoot. The bare key predates scoping and is
@@ -88,6 +98,8 @@ export function folderLabel(folderPath: string): string {
 }
 
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
+  // List tabs reference no vault path, so a path removal never matches them.
+  if (entry.kind === "list") return false;
   if (entry.kind === "place") {
     if (isFolder) {
       return (
@@ -235,17 +247,30 @@ export function useNavTabs({
   // Persist current tab heads to localStorage whenever nav changes
   useEffect(() => {
     if (!storageKey || !navRestoredRef.current) return;
-    if (nav.tabs.length === 0) {
+    // Persist each tab's current head. List tabs carry their own layer, so they (and
+    // their markers) round-trip too; if nothing is open, clear the key.
+    const persistTabs: PersistedTab[] = [];
+    for (const tab of nav.tabs) {
+      const current = tab.history[tab.cursor];
+      if (current.kind === "place")
+        persistTabs.push({ kind: "place", filePath: current.place.filePath });
+      else if (current.kind === "folder")
+        persistTabs.push({ kind: "folder", folderPath: current.folderPath });
+      else
+        persistTabs.push({
+          kind: "list",
+          layerId: current.layerId,
+          label: current.label,
+          layer: current.layer
+        });
+    }
+    if (persistTabs.length === 0) {
       localStorage.removeItem(storageKey);
       return;
     }
     const toSave: PersistedNavState = {
-      tabs: nav.tabs.map((tab) => {
-        const current = tab.history[tab.cursor];
-        if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
-        return { kind: "folder", folderPath: current.folderPath };
-      }),
-      activeTab: nav.activeTab
+      tabs: persistTabs,
+      activeTab: Math.min(nav.activeTab, persistTabs.length - 1)
     };
     localStorage.setItem(storageKey, JSON.stringify(toSave));
   }, [nav, storageKey]);
@@ -275,6 +300,13 @@ export function useNavTabs({
             history: [
               { kind: "folder", folderPath: tab.folderPath, label: folderLabel(tab.folderPath) }
             ],
+            cursor: 0
+          };
+        }
+        if (tab.kind === "list") {
+          return {
+            id: crypto.randomUUID(),
+            history: [{ kind: "list", layerId: tab.layerId, label: tab.label, layer: tab.layer }],
             cursor: 0
           };
         }
@@ -363,6 +395,9 @@ export function useNavTabs({
         }
         if (current?.kind === "folder") {
           return { id: tab.id, title: current.label, kind: "folder" as const };
+        }
+        if (current?.kind === "list") {
+          return { id: tab.id, title: current.label, kind: "list" as const };
         }
         return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
       }),

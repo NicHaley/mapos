@@ -11,6 +11,7 @@ import { bbox } from "@turf/bbox";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FeatureListRow, FeaturesListPanel } from "./components/features-list-panel";
 import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
   type MapSelectPlaceMeta,
@@ -51,6 +52,9 @@ const MAIN_PANE_MAX_WIDTH = 40 * BASE_UNITS;
 const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
 const FIT_BUFFER = 2.5 * BASE_UNITS;
 
+/** Above this many points, an overlay is treated as a bulk map layer, not a browsable list. */
+const LIST_MAX_FEATURES = 200;
+
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 
 /** Lines, polygons, etc. — pulse should anchor at map click; Points use geometry coordinates. */
@@ -79,6 +83,18 @@ function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
     /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
     previewMarkdown: "",
     ...(Object.keys(properties).length > 0 ? { properties } : {})
+  };
+}
+
+/** Minimal Point FeatureCollection for framing a list's markers via fitToGeoJson. */
+function pointsFeatureCollection(points: Array<{ lat: number; lng: number }>) {
+  return {
+    type: "FeatureCollection" as const,
+    features: points.map((p) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point", coordinates: [p.lng, p.lat] } as Record<string, unknown>,
+      properties: null
+    }))
   };
 }
 
@@ -290,6 +306,19 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
         mapRef.current?.fitToPlace(entry.place, getMapPadding(true));
+      } else if (entry.kind === "list") {
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+        if (entry.layer.points.length > 0) {
+          mapRef.current?.fitToGeoJson(
+            pointsFeatureCollection(entry.layer.points),
+            getMapPadding(true)
+          );
+        }
       } else {
         setSelectedFolder(entry.folderPath);
         setSelectedPlace(null);
@@ -325,7 +354,74 @@ function App(): React.JSX.Element {
   const isFullscreen = useFullscreen();
 
   const placesByPath = usePlacesIndex();
-  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
+
+  /** A new overlay layer arrived (agent present/render, or user search): draw it, and if
+   *  it carries pickable features, open a list ("working set") tab focused on it. */
+  const handleOverlayLayer = useCallback(
+    (layer: MapOverlayLayer) => {
+      addLayer(layer);
+      // A browsable list only for pickable, human-scale result sets — bulk point dumps
+      // stay map-only (drawn above), never a thousand-row tab.
+      const pickable =
+        (layer.points.length > 0 && layer.points.length <= LIST_MAX_FEATURES) ||
+        (layer.vaultPaths?.length ?? 0) > 0;
+      if (!pickable) return;
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "list", layerId: layer.id, label: layer.layerName || "Results", layer },
+        newTab: true,
+        activate: true
+      });
+      setSelectedPlace(null);
+      setSelectedFolder(null);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+      if (layer.points.length > 0) {
+        mapRef.current?.fitToGeoJson(pointsFeatureCollection(layer.points), getMapPadding(true));
+      }
+    },
+    [addLayer, dispatchNav, getMapPadding]
+  );
+
+  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer: handleOverlayLayer, clearLayers });
+
+  /** Current active tab entry — drives which pane (place / list / folder) is shown. */
+  const activeNavEntry = useMemo(() => {
+    const tab = nav.tabs[nav.activeTab];
+    return tab ? tab.history[tab.cursor] : undefined;
+  }, [nav]);
+
+  /** The overlay layer backing the active list tab (null unless a list tab is active). */
+  const activeListLayer = activeNavEntry?.kind === "list" ? activeNavEntry.layer : null;
+
+  /** A restored list tab (after refresh) carries its layer but the map's overlay state is
+   *  empty — re-add any list-tab layers so their markers redraw. Upsert is idempotent. */
+  useEffect(() => {
+    const listLayers = nav.tabs
+      .map((t) => t.history[t.cursor])
+      .filter((e): e is Extract<NavEntry, { kind: "list" }> => e?.kind === "list")
+      .map((e) => e.layer);
+    if (listLayers.length === 0) return;
+    setOverlayLayers((prev) => {
+      const have = new Set(prev.map((l) => l.id));
+      const missing = listLayers.filter((l) => !have.has(l.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
+  }, [nav.tabs]);
+
+  /** Click a list row: emphasize its marker and center the map on it. */
+  const handleFocusFeatureRow = useCallback(
+    (row: FeatureListRow) => {
+      setFocusedFeatureId(row.id);
+      if (typeof row.lat === "number" && typeof row.lng === "number") {
+        const zoom = Math.max(mapRef.current?.getZoom() ?? 0, 15);
+        mapRef.current?.flyTo(row.lat, row.lng, { zoom, padding: getMapPadding(true) });
+      }
+    },
+    [getMapPadding]
+  );
 
   /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
    * live index. They may lie outside the selected folder, so the map draws them
@@ -359,15 +455,19 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const toInfo = (tab: (typeof nav.tabs)[number]) => {
       const cur = tab.history[tab.cursor];
-      return cur.kind === "place"
-        ? { path: cur.place.filePath, kind: "place" as const, title: cur.place.title }
-        : { path: cur.folderPath, kind: "folder" as const, title: cur.label };
+      if (cur.kind === "place")
+        return { path: cur.place.filePath, kind: "place" as const, title: cur.place.title };
+      if (cur.kind === "folder")
+        return { path: cur.folderPath, kind: "folder" as const, title: cur.label };
+      // List tabs are ephemeral working sets the agent itself produced — not reported.
+      return null;
     };
-    const tabs = nav.tabs.map(toInfo);
-    const activeTab = nav.activeTab >= 0 ? nav.tabs[nav.activeTab] : undefined;
+    const infos = nav.tabs.map(toInfo);
+    const tabs = infos.filter((t): t is NonNullable<typeof t> => t !== null);
+    const active = nav.activeTab >= 0 ? (infos[nav.activeTab] ?? null) : null;
     window.api.nav.sendNavState({
-      active: activeTab ? toInfo(activeTab) : null,
-      activeIndex: nav.activeTab,
+      active,
+      activeIndex: active ? tabs.indexOf(active) : -1,
       tabs
     });
   }, [nav]);
@@ -721,6 +821,32 @@ function App(): React.JSX.Element {
     [getMapPadding]
   );
 
+  /** "Open all results as a list": build an overlay layer from the search results and
+   *  open it as a working-set tab (the same surface the agent's present_features uses). */
+  const handleOpenSearchResults = useCallback(
+    (results: GeocodeSearchResult[], query: string) => {
+      const points = results.slice(0, LIST_MAX_FEATURES).map((r) => {
+        const properties = detailPropertiesFromGeocodeResult(r);
+        return {
+          id: `search-${r.id}`,
+          lat: r.lat,
+          lng: r.lng,
+          title: r.primaryLabel,
+          ...(Object.keys(properties).length > 0 ? { properties } : {})
+        };
+      });
+      if (points.length === 0) return;
+      handleOverlayLayer({
+        id: `search:${crypto.randomUUID()}`,
+        layerName: query.trim() || "Search results",
+        points,
+        lines: [],
+        polygons: []
+      });
+    },
+    [handleOverlayLayer]
+  );
+
   // Flattened view of the indexed vault for the search popover's "Files" group.
   const indexedFiles = useMemo(() => Array.from(placesByPath.values()), [placesByPath]);
 
@@ -1072,6 +1198,7 @@ function App(): React.JSX.Element {
               onSelectResult={handleGeocodeSearchResult}
               files={indexedFiles}
               onSelectFile={handleSearchSelectFile}
+              onOpenResults={handleOpenSearchResults}
             />
             <Tooltip>
               <TooltipTrigger
@@ -1206,6 +1333,32 @@ function App(): React.JSX.Element {
             <ResizeHandle
               side="right"
               ariaLabel="Resize main pane"
+              offset={0}
+              className="bottom-2"
+              onPointerDown={startMainPaneResize}
+            />
+          </div>
+        )}
+
+        {/* Working-set list — full-height pane sharing the main-pane slot. */}
+        {activeListLayer && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
+            style={{
+              left: projectSidebarOpen ? projectSidebarWidth : 0,
+              width: mainPaneWidth
+            }}
+          >
+            <FeaturesListPanel
+              layer={activeListLayer}
+              placesByPath={placesByPath}
+              focusedFeatureId={focusedFeatureId}
+              onClose={() => handleNavTabClose(activeTabIndex)}
+              onFocusFeature={handleFocusFeatureRow}
+            />
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize list pane"
               offset={0}
               className="bottom-2"
               onPointerDown={startMainPaneResize}

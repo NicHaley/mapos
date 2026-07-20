@@ -1,6 +1,7 @@
-import { FileTextIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
+import { FileTextIcon, ListIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@mapos/ui/components/button";
 import {
   Command,
   CommandGroup,
@@ -99,6 +100,8 @@ export type GeocodeSearchPanelProps = {
   /** Indexed vault files to search locally (matched by title and path). */
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
+  /** When provided and there are place results, offers "open all as a list". */
+  onOpenResults?: (results: GeocodeSearchResult[], query: string) => void;
   className?: string;
   /** Shown to the right of the search field (e.g. clear action). */
   inputEndSlot?: ReactNode;
@@ -110,6 +113,7 @@ export function GeocodeSearchPanel({
   onSelectResult,
   files,
   onSelectFile,
+  onOpenResults,
   className,
   inputEndSlot
 }: GeocodeSearchPanelProps): React.JSX.Element {
@@ -339,6 +343,19 @@ export function GeocodeSearchPanel({
           </div>
         ) : null}
       </CommandList>
+      {onOpenResults && results.length > 0 ? (
+        <div className="border-border border-t p-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2"
+            onClick={() => onOpenResults(results, debouncedTrim)}
+          >
+            <ListIcon className="size-4 shrink-0 opacity-70" />
+            Open {results.length} result{results.length === 1 ? "" : "s"} as a list
+          </Button>
+        </div>
+      ) : null}
     </Command>
   );
 }

@@ -396,6 +396,24 @@ function App(): React.JSX.Element {
   /** The overlay layer backing the active list tab (null unless a list tab is active). */
   const activeListLayer = activeNavEntry?.kind === "list" ? activeNavEntry.layer : null;
 
+  /** Layer ids that belong to a list tab. Such a layer's markers are scoped to its tab —
+   *  visible only while it's the active tab — whereas non-tab overlays (routes, isochrones
+   *  from render_overlay_on_map) stay ambient until explicitly cleared. */
+  const listBoundLayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const tab of nav.tabs) {
+      for (const entry of tab.history) if (entry.kind === "list") ids.add(entry.layerId);
+    }
+    return ids;
+  }, [nav.tabs]);
+
+  /** Overlay layers actually drawn now: every ambient (non-list) layer, plus only the
+   *  active list tab's layer. Switching away from a list tab hides its POIs. */
+  const visibleOverlayLayers = useMemo(
+    () => overlayLayers.filter((l) => !listBoundLayerIds.has(l.id) || l.id === activeListLayer?.id),
+    [overlayLayers, listBoundLayerIds, activeListLayer]
+  );
+
   /** A restored list tab (after refresh) carries its layer but the map's overlay state is
    *  empty — re-add any list-tab layers so their markers redraw. Upsert is idempotent. */
   useEffect(() => {
@@ -429,7 +447,7 @@ function App(): React.JSX.Element {
   const presentedPlaces = useMemo(() => {
     const seen = new Set<string>();
     const places: PlaceRecord[] = [];
-    for (const layer of overlayLayers) {
+    for (const layer of visibleOverlayLayers) {
       for (const path of layer.vaultPaths ?? []) {
         if (seen.has(path)) continue;
         seen.add(path);
@@ -438,7 +456,7 @@ function App(): React.JSX.Element {
       }
     }
     return places;
-  }, [overlayLayers, placesByPath]);
+  }, [visibleOverlayLayers, placesByPath]);
 
   /** `pan_to` map command: route through the map handle so the camera respects
    * sidebar/main-pane padding instead of centering behind them. */
@@ -1139,9 +1157,9 @@ function App(): React.JSX.Element {
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={handleFeatureScreenPos}
-          overlayLayers={overlayLayers}
+          overlayLayers={visibleOverlayLayers}
           focusedFeatureId={focusedFeatureId}
-          showOverlay={overlayLayers.length > 0}
+          showOverlay={visibleOverlayLayers.length > 0}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}

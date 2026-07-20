@@ -77,6 +77,15 @@ declare global {
         onOpenFile: (cb: (data: { path: string }) => void) => void;
         removeListeners: () => void;
       };
+      geo: {
+        onLocateRequest: (cb: (data: { id: string; reveal: boolean }) => void) => void;
+        sendLocateReply: (
+          data:
+            | { id: string; ok: true; lat: number; lng: number; accuracy: number }
+            | { id: string; ok: false; error: string }
+        ) => void;
+        removeListeners: () => void;
+      };
       fs: {
         listDir: () => Promise<FileNode[]>;
         readFile: (filePath: string) => Promise<

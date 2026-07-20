@@ -35,6 +35,14 @@ import {
   syncFeatureForFile
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
+import {
+  cancelDownload as cancelRegionDownload,
+  deleteRegion,
+  downloadRegion,
+  fetchManifest,
+  getActiveDownloads,
+  listLocal as listLocalRegions
+} from "./region-packs";
 import { getServiceClient } from "./services/client";
 import { type ToolAnnotations, type ToolDefinition, defineTool } from "./tool-defs";
 import { isProtectedVaultPath, resolveInVault } from "./vault-path";
@@ -201,6 +209,22 @@ ipcMain.on("nav:state-update", (_event, data: NavStatePayload) => {
   lastNavState = data;
 });
 
+// On-demand geolocation. The GPS fix comes from `navigator.geolocation`, which only
+// exists in the renderer, so get_current_location asks the renderer (geo:locate-request)
+// and awaits the correlated reply below. Registered once, module-scope, like the caches.
+type LocateReply =
+  | { id: string; ok: true; lat: number; lng: number; accuracy: number }
+  | { id: string; ok: false; error: string };
+const pendingLocates = new Map<string, (reply: LocateReply) => void>();
+let locateSeq = 0;
+ipcMain.on("geo:locate-reply", (_event, reply: LocateReply) => {
+  const resolve = pendingLocates.get(reply.id);
+  if (resolve) {
+    pendingLocates.delete(reply.id);
+    resolve(reply);
+  }
+});
+
 export function buildMaposSystemPrompt(vaultRoot: string): string {
   // Only document web search when the active services mode can actually serve it
   // (cloud). In local mode there's no provider, and the tool is omitted from the
@@ -247,6 +271,8 @@ You can see and drive the app's open files:
 - \`get_open_tabs\` — every open tab plus which one is active, i.e. the user's current workspace.
 - \`open_file\` — open a vault file in a tab so the user actually sees it. After you create or find something the user will want to look at (e.g. a note from \`write_vault_file\` or a place from \`save_features_to_vault\`), open it rather than only describing it. Don't open files the user didn't ask to see.
 
+Where the user is looking is not where they are. For the map viewport (the visible area/center) use \`get_viewport\`; for the user's real physical position use \`get_current_location\` (device GPS). Ground "near me", "how far am I", or "route me home" in \`get_current_location\`, not the viewport — the map may be panned somewhere else entirely. For "where am I" or "take me to my location", call it with \`reveal_on_map: true\` — that single call shows the location on the map (marker + fly), so you don't need a separate \`pan_to\`; leave it false when you only need the coordinates for a calculation. It triggers a fresh fix and may prompt for OS permission the first time; if it returns null, fall back to asking the user or using the viewport, and say which you used.
+
 ## Map services (search, routing, reachability)
 
 For external spatial queries, use these tools — they are backed by OpenStreetMap data (Photon + Valhalla):
@@ -283,6 +309,14 @@ After calling any of these, display the results:
 Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
+
+## Offline region packs
+
+The map services above can run offline from downloaded **region packs** (per-area bundles of geocoding, routing, and map-tile data). Manage them when the user asks what maps they have offline, or to add/remove offline coverage for an area:
+
+- \`list_region_packs\` — what's installed, what's downloading (with percent), and — with a \`query\` — matching packs available to download and their size. The catalog is large, so always pass a \`query\` to browse it.
+- \`download_region_pack\` — downloads can be LARGE (tens to hundreds of MB). Always look up the size with \`list_region_packs\` first, tell the user the size, and get their OK before downloading. You must pass \`acknowledge_size_mb\` (the size you told them) and it must match the real size, or the call is rejected. The download runs in the background — progress shows in the app's Offline tab; call \`list_region_packs\` again to see when it's installed.
+- \`cancel_region_download\` / \`delete_region_pack\` — stop an in-flight download, or remove an installed pack to reclaim space (re-downloadable).
 
 ${webSearchSection}## File operations
 
@@ -334,6 +368,8 @@ export function buildMaposCustomTools(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   maposDir: string,
+  /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
+  appStateDir: string,
   onVaultWrite: (op: VaultOperation) => void,
   onLayerUpdate: (layer: MapOverlayLayer) => void,
   onLayersClear: () => void,
@@ -1233,6 +1269,50 @@ export function buildMaposCustomTools(
         mainWindow.webContents.send("nav:open-file", { path: abs });
       }
       return TEXT_RESULT(JSON.stringify({ success: true, path: toVaultRelative(abs) }));
+    }
+  });
+
+  const getCurrentLocation = defineTool({
+    name: "get_current_location",
+    label: "Get current location",
+    description:
+      "Get the user's current physical location (device GPS/Wi-Fi) as { lat, lng, accuracy (meters) }. Triggers a fresh fix each call — use it to ground 'near me', 'how far am I from…', or 'route me home' in where the user actually is, rather than the map viewport (where they're looking). Set `reveal_on_map: true` to also drop the location marker and fly the map there in the same call (identical to the app's 'My location' button) — do this for 'where am I' or 'take me to my location'; leave it false when you just need the coordinates for a calculation. The first call may prompt the OS for location permission; returns { location: null, error } if permission is denied, times out, or is unavailable.",
+    parameters: Type.Object({
+      reveal_on_map: Type.Optional(
+        Type.Boolean({
+          description:
+            "When true, also show the location on the map (drop the marker and fly to it), like clicking 'My location'. Default false — just return the coordinates without moving the map."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      if (mainWindow.isDestroyed()) {
+        return TEXT_RESULT(JSON.stringify({ location: null, error: "App window not available" }));
+      }
+      const id = `loc_${++locateSeq}`;
+      const reveal = args.reveal_on_map ?? false;
+      const reply = await new Promise<LocateReply>((resolve) => {
+        // 12s ceiling — just over the renderer's 10s getCurrentPosition timeout, so a
+        // hung fix still resolves the tool rather than blocking the client forever.
+        const timer = setTimeout(() => {
+          if (pendingLocates.delete(id)) {
+            resolve({ id, ok: false, error: "Location request timed out" });
+          }
+        }, 12_000);
+        pendingLocates.set(id, (r) => {
+          clearTimeout(timer);
+          resolve(r);
+        });
+        mainWindow.webContents.send("geo:locate-request", { id, reveal });
+      });
+      if (!reply.ok) {
+        return TEXT_RESULT(JSON.stringify({ location: null, error: reply.error }));
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          location: { lat: reply.lat, lng: reply.lng, accuracy: reply.accuracy }
+        })
+      );
     }
   });
 
@@ -2289,6 +2369,215 @@ export function buildMaposCustomTools(
     }
   });
 
+  // ── Region packs (offline map data) ─────────────────────────────────────────
+  // Managing downloadable offline data. Packs live under appStateDir/regions and are
+  // app-scoped (shared across vaults). Downloads can be large (tens to hundreds of MB),
+  // so download_region_pack forces the agent to have looked up (and thus can state) the
+  // size before starting, and the download runs in the background with progress shown in
+  // the app's Offline tab rather than blocking the tool call.
+  const regionsDir = join(appStateDir, "regions");
+  const bytesToMb = (b: number): number => Math.round((b / 1_000_000) * 10) / 10;
+  /** Total bytes of a region's version (defaults to `latest`), or null if unknown. */
+  const regionVersionBytes = async (
+    region: string,
+    version?: string
+  ): Promise<{ version: string; totalBytes: number; name?: string } | { error: string }> => {
+    const manifest = await fetchManifest();
+    const entry = manifest.regions[region];
+    if (!entry) return { error: `Unknown region "${region}".` };
+    const ver = version ?? entry.latest;
+    const versionEntry = entry.versions[ver];
+    if (!versionEntry) return { error: `Region "${region}" has no version "${ver}".` };
+    return {
+      version: ver,
+      totalBytes: versionEntry.total_bytes,
+      ...(entry.name ? { name: entry.name } : {})
+    };
+  };
+
+  const listRegionPacks = defineTool({
+    name: "list_region_packs",
+    label: "List region packs",
+    description:
+      "List offline map-data region packs: which are installed on disk, which are currently downloading (with percent), and — when you pass `query` — matching packs available to download with their size in MB. Region packs enable offline geocoding, routing, and map tiles for an area. The full catalog is large (hundreds of regions), so `available` results are only returned when you provide a `query` (matched against region slug and name). Use this to answer 'what maps do I have offline?' and to look up a download's size before calling download_region_pack.",
+    parameters: Type.Object({
+      query: Type.Optional(
+        Type.String({
+          description:
+            "Case-insensitive substring to search available regions by slug or name (e.g. 'quebec', 'france'). Omit to just see installed + in-progress packs."
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: "Max available-region matches to return (default 25)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const installed = listLocalRegions(regionsDir).map((p) => ({
+        region: p.region,
+        ...(p.name ? { name: p.name } : {}),
+        version: p.version,
+        sizeMb: bytesToMb(p.totalBytes)
+      }));
+      const downloading = getActiveDownloads().map((p) => ({
+        region: p.region,
+        phase: p.phase,
+        percent: p.totalBytes > 0 ? Math.round((p.receivedBytes / p.totalBytes) * 100) : 0,
+        sizeMb: bytesToMb(p.totalBytes)
+      }));
+
+      let manifest: Awaited<ReturnType<typeof fetchManifest>>;
+      try {
+        manifest = await fetchManifest();
+      } catch (err) {
+        // Catalog needs the network; installed/downloading are local and still useful.
+        return TEXT_RESULT(
+          JSON.stringify({ installed, downloading, catalogError: errorPayload(err) })
+        );
+      }
+
+      const total = Object.keys(manifest.regions).length;
+      if (!args.query) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            installed,
+            downloading,
+            availableCount: total,
+            note: `Pass 'query' to search ${total} available regions by name.`
+          })
+        );
+      }
+      const q = args.query.toLowerCase();
+      const limit = args.limit ?? 25;
+      const matches = Object.entries(manifest.regions)
+        .filter(
+          ([slug, e]) => slug.toLowerCase().includes(q) || (e.name ?? "").toLowerCase().includes(q)
+        )
+        .slice(0, limit)
+        .map(([slug, e]) => {
+          const v = e.versions[e.latest];
+          return {
+            region: slug,
+            ...(e.name ? { name: e.name } : {}),
+            latestVersion: e.latest,
+            sizeMb: v ? bytesToMb(v.total_bytes) : null,
+            installed: installed.some((i) => i.region === slug)
+          };
+        });
+      return TEXT_RESULT(JSON.stringify({ installed, downloading, available: matches }));
+    }
+  });
+
+  const downloadRegionPack = defineTool({
+    name: "download_region_pack",
+    label: "Download region pack",
+    description:
+      "Download an offline map-data region pack (offline geocoding, routing, and map tiles for an area). Downloads can be LARGE — tens to hundreds of MB. Before calling this you MUST tell the user the download size (get it from list_region_packs) and get their confirmation. You must pass `acknowledge_size_mb` — the size in MB you told the user — and it must match the actual size, or the call is rejected. The download runs in the background; progress appears in the app's Offline tab. Use list_region_packs to check when it finishes. Reversible with delete_region_pack.",
+    parameters: Type.Object({
+      region: Type.String({
+        description: "Region slug to download (from list_region_packs, e.g. 'canada-quebec')."
+      }),
+      acknowledge_size_mb: Type.Number({
+        description:
+          "The download size in MB you told the user and they confirmed. Must match the actual pack size (from list_region_packs) within tolerance, else the call is rejected."
+      }),
+      version: Type.Optional(
+        Type.String({ description: "Specific version to download. Defaults to the latest." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const info = await regionVersionBytes(args.region, args.version);
+      if ("error" in info) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: info.error }));
+      }
+      if (getActiveDownloads().some((d) => d.region === args.region)) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `Region "${args.region}" is already downloading.`
+          })
+        );
+      }
+      const already = listLocalRegions(regionsDir).find(
+        (p) => p.region === args.region && p.version === info.version
+      );
+      if (already) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `Region "${args.region}" (${info.version}) is already installed.`
+          })
+        );
+      }
+
+      const actualMb = bytesToMb(info.totalBytes);
+      // Forcing function: the agent can't start a big download without having looked up
+      // (and therefore being able to state) its size. Tolerance covers MB rounding.
+      const tolerance = Math.max(1, actualMb * 0.1);
+      if (Math.abs(args.acknowledge_size_mb - actualMb) > tolerance) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `acknowledge_size_mb (${args.acknowledge_size_mb}) does not match the actual size. This pack is ${actualMb} MB. Tell the user the correct size, confirm, then retry with acknowledge_size_mb: ${actualMb}.`,
+            actualSizeMb: actualMb
+          })
+        );
+      }
+
+      // Fire-and-forget: the download streams progress to the app's Offline tab and can
+      // take minutes — blocking the tool call would stall the client. Failures surface
+      // there (and are swallowed here to avoid an unhandled rejection).
+      void downloadRegion(mainWindow, appStateDir, args.region, args.version).catch((err) => {
+        console.error(`[mcp] region download failed for ${args.region}:`, err);
+      });
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          started: true,
+          region: args.region,
+          version: info.version,
+          sizeMb: actualMb,
+          note: "Download started in the background. Progress shows in the app's Offline tab; call list_region_packs to check when it's installed."
+        })
+      );
+    }
+  });
+
+  const cancelRegionDownloadTool = defineTool({
+    name: "cancel_region_download",
+    label: "Cancel region download",
+    description:
+      "Cancel an in-flight region-pack download. Partially downloaded files are cleaned up; nothing is installed. No-op if the region isn't downloading.",
+    parameters: Type.Object({
+      region: Type.String({ description: "Region slug whose download to cancel." })
+    }),
+    execute: async (_id, args) => {
+      const wasActive = getActiveDownloads().some((d) => d.region === args.region);
+      cancelRegionDownload(args.region);
+      return TEXT_RESULT(JSON.stringify({ success: true, region: args.region, wasActive }));
+    }
+  });
+
+  const deleteRegionPack = defineTool({
+    name: "delete_region_pack",
+    label: "Delete region pack",
+    description:
+      "Delete an installed offline region pack from disk to reclaim space. Offline geocoding/routing/tiles for that area stop working until re-downloaded. Reversible by downloading it again.",
+    parameters: Type.Object({
+      region: Type.String({ description: "Region slug to delete (from list_region_packs)." })
+    }),
+    execute: async (_id, args) => {
+      const installed = listLocalRegions(regionsDir).some((p) => p.region === args.region);
+      if (!installed) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Region "${args.region}" is not installed.` })
+        );
+      }
+      deleteRegion(appStateDir, args.region);
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:changed");
+      return TEXT_RESULT(JSON.stringify({ success: true, region: args.region, action: "deleted" }));
+    }
+  });
+
   // Web search is server-only — only expose the tool when the active services mode
   // can actually serve it (the cloud MapOS server). Omitting it
   // (rather than letting it error) keeps the agent from offering web search it
@@ -2311,6 +2600,12 @@ export function buildMaposCustomTools(
     idempotentHint: true,
     openWorldHint: true
   };
+  // read-only real-world sensor (device GPS) — not idempotent (the fix moves)
+  const SENSOR_READ: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: false,
+    openWorldHint: true
+  };
   // transient map/UI effect, no data or environment change
   const MAP_EFFECT: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
   // idempotent transient effect (clearing the map, moving the camera)
@@ -2329,6 +2624,12 @@ export function buildMaposCustomTools(
   const CREATE_ONLY: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
   // can overwrite/delete existing vault content
   const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true };
+  // starts a background network download of offline data (adds data, reversible)
+  const REGION_DOWNLOAD: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true
+  };
 
   const annotationsByName: Record<string, ToolAnnotations> = {
     present_features: MAP_EFFECT,
@@ -2339,6 +2640,7 @@ export function buildMaposCustomTools(
     get_viewport: READ_ONLY,
     get_active_file: READ_ONLY,
     get_open_tabs: READ_ONLY,
+    get_current_location: SENSOR_READ,
     query_spatial_index: READ_ONLY,
     find_near: READ_ONLY,
     query_within_polygon: READ_ONLY,
@@ -2362,7 +2664,11 @@ export function buildMaposCustomTools(
     write_frontmatter_properties: DESTRUCTIVE,
     write_place_body: DESTRUCTIVE,
     delete_vault_file: DESTRUCTIVE,
-    rename_vault_file: DESTRUCTIVE
+    rename_vault_file: DESTRUCTIVE,
+    list_region_packs: READ_ONLY_EXTERNAL,
+    download_region_pack: REGION_DOWNLOAD,
+    cancel_region_download: MAP_EFFECT_IDEMPOTENT,
+    delete_region_pack: DESTRUCTIVE
   };
 
   const tools: ToolDefinition[] = [
@@ -2381,6 +2687,7 @@ export function buildMaposCustomTools(
     getActiveFile,
     getOpenTabs,
     openFile,
+    getCurrentLocation,
     geocodeSearch,
     reverseGeocodeTool,
     getDirectionsTool,
@@ -2397,7 +2704,11 @@ export function buildMaposCustomTools(
     writeFrontmatterProperties,
     writePlaceBody,
     deleteVaultFile,
-    renameVaultFile
+    renameVaultFile,
+    listRegionPacks,
+    downloadRegionPack,
+    cancelRegionDownloadTool,
+    deleteRegionPack
   ];
 
   // Attach hints. Any tool missing an entry defaults to the most cautious (destructive)

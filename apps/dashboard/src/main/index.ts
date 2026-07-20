@@ -210,7 +210,7 @@ app.whenReady().then(() => {
       stopWatcher = watcher.stop;
       // Hand the live vault (window/index/filesystem) to the MCP server so its tool set targets
       // this vault. The HTTP listener itself is bound once at startup and survives switches.
-      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places });
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       vaultActive = true;
     })();
     return bootPromise;

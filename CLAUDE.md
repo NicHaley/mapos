@@ -2,10 +2,11 @@
 
 Guidance for working on the **MapOS codebase** (this repo). This file is loaded into Claude Code's context, so it's about *building* MapOS.
 
-> The embedded Pi-SDK chat agent has been removed. MapOS is moving to an **MCP** model where
-> any MCP-capable chat client drives the app. The tool implementations + system prompt survive,
-> Pi-free, in `apps/dashboard/src/main/mcp-server.ts` (`buildMaposSystemPrompt`,
-> `buildMaposCustomTools`) — staged for the MCP server (not yet wired to a runtime).
+> The embedded Pi-SDK chat agent has been removed. MapOS is driven over **MCP**: any
+> MCP-capable chat client connects to a local, in-process MCP server the app hosts. The tool
+> implementations + system prompt live, Pi-free, in `apps/dashboard/src/main/mcp-server.ts`
+> (`buildMaposSystemPrompt`, `buildMaposCustomTools`); the server that exposes them is under
+> `apps/dashboard/src/main/mcp/`. See [The MCP server](#the-mcp-server) below.
 
 ---
 
@@ -41,7 +42,8 @@ Electron three-process split with a context-isolated IPC bridge.
 
 **`src/main/`** (Node):
 - `index.ts` — app entry: window, session/CSP policy, IPC registration, watcher, updater.
-- `mcp-server.ts` — **the agent's tools and system prompt** (large file), Pi-free (`tool-defs.ts` holds the local `ToolDefinition`/`defineTool`). Spatial queries, geocoding/routing wrappers, vault file I/O tools, presentation tools. Currently has no runtime consumer — staged for the future MCP server.
+- `mcp-server.ts` — **the agent's tools and system prompt** (large file), Pi-free (`tool-defs.ts` holds the local `ToolDefinition`/`defineTool`). `buildMaposCustomTools` returns the tool set; `buildMaposSystemPrompt` the instructions. Covers spatial queries, geocoding/routing wrappers, vault file I/O + targeted edits, app awareness (active file / open tabs / current location), region-pack management, and presentation tools.
+- `mcp/` — the runtime that serves those tools. `manager.ts` (in-process Streamable-HTTP listener on `127.0.0.1`, bound once, tool set re-targeted per active vault), `bridge.ts` (maps `ToolDefinition`s onto the MCP `Server`), `auth.ts` (bearer-token gate). `mcp-ipc.ts` + the `mcp` block of `mapos.json` (enable/port/token) configure it.
 - `db.ts` — spatial index (better-sqlite3 + Drizzle). Schema is canonical-string + hash-based drop/recreate migration; rtree bbox virtual table. **Only derived data** — never config.
 - `watcher.ts` — chokidar watch over the vault; parses YAML frontmatter (`gray-matter`), extracts WKT geometry, keeps the index in sync.
 - `wkt.ts` / `geo-compute.ts` / `bbox.ts` — WKT↔GeoJSON (`wellknown`) and Turf.js geometry ops.
@@ -50,11 +52,23 @@ Electron three-process split with a context-isolated IPC bridge.
 - `vault-config.ts` — shared allowlisted read/merge/write for `.mapos/*.json` intent files. `appearance.ts` is a thin domain wrapper.
 - `region-packs.ts` / `region-protocol.ts` — download/manage region packs; `mapos://` protocol.
 
-**`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `fs.*`, `regions.*`). All payloads are plain JSON. (`map.*` overlay/pan/viewport channels have no producer right now — dormant until the MCP server drives them.)
+**`src/preload/index.ts`** — exposes a namespaced `window.api` (`places.*`, `map.*`, `nav.*`, `geo.*`, `fs.*`, `regions.*`, …). All payloads are plain JSON. The MCP tools drive the app through these: `map.*` (overlay/pan) and `nav.*` (open-file) are main→renderer commands; `map.*` viewport, `nav.*` state, and `geo.*` locate-reply flow renderer→main so tools like `get_viewport` / `get_active_file` / `get_current_location` can read the live app state.
 
 **`src/renderer/`** — React client (`app.tsx` orchestrates the MapView + chat sidebar). Uses `@mapos/ui` and `maplibre-gl`.
 
 **`src/shared/`** — types shared across main/renderer (`PlaceRecord`, overlay types, AI model/provider types, property inference).
+
+---
+
+## The MCP server
+
+MapOS has **no built-in chat UI** — the agent experience is whatever MCP client the user connects (Claude Code, Claude Desktop, etc.). The app hosts a local MCP server so those clients can drive it.
+
+- **Transport / lifecycle** — in-process Streamable-HTTP on `127.0.0.1:<port>/mcp`, bearer-token gated, stateless (a fresh `Server` + transport per request). The HTTP listener is bound once for the app's lifetime (`mcpManager.start`), so a connected client survives vault switches; the *tool set* is vault-scoped and rebuilt by `setActiveVault` / emptied by `clearActiveVault`.
+- **Tools** — built by `buildMaposCustomTools(mainWindow, places, vaultRoot, appStateDir, …)`. Each carries advisory MCP `annotations` (`readOnlyHint` / `destructiveHint` / `openWorldHint` / `idempotentHint`), surfaced via `bridge.ts` — defense-in-depth over the real gate, never the primary control.
+- **Write safety** — the main process is the gatekeeper, not the client. Paths are confined to the vault via `vault-path.ts` (`resolveInVault` rejects `..`/absolute/symlink escapes; `.mapos/` is denylisted); writes are no-clobber by default; edits snapshot previous content. Prefer the *targeted* edit tools (`write_frontmatter_property` / `write_place_body`) over full rewrites.
+- **Instructions** — `buildMaposSystemPrompt(vaultRoot)` is delivered as the MCP `instructions` field. It's **advisory** — a shell-capable client (like Claude Code) may still prefer its own `bash`/`read` over the vault tools; the tools primarily backfill shell-less clients.
+- **Clients without their own filesystem** get read/list/search over the vault (`read_vault_file`, `list_vault_files`, `search_vault_files`); the built-in names (`read`, `bash`, `grep`, `find`, `ls`) are assumed client-supplied and are *not* registered.
 
 ---
 

@@ -577,6 +577,39 @@ function App(): React.JSX.Element {
     return () => window.api.nav.removeListeners();
   }, [handleSelectPlaceFromSidebar]);
 
+  /** `get_current_location` agent request: run the same geolocation fix as the "My
+   * location" control and reply with the coords. When `reveal` is set, also drop the
+   * marker and fly to it (identical to clicking the button); otherwise stay silent so
+   * the agent can read the location without hijacking the user's view. */
+  useEffect(() => {
+    window.api.geo.onLocateRequest(({ id, reveal }) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          if (reveal) {
+            const zoom = mapRef.current?.getZoom() ?? 0;
+            handleUserLocationChange(
+              { lng: longitude, lat: latitude, accuracy },
+              Math.max(zoom, 14)
+            );
+          }
+          window.api.geo.sendLocateReply({ id, ok: true, lat: latitude, lng: longitude, accuracy });
+        },
+        (err) => {
+          const error =
+            err.code === err.PERMISSION_DENIED
+              ? "Location access denied"
+              : err.code === err.TIMEOUT
+                ? "Location timed out"
+                : "Location unavailable";
+          window.api.geo.sendLocateReply({ id, ok: false, error });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+    return () => window.api.geo.removeListeners();
+  }, [handleUserLocationChange]);
+
   /** Wikilink click in a place card body: mini card over the target feature
    * (a floating peek when a full panel is open), matching map-click semantics.
    * Cmd/ctrl+click keeps the browser convention: open as a full background tab. */

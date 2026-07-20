@@ -27,6 +27,8 @@ type ActiveVault = {
   mainWindow: BrowserWindow;
   vaultRoot: string;
   places: Map<string, PlaceRecord>;
+  /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
+  appStateDir: string;
 };
 
 /**
@@ -99,6 +101,7 @@ export class McpManager {
       v.mainWindow,
       v.places,
       v.vaultRoot,
+      v.appStateDir,
       // Undo tracking + geometry-stash persistence are out of scope for v1 (no-ops).
       (_op: VaultOperation) => {},
       (_layer: MapOverlayLayer) => {

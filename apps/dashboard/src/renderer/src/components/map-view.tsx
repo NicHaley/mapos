@@ -302,6 +302,8 @@ export type MapViewHandle = {
   fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
+  /** Current camera zoom, or undefined before the map is ready. */
+  getZoom: () => number | undefined;
 };
 
 /**
@@ -580,6 +582,7 @@ const MapView = forwardRef<
         });
       },
       fitToFolder,
+      getZoom: () => mapRef.current?.getZoom(),
       fitToPlace: (place: PlaceRecord, padding: FitPadding) => {
         const map = mapRef.current;
         if (!map || !place.geometry) return;

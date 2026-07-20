@@ -79,6 +79,21 @@ const api = {
       ipcRenderer.removeAllListeners("nav:open-file");
     }
   },
+  geo: {
+    /** Main asks the renderer for a fresh geolocation fix (correlated by `id`).
+     * `reveal` = also drop the marker + fly to it, like the "My location" button. */
+    onLocateRequest: (cb: (data: { id: string; reveal: boolean }) => void) =>
+      ipcRenderer.on("geo:locate-request", (_e, data) => cb(data)),
+    /** Renderer returns the fix (or an error) for the matching request `id`. */
+    sendLocateReply: (
+      data:
+        | { id: string; ok: true; lat: number; lng: number; accuracy: number }
+        | { id: string; ok: false; error: string }
+    ) => ipcRenderer.send("geo:locate-reply", data),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("geo:locate-request");
+    }
+  },
   fs: {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
     readFile: (filePath: string) =>

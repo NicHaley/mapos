@@ -20,6 +20,9 @@ const api = {
   app: {
     getVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>
   },
+  clipboard: {
+    writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text) as Promise<void>
+  },
   places: {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
     queryBounds: (bounds: { north: number; south: number; east: number; west: number }) =>

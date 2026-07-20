@@ -37,6 +37,9 @@ declare global {
       app: {
         getVersion: () => Promise<string>;
       };
+      clipboard: {
+        writeText: (text: string) => Promise<void>;
+      };
       places: {
         requestInitial: () => void;
         queryBounds: (bounds: {

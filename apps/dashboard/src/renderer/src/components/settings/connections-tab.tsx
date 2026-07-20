@@ -1,4 +1,9 @@
-import { Button } from "@mapos/ui/components/button";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput
+} from "@mapos/ui/components/input-group";
 import { Switch } from "@mapos/ui/components/switch";
 import type { McpConnectionInfo } from "@shared/types";
 import { CheckIcon, CopyIcon, RefreshCwIcon } from "lucide-react";
@@ -29,23 +34,31 @@ function clientSnippets(url: string, token: string): { label: string; code: stri
         null,
         2
       )
+    },
+    {
+      label: "OpenAI Codex",
+      // ~/.codex/config.toml — `url` selects the Streamable HTTP transport; custom headers
+      // (our bearer token) go under the nested http_headers table.
+      code: `[mcp_servers.mapos]\nurl = "${url}"\n\n[mcp_servers.mapos.http_headers]\nAuthorization = "Bearer ${token}"`
     }
   ];
 }
 
-function CopyButton({ text, label }: { text: string; label?: string }) {
+// Copy action for use inside an InputGroup addon. Writes via the native clipboard over IPC —
+// the renderer's navigator.clipboard is blocked by the app's deny-by-default permission handler.
+function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
+    void window.api.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   }, [text]);
   return (
-    <Button variant="outline" size="sm" onClick={copy} className="shrink-0 gap-1.5">
-      {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-      {label ?? (copied ? "Copied" : "Copy")}
-    </Button>
+    <InputGroupButton onClick={copy} className="gap-1.5">
+      {copied ? <CheckIcon /> : <CopyIcon />}
+      {copied ? "Copied" : "Copy"}
+    </InputGroupButton>
   );
 }
 
@@ -95,9 +108,9 @@ export function ConnectionsTab() {
     <div className="flex flex-col gap-8">
       <Section
         title="MCP server"
-        description="Let an AI client (Claude, Cursor, …) drive MapOS through the Model Context Protocol. The server runs locally on your machine and is reachable only with the token below."
+        description="Let an AI client (Claude, Cursor, Codex, …) drive MapOS through the Model Context Protocol. The server runs locally on your machine and is reachable only with the token below."
       >
-        <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2.5">
+        <div className="flex items-center justify-between rounded-lg border border-input bg-background px-3 py-2.5">
           <div className="flex flex-col">
             <span className="text-sm font-medium">Enable MCP server</span>
             <span className="text-xs text-muted-foreground">
@@ -112,24 +125,22 @@ export function ConnectionsTab() {
         <>
           <Section
             title="Access token"
-            description="Every request must include this token. Regenerate it to revoke access from clients you've connected before — they'll need the new value."
+            description="Every request must include this token. Regenerate it to revoke access from clients you've connected before, they will need the new value."
           >
-            <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 font-mono text-xs">
-                {info.token}
-              </code>
-              <CopyButton text={info.token} />
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void regenerate()}
-                className="shrink-0 gap-1.5"
-              >
-                <RefreshCwIcon className="size-3.5" />
-                Regenerate
-              </Button>
-            </div>
+            <InputGroup className="bg-background">
+              <InputGroupInput readOnly value={info.token} className="font-mono text-xs" />
+              <InputGroupAddon align="inline-end">
+                <CopyButton text={info.token} />
+                <InputGroupButton
+                  disabled={busy}
+                  onClick={() => void regenerate()}
+                  className="gap-1.5"
+                >
+                  <RefreshCwIcon />
+                  Regenerate
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
           </Section>
 
           <Section
@@ -138,15 +149,18 @@ export function ConnectionsTab() {
           >
             <div className="flex flex-col gap-4">
               {clientSnippets(info.url, info.token).map(({ label, code }) => (
-                <div key={label} className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{label}</span>
+                <InputGroup key={label} className="flex-col items-stretch bg-background">
+                  <InputGroupAddon
+                    align="block-start"
+                    className="justify-between border-b bg-muted/40"
+                  >
+                    <span className="text-xs font-medium text-foreground">{label}</span>
                     <CopyButton text={code} />
-                  </div>
-                  <pre className="overflow-x-auto rounded-md border bg-muted/50 p-3 font-mono text-xs">
-                    <code>{code}</code>
+                  </InputGroupAddon>
+                  <pre className="overflow-x-auto py-2 pl-3 font-mono text-xs">
+                    <code className="inline-block pr-3">{code}</code>
                   </pre>
-                </div>
+                </InputGroup>
               ))}
             </div>
           </Section>

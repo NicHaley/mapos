@@ -1,7 +1,7 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import { BrowserWindow, app, ipcMain, session, shell } from "electron";
+import { BrowserWindow, app, clipboard, ipcMain, session, shell } from "electron";
 
 // Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
 app.setName("MapOS");
@@ -112,6 +112,12 @@ app.whenReady().then(() => {
   ipcMain.on("ping", () => console.log("pong"));
 
   ipcMain.handle("app:get-version", () => app.getVersion());
+
+  // Copy through the native clipboard: the renderer's `navigator.clipboard` is blocked by our
+  // deny-by-default permission handler (only geolocation is granted), so route writes here.
+  ipcMain.handle("clipboard:write-text", (_e, text: string) => {
+    clipboard.writeText(text);
+  });
 
   ipcMain.handle("window:is-fullscreen", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

@@ -9,6 +9,7 @@ import type {
   FileNode,
   InstalledRegionPack,
   MapOverlayLayer,
+  McpConnectionInfo,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -182,6 +183,11 @@ declare global {
           newName: string
         ) => Promise<{ ok: true; newPath: string } | { ok: false; error: string }>;
         deleteVault: () => Promise<{ ok: true } | { ok: false; error: string }>;
+      };
+      mcp: {
+        getConnectionInfo: () => Promise<McpConnectionInfo>;
+        setEnabled: (enabled: boolean) => Promise<McpConnectionInfo>;
+        regenerateToken: () => Promise<McpConnectionInfo>;
       };
       properties: {
         listAllKeys: () => Promise<Array<{ key: string; type: PropertyType }>>;

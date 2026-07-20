@@ -9,6 +9,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   InstalledRegionPack,
   MapOverlayLayer,
+  McpConnectionInfo,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -213,6 +214,13 @@ const api = {
       ipcRenderer.invoke("mapos:delete-vault") as Promise<
         { ok: true } | { ok: false; error: string }
       >
+  },
+  mcp: {
+    getConnectionInfo: () =>
+      ipcRenderer.invoke("mcp:get-connection-info") as Promise<McpConnectionInfo>,
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke("mcp:set-enabled", enabled) as Promise<McpConnectionInfo>,
+    regenerateToken: () => ipcRenderer.invoke("mcp:regenerate-token") as Promise<McpConnectionInfo>
   },
   properties: {
     listAllKeys: () =>

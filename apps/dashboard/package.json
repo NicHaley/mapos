@@ -27,6 +27,7 @@
     "@mapos/contracts": "workspace:*",
     "@mapos/service-adapters": "workspace:*",
     "@mapos/ui": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@protomaps/basemaps": "^5.7.2",
     "@tiptap/extension-image": "^3.27.1",
     "@turf/area": "^7.3.5",

@@ -216,3 +216,16 @@ export function isServableImageFile(name: string): boolean {
   const lower = name.toLowerCase();
   return SERVABLE_IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
+
+/**
+ * Local MCP server connection info surfaced to the renderer's Settings → Connections panel.
+ * Lives in shared/ so main, preload, and renderer share one definition without the renderer
+ * pulling in any main-only (node/electron) modules.
+ */
+export type McpConnectionInfo = {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  token: string;
+  url: string;
+};

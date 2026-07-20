@@ -1424,10 +1424,16 @@ export function buildMaposCustomTools(
     name: "write_vault_file",
     label: "Write vault file",
     description:
-      "Write or overwrite a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this. To save geocoded or ad-hoc places as NEW place files, use save_features_to_vault instead — it writes the app's canonical place format for you.",
+      "Write a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this. To save geocoded or ad-hoc places as NEW place files, use save_features_to_vault instead — it writes the app's canonical place format for you. Creating a new file is allowed by default; overwriting an EXISTING file requires `overwrite: true` (so an unintended clobber fails loudly) — set it only when you intend to replace the file's entire contents.",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path within the MapOS vault" }),
-      content: Type.String({ description: "Full file content to write" })
+      content: Type.String({ description: "Full file content to write" }),
+      overwrite: Type.Optional(
+        Type.Boolean({
+          description:
+            "Required to replace an existing file. Omit or set false to create-only: the call fails if the path already exists instead of clobbering it."
+        })
+      )
     }),
     execute: async (_id, args) => {
       if (!isWritableVaultPath(args.path)) {
@@ -1438,7 +1444,17 @@ export function buildMaposCustomTools(
           })
         );
       }
-      const previousContent = existsSync(args.path) ? readFileSync(args.path, "utf-8") : null;
+      const exists = existsSync(args.path);
+      if (exists && args.overwrite !== true) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error:
+              "File already exists. Pass overwrite: true to replace its entire contents, or use a targeted edit instead of a full rewrite."
+          })
+        );
+      }
+      const previousContent = exists ? readFileSync(args.path, "utf-8") : null;
       onVaultWrite({ path: args.path, previousContent });
       mkdirSync(dirname(args.path), { recursive: true });
       writeFileSync(args.path, args.content, "utf-8");
@@ -1805,10 +1821,16 @@ export function buildMaposCustomTools(
     name: "rename_vault_file",
     label: "Rename vault file",
     description:
-      "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically.",
+      "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically. Fails if a file already exists at toPath unless `overwrite: true` is set, so a move never silently clobbers an existing file.",
     parameters: Type.Object({
       fromPath: Type.String({ description: "Current absolute path of the file within the vault" }),
-      toPath: Type.String({ description: "New absolute path within the vault" })
+      toPath: Type.String({ description: "New absolute path within the vault" }),
+      overwrite: Type.Optional(
+        Type.Boolean({
+          description:
+            "Required when a file already exists at toPath. Omit or set false to fail instead of overwriting the destination."
+        })
+      )
     }),
     execute: async (_id, args) => {
       if (!isWritableVaultPath(args.fromPath) || !isWritableVaultPath(args.toPath)) {
@@ -1821,6 +1843,14 @@ export function buildMaposCustomTools(
       }
       if (!existsSync(args.fromPath)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "Source file not found" }));
+      }
+      if (existsSync(args.toPath) && args.overwrite !== true) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: "A file already exists at toPath. Pass overwrite: true to replace it."
+          })
+        );
       }
       const content = readFileSync(args.fromPath, "utf-8");
       onVaultWrite({ path: args.fromPath, previousContent: content });

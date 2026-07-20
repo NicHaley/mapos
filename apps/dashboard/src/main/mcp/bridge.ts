@@ -17,7 +17,9 @@ export function registerMaposTools(server: Server, getTools: () => ToolDefinitio
       name: t.name,
       description: t.description,
       // TypeBox `Type.Object(...)` is a JSON Schema object at runtime.
-      inputSchema: t.parameters as { type: "object" } & Record<string, unknown>
+      inputSchema: t.parameters as { type: "object" } & Record<string, unknown>,
+      // Default the display title to the tool's label; explicit hints override.
+      annotations: { title: t.label, ...t.annotations }
     }))
   }));
 

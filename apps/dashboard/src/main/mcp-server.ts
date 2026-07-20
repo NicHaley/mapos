@@ -26,7 +26,7 @@ import {
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
-import { type ToolDefinition, defineTool } from "./tool-defs";
+import { type ToolAnnotations, type ToolDefinition, defineTool } from "./tool-defs";
 import { isProtectedVaultPath, resolveInVault } from "./vault-path";
 import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
 import { downloadWikidataImage } from "./wiki-image";
@@ -1890,7 +1890,65 @@ export function buildMaposCustomTools(
   // Restore `getServiceClient().isAvailable("webSearch")` to re-enable.
   const webSearchAvailable = false;
 
-  return [
+  // MCP behavior hints. Advisory (clients treat them as untrusted) — defense-in-depth
+  // over the vault sandbox + no-clobber guards, never the primary control. Categories:
+  const READ_ONLY: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: false
+  };
+  // read-only but hits an external service (geocoder/router/web)
+  const READ_ONLY_EXTERNAL: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: true
+  };
+  // transient map/UI effect, no data or environment change
+  const MAP_EFFECT: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
+  // idempotent transient effect (clearing the map, moving the camera)
+  const MAP_EFFECT_IDEMPOTENT: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true
+  };
+  // rebuilds derived index only (never the vault); the index is a rebuildable cache
+  const INDEX_MAINT: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true
+  };
+  // creates new vault files, never overwrites
+  const CREATE_ONLY: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
+  // can overwrite/delete existing vault content
+  const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true };
+
+  const annotationsByName: Record<string, ToolAnnotations> = {
+    present_features: MAP_EFFECT,
+    render_overlay_on_map: MAP_EFFECT,
+    clear_map_overlay: MAP_EFFECT_IDEMPOTENT,
+    pan_to: MAP_EFFECT_IDEMPOTENT,
+    get_viewport: READ_ONLY,
+    query_spatial_index: READ_ONLY,
+    find_near: READ_ONLY,
+    query_within_polygon: READ_ONLY,
+    spatial_sql: READ_ONLY,
+    geo_compute: READ_ONLY,
+    compute_bbox: READ_ONLY,
+    geocode_search: READ_ONLY_EXTERNAL,
+    reverse_geocode: READ_ONLY_EXTERNAL,
+    get_directions: READ_ONLY_EXTERNAL,
+    get_isochrone: READ_ONLY_EXTERNAL,
+    get_matrix: READ_ONLY_EXTERNAL,
+    web_search: { readOnlyHint: true, openWorldHint: true },
+    index_file: INDEX_MAINT,
+    rebuild_index: INDEX_MAINT,
+    save_features_to_vault: CREATE_ONLY,
+    write_vault_file: DESTRUCTIVE,
+    delete_vault_file: DESTRUCTIVE,
+    rename_vault_file: DESTRUCTIVE
+  };
+
+  const tools: ToolDefinition[] = [
     presentFeatures,
     renderOverlayOnMap,
     clearMapOverlay,
@@ -1915,4 +1973,11 @@ export function buildMaposCustomTools(
     deleteVaultFile,
     renameVaultFile
   ];
+
+  // Attach hints. Any tool missing an entry defaults to the most cautious (destructive)
+  // classification so a newly added tool is never silently treated as safe.
+  for (const t of tools) {
+    t.annotations = annotationsByName[t.name] ?? DESTRUCTIVE;
+  }
+  return tools;
 }

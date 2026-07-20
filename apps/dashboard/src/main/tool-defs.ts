@@ -10,6 +10,24 @@ export interface ToolResult {
   details?: unknown;
 }
 
+/**
+ * MCP tool behavior hints (mirrors the spec's `ToolAnnotations`). Advisory only —
+ * clients use them to decide what to gate, but must treat them as untrusted claims,
+ * so they are defense-in-depth, never the primary access control.
+ */
+export interface ToolAnnotations {
+  /** Display name for the tool. */
+  title?: string;
+  /** True if the tool does not modify its environment. */
+  readOnlyHint?: boolean;
+  /** For non-read-only tools: may it perform irreversible/destructive updates? */
+  destructiveHint?: boolean;
+  /** Repeated calls with the same args have no additional effect. */
+  idempotentHint?: boolean;
+  /** True if the tool interacts with external entities (network/services). */
+  openWorldHint?: boolean;
+}
+
 export interface ToolDefinition<TParams extends TSchema = TSchema> {
   /** Tool name (used in LLM tool calls). */
   name: string;
@@ -19,6 +37,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema> {
   description: string;
   /** Parameter schema (TypeBox). */
   parameters: TParams;
+  /** MCP behavior hints, forwarded to the client on tools/list. */
+  annotations?: ToolAnnotations;
   /** Execute the tool. */
   execute(toolCallId: string, params: Static<TParams>, signal?: AbortSignal): Promise<ToolResult>;
 }

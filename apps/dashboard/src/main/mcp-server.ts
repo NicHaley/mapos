@@ -27,6 +27,7 @@ import {
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getServiceClient } from "./services/client";
 import { type ToolDefinition, defineTool } from "./tool-defs";
+import { isProtectedVaultPath, resolveInVault } from "./vault-path";
 import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
 import { downloadWikidataImage } from "./wiki-image";
 import { geometryToWkt } from "./wkt";
@@ -364,8 +365,11 @@ export function buildMaposCustomTools(
     return { features, count: features.length, truncated };
   };
 
-  const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-  const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
+  // Confine a caller-supplied path to the vault. resolveInVault canonicalizes
+  // and rejects `..`/absolute/symlink escapes — a raw startsWith check does not.
+  const isUnderVault = (p: string) => resolveInVault(maposDir, p) !== null;
+  // Writes additionally may not touch the protected `.mapos/` config + index subtree.
+  const isWritableVaultPath = (p: string) => isUnderVault(p) && !isProtectedVaultPath(maposDir, p);
 
   // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
   // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
@@ -1426,9 +1430,12 @@ export function buildMaposCustomTools(
       content: Type.String({ description: "Full file content to write" })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      if (!isWritableVaultPath(args.path)) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+          JSON.stringify({
+            success: false,
+            error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+          })
         );
       }
       const previousContent = existsSync(args.path) ? readFileSync(args.path, "utf-8") : null;
@@ -1535,9 +1542,12 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       const folder = args.folder ?? maposDir;
-      if (!isUnderVault(folder)) {
+      if (!isWritableVaultPath(folder)) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+          JSON.stringify({
+            success: false,
+            error: `Folder must be within the vault and outside .mapos/ (${maposDir})`
+          })
         );
       }
       const features = coerceJsonArray(args.features);
@@ -1763,9 +1773,12 @@ export function buildMaposCustomTools(
       path: Type.String({ description: "Absolute path within the MapOS vault to delete" })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      if (!isWritableVaultPath(args.path)) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+          JSON.stringify({
+            success: false,
+            error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+          })
         );
       }
       if (!existsSync(args.path)) {
@@ -1798,9 +1811,12 @@ export function buildMaposCustomTools(
       toPath: Type.String({ description: "New absolute path within the vault" })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.fromPath) || !isUnderVault(args.toPath)) {
+      if (!isWritableVaultPath(args.fromPath) || !isWritableVaultPath(args.toPath)) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: "Both paths must be within vault" })
+          JSON.stringify({
+            success: false,
+            error: "Both paths must be within the vault and outside .mapos/"
+          })
         );
       }
       if (!existsSync(args.fromPath)) {

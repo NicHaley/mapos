@@ -67,6 +67,18 @@ const api = {
       ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },
+  nav: {
+    sendNavState: (data: {
+      active: { path: string; kind: "place" | "folder"; title: string } | null;
+      activeIndex: number;
+      tabs: Array<{ path: string; kind: "place" | "folder"; title: string }>;
+    }) => ipcRenderer.send("nav:state-update", data),
+    onOpenFile: (cb: (data: { path: string }) => void) =>
+      ipcRenderer.on("nav:open-file", (_e, data) => cb(data)),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("nav:open-file");
+    }
+  },
   fs: {
     listDir: () => ipcRenderer.invoke("fs:list-dir"),
     readFile: (filePath: string) =>

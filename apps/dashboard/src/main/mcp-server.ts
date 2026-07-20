@@ -9,7 +9,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
@@ -190,6 +190,17 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
   lastViewport = data;
 });
 
+/** One open tab / the active view. `path` is absolute (as the renderer knows it). */
+type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
+type NavStatePayload = { active: NavTabInfo | null; activeIndex: number; tabs: NavTabInfo[] };
+
+// The renderer pushes its current tab/selection state up whenever it changes, mirroring
+// the viewport cache above. get_active_file / get_open_tabs read this snapshot.
+let lastNavState: NavStatePayload | null = null;
+ipcMain.on("nav:state-update", (_event, data: NavStatePayload) => {
+  lastNavState = data;
+});
+
 export function buildMaposSystemPrompt(vaultRoot: string): string {
   // Only document web search when the active services mode can actually serve it
   // (cloud). In local mode there's no provider, and the tool is omitted from the
@@ -228,6 +239,13 @@ Write frontmatter values using the correct YAML type so they round-trip properly
 Always ground responses in the user's actual files. Be concise and spatial — when discussing places, think about the map. When creating files, use human-readable kebab-case filenames.
 
 Have a neutral tone. Don't be too friendly or too formal.
+
+## What the user is looking at
+
+You can see and drive the app's open files:
+- \`get_active_file\` — the file open in the active tab (path, title, kind). Call it to ground vague references — "this place", "what I'm looking at", "here" — instead of asking the user which file they mean.
+- \`get_open_tabs\` — every open tab plus which one is active, i.e. the user's current workspace.
+- \`open_file\` — open a vault file in a tab so the user actually sees it. After you create or find something the user will want to look at (e.g. a note from \`write_vault_file\` or a place from \`save_features_to_vault\`), open it rather than only describing it. Don't open files the user didn't ask to see.
 
 ## Map services (search, routing, reachability)
 
@@ -1135,6 +1153,79 @@ export function buildMaposCustomTools(
         });
       }
       return TEXT_RESULT(`Map panning to ${args.lat}, ${args.lng}`);
+    }
+  });
+
+  // Absolute vault path → vault-relative POSIX (matching read/list/search output); falls
+  // back to the absolute path if it somehow isn't under the vault.
+  const toVaultRelative = (abs: string): string => {
+    const rel = relative(maposDir, abs);
+    return rel === "" || rel.startsWith("..") ? abs : rel.split(sep).join("/");
+  };
+
+  const getActiveFile = defineTool({
+    name: "get_active_file",
+    label: "Get active file",
+    description:
+      'Returns the file the user is currently viewing in the app (the active tab): its vault-relative path, title, and kind (\'place\' or \'folder\'). Use this to ground requests about what the user is looking at — "summarize this", "add a note to this place", "what\'s near here". Returns { activeFile: null } when nothing is open.',
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!lastNavState) {
+        return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
+      }
+      const a = lastNavState.active;
+      if (!a) return TEXT_RESULT(JSON.stringify({ activeFile: null }));
+      return TEXT_RESULT(
+        JSON.stringify({
+          activeFile: { path: toVaultRelative(a.path), kind: a.kind, title: a.title }
+        })
+      );
+    }
+  });
+
+  const getOpenTabs = defineTool({
+    name: "get_open_tabs",
+    label: "Get open tabs",
+    description:
+      "Returns the user's currently open tabs (their workspace): each tab's vault-relative path, title, and kind, plus which tab is active (activeIndex). Use this to see the full set of things the user is working with, not just the active one.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!lastNavState) {
+        return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
+      }
+      const tabs = lastNavState.tabs.map((t) => ({
+        path: toVaultRelative(t.path),
+        kind: t.kind,
+        title: t.title
+      }));
+      return TEXT_RESULT(
+        JSON.stringify({ tabs, activeIndex: lastNavState.activeIndex, count: tabs.length })
+      );
+    }
+  });
+
+  const openFile = defineTool({
+    name: "open_file",
+    label: "Open file",
+    description:
+      "Open a vault place file in a tab in the app so the user sees it (and its location on the map). Use this to SHOW the user a note or place you just created or found — e.g. after save_features_to_vault or write_vault_file. Takes an absolute or vault-relative path.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute or vault-relative path to the file to open" })
+    }),
+    execute: async (_id, args) => {
+      const abs = isAbsolute(args.path) ? args.path : join(maposDir, args.path);
+      if (!resolveInVault(maposDir, abs)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+        );
+      }
+      if (!existsSync(abs)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+      }
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("nav:open-file", { path: abs });
+      }
+      return TEXT_RESULT(JSON.stringify({ success: true, path: toVaultRelative(abs) }));
     }
   });
 
@@ -2124,7 +2215,10 @@ export function buildMaposCustomTools(
     render_overlay_on_map: MAP_EFFECT,
     clear_map_overlay: MAP_EFFECT_IDEMPOTENT,
     pan_to: MAP_EFFECT_IDEMPOTENT,
+    open_file: MAP_EFFECT,
     get_viewport: READ_ONLY,
+    get_active_file: READ_ONLY,
+    get_open_tabs: READ_ONLY,
     query_spatial_index: READ_ONLY,
     find_near: READ_ONLY,
     query_within_polygon: READ_ONLY,
@@ -2161,6 +2255,9 @@ export function buildMaposCustomTools(
     rebuildIndex,
     getViewport,
     panTo,
+    getActiveFile,
+    getOpenTabs,
+    openFile,
     geocodeSearch,
     reverseGeocodeTool,
     getDirectionsTool,

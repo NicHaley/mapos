@@ -30,6 +30,8 @@ type ViewportState = {
   zoom: number;
 };
 
+type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
+
 declare global {
   interface Window {
     electron: ElectronAPI;
@@ -65,6 +67,15 @@ declare global {
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
         removeListeners: () => void;
         removeOverlayListeners: () => void;
+      };
+      nav: {
+        sendNavState: (data: {
+          active: NavTabInfo | null;
+          activeIndex: number;
+          tabs: NavTabInfo[];
+        }) => void;
+        onOpenFile: (cb: (data: { path: string }) => void) => void;
+        removeListeners: () => void;
       };
       fs: {
         listDir: () => Promise<FileNode[]>;

@@ -354,6 +354,24 @@ function App(): React.JSX.Element {
     return () => window.api.map.removeListeners();
   }, [getMapPadding, placeMode, selectedPlace]);
 
+  /** Push the current tab/selection state to main so the agent's get_active_file /
+   * get_open_tabs tools can see what the user is looking at. Mirrors the viewport push. */
+  useEffect(() => {
+    const toInfo = (tab: (typeof nav.tabs)[number]) => {
+      const cur = tab.history[tab.cursor];
+      return cur.kind === "place"
+        ? { path: cur.place.filePath, kind: "place" as const, title: cur.place.title }
+        : { path: cur.folderPath, kind: "folder" as const, title: cur.label };
+    };
+    const tabs = nav.tabs.map(toInfo);
+    const activeTab = nav.activeTab >= 0 ? nav.tabs[nav.activeTab] : undefined;
+    window.api.nav.sendNavState({
+      active: activeTab ? toInfo(activeTab) : null,
+      activeIndex: nav.activeTab,
+      tabs
+    });
+  }, [nav]);
+
   /** "My location" control: store the fix for the marker layer and center on it
    * through the same padding-aware handle so it isn't hidden behind open panes. */
   const handleUserLocationChange = useCallback(
@@ -548,6 +566,16 @@ function App(): React.JSX.Element {
     },
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
   );
+
+  /** `open_file` agent command: resolve the path to a place record and open it in a tab,
+   * exactly as a sidebar click would. Ignores non-place paths (folders/unknown). */
+  useEffect(() => {
+    window.api.nav.onOpenFile(async ({ path }) => {
+      const place = await window.api.places.getByPath(path);
+      if (place) handleSelectPlaceFromSidebar(place);
+    });
+    return () => window.api.nav.removeListeners();
+  }, [handleSelectPlaceFromSidebar]);
 
   /** Wikilink click in a place card body: mini card over the target feature
    * (a floating peek when a full panel is open), matching map-click semantics.

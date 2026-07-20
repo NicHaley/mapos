@@ -1,5 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, sep } from "node:path";
+import {
+  type Dirent,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
@@ -108,6 +118,31 @@ function countPositions(geom: Geometry): number {
   return count;
 }
 
+/**
+ * Recursively collect vault-relative file paths under `dir`, skipping dotfiles and
+ * dot-directories (`.mapos`, `.git`, …). Paths use forward slashes so they read the
+ * same on every OS. `stopAt` bounds the walk so a huge vault can't blow up a tool call.
+ */
+function collectVaultFiles(dir: string, vaultRoot: string, out: string[], stopAt: number): void {
+  if (out.length >= stopAt) return;
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // unreadable dir — skip rather than fail the whole walk
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectVaultFiles(abs, vaultRoot, out, stopAt);
+    } else if (entry.isFile()) {
+      out.push(relative(vaultRoot, abs).split(sep).join("/"));
+    }
+    if (out.length >= stopAt) return;
+  }
+}
+
 // Some models — smaller local ones especially — emit an array-valued tool argument
 // as a JSON-encoded string (e.g. `features: "[{...}]"`) rather than a real array. The
 // SDK's TypeBox validation runs before the handler and doesn't parse it back, so the
@@ -172,7 +207,7 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 
 ## Vault location (authoritative — use exactly this path)
 The MapOS vault root on this machine is: ${vaultRoot}
-The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in bash). For find, grep, read, bash, and any file search or listing tools, search only under this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts — always use the absolute path above.
+The agent working directory (cwd) for this session is set to that folder, and the environment variable MAPOS_VAULT_ROOT is also set to this path. Read, browse, and search the vault with the built-in tools: \`read_vault_file\` (read one file's contents), \`list_vault_files\` (enumerate paths, optionally by subfolder/extension), and \`search_vault_files\` (find notes by their contents). Prefer these over any generic shell/filesystem tools. If you do use generic \`find\`/\`grep\`/\`read\`/\`bash\`, confine them to this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes) — never guess home-directory layouts.
 
 ## Place files and frontmatter
 
@@ -1420,6 +1455,168 @@ export function buildMaposCustomTools(
     }
   });
 
+  const readVaultFile = defineTool({
+    name: "read_vault_file",
+    label: "Read vault file",
+    description:
+      "Read a vault file's full text — markdown with its YAML frontmatter, or any UTF-8 text file. Use this to read a note before editing it, or to inspect a place file's frontmatter and body. Returns the raw contents. Binary files (images, etc.) return an error — reference those by path instead.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path to the file within the MapOS vault" })
+    }),
+    execute: async (_id, args) => {
+      const resolved = resolveInVault(maposDir, args.path);
+      if (!resolved) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+        );
+      }
+      if (!existsSync(resolved)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+      }
+      let content: string;
+      try {
+        content = readFileSync(resolved, "utf-8");
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+      if (content.includes("\u0000")) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error:
+              "File is not UTF-8 text (looks binary). Reference it by path instead of reading it."
+          })
+        );
+      }
+      const MAX_CHARS = 200_000;
+      const truncated = content.length > MAX_CHARS;
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          path: args.path,
+          content: truncated ? content.slice(0, MAX_CHARS) : content,
+          ...(truncated ? { truncated: true } : {})
+        })
+      );
+    }
+  });
+
+  const listVaultFiles = defineTool({
+    name: "list_vault_files",
+    label: "List vault files",
+    description:
+      "List files in the vault as vault-relative paths (forward slashes), for browsing or discovery. Optionally scope to a subfolder and/or filter by extension. Dot-directories like .mapos are skipped. Returns a flat, sorted list. Read one with read_vault_file, or find by content with search_vault_files.",
+    parameters: Type.Object({
+      folder: Type.Optional(
+        Type.String({
+          description:
+            "Absolute path to a subfolder within the vault to list. Defaults to the whole vault."
+        })
+      ),
+      extension: Type.Optional(
+        Type.String({
+          description: 'Filter to a single extension, e.g. "md" or "geojson" (no leading dot).'
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: "Max paths to return (default 500, max 2000)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const base = resolveInVault(maposDir, args.folder ?? maposDir);
+      if (!base) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+      const limit = Math.min(Math.max(args.limit ?? 500, 1), 2000);
+      const ext = args.extension?.replace(/^\./, "").toLowerCase();
+      const all: string[] = [];
+      collectVaultFiles(base, maposDir, all, 20_000);
+      let files = ext ? all.filter((p) => p.toLowerCase().endsWith(`.${ext}`)) : all;
+      files.sort();
+      const truncated = files.length > limit;
+      if (truncated) files = files.slice(0, limit);
+      return TEXT_RESULT(JSON.stringify({ success: true, files, count: files.length, truncated }));
+    }
+  });
+
+  const searchVaultFiles = defineTool({
+    name: "search_vault_files",
+    label: "Search vault files",
+    description:
+      "Full-text search the CONTENTS of vault files for a query string (case-insensitive by default), returning matching files with line numbers and the matching lines. This is how to find notes by what they SAY — there is no full-text index. To find a place BY NAME, use spatial_sql on file_path; to find places spatially, use query_spatial_index / find_near.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Text to search for within file contents." }),
+      folder: Type.Optional(
+        Type.String({
+          description:
+            "Absolute path to a subfolder to limit the search to. Defaults to the whole vault."
+        })
+      ),
+      extension: Type.Optional(
+        Type.String({ description: 'Extension to search, no leading dot. Defaults to "md".' })
+      ),
+      case_sensitive: Type.Optional(
+        Type.Boolean({ description: "Match case exactly. Default false." })
+      ),
+      max_results: Type.Optional(
+        Type.Number({ description: "Max matching files to return (default 30, max 100)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      if (!args.query) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "query is required" }));
+      }
+      const base = resolveInVault(maposDir, args.folder ?? maposDir);
+      if (!base) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+      const ext = (args.extension?.replace(/^\./, "") ?? "md").toLowerCase();
+      const maxFiles = Math.min(Math.max(args.max_results ?? 30, 1), 100);
+      const needle = args.case_sensitive ? args.query : args.query.toLowerCase();
+      const PER_FILE = 5;
+      const SNIPPET = 240;
+      const MAX_BYTES = 512_000;
+
+      const all: string[] = [];
+      collectVaultFiles(base, maposDir, all, 20_000);
+      const candidates = all.filter((p) => p.toLowerCase().endsWith(`.${ext}`));
+
+      const results: Array<{ path: string; matches: Array<{ line: number; text: string }> }> = [];
+      let scanned = 0;
+      for (const rel of candidates) {
+        if (results.length >= maxFiles) break;
+        scanned++;
+        let text: string;
+        try {
+          const abs = join(maposDir, rel);
+          if (statSync(abs).size > MAX_BYTES) continue;
+          text = readFileSync(abs, "utf-8");
+        } catch {
+          continue;
+        }
+        const hay = args.case_sensitive ? text : text.toLowerCase();
+        if (!hay.includes(needle)) continue;
+        const lines = text.split(/\r?\n/);
+        const matches: Array<{ line: number; text: string }> = [];
+        for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
+          const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
+          if (cmp.includes(needle)) {
+            matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
+          }
+        }
+        if (matches.length) results.push({ path: rel, matches });
+      }
+      const truncated = results.length >= maxFiles && candidates.length > scanned;
+      return TEXT_RESULT(
+        JSON.stringify({ success: true, results, count: results.length, truncated })
+      );
+    }
+  });
+
   const writeVaultFile = defineTool({
     name: "write_vault_file",
     label: "Write vault file",
@@ -1934,6 +2131,9 @@ export function buildMaposCustomTools(
     spatial_sql: READ_ONLY,
     geo_compute: READ_ONLY,
     compute_bbox: READ_ONLY,
+    read_vault_file: READ_ONLY,
+    list_vault_files: READ_ONLY,
+    search_vault_files: READ_ONLY,
     geocode_search: READ_ONLY_EXTERNAL,
     reverse_geocode: READ_ONLY_EXTERNAL,
     get_directions: READ_ONLY_EXTERNAL,
@@ -1968,6 +2168,9 @@ export function buildMaposCustomTools(
     getMatrixTool,
     ...(webSearchAvailable ? [webSearchTool] : []),
     computeBboxTool,
+    readVaultFile,
+    listVaultFiles,
+    searchVaultFiles,
     saveFeaturesToVault,
     writeVaultFile,
     deleteVaultFile,

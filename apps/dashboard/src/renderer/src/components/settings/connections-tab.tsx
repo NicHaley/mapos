@@ -108,7 +108,7 @@ export function ConnectionsTab() {
     <div className="flex flex-col gap-8">
       <Section
         title="MCP server"
-        description="Let an AI client (Claude, Cursor, Codex, …) drive MapOS through the Model Context Protocol. The server runs locally on your machine and is reachable only with the token below."
+        description="Let an AI client drive MapOS through the Model Context Protocol. The server runs locally on your machine and is reachable only with the token below."
       >
         <div className="flex items-center justify-between rounded-lg border border-input bg-background px-3 py-2.5">
           <div className="flex flex-col">

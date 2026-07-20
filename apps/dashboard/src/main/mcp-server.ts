@@ -288,6 +288,13 @@ ${webSearchSection}## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
 
+To change PART of an existing file, prefer a targeted edit over rewriting the whole file with write_vault_file — it's safer (smaller blast radius, won't clobber other content or a concurrent user edit) and preserves the rest of the file verbatim:
+- \`write_frontmatter_property\` — set or delete one frontmatter key (e.g. add a \`rating\`, set \`geometry\`, add a tag). Omit the value to delete the key.
+- \`write_frontmatter_properties\` — set/delete several keys in one write.
+- \`write_place_body\` — replace the markdown body below the frontmatter, leaving the frontmatter untouched.
+
+Pair these with \`get_active_file\` for requests about what the user is looking at — e.g. "add a note to this place" → get_active_file, then write_place_body on that path.
+
 To SAVE places or routes to the vault — the user says save/add/keep after a search, or asks you to build a folder or collection of places — use \`save_features_to_vault\`, NOT hand-written write_vault_file content. It writes the exact same file format as the app's own save button: \`geometry\` WKT frontmatter, canonical properties from the geocoder source (category, address, osm_id, wikidata_id), and the place's cover photo. Reference looked-up places by \`result_id\`, exactly as with present_features; save a route from get_directions by its \`route_id\` plus a title (the app expands it to the LINESTRING geometry and fills in distance/duration/mode); pass genuinely ad-hoc points as title + lat/lng. Reserve write_vault_file for non-place notes, edits to existing files, and other non-point geometry you authored yourself.
 
 ## Display vs. action intent
@@ -2068,6 +2075,119 @@ export function buildMaposCustomTools(
     }
   });
 
+  // Shared path for targeted edits: confine + require-exists, snapshot for undo, let the
+  // caller transform the content, then write and re-index — mirroring write_vault_file so
+  // the index and undo trail stay consistent. `transform` receives a CLONE of the parsed
+  // frontmatter data (safe to mutate), the body, and the raw file text.
+  const applyVaultEdit = async (
+    filePath: string,
+    transform: (data: Record<string, unknown>, body: string, raw: string) => string
+  ) => {
+    if (!isWritableVaultPath(filePath)) {
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: false,
+          error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+        })
+      );
+    }
+    if (!existsSync(filePath)) {
+      return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+    }
+    const previousContent = readFileSync(filePath, "utf-8");
+    let newContent: string;
+    try {
+      const parsed = matter(previousContent);
+      newContent = transform(
+        { ...(parsed.data as Record<string, unknown>) },
+        parsed.content,
+        previousContent
+      );
+    } catch (err) {
+      return TEXT_RESULT(errorPayload(err));
+    }
+    onVaultWrite({ path: filePath, previousContent });
+    writeFileSync(filePath, newContent, "utf-8");
+    try {
+      const record = await parsePlaceFile(filePath);
+      syncFeatureForFile(filePath, record);
+    } catch {
+      // Not a place file — skip indexing
+    }
+    return TEXT_RESULT(
+      JSON.stringify({
+        success: true,
+        path: filePath,
+        action: "modified",
+        previousContent,
+        newContent
+      })
+    );
+  };
+
+  const writeFrontmatterProperty = defineTool({
+    name: "write_frontmatter_property",
+    label: "Write frontmatter property",
+    description:
+      "Set or delete ONE YAML frontmatter key on an existing file, preserving the rest of the frontmatter and the body. Prefer this over rewriting the whole file with write_vault_file. Pass the value using the correct type (number/boolean/array/string); omit the value (or pass null) to delete the key. Setting `geometry` (WKT) moves the place; setting `color` recolors its marker.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      key: Type.String({ description: "Frontmatter key to set or delete" }),
+      value: Type.Optional(
+        Type.Unknown({
+          description:
+            "New value (number, boolean, array, or string). Omit or pass null to delete the key."
+        })
+      )
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (data, body) => {
+        if (args.value === null || args.value === undefined) delete data[args.key];
+        else data[args.key] = args.value;
+        return matter.stringify(body, data);
+      })
+  });
+
+  const writeFrontmatterProperties = defineTool({
+    name: "write_frontmatter_properties",
+    label: "Write frontmatter properties",
+    description:
+      "Set or delete SEVERAL frontmatter keys in one write, preserving other keys and the body. Each value: correct YAML type to set; empty string is skipped; null deletes the key. Prefer this over a full-file rewrite when changing multiple properties.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      properties: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Map of frontmatter key → value. null deletes a key; empty string is skipped."
+      })
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (data, body) => {
+        for (const [key, value] of Object.entries(args.properties)) {
+          if (value === "") continue;
+          if (value === null || value === undefined) delete data[key];
+          else data[key] = value;
+        }
+        return matter.stringify(body, data);
+      })
+  });
+
+  const writePlaceBody = defineTool({
+    name: "write_place_body",
+    label: "Write place body",
+    description:
+      "Replace the markdown body BELOW the frontmatter of an existing file, leaving the frontmatter (geometry, properties) exactly as-is. Use this to write or edit a note's prose without touching its structured fields. To reference saved places in the body, link them with [[Title]] wikilinks.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      body: Type.String({ description: "New markdown body (frontmatter is preserved separately)" })
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (_data, _body, raw) => {
+        // Preserve the exact frontmatter block byte-for-byte; only swap the body.
+        const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+        const fm = fmMatch ? fmMatch[0] : "";
+        return fm + (args.body.trim() ? `\n${args.body.trim()}\n` : "");
+      })
+  });
+
   const deleteVaultFile = defineTool({
     name: "delete_vault_file",
     label: "Delete vault file",
@@ -2238,6 +2358,9 @@ export function buildMaposCustomTools(
     rebuild_index: INDEX_MAINT,
     save_features_to_vault: CREATE_ONLY,
     write_vault_file: DESTRUCTIVE,
+    write_frontmatter_property: DESTRUCTIVE,
+    write_frontmatter_properties: DESTRUCTIVE,
+    write_place_body: DESTRUCTIVE,
     delete_vault_file: DESTRUCTIVE,
     rename_vault_file: DESTRUCTIVE
   };
@@ -2270,6 +2393,9 @@ export function buildMaposCustomTools(
     searchVaultFiles,
     saveFeaturesToVault,
     writeVaultFile,
+    writeFrontmatterProperty,
+    writeFrontmatterProperties,
+    writePlaceBody,
     deleteVaultFile,
     renameVaultFile
   ];

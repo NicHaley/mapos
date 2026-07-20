@@ -954,7 +954,13 @@ export const PlaceCard = memo(function PlaceCard({
       >
         {mode === "mini" ? (
           /* Compact popup: actions pinned top-right over the content. */
-          <Surface variant="cluster" className="absolute top-2 right-2 z-10">
+          <Surface
+            variant="cluster"
+            // The cluster shadow reads as a floating toolbar over the map or a
+            // cover image; with no image it sits on the card's own surface and
+            // the shadow looks like an errant box — drop it in that case.
+            className={cn("absolute top-2 right-2 z-10", !coverVisible && "shadow-none")}
+          >
             {actionButtons}
           </Surface>
         ) : (

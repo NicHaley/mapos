@@ -1,10 +1,20 @@
 import { Button } from "@mapos/ui/components/button";
 import { Command, CommandGroup, CommandItem, CommandList } from "@mapos/ui/components/command";
 import { surfaceVariants } from "@mapos/ui/components/surface";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import type { MapOverlayLayer } from "@shared/types";
-import { FileTextIcon, ListIcon, MapPinIcon, XIcon } from "lucide-react";
-import { useMemo } from "react";
+import {
+  CheckIcon,
+  FileTextIcon,
+  ListIcon,
+  Loader2Icon,
+  MapPinIcon,
+  PlusIcon,
+  XIcon
+} from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { FolderPickerPopover } from "./folder-picker-popover";
 import type { PlaceRecord } from "./map-view";
 
 /** One rendered list row, normalized from an overlay point or a resolved vault place. */
@@ -47,24 +57,34 @@ function firstLine(md: string | undefined): string | undefined {
 export type FeaturesListPanelProps = {
   layer: MapOverlayLayer | null;
   placesByPath: Map<string, PlaceRecord>;
-  focusedFeatureId: string | null;
+  /** Folder highlighted as the default in the save picker. `null` = vault root. */
+  defaultParentFolderPath: string | null;
   onClose: () => void;
-  onFocusFeature: (row: FeatureListRow) => void;
+  onOpenFeature: (row: FeatureListRow) => void;
+  /** Save the given overlay-feature ids to `folderPath`; resolves to the ids written. */
+  onSaveFeatures: (rowIds: string[], folderPath: string | null) => Promise<string[]>;
 };
 
 /**
  * The working-set list: a browsable, map-linked view of one overlay layer's features
  * (agent `present_features` output, or a user search). Rows focus their marker on click.
  * Mirrors the search panel's row styling and the place card's panel chrome so it reads as
- * a sibling surface. Saving to the vault lands in a later phase.
+ * a sibling surface. Unsaved features can be written to the vault one at a time (the row
+ * `+`) or in bulk (the header). State is per-layer — the panel is remounted (keyed on the
+ * layer id) whenever the active list changes, so saved/saving marks reset with it.
  */
 export function FeaturesListPanel({
   layer,
   placesByPath,
-  focusedFeatureId,
+  defaultParentFolderPath,
   onClose,
-  onFocusFeature
+  onOpenFeature,
+  onSaveFeatures
 }: FeaturesListPanelProps): React.JSX.Element {
+  const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
+  const [savingIds, setSavingIds] = useState<ReadonlySet<string>>(new Set());
+  const [addAllOpen, setAddAllOpen] = useState(false);
+
   const rows = useMemo<FeatureListRow[]>(() => {
     if (!layer) return [];
     const out: FeatureListRow[] = [];
@@ -93,6 +113,29 @@ export function FeaturesListPanel({
     return out;
   }, [layer, placesByPath]);
 
+  /** Rows that can still be written (overlay features not already in the vault). */
+  const unsavedIds = useMemo(
+    () => rows.filter((r) => !r.isVault && !savedIds.has(r.id)).map((r) => r.id),
+    [rows, savedIds]
+  );
+
+  const saveIds = useCallback(
+    async (ids: string[], folderPath: string | null) => {
+      if (ids.length === 0) return;
+      setSavingIds((prev) => new Set([...prev, ...ids]));
+      const written = await onSaveFeatures(ids, folderPath);
+      setSavedIds((prev) => new Set([...prev, ...written]));
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    },
+    [onSaveFeatures]
+  );
+
+  const anyBusy = savingIds.size > 0;
+
   return (
     <div
       className={cn(
@@ -110,6 +153,23 @@ export function FeaturesListPanel({
             {rows.length}
           </span>
         </div>
+        {unsavedIds.length > 0 && (
+          <FolderPickerPopover
+            open={addAllOpen}
+            onOpenChange={setAddAllOpen}
+            defaultParentFolderPath={defaultParentFolderPath}
+            title="Save all to folder"
+            side="bottom"
+            align="end"
+            onSelect={(folderPath) => void saveIds(unsavedIds, folderPath)}
+            trigger={
+              <Button variant="ghost" size="default" disabled={anyBusy}>
+                <PlusIcon className="size-4" />
+                Save all
+              </Button>
+            }
+          />
+        )}
         <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
           <XIcon />
         </Button>
@@ -127,13 +187,15 @@ export function FeaturesListPanel({
           <CommandList className="max-h-none min-h-0 flex-1 p-1">
             <CommandGroup>
               {rows.map((row) => {
-                const RowIcon = row.isVault ? FileTextIcon : MapPinIcon;
+                const saved = row.isVault || savedIds.has(row.id);
+                const saving = savingIds.has(row.id);
+                const RowIcon = saved ? FileTextIcon : MapPinIcon;
                 return (
                   <CommandItem
                     key={row.id}
                     value={row.id}
-                    onSelect={() => onFocusFeature(row)}
-                    className={cn("rounded-md", focusedFeatureId === row.id && "bg-accent")}
+                    onSelect={() => onOpenFeature(row)}
+                    className="group rounded-md"
                   >
                     <RowIcon className="size-4 shrink-0 text-muted-foreground" />
                     <div className="flex min-w-0 flex-1 flex-col text-left">
@@ -153,6 +215,45 @@ export function FeaturesListPanel({
                         </span>
                       ) : null}
                     </div>
+                    {row.isVault ? null : (
+                      <span
+                        data-slot="command-shortcut"
+                        className="ml-auto flex shrink-0 items-center"
+                      >
+                        {saving ? (
+                          <Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                        ) : saved ? (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <CheckIcon className="size-4 shrink-0 text-muted-foreground" />
+                              }
+                            />
+                            <TooltipContent side="right">Saved to vault</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                                  aria-label="Save to vault"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void saveIds([row.id], defaultParentFolderPath);
+                                  }}
+                                >
+                                  <PlusIcon className="size-4" />
+                                </Button>
+                              }
+                            />
+                            <TooltipContent side="right">Save to vault</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </span>
+                    )}
                   </CommandItem>
                 );
               })}

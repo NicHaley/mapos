@@ -299,6 +299,8 @@ export type MapViewHandle = {
   flyTo: (lat: number, lng: number, opts?: { zoom?: number; padding?: FitPadding }) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
+  /** Center on a place's geometry while keeping the current zoom (pan, don't zoom in). */
+  panToPlace: (place: PlaceRecord, padding: FitPadding) => void;
   fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
@@ -609,6 +611,26 @@ const MapView = forwardRef<
         } catch {
           /* invalid geometry */
         }
+      },
+      panToPlace: (place: PlaceRecord, padding: FitPadding) => {
+        const map = mapRef.current;
+        if (!map || !place.geometry) return;
+        let center: [number, number];
+        try {
+          center = getGeometryCenter(parseGeometry(place.geometry));
+        } catch {
+          return; /* invalid geometry */
+        }
+        // Skip the pan if the target already sits inside the visible area — i.e. within
+        // the viewport minus the sidebar/pane padding. project() reflects the point's
+        // real on-screen pixel, so this honours the current camera exactly.
+        const { x, y } = map.project(center);
+        const { clientWidth: w, clientHeight: h } = map.getContainer();
+        const inView =
+          x >= padding.left && x <= w - padding.right && y >= padding.top && y <= h - padding.bottom;
+        if (inView) return;
+        // Otherwise pan (keeping zoom); the padding offsets the center clear of the sidebars.
+        map.flyTo({ center, zoom: map.getZoom(), duration: 600, padding });
       },
       fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => {
         const map = mapRef.current;

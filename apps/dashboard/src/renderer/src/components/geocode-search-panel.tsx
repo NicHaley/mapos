@@ -1,7 +1,6 @@
 import { FileTextIcon, ListIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@mapos/ui/components/button";
 import {
   Command,
   CommandGroup,
@@ -22,6 +21,11 @@ import type { PlaceRecord } from "@shared/types";
 const DEBOUNCE_MS = 300;
 /** Cap local (file) matches so the popover stays scannable. */
 const LOCAL_RESULT_LIMIT = 6;
+/** Cap place results shown in the popover; the full set opens via "Open all as a list". */
+const POPOVER_RESULT_LIMIT = 5;
+/** How many results to request from the backend (clamped to 50). The popover shows the
+ *  first few; the rest are reachable via "Open all as a list". */
+const SEARCH_RESULT_LIMIT = 50;
 /** ⌘1–⌘9 select the Nth visible result; one keyboard row's worth. */
 const MAX_HOTKEYS = 9;
 
@@ -122,6 +126,10 @@ export function GeocodeSearchPanel({
   const [results, setResults] = useState<GeocodeSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Controlled cmdk selection. Kept empty so nothing is highlighted by default (cmdk
+  // otherwise auto-selects the first item); ArrowDown moves to the first result, and
+  // Enter with nothing highlighted runs the default "open all" action (see onKeyDown).
+  const [selected, setSelected] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { getViewportBBox } = useMapViewport();
   // Vault root, for showing file locations as vault-relative folders.
@@ -163,7 +171,12 @@ export function GeocodeSearchPanel({
     const ac = new AbortController();
     // Read the viewport at fire time so the bias tracks the latest pan/zoom.
     const bbox = getViewportBBox() ?? undefined;
-    void searchGeocode(debouncedTrim, { signal: ac.signal, lang: pickLang(), bbox })
+    void searchGeocode(debouncedTrim, {
+      signal: ac.signal,
+      lang: pickLang(),
+      bbox,
+      limit: SEARCH_RESULT_LIMIT
+    })
       .then((r) => {
         setResults(r);
       })
@@ -193,6 +206,13 @@ export function GeocodeSearchPanel({
       .slice(0, LOCAL_RESULT_LIMIT);
   }, [files, needle]);
 
+  // A settled result set clears the highlight (cmdk auto-selects first on search change;
+  // this runs when items actually arrive, so nothing stays highlighted until ArrowDown).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the lists change, not read
+  useEffect(() => {
+    setSelected("");
+  }, [results, fileMatches]);
+
   const pick = useCallback(
     (r: GeocodeSearchResult) => {
       onSelectResult(r);
@@ -203,13 +223,17 @@ export function GeocodeSearchPanel({
   // ⌘1–⌘9 quick-select, numbering every visible row in display order. Built from
   // the same lists the groups render, so the chip on row N and the key ⌘N can't
   // disagree. Digit codes (not e.key) are layout-independent under modifiers.
+  // Only the first few place results are shown in the popover; the rest are reachable
+  // via "Open all as a list".
+  const visibleResults = useMemo(() => results.slice(0, POPOVER_RESULT_LIMIT), [results]);
+
   const hotkeyTargets = useMemo<HotkeyTarget[]>(
     () =>
       [
         ...fileMatches.map((file) => ({ kind: "file", file }) as const),
-        ...results.map((result) => ({ kind: "place", result }) as const)
+        ...visibleResults.map((result) => ({ kind: "place", result }) as const)
       ].slice(0, MAX_HOTKEYS),
-    [fileMatches, results]
+    [fileMatches, visibleResults]
   );
 
   useShortcuts(
@@ -233,7 +257,13 @@ export function GeocodeSearchPanel({
   const hasAnyResults = results.length > 0 || fileMatches.length > 0;
 
   return (
-    <Command shouldFilter={false} loop className={cn("flex flex-col", className)}>
+    <Command
+      shouldFilter={false}
+      loop
+      value={selected}
+      onValueChange={setSelected}
+      className={cn("flex flex-col", className)}
+    >
       <div className="p-1 pb-0" data-slot="geocode-search-input">
         <InputGroup className="min-w-0 w-full">
           <InputGroupAddon align="inline-start">
@@ -249,6 +279,16 @@ export function GeocodeSearchPanel({
             onValueChange={setQuery}
             placeholder={placeholder}
             autoComplete="off"
+            onKeyDown={(e) => {
+              // Nothing highlighted + place results present → Enter opens all as a list
+              // (the default action). cmdk always preventDefaults Enter, so intercept here
+              // and stop it reaching cmdk's root handler.
+              if (e.key === "Enter" && !selected && onOpenResults && results.length > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenResults(results, debouncedTrim);
+              }
+            }}
             className="flex h-9 w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           />
           {inputEndSlot ? (
@@ -294,9 +334,9 @@ export function GeocodeSearchPanel({
             })}
           </CommandGroup>
         ) : null}
-        {results.length > 0 ? (
+        {visibleResults.length > 0 ? (
           <CommandGroup heading="Places">
-            {results.map((r, index) => {
+            {visibleResults.map((r, index) => {
               const value = `${r.id}-${index}`;
               return (
                 <CommandItem
@@ -325,6 +365,20 @@ export function GeocodeSearchPanel({
             })}
           </CommandGroup>
         ) : null}
+        {onOpenResults && results.length > 0 ? (
+          <CommandGroup>
+            <CommandItem
+              value="__open_all_results__"
+              onSelect={() => onOpenResults(results, debouncedTrim)}
+              className="rounded-md"
+            >
+              <ListIcon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                Open {results.length} result{results.length === 1 ? "" : "s"} as a list
+              </span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
         {error ? (
           <>
             {hasAnyResults ? <hr className="my-1 border-border" /> : null}
@@ -343,19 +397,6 @@ export function GeocodeSearchPanel({
           </div>
         ) : null}
       </CommandList>
-      {onOpenResults && results.length > 0 ? (
-        <div className="border-border border-t p-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start gap-2"
-            onClick={() => onOpenResults(results, debouncedTrim)}
-          >
-            <ListIcon className="size-4 shrink-0 opacity-70" />
-            Open {results.length} result{results.length === 1 ? "" : "s"} as a list
-          </Button>
-        </div>
-      ) : null}
     </Command>
   );
 }

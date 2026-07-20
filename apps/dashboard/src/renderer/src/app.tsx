@@ -5,7 +5,7 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
-import type { MapOverlayLayer } from "@shared/types";
+import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
@@ -83,6 +83,21 @@ function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
     /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
     previewMarkdown: "",
     ...(Object.keys(properties).length > 0 ? { properties } : {})
+  };
+}
+
+/** Build a preview PlaceRecord from an overlay point — the shape both the mini card and
+ *  the save-to-vault path consume (geometry + previewMarkdown + properties). */
+function previewPlaceFromOverlayPoint(point: OverlayPoint): PlaceRecord {
+  return {
+    filePath: `map-overlay:${point.id}`,
+    title: point.title || "Map overlay",
+    type: "Preview",
+    geometry: JSON.stringify({ type: "Point", coordinates: [point.lng, point.lat] }),
+    previewMarkdown: point.preview_markdown ?? "",
+    ...(point.properties && Object.keys(point.properties).length > 0
+      ? { properties: point.properties }
+      : {})
   };
 }
 
@@ -355,17 +370,20 @@ function App(): React.JSX.Element {
 
   const placesByPath = usePlacesIndex();
 
-  /** A new overlay layer arrived (agent present/render, or user search): draw it, and if
-   *  it carries pickable features, open a list ("working set") tab focused on it. */
+  /** A new overlay layer arrived (agent present/render, or user search). Pickable,
+   *  human-scale result sets become a list ("working set") tab whose layer rides in the
+   *  nav entry — drawn only while that tab is active, so closing the tab clears its markers.
+   *  Everything else (routes, isochrones, bulk point dumps) is an ambient map layer that
+   *  accumulates until explicitly cleared. */
   const handleOverlayLayer = useCallback(
     (layer: MapOverlayLayer) => {
-      addLayer(layer);
-      // A browsable list only for pickable, human-scale result sets — bulk point dumps
-      // stay map-only (drawn above), never a thousand-row tab.
       const pickable =
         (layer.points.length > 0 && layer.points.length <= LIST_MAX_FEATURES) ||
         (layer.vaultPaths?.length ?? 0) > 0;
-      if (!pickable) return;
+      if (!pickable) {
+        addLayer(layer);
+        return;
+      }
       dispatchNav({
         type: "navigate",
         entry: { kind: "list", layerId: layer.id, label: layer.layerName || "Results", layer },
@@ -396,49 +414,40 @@ function App(): React.JSX.Element {
   /** The overlay layer backing the active list tab (null unless a list tab is active). */
   const activeListLayer = activeNavEntry?.kind === "list" ? activeNavEntry.layer : null;
 
-  /** Layer ids that belong to a list tab. Such a layer's markers are scoped to its tab —
-   *  visible only while it's the active tab — whereas non-tab overlays (routes, isochrones
-   *  from render_overlay_on_map) stay ambient until explicitly cleared. */
-  const listBoundLayerIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const tab of nav.tabs) {
-      for (const entry of tab.history) if (entry.kind === "list") ids.add(entry.layerId);
-    }
-    return ids;
-  }, [nav.tabs]);
-
-  /** Overlay layers actually drawn now: every ambient (non-list) layer, plus only the
-   *  active list tab's layer. Switching away from a list tab hides its POIs. */
+  /** Overlay layers drawn now: ambient layers (routes/isochrones/bulk) plus the active
+   *  list tab's layer. List layers live in their nav entry, not in `overlayLayers`, so a
+   *  closed or backgrounded list tab draws nothing. */
   const visibleOverlayLayers = useMemo(
-    () => overlayLayers.filter((l) => !listBoundLayerIds.has(l.id) || l.id === activeListLayer?.id),
-    [overlayLayers, listBoundLayerIds, activeListLayer]
+    () => (activeListLayer ? [...overlayLayers, activeListLayer] : overlayLayers),
+    [overlayLayers, activeListLayer]
   );
 
-  /** A restored list tab (after refresh) carries its layer but the map's overlay state is
-   *  empty — re-add any list-tab layers so their markers redraw. Upsert is idempotent. */
-  useEffect(() => {
-    const listLayers = nav.tabs
-      .map((t) => t.history[t.cursor])
-      .filter((e): e is Extract<NavEntry, { kind: "list" }> => e?.kind === "list")
-      .map((e) => e.layer);
-    if (listLayers.length === 0) return;
-    setOverlayLayers((prev) => {
-      const have = new Set(prev.map((l) => l.id));
-      const missing = listLayers.filter((l) => !have.has(l.id));
-      return missing.length > 0 ? [...prev, ...missing] : prev;
-    });
-  }, [nav.tabs]);
-
-  /** Click a list row: emphasize its marker and center the map on it. */
-  const handleFocusFeatureRow = useCallback(
+  /** Click a list row: open the mini place card over its marker (same as clicking the
+   *  marker on the map). Overlay points become a preview card; vault rows open their place. */
+  const handleOpenListRow = useCallback(
     (row: FeatureListRow) => {
-      setFocusedFeatureId(row.id);
+      let place: PlaceRecord | null = null;
+      if (row.isVault) {
+        place = placesByPath.get(row.id.slice("vault:".length)) ?? null;
+      } else {
+        const point = activeListLayer?.points.find((p) => p.id === row.id);
+        if (point) place = previewPlaceFromOverlayPoint(point);
+      }
+      if (!place) return;
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
       if (typeof row.lat === "number" && typeof row.lng === "number") {
-        const zoom = Math.max(mapRef.current?.getZoom() ?? 0, 15);
-        mapRef.current?.flyTo(row.lat, row.lng, { zoom, padding: getMapPadding(true) });
+        // Pan and center at the current zoom — don't zoom in on the feature, and don't
+        // move at all if it's already visible clear of the sidebars (see panToPlace).
+        // The list panel shares the main-pane slot, so pad for it (`true`) — otherwise
+        // points hidden behind the panel read as "in view" and never get panned.
+        mapRef.current?.panToPlace(place, getMapPadding(true));
       }
     },
-    [getMapPadding]
+    [activeListLayer, placesByPath, getMapPadding]
   );
 
   /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
@@ -742,13 +751,13 @@ function App(): React.JSX.Element {
       if (placeMode === "full") {
         // Link to the open file itself: just bring its feature into view.
         if (selectedPlace?.filePath !== place.filePath) setMapPeekPlace(place);
-        mapRef.current?.fitToPlace(place, getMapPadding(true));
+        mapRef.current?.panToPlace(place, getMapPadding(true));
         return;
       }
       setMapPeekPlace(null);
       setSelectedPlace(place);
       setPlaceMode("mini");
-      mapRef.current?.fitToPlace(place, getMapPadding(false));
+      mapRef.current?.panToPlace(place, getMapPadding(false));
     },
     [placeMode, selectedPlace, getMapPadding, handleSelectPlaceFromSidebar]
   );
@@ -936,29 +945,30 @@ function App(): React.JSX.Element {
     [dispatchNav]
   );
 
-  const savePreviewPlaceToVault = useCallback(
-    async (place: PlaceRecord | null, folderPathOverride?: string | null) => {
-      if (place?.previewMarkdown === undefined || !place.geometry) return;
+  /** Write a preview place (search result / overlay feature) to the vault as a new file,
+   *  returning the resulting PlaceRecord. Pure file-creation: no selection or nav side
+   *  effects, so it is safe to call in a loop for bulk saves. */
+  const createPlaceFileFromPreview = useCallback(
+    async (place: PlaceRecord, folderPath: string | null): Promise<PlaceRecord | null> => {
+      if (place.previewMarkdown === undefined || !place.geometry) return null;
       // Preserve the feature's geometry type: points save as lat/lng, lines and
       // polygons as WKT — otherwise a selected polygon would be flattened to a point.
       const geometryArgs = geometryJsonToCreateArgs(place.geometry);
-      if (!geometryArgs) return;
-      const parentFolderPath =
-        folderPathOverride !== undefined ? folderPathOverride : parentFolderForNewFiles;
+      if (!geometryArgs) return null;
       const create = await window.api.fs.createNoteFile({
-        parentFolderPath,
+        parentFolderPath: folderPath,
         ...geometryArgs,
         includePlaceFrontmatterDefaults: false
       });
       if (!create.success) {
-        console.error("[save search]", create.error);
-        return;
+        console.error("[save place]", create.error);
+        return null;
       }
       const baseName = filenameBaseFromPlaceTitle(place.title);
       const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
       if (!renamed.ok) {
-        console.error("[save search]", renamed.error);
-        return;
+        console.error("[save place]", renamed.error);
+        return null;
       }
       // Persist the previewed details as frontmatter (canonical order, empties dropped)
       // so the saved file matches the preview card exactly.
@@ -970,11 +980,11 @@ function App(): React.JSX.Element {
         typeof qid === "string" && /^Q\d+$/.test(qid) ? window.api.wiki.importImage(qid) : null;
       if (Object.keys(properties).length > 0) {
         const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
-        if (!wp.success) console.error("[save search] write properties", wp.error);
+        if (!wp.success) console.error("[save place] write properties", wp.error);
       }
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
-        if (!w.success) console.error("[save search] write body", w.error);
+        if (!w.success) console.error("[save place] write body", w.error);
       }
       if (coverImport) {
         const writeCover = async (img: Awaited<typeof coverImport>) => {
@@ -985,7 +995,7 @@ function App(): React.JSX.Element {
             // lightbox "Source" attribution link.
             cover_source: img.pageUrl
           });
-          if (!wc.success) console.error("[save search] write cover", wc.error);
+          if (!wc.success) console.error("[save place] write cover", wc.error);
         };
         // Wait briefly so the fast path opens the card with its cover already
         // set; on a slow network stop blocking the card open and let the write
@@ -997,14 +1007,26 @@ function App(): React.JSX.Element {
         if (img) await writeCover(img);
         else void coverImport.then(writeCover);
       }
-      const created =
+      return (
         (await window.api.places.getByPath(renamed.filePath)) ??
         ({
           filePath: renamed.filePath,
           title: place.title,
           type: "place",
           geometry: place.geometry
-        } satisfies PlaceRecord);
+        } satisfies PlaceRecord)
+      );
+    },
+    []
+  );
+
+  const savePreviewPlaceToVault = useCallback(
+    async (place: PlaceRecord | null, folderPathOverride?: string | null) => {
+      if (place?.previewMarkdown === undefined || !place.geometry) return;
+      const parentFolderPath =
+        folderPathOverride !== undefined ? folderPathOverride : parentFolderForNewFiles;
+      const created = await createPlaceFileFromPreview(place, parentFolderPath);
+      if (!created) return;
       setMapPeekPlace(null);
       setSelectionPulseAnchor(null);
       if (selectedFolder) {
@@ -1024,7 +1046,34 @@ function App(): React.JSX.Element {
         mapRef.current?.fitToPlace(created, getMapPadding(true));
       }
     },
-    [parentFolderForNewFiles, selectedFolder, getMapPadding, dispatchNav]
+    [
+      createPlaceFileFromPreview,
+      parentFolderForNewFiles,
+      selectedFolder,
+      getMapPadding,
+      dispatchNav
+    ]
+  );
+
+  /** Save one or more list features (by overlay-point id) to the vault. Returns the ids
+   *  that were successfully written so the list can mark them saved. Sequential so files
+   *  landing in the same folder don't race on name collisions. */
+  const handleSaveListFeatures = useCallback(
+    async (rowIds: string[], folderPath: string | null): Promise<string[]> => {
+      if (!activeListLayer) return [];
+      const saved: string[] = [];
+      for (const id of rowIds) {
+        const point = activeListLayer.points.find((p) => p.id === id);
+        if (!point) continue;
+        const created = await createPlaceFileFromPreview(
+          previewPlaceFromOverlayPoint(point),
+          folderPath
+        );
+        if (created) saved.push(id);
+      }
+      return saved;
+    },
+    [activeListLayer, createPlaceFileFromPreview]
   );
 
   const handleSaveSearchToVault = useCallback(
@@ -1279,13 +1328,15 @@ function App(): React.JSX.Element {
       </motion.div>
 
       {/* Left sidebar — full viewport height, flush left, sitting under the top-bar
-          controls (its content is padded down to clear them). */}
+          controls (its content is padded down to clear them). Sits above the content
+          wrapper (z-20) so floating mini/peek cards tuck behind it, but below the
+          resize rail (z-[25]) and top bar (z-30). */}
       <SidebarProvider
         name="sidebar-left"
         open={projectSidebarOpen}
         onOpenChange={setProjectSidebarOpen}
         keyboardShortcut={SIDEBAR_KB_PROJECT}
-        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+        className="fixed inset-0 z-[21] pointer-events-none bg-transparent"
         style={{ "--sidebar-width": `${projectSidebarWidth}px` } as React.CSSProperties}
       >
         <ProjectSidebar
@@ -1368,11 +1419,13 @@ function App(): React.JSX.Element {
             }}
           >
             <FeaturesListPanel
+              key={activeListLayer.id}
               layer={activeListLayer}
               placesByPath={placesByPath}
-              focusedFeatureId={focusedFeatureId}
+              defaultParentFolderPath={parentFolderForNewFiles}
               onClose={() => handleNavTabClose(activeTabIndex)}
-              onFocusFeature={handleFocusFeatureRow}
+              onOpenFeature={handleOpenListRow}
+              onSaveFeatures={handleSaveListFeatures}
             />
             <ResizeHandle
               side="right"

@@ -44,6 +44,7 @@ import { useVaultRoot } from "./hooks/use-vault-root";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
+import { waypointFromPlace } from "./lib/place-waypoint";
 import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
@@ -106,36 +107,6 @@ function previewPlaceFromOverlayPoint(point: OverlayPoint): PlaceRecord {
       ? { properties: point.properties }
       : {})
   };
-}
-
-/** A representative point for a place, for use as a directions endpoint: a Point's
- *  coordinate, a LineString's midpoint, or a Polygon's first-ring vertex average.
- *  Returns null when the geometry is missing or unparseable. */
-function waypointFromPlace(place: PlaceRecord): DirectionsWaypoint | null {
-  if (!place.geometry) return null;
-  try {
-    const geo = JSON.parse(place.geometry) as { type: string; coordinates: unknown };
-    const label = place.title || "Selected place";
-    if (geo.type === "Point") {
-      const [lng, lat] = geo.coordinates as number[];
-      if (typeof lng === "number" && typeof lat === "number") return { lat, lng, label };
-    } else if (geo.type === "LineString") {
-      const coords = geo.coordinates as [number, number][];
-      if (coords.length > 0) {
-        const [lng, lat] = coords[Math.floor(coords.length / 2)];
-        return { lat, lng, label };
-      }
-    } else if (geo.type === "Polygon") {
-      const ring = (geo.coordinates as [number, number][][])[0];
-      if (ring?.length) {
-        const sum = ring.reduce((a, [lng, lat]) => [a[0] + lng, a[1] + lat], [0, 0]);
-        return { lat: sum[1] / ring.length, lng: sum[0] / ring.length, label };
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 /** Minimal Point FeatureCollection for framing a list's markers via fitToGeoJson. */
@@ -985,7 +956,12 @@ function App(): React.JSX.Element {
       setPlaceMode("full");
       setSelectedFolder(null);
       setFeatureScreenPos(null);
-      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: true, activate: true });
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "place", place },
+        newTab: true,
+        activate: true
+      });
     },
     [vaultRoot, dispatchNav]
   );
@@ -1608,6 +1584,7 @@ function App(): React.JSX.Element {
               origin={activeDirectionsEntry.origin}
               destination={activeDirectionsEntry.destination}
               mode={activeDirectionsEntry.mode}
+              files={indexedFiles}
               onChange={(next) =>
                 dispatchNav({
                   type: "update-directions",

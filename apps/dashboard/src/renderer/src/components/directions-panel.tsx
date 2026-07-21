@@ -13,15 +13,18 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import type { DirectionsWaypoint, TravelMode } from "@renderer/hooks/use-nav-tabs";
 import { type RegionRow, useRegionPacks } from "@renderer/hooks/use-region-packs";
+import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { formatBytes, formatDistance, formatDuration } from "@renderer/lib/format";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
+import { waypointFromPlace } from "@renderer/lib/place-waypoint";
 import { resolveCoverageAt } from "@renderer/lib/region-coverage";
-import type { MapOverlayLayer } from "@shared/types";
+import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import {
   BikeIcon,
   CarIcon,
   CircleDotIcon,
   DownloadIcon,
+  FileTextIcon,
   FootprintsIcon,
   Loader2Icon,
   LocateFixedIcon,
@@ -38,6 +41,8 @@ export type DirectionsPanelProps = {
   origin: DirectionsWaypoint | null;
   destination: DirectionsWaypoint | null;
   mode: TravelMode;
+  /** Indexed vault places, offered alongside geocode results in the location inputs. */
+  files?: PlaceRecord[];
   /** Persist input/mode changes back to the nav entry. */
   onChange: (next: {
     origin: DirectionsWaypoint | null;
@@ -141,6 +146,7 @@ export function DirectionsPanel({
   origin,
   destination,
   mode,
+  files,
   onChange,
   onRouteChange,
   onClose
@@ -264,6 +270,7 @@ export function DirectionsPanel({
               onSelect={(wp) => setEndpoints({ origin: wp })}
               placeholder="Choose starting point"
               icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
+              files={files}
               allowCurrentLocation
             />
             <LocationInput
@@ -271,6 +278,7 @@ export function DirectionsPanel({
               onSelect={(wp) => setEndpoints({ destination: wp })}
               placeholder="Choose destination"
               icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
+              files={files}
             />
           </div>
           <Button
@@ -441,17 +449,46 @@ function RouteBody({
   );
 }
 
+/** Cap vault-file matches so the dropdown stays scannable. */
+const LOCAL_RESULT_LIMIT = 5;
+
+/** A selectable location: a matched vault place (with a derivable point) or a geocode result. */
+type LocationOption = {
+  key: string;
+  kind: "file" | "place";
+  label: string;
+  secondary?: string;
+  waypoint: DirectionsWaypoint;
+};
+
+/** Uppercase the first character; secondary labels arrive un-cased from some providers. */
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** The file's containing folder, relative to the vault root ("tokyo-2026", not the abs path). */
+function fileRelativeDir(filePath: string, vaultRoot: string): string {
+  const rel =
+    vaultRoot && filePath.startsWith(vaultRoot)
+      ? filePath.slice(vaultRoot.length).replace(/^[/\\]/, "")
+      : filePath;
+  const slash = Math.max(rel.lastIndexOf("/"), rel.lastIndexOf("\\"));
+  return slash > 0 ? rel.slice(0, slash) : "";
+}
+
 function LocationInput({
   value,
   onSelect,
   placeholder,
   icon,
+  files,
   allowCurrentLocation
 }: {
   value: DirectionsWaypoint | null;
   onSelect: (wp: DirectionsWaypoint | null) => void;
   placeholder: string;
   icon: React.ReactNode;
+  files?: PlaceRecord[];
   allowCurrentLocation?: boolean;
 }): React.JSX.Element {
   const [query, setQuery] = useState(value?.label ?? "");
@@ -460,6 +497,7 @@ function LocationInput({
   const [locating, setLocating] = useState(false);
   const debounced = useDebounce(query, 300);
   const { getViewportBBox } = useMapViewport();
+  const vaultRoot = useVaultRoot();
 
   // Reflect external changes (selection, swap, restore) into the input text.
   useEffect(() => {
@@ -488,6 +526,44 @@ function LocationInput({
     return () => ac.abort();
   }, [debounced, value?.label, getViewportBBox]);
 
+  // Vault places matched instantly against the (un-debounced) query. Only places with a
+  // derivable point can be a directions endpoint, so geometry-less notes are skipped.
+  const needle = query.trim().toLowerCase();
+  const fileOptions = useMemo<LocationOption[]>(() => {
+    if (!needle || needle === value?.label?.toLowerCase() || !files) return [];
+    const out: LocationOption[] = [];
+    for (const f of files) {
+      if (f.type === "Search") continue;
+      if (!f.title.toLowerCase().includes(needle) && !f.filePath.toLowerCase().includes(needle))
+        continue;
+      const wp = waypointFromPlace(f);
+      if (!wp) continue;
+      out.push({
+        key: `file:${f.filePath}`,
+        kind: "file",
+        label: f.title,
+        secondary: fileRelativeDir(f.filePath, vaultRoot ?? "") || undefined,
+        waypoint: wp
+      });
+      if (out.length >= LOCAL_RESULT_LIMIT) break;
+    }
+    return out;
+  }, [files, needle, value?.label, vaultRoot]);
+
+  const placeOptions = useMemo<LocationOption[]>(
+    () =>
+      results.map((r) => ({
+        key: `place:${r.id}`,
+        kind: "place" as const,
+        label: r.primaryLabel,
+        secondary: r.secondaryLabel ? capitalize(r.secondaryLabel) : undefined,
+        waypoint: { lat: r.lat, lng: r.lng, label: r.primaryLabel }
+      })),
+    [results]
+  );
+
+  const options = useMemo(() => [...fileOptions, ...placeOptions], [fileOptions, placeOptions]);
+
   const useCurrentLocation = (): void => {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
@@ -501,15 +577,15 @@ function LocationInput({
   };
 
   return (
-    <Combobox<GeocodeSearchResult>
-      items={results}
-      // Results are already filtered server-side; let every returned item through.
+    <Combobox<LocationOption>
+      items={options}
+      // Files are pre-filtered locally, geocode results server-side; let everything through.
       filter={null}
       inputValue={query}
       onInputValueChange={setQuery}
-      itemToStringLabel={(r) => r.primaryLabel}
-      onValueChange={(r) => {
-        if (r) onSelect({ lat: r.lat, lng: r.lng, label: r.primaryLabel });
+      itemToStringLabel={(o) => o.label}
+      onValueChange={(o) => {
+        if (o) onSelect(o.waypoint);
       }}
     >
       <div className="relative">
@@ -548,7 +624,7 @@ function LocationInput({
 
       {query.trim() && query.trim() !== value?.label ? (
         <ComboboxContent>
-          {results.length === 0 ? (
+          {options.length === 0 ? (
             <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground text-sm">
               {loading ? (
                 <>
@@ -560,20 +636,47 @@ function LocationInput({
             </div>
           ) : (
             <ComboboxList>
-              {results.map((r) => (
-                <ComboboxItem key={r.id} value={r} className="items-baseline gap-1.5">
-                  <span className="shrink-0 truncate font-medium">{r.primaryLabel}</span>
-                  {r.secondaryLabel ? (
-                    <span className="min-w-0 truncate text-muted-foreground text-xs">
-                      {r.secondaryLabel}
-                    </span>
-                  ) : null}
-                </ComboboxItem>
-              ))}
+              {fileOptions.length > 0 ? (
+                <>
+                  <LocationGroupHeading>Files</LocationGroupHeading>
+                  {fileOptions.map(renderLocationItem)}
+                </>
+              ) : null}
+              {placeOptions.length > 0 ? (
+                <>
+                  <LocationGroupHeading>Places</LocationGroupHeading>
+                  {placeOptions.map(renderLocationItem)}
+                </>
+              ) : null}
             </ComboboxList>
           )}
         </ComboboxContent>
       ) : null}
     </Combobox>
+  );
+}
+
+/** Group label matching the search popover's CommandGroup heading style. */
+function LocationGroupHeading({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{children}</div>;
+}
+
+function renderLocationItem(o: LocationOption): React.JSX.Element {
+  return (
+    <ComboboxItem key={o.key} value={o}>
+      {o.kind === "file" ? (
+        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <MapPinIcon className="size-4 shrink-0 text-muted-foreground" />
+      )}
+      <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+        <span className="max-w-full shrink-0 truncate font-medium leading-tight">{o.label}</span>
+        {o.secondary ? (
+          <span className="min-w-0 truncate text-muted-foreground text-xs leading-tight">
+            {o.secondary}
+          </span>
+        ) : null}
+      </div>
+    </ComboboxItem>
   );
 }

@@ -303,7 +303,7 @@ To COMPUTE geometry (as opposed to selecting places), use:
 
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
-- a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
+- a route the user wants directions for (will read the steps or adjust endpoints) → \`present_directions\`, which opens an interactive Directions tab (summary + turn-by-turn + walk/bike/drive toggle) and draws the route. It computes the route itself, so you need NOT call \`get_directions\` first. To merely draw a route line you already computed, pass its \`route_id\` from \`get_directions\` to \`render_overlay_on_map\` as a \`lines\` entry instead. Either way, do NOT pass route coordinates or polyline strings yourself — they cost tens of thousands of tokens and take minutes to generate.
 - each contour's \`isochrone_id\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry as \`{ isochrone_id }\` (or \`{ geometry_id }\` for a geo_compute result). Never pass polygon coordinates yourself.
 
 Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
@@ -363,6 +363,67 @@ When unsure: a couple dozen places the user might click → \`present_features\`
 
 (A \`<features refs="vault:<path>"/>\` tag is also still supported for referencing a single saved place inline within a sentence. Prefer \`present_features\` for any actual list.)`;
 }
+
+/** Representative point for a place's GeoJSON-geometry-JSON string (as stored on
+ *  {@link PlaceRecord}): a Point's coordinate, a LineString's midpoint, or a Polygon's
+ *  first-ring centroid. Null when the geometry is missing or unparseable. */
+function representativePoint(
+  geometryJson: string | undefined
+): { lat: number; lng: number } | null {
+  if (!geometryJson) return null;
+  try {
+    const geo = JSON.parse(geometryJson) as { type: string; coordinates: unknown };
+    if (geo.type === "Point") {
+      const [lng, lat] = geo.coordinates as number[];
+      if (typeof lng === "number" && typeof lat === "number") return { lat, lng };
+    } else if (geo.type === "LineString") {
+      const coords = geo.coordinates as [number, number][];
+      if (coords.length > 0) {
+        const [lng, lat] = coords[Math.floor(coords.length / 2)];
+        return { lat, lng };
+      }
+    } else if (geo.type === "Polygon") {
+      const ring = (geo.coordinates as [number, number][][])[0];
+      if (ring?.length) {
+        const sum = ring.reduce((a, [lng, lat]) => [a[0] + lng, a[1] + lat], [0, 0]);
+        return { lat: sum[1] / ring.length, lng: sum[0] / ring.length };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** One directions endpoint: a looked-up geocode result, a saved vault place, or an ad-hoc point. */
+const directionsEndpointSchema = Type.Object({
+  result_id: Type.Optional(
+    Type.String({
+      description:
+        "The `id` of a geocode_search/reverse_geocode result to use as this endpoint. PREFERRED — the app takes the coordinates and name from the cached result."
+    })
+  ),
+  path: Type.Optional(
+    Type.String({
+      description:
+        "Vault file path of a saved place (from query_spatial_index) to use as this endpoint; its geometry supplies the point and its title the label."
+    })
+  ),
+  lat: Type.Optional(
+    Type.Number({
+      description: "Latitude of an ad-hoc endpoint (set with lng when you have no result_id/path)."
+    })
+  ),
+  lng: Type.Optional(
+    Type.Number({ description: "Longitude of an ad-hoc endpoint (set with lat)." })
+  ),
+  label: Type.Optional(
+    Type.String({
+      description:
+        "Display name for an ad-hoc endpoint (lat/lng). Ignored when result_id/path is set."
+    })
+  )
+});
 
 export function buildMaposCustomTools(
   mainWindow: BrowserWindow,
@@ -1504,6 +1565,83 @@ export function buildMaposCustomTools(
       } catch (err) {
         return TEXT_RESULT(errorPayload(err));
       }
+    }
+  });
+
+  const presentDirections = defineTool({
+    name: "present_directions",
+    label: "Present directions",
+    description:
+      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: origin/destination inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT render_overlay_on_map — when the user wants directions to somewhere and will read the steps or adjust the endpoints. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. Set `destination` (required); omit `origin` to default to the user's current location, exactly like the app's own Get-directions button. Each endpoint is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
+    parameters: Type.Object({
+      destination: directionsEndpointSchema,
+      origin: Type.Optional(directionsEndpointSchema),
+      mode: Type.Optional(
+        Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
+          default: "auto",
+          description:
+            "Travel mode: 'auto' (drive), 'pedestrian' (walk), or 'bicycle'. Default 'auto'."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      const resolveEndpoint = (ep: {
+        result_id?: string;
+        path?: string;
+        lat?: number;
+        lng?: number;
+        label?: string;
+      }): { lat: number; lng: number; label: string } | { error: string } => {
+        if (ep.result_id) {
+          const cached = geocodeStore.get(ep.result_id);
+          if (!cached) {
+            return {
+              error: `result_id "${ep.result_id}" is no longer cached (cleared on app restart or provider/model change). Re-run geocode_search and use the fresh id.`
+            };
+          }
+          return { lat: cached.lat, lng: cached.lng, label: cached.primaryLabel };
+        }
+        if (ep.path) {
+          const abs = isAbsolute(ep.path) ? ep.path : join(maposDir, ep.path);
+          const place = places.get(abs) ?? places.get(ep.path);
+          if (!place) return { error: `No indexed place at path "${ep.path}".` };
+          const pt = representativePoint(place.geometry);
+          if (!pt) return { error: `Place "${ep.path}" has no location to route to.` };
+          return { lat: pt.lat, lng: pt.lng, label: place.title || "Saved place" };
+        }
+        if (typeof ep.lat === "number" && typeof ep.lng === "number") {
+          return { lat: ep.lat, lng: ep.lng, label: ep.label || "Point" };
+        }
+        return { error: "Each endpoint needs a result_id, a path, or lat+lng." };
+      };
+
+      const destination = resolveEndpoint(args.destination);
+      if ("error" in destination) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: destination.error }));
+      }
+      let origin: { lat: number; lng: number; label: string } | null = null;
+      if (args.origin) {
+        const resolved = resolveEndpoint(args.origin);
+        if ("error" in resolved) {
+          return TEXT_RESULT(JSON.stringify({ success: false, error: resolved.error }));
+        }
+        origin = resolved;
+      }
+      const mode = args.mode ?? "auto";
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("nav:open-directions", { origin, destination, mode });
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          kind: "directions",
+          origin: origin?.label ?? "current location",
+          destination: destination.label,
+          mode,
+          assistant_instructions:
+            "A Directions tab is now open with the route summary + turn-by-turn steps, and the route is drawn on the map. Do NOT re-list the steps or restate the distance/duration in your reply — the user can see them. Reply with at most one sentence (a caveat or standout), or nothing. If a needed offline map isn't downloaded, the tab shows a download prompt; only mention that if the user asked about offline availability."
+        })
+      );
     }
   });
 
@@ -2653,6 +2791,7 @@ export function buildMaposCustomTools(
     geocode_search: READ_ONLY_EXTERNAL,
     reverse_geocode: READ_ONLY_EXTERNAL,
     get_directions: READ_ONLY_EXTERNAL,
+    present_directions: MAP_EFFECT,
     get_isochrone: READ_ONLY_EXTERNAL,
     get_matrix: READ_ONLY_EXTERNAL,
     web_search: { readOnlyHint: true, openWorldHint: true },
@@ -2691,6 +2830,7 @@ export function buildMaposCustomTools(
     geocodeSearch,
     reverseGeocodeTool,
     getDirectionsTool,
+    presentDirections,
     getIsochroneTool,
     getMatrixTool,
     ...(webSearchAvailable ? [webSearchTool] : []),

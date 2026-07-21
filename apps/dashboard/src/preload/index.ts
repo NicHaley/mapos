@@ -77,8 +77,18 @@ const api = {
     }) => ipcRenderer.send("nav:state-update", data),
     onOpenFile: (cb: (data: { path: string }) => void) =>
       ipcRenderer.on("nav:open-file", (_e, data) => cb(data)),
+    /** Agent `present_directions`: open a Directions tab for the given endpoints.
+     * `origin: null` → the renderer defaults to the user's current location. */
+    onOpenDirections: (
+      cb: (data: {
+        origin: { lat: number; lng: number; label: string } | null;
+        destination: { lat: number; lng: number; label: string };
+        mode: "auto" | "pedestrian" | "bicycle";
+      }) => void
+    ) => ipcRenderer.on("nav:open-directions", (_e, data) => cb(data)),
     removeListeners: () => {
       ipcRenderer.removeAllListeners("nav:open-file");
+      ipcRenderer.removeAllListeners("nav:open-directions");
     }
   },
   geo: {

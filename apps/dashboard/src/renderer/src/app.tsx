@@ -480,22 +480,20 @@ function App(): React.JSX.Element {
     [getMapPadding]
   );
 
-  /** Open a directions tab with the given place as the destination; origin defaults to the
-   *  user's current location (blank if unavailable). */
-  const handleGetDirections = useCallback(
-    (place: PlaceRecord) => {
-      const destination = waypointFromPlace(place);
-      if (!destination) return;
-      const openTab = (origin: DirectionsWaypoint | null): void => {
+  /** Open a Directions tab for the given destination. When `origin` is null, default it to
+   *  the user's current location (blank if unavailable) — the app's Get-directions behavior. */
+  const openDirectionsTab = useCallback(
+    (destination: DirectionsWaypoint, origin: DirectionsWaypoint | null, mode: TravelMode) => {
+      const open = (resolvedOrigin: DirectionsWaypoint | null): void => {
         dispatchNav({
           type: "navigate",
           entry: {
             kind: "directions",
             id: crypto.randomUUID(),
             label: "Directions",
-            origin,
+            origin: resolvedOrigin,
             destination,
-            mode: "auto" as TravelMode
+            mode
           },
           newTab: true,
           activate: true
@@ -507,18 +505,27 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
       };
+      if (origin) {
+        open(origin);
+        return;
+      }
       navigator.geolocation.getCurrentPosition(
         (pos) =>
-          openTab({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            label: "Your location"
-          }),
-        () => openTab(null),
+          open({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" }),
+        () => open(null),
         { enableHighAccuracy: true, timeout: 10000 }
       );
     },
     [dispatchNav]
+  );
+
+  /** Get-directions button on a place card: destination = the place, origin = current location. */
+  const handleGetDirections = useCallback(
+    (place: PlaceRecord) => {
+      const destination = waypointFromPlace(place);
+      if (destination) openDirectionsTab(destination, null, "auto");
+    },
+    [openDirectionsTab]
   );
 
   /** Click a list row: open the mini place card over its marker (same as clicking the
@@ -800,8 +807,12 @@ function App(): React.JSX.Element {
       const place = await window.api.places.getByPath(path);
       if (place) handleSelectPlaceFromSidebar(place);
     });
+    // `present_directions`: open a Directions tab for the endpoints the agent resolved.
+    window.api.nav.onOpenDirections(({ origin, destination, mode }) => {
+      openDirectionsTab(destination, origin, mode);
+    });
     return () => window.api.nav.removeListeners();
-  }, [handleSelectPlaceFromSidebar]);
+  }, [handleSelectPlaceFromSidebar, openDirectionsTab]);
 
   /** `get_current_location` agent request: run the same geolocation fix as the "My
    * location" control and reply with the coords. When `reveal` is set, also drop the

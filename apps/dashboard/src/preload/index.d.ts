@@ -77,6 +77,13 @@ declare global {
           tabs: NavTabInfo[];
         }) => void;
         onOpenFile: (cb: (data: { path: string }) => void) => void;
+        onOpenDirections: (
+          cb: (data: {
+            origin: { lat: number; lng: number; label: string } | null;
+            destination: { lat: number; lng: number; label: string };
+            mode: "auto" | "pedestrian" | "bicycle";
+          }) => void
+        ) => void;
         removeListeners: () => void;
       };
       geo: {

@@ -11,6 +11,7 @@ import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import { inferPropertyType } from "../shared/property-inference";
 import type { PlaceRecord, PropertyType } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
@@ -341,27 +342,6 @@ export type SpatialFilters = {
 };
 
 /**
- * Normalize a place name (or a query for one) for matching: lowercase, diacritics stripped,
- * apostrophes dropped, and word-final "s" removed ("Adrian's"/"adrians" both find
- * `Friends/Adrian.md`, "cafe" finds "Le Café Marly"). Both sides of a match get the same
- * treatment, so the s-stripping only loosens substring matches — it never loses one.
- */
-export function normalizePlaceName(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/['’]?s(?=$|[^a-z0-9])/g, "")
-    .replace(/['’]/g, "");
-}
-
-/** A place's name is its file basename, extension stripped. */
-function placeNameOfPath(filePath: string): string {
-  const base = filePath.slice(filePath.lastIndexOf("/") + 1);
-  return base.replace(/\.[^.]+$/, "");
-}
-
-/**
  * Shared candidate selection for all spatial queries: an optional rtree bbox prefilter plus
  * the folder/property/name attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
  * from their radius/polygon and then refine the result in JS with Turf. With `bounds === null`
@@ -398,20 +378,22 @@ function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): Feat
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color ${from} ${whereSql}`;
-  let rows = sqlite.prepare(sqlStr).all(...params) as Array<{
+  const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
   }>;
 
-  // Name matching is normalized (accents/apostrophes), so it can't be a SQL LIKE against the
-  // raw file_path — refine in JS instead.
+  // Name matching is fuzzy (accents/apostrophes/typos), so it can't be a SQL LIKE against
+  // the raw file_path — score in JS instead, best matches first.
   if (filters?.name) {
-    const needle = normalizePlaceName(filters.name);
-    if (needle) {
-      rows = rows.filter((r) => normalizePlaceName(placeNameOfPath(r.file_path)).includes(needle));
-    }
+    const query = filters.name;
+    return rows
+      .map((r) => ({ r, score: scoreNameMatch(query, placeNameFromPath(r.file_path)) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => ({ ...x.r }));
   }
 
   return rows.map((r) => ({ ...r }));

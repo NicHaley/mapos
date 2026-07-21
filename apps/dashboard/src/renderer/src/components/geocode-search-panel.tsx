@@ -16,6 +16,7 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
+import { scoreNameMatch } from "@shared/name-match";
 import type { PlaceRecord } from "@shared/types";
 
 const DEBOUNCE_MS = 300;
@@ -195,17 +196,28 @@ export function GeocodeSearchPanel({
     };
   }, [debouncedTrim, active, getViewportBBox]);
 
-  // Local matches filter instantly against the current (un-debounced) query.
-  const needle = queryTrim.toLowerCase();
-  // All matches feed "open all as a list"; the popover shows only the first few.
+  // Local matches filter instantly against the current (un-debounced) query, fuzzy-scored
+  // and ranked best-first. Paths are scored vault-relative (and damped vs the title) so a
+  // query can name a folder without home-directory segments matching everything.
   const allFileMatches = useMemo(() => {
-    if (!needle || !files) return [];
+    if (!queryTrim || !files) return [];
     return files
       .filter((f) => f.type !== "Search")
-      .filter(
-        (f) => f.title.toLowerCase().includes(needle) || f.filePath.toLowerCase().includes(needle)
-      );
-  }, [files, needle]);
+      .map((f) => {
+        const relPath =
+          vaultRoot && f.filePath.startsWith(vaultRoot)
+            ? f.filePath.slice(vaultRoot.length + 1)
+            : f.title;
+        const score = Math.max(
+          scoreNameMatch(queryTrim, f.title),
+          0.95 * scoreNameMatch(queryTrim, relPath)
+        );
+        return { f, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.f);
+  }, [files, queryTrim, vaultRoot]);
   const fileMatches = useMemo(
     () => allFileMatches.slice(0, LOCAL_RESULT_LIMIT),
     [allFileMatches]

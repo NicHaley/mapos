@@ -24,8 +24,8 @@ import {
 } from "../shared/geocode-detail";
 import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
 import { computeBbox } from "./bbox";
+import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import {
-  normalizePlaceName,
   queryNear,
   querySpatialIndex,
   queryWithinPolygon,
@@ -292,7 +292,7 @@ To search the user's own indexed places spatially (\`query_spatial_index\` takes
 
 Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
 
-To find one of the user's places BY NAME (e.g. "Home", "Adrian's"), pass \`filters.name\` to \`query_spatial_index\` (or \`find_near\` / \`query_within_polygon\`). A place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\` — and the match is case-, accent- and apostrophe-insensitive. Don't scan for a \`name\` property or shell out to \`find\` first.
+To find one of the user's places BY NAME (e.g. "Home", "Adrian's"), pass \`filters.name\` to \`query_spatial_index\` (or \`find_near\` / \`query_within_polygon\`). A place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\` — and the match is fuzzy (case, accents, apostrophes, small typos) with results ranked best-first. Don't scan for a \`name\` property or shell out to \`find\` first.
 
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
@@ -536,7 +536,7 @@ export function buildMaposCustomTools(
     name: Type.Optional(
       Type.String({
         description:
-          "Find places by name: substring match on the file basename (a place's name IS its filename — 'Adrian' matches Friends/Adrian.md). Case-, accent- and apostrophe-insensitive ('adrian's' and 'cafe' work)."
+          "Find places by name: fuzzy match on the file basename (a place's name IS its filename — 'Adrian' matches Friends/Adrian.md), results ranked best-first. Tolerates case, accents, apostrophes, and small typos ('adrian's', 'cafe', 'adrain' all work)."
       })
     ),
     properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
@@ -1868,7 +1868,7 @@ export function buildMaposCustomTools(
     name: "search_vault_files",
     label: "Search vault files",
     description:
-      "Search vault files for a query string, matching both file CONTENTS (case-insensitive by default; returns line numbers and matching lines) and FILENAMES (always normalized: case-, accent- and apostrophe-insensitive; flagged `name_match`, so 'adrian's' finds Friends/Adrian.md even if its body never says it). There is no full-text index. To find places spatially or by name WITH their geometry, prefer query_spatial_index (filters.name) / find_near.",
+      "Search vault files for a query string, matching both file CONTENTS (case-insensitive by default; returns line numbers and matching lines) and FILENAMES (fuzzy: tolerates case, accents, apostrophes, and small typos; flagged `name_match` and ranked best-first, so 'adrian's' or 'adrain' finds Friends/Adrian.md even if its body never says it). Content matching is exact-substring — there is no full-text index. To find places spatially or by name WITH their geometry, prefer query_spatial_index (filters.name) / find_near.",
     parameters: Type.Object({
       query: Type.String({ description: "Text to search for within file contents." }),
       folder: Type.Optional(
@@ -1904,48 +1904,59 @@ export function buildMaposCustomTools(
       const SNIPPET = 240;
       const MAX_BYTES = 512_000;
 
-      const nameNeedle = normalizePlaceName(args.query);
-
       const all: string[] = [];
       collectVaultFiles(base, maposDir, all, 20_000);
       const candidates = all.filter((p) => p.toLowerCase().endsWith(`.${ext}`));
 
-      const results: Array<{
-        path: string;
-        name_match?: boolean;
-        matches: Array<{ line: number; text: string }>;
-      }> = [];
+      // Filename matching is fuzzy and ranked, so score every candidate up front (cheap
+      // string ops); only the content scan below is capped. The basename is the place's
+      // name; the damped full-path score keeps folder-qualified queries working.
+      const nameScores = new Map<string, number>();
+      for (const rel of candidates) {
+        const score = Math.max(
+          scoreNameMatch(args.query, placeNameFromPath(rel)),
+          0.95 * scoreNameMatch(args.query, rel)
+        );
+        if (score > 0) nameScores.set(rel, score);
+      }
+
+      const contentMatches = new Map<string, Array<{ line: number; text: string }>>();
       let scanned = 0;
       for (const rel of candidates) {
-        if (results.length >= maxFiles) break;
+        if (contentMatches.size >= maxFiles) break;
         scanned++;
-        const nameMatch = nameNeedle.length > 0 && normalizePlaceName(rel).includes(nameNeedle);
-        const matches: Array<{ line: number; text: string }> = [];
         try {
           const abs = join(maposDir, rel);
-          if (statSync(abs).size <= MAX_BYTES) {
-            const text = readFileSync(abs, "utf-8");
-            const hay = args.case_sensitive ? text : text.toLowerCase();
-            if (hay.includes(needle)) {
-              const lines = text.split(/\r?\n/);
-              for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
-                const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
-                if (cmp.includes(needle)) {
-                  matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
-                }
-              }
+          if (statSync(abs).size > MAX_BYTES) continue;
+          const text = readFileSync(abs, "utf-8");
+          const hay = args.case_sensitive ? text : text.toLowerCase();
+          if (!hay.includes(needle)) continue;
+          const lines = text.split(/\r?\n/);
+          const matches: Array<{ line: number; text: string }> = [];
+          for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
+            const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
+            if (cmp.includes(needle)) {
+              matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
             }
           }
+          if (matches.length) contentMatches.set(rel, matches);
         } catch {
-          // an unreadable/oversized body still counts as a filename match
-        }
-        if (nameMatch) {
-          results.push({ path: rel, name_match: true, matches });
-        } else if (matches.length) {
-          results.push({ path: rel, matches });
+          // an unreadable body still allows a filename match
         }
       }
-      const truncated = results.length >= maxFiles && candidates.length > scanned;
+
+      // Filename hits first (best score first), then content-only hits in walk order.
+      const ordered = [
+        ...[...nameScores.entries()].sort((a, b) => b[1] - a[1]).map(([rel]) => rel),
+        ...candidates.filter((rel) => contentMatches.has(rel) && !nameScores.has(rel))
+      ];
+      const results = ordered.slice(0, maxFiles).map((rel) => ({
+        path: rel,
+        ...(nameScores.has(rel) ? { name_match: true } : {}),
+        matches: contentMatches.get(rel) ?? []
+      }));
+      const truncated =
+        ordered.length > maxFiles || (contentMatches.size >= maxFiles && scanned < candidates.length);
       return TEXT_RESULT(
         JSON.stringify({ success: true, results, count: results.length, truncated })
       );

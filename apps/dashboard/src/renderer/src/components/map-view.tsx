@@ -354,8 +354,15 @@ type SelectionAnchorGeoJSON = {
  */
 function SelectionMarker({
   data,
-  color
-}: { data: SelectionAnchorGeoJSON; color: string }): React.JSX.Element {
+  color,
+  chip
+}: {
+  data: SelectionAnchorGeoJSON;
+  color: string;
+  // When set, render the search-result "poker chip" look (dashed border) instead of the
+  // solid selection dot, so an active search result keeps its overlay styling.
+  chip?: { fill: string; borderColor: string };
+}): React.JSX.Element {
   return (
     <>
       {data.features.map((f) => {
@@ -366,7 +373,15 @@ function SelectionMarker({
           <Marker key={`${lng},${lat}`} longitude={lng} latitude={lat} anchor="center">
             <div
               className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
-              style={{ backgroundColor: fill }}
+              style={
+                chip
+                  ? {
+                      backgroundColor: chip.fill,
+                      borderStyle: "dashed",
+                      borderColor: chip.borderColor
+                    }
+                  : { backgroundColor: fill }
+              }
             />
           </Marker>
         );
@@ -627,7 +642,10 @@ const MapView = forwardRef<
         const { x, y } = map.project(center);
         const { clientWidth: w, clientHeight: h } = map.getContainer();
         const inView =
-          x >= padding.left && x <= w - padding.right && y >= padding.top && y <= h - padding.bottom;
+          x >= padding.left &&
+          x <= w - padding.right &&
+          y >= padding.top &&
+          y <= h - padding.bottom;
         if (inView) return;
         // Otherwise pan (keeping zoom); the padding offsets the center clear of the sidebars.
         map.flyTo({ center, zoom: map.getZoom(), duration: 600, padding });
@@ -1462,7 +1480,18 @@ const MapView = forwardRef<
             );
           })}
         {selectionAnchorGeoJSON && (
-          <SelectionMarker data={selectionAnchorGeoJSON} color={featureColor} />
+          <SelectionMarker
+            data={selectionAnchorGeoJSON}
+            color={featureColor}
+            chip={
+              selectedPlace?.filePath.startsWith(MAP_OVERLAY_PREFIX)
+                ? {
+                    fill: accentColor ?? foregroundColor,
+                    borderColor: accentColor ? "white" : isDark ? "#111111" : "#ffffff"
+                  }
+                : undefined
+            }
+          />
         )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}

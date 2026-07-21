@@ -3,6 +3,8 @@ import type {
   GeocodeForwardRequest,
   GeocodeResult,
   GeocodeReverseRequest,
+  Route,
+  RouteDirectionsRequest,
   TileStyleRequest
 } from "@mapos/contracts";
 import type {
@@ -243,6 +245,7 @@ declare global {
       services: {
         geocodingForward: (req: GeocodeForwardRequest) => Promise<GeocodeResult[]>;
         geocodingReverse: (req: GeocodeReverseRequest) => Promise<GeocodeResult[]>;
+        routingDirections: (req: RouteDirectionsRequest) => Promise<Route>;
         tilesStyleUrl: (req: TileStyleRequest) => Promise<string>;
       };
       wiki: {

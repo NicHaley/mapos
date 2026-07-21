@@ -3,6 +3,8 @@ import type {
   GeocodeForwardRequest,
   GeocodeResult,
   GeocodeReverseRequest,
+  Route,
+  RouteDirectionsRequest,
   TileStyleRequest
 } from "@mapos/contracts";
 import { contextBridge, ipcRenderer } from "electron";
@@ -317,6 +319,8 @@ const api = {
       ipcRenderer.invoke("services:geocoding-forward", req) as Promise<GeocodeResult[]>,
     geocodingReverse: (req: GeocodeReverseRequest) =>
       ipcRenderer.invoke("services:geocoding-reverse", req) as Promise<GeocodeResult[]>,
+    routingDirections: (req: RouteDirectionsRequest) =>
+      ipcRenderer.invoke("services:routing-directions", req) as Promise<Route>,
     tilesStyleUrl: (req: TileStyleRequest) =>
       ipcRenderer.invoke("services:tiles-style-url", req) as Promise<string>
   },

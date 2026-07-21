@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { formatBytes } from "@renderer/lib/format";
-import { type Bbox, bboxArea, bboxContains } from "@renderer/lib/region-coverage";
+import { resolveCoverageAt } from "@renderer/lib/region-coverage";
 import type { InstalledRegionPack } from "@shared/types";
 import { DownloadIcon, GlobeIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -62,43 +62,20 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
 
   const coverage = useMemo<Coverage | null>(() => {
     if (!view || view.zoom < MIN_ZOOM) return null;
-    const { lng, lat } = view;
-
-    // Downloaded? — read installed packs directly so this works offline (no manifest needed).
-    // Smallest box = the most specific pack covering this spot.
-    const installedHere = packs.installedPacks
-      .filter((p) => p.bbox && bboxContains(p.bbox, lng, lat))
-      .sort((a, b) => bboxArea(a.bbox as Bbox) - bboxArea(b.bbox as Bbox));
-    if (installedHere.length > 0) {
-      const pack = installedHere[0];
+    const at = resolveCoverageAt(packs.installedPacks, packs.regions, view.lng, view.lat);
+    if (at.kind === "none") return null;
+    if (at.kind === "covered") {
       // Prefer the manifest's display name; offline, fall back to the name recorded
       // in the pack at install time. The raw slug only surfaces for packs installed
       // before names were recorded, when the manifest is also unreachable.
       const name =
-        packs.regions.find((r) => r.slug === pack.region)?.name ?? pack.name ?? pack.region;
-      return { kind: "covered", name, pack };
+        packs.regions.find((r) => r.slug === at.pack.region)?.name ??
+        at.pack.name ??
+        at.pack.region;
+      return { kind: "covered", name, pack: at.pack };
     }
-
-    // Otherwise, is a not-yet-downloaded region available here?
-    const candidates = packs.regions.filter(
-      (r) =>
-        r.bbox &&
-        bboxContains(r.bbox, lng, lat) &&
-        (r.status === "available" ||
-          r.status === "error" ||
-          r.status === "downloading" ||
-          r.status === "verifying")
-    );
-    if (candidates.length === 0) return null;
-
-    const active = candidates.find((r) => r.status === "downloading" || r.status === "verifying");
-    if (active) return { kind: "downloading", row: active };
-
-    // Smallest box = the most specific region covering this spot.
-    const target = candidates
-      .slice()
-      .sort((a, b) => bboxArea(a.bbox as Bbox) - bboxArea(b.bbox as Bbox))[0];
-    return { kind: target.status === "error" ? "error" : "available", row: target };
+    if (at.kind === "downloading") return { kind: "downloading", row: at.row };
+    return { kind: at.kind, row: at.row };
   }, [view, packs.installedPacks, packs.regions]);
 
   // A new app version, once available, is dismissable: the user may not be ready to

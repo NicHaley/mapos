@@ -1,7 +1,13 @@
+import type { RouteCosting } from "@mapos/contracts";
 import type { MapOverlayLayer } from "@shared/types";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
 import { useVaultRoot } from "./use-vault-root";
+
+/** A resolved directions endpoint: coordinates plus the label shown in the input. */
+export type DirectionsWaypoint = { lat: number; lng: number; label: string };
+/** Travel mode for a directions request — the routing costing model. */
+export type TravelMode = RouteCosting;
 
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
@@ -9,7 +15,18 @@ export type NavEntry =
   // A working set of features. Carries its own overlay `layer` so the tab (and its
   // markers) survive a refresh like any other tab — it is not path-based, so relocate
   // and remove-path skip it. `label` is the overlay's name.
-  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer };
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer }
+  // A directions request. Like `list`, it is not path-based and carries its own inputs
+  // (origin/destination/mode) so the tab round-trips a refresh; the route geometry is
+  // recomputed by the panel, not persisted.
+  | {
+      kind: "directions";
+      id: string;
+      label: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
@@ -24,7 +41,14 @@ export type NavAction =
   | { type: "restore"; tabs: NavTab[]; activeTab: number }
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
-  | { type: "update-entry"; filePath: string; place: PlaceRecord };
+  | { type: "update-entry"; filePath: string; place: PlaceRecord }
+  | {
+      type: "update-directions";
+      id: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -46,8 +70,8 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
-  // List tabs are not path-based — moves never touch them.
-  if (entry.kind === "list") return entry;
+  // List and directions tabs are not path-based — moves never touch them.
+  if (entry.kind === "list" || entry.kind === "directions") return entry;
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -86,7 +110,15 @@ function relocateEntry(
 type PersistedTab =
   | { kind: "place"; filePath: string }
   | { kind: "folder"; folderPath: string }
-  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer };
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer }
+  | {
+      kind: "directions";
+      id: string;
+      label: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 // Scoped per vault — see useVaultRoot. The bare key predates scoping and is
@@ -98,8 +130,8 @@ export function folderLabel(folderPath: string): string {
 }
 
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
-  // List tabs reference no vault path, so a path removal never matches them.
-  if (entry.kind === "list") return false;
+  // List and directions tabs reference no vault path, so a path removal never matches them.
+  if (entry.kind === "list" || entry.kind === "directions") return false;
   if (entry.kind === "place") {
     if (isFolder) {
       return (
@@ -227,6 +259,24 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
+    case "update-directions": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "directions" && entry.id === action.id
+              ? {
+                  ...entry,
+                  origin: action.origin,
+                  destination: action.destination,
+                  mode: action.mode
+                }
+              : entry
+          )
+        }))
+      };
+    }
     default:
       return state;
   }
@@ -256,12 +306,21 @@ export function useNavTabs({
         persistTabs.push({ kind: "place", filePath: current.place.filePath });
       else if (current.kind === "folder")
         persistTabs.push({ kind: "folder", folderPath: current.folderPath });
-      else
+      else if (current.kind === "list")
         persistTabs.push({
           kind: "list",
           layerId: current.layerId,
           label: current.label,
           layer: current.layer
+        });
+      else
+        persistTabs.push({
+          kind: "directions",
+          id: current.id,
+          label: current.label,
+          origin: current.origin,
+          destination: current.destination,
+          mode: current.mode
         });
     }
     if (persistTabs.length === 0) {
@@ -307,6 +366,22 @@ export function useNavTabs({
           return {
             id: crypto.randomUUID(),
             history: [{ kind: "list", layerId: tab.layerId, label: tab.label, layer: tab.layer }],
+            cursor: 0
+          };
+        }
+        if (tab.kind === "directions") {
+          return {
+            id: crypto.randomUUID(),
+            history: [
+              {
+                kind: "directions",
+                id: tab.id,
+                label: tab.label,
+                origin: tab.origin,
+                destination: tab.destination,
+                mode: tab.mode
+              }
+            ],
             cursor: 0
           };
         }
@@ -398,6 +473,9 @@ export function useNavTabs({
         }
         if (current?.kind === "list") {
           return { id: tab.id, title: current.label, kind: "list" as const };
+        }
+        if (current?.kind === "directions") {
+          return { id: tab.id, title: current.label, kind: "directions" as const };
         }
         return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
       }),

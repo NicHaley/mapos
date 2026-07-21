@@ -11,6 +11,7 @@ import { bbox } from "@turf/bbox";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DirectionsPanel } from "./components/directions-panel";
 import { type FeatureListRow, FeaturesListPanel } from "./components/features-list-panel";
 import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
@@ -27,7 +28,13 @@ import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
 import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
-import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
+import {
+  type DirectionsWaypoint,
+  type NavEntry,
+  type TravelMode,
+  folderLabel,
+  useNavTabs
+} from "./hooks/use-nav-tabs";
 import { usePathSync } from "./hooks/use-path-sync";
 import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
@@ -101,6 +108,36 @@ function previewPlaceFromOverlayPoint(point: OverlayPoint): PlaceRecord {
   };
 }
 
+/** A representative point for a place, for use as a directions endpoint: a Point's
+ *  coordinate, a LineString's midpoint, or a Polygon's first-ring vertex average.
+ *  Returns null when the geometry is missing or unparseable. */
+function waypointFromPlace(place: PlaceRecord): DirectionsWaypoint | null {
+  if (!place.geometry) return null;
+  try {
+    const geo = JSON.parse(place.geometry) as { type: string; coordinates: unknown };
+    const label = place.title || "Selected place";
+    if (geo.type === "Point") {
+      const [lng, lat] = geo.coordinates as number[];
+      if (typeof lng === "number" && typeof lat === "number") return { lat, lng, label };
+    } else if (geo.type === "LineString") {
+      const coords = geo.coordinates as [number, number][];
+      if (coords.length > 0) {
+        const [lng, lat] = coords[Math.floor(coords.length / 2)];
+        return { lat, lng, label };
+      }
+    } else if (geo.type === "Polygon") {
+      const ring = (geo.coordinates as [number, number][][])[0];
+      if (ring?.length) {
+        const sum = ring.reduce((a, [lng, lat]) => [a[0] + lng, a[1] + lat], [0, 0]);
+        return { lat: sum[1] / ring.length, lng: sum[0] / ring.length, label };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /** Minimal Point FeatureCollection for framing a list's markers via fitToGeoJson. */
 function pointsFeatureCollection(points: Array<{ lat: number; lng: number }>) {
   return {
@@ -168,6 +205,9 @@ function App(): React.JSX.Element {
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
   /** Accumulated overlay layers currently rendered on the map (driven over map:overlay-add). */
   const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
+  // Route overlay for the active directions tab, lifted from DirectionsPanel so it draws
+  // on the map (mirrors how a list tab's layer rides in visibleOverlayLayers).
+  const [directionsRouteLayer, setDirectionsRouteLayer] = useState<MapOverlayLayer | null>(null);
   /** Overlay feature to emphasize on the map; null = all full opacity. */
   const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
@@ -334,6 +374,20 @@ function App(): React.JSX.Element {
             getMapPadding(true)
           );
         }
+      } else if (entry.kind === "directions") {
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+        // Frame the known endpoints; the panel refits to the full route once it computes.
+        const ends = [entry.origin, entry.destination].filter(
+          (w): w is DirectionsWaypoint => w !== null
+        );
+        if (ends.length > 0) {
+          mapRef.current?.fitToGeoJson(pointsFeatureCollection(ends), getMapPadding(true));
+        }
       } else {
         setSelectedFolder(entry.folderPath);
         setSelectedPlace(null);
@@ -414,12 +468,86 @@ function App(): React.JSX.Element {
   /** The overlay layer backing the active list tab (null unless a list tab is active). */
   const activeListLayer = activeNavEntry?.kind === "list" ? activeNavEntry.layer : null;
 
+  /** The active directions tab entry (null unless one is active) — drives the panel. */
+  const activeDirectionsEntry = activeNavEntry?.kind === "directions" ? activeNavEntry : null;
+
+  /** The computed route overlay, only while a directions tab is active. */
+  const activeDirectionsRoute = activeDirectionsEntry ? directionsRouteLayer : null;
+
   /** Overlay layers drawn now: ambient layers (routes/isochrones/bulk) plus the active
-   *  list tab's layer. List layers live in their nav entry, not in `overlayLayers`, so a
-   *  closed or backgrounded list tab draws nothing. */
-  const visibleOverlayLayers = useMemo(
-    () => (activeListLayer ? [...overlayLayers, activeListLayer] : overlayLayers),
-    [overlayLayers, activeListLayer]
+   *  list tab's layer or the active directions tab's route. Both live in per-tab state, not
+   *  in `overlayLayers`, so a closed or backgrounded tab draws nothing. */
+  const visibleOverlayLayers = useMemo(() => {
+    const extra = activeListLayer ?? activeDirectionsRoute;
+    return extra ? [...overlayLayers, extra] : overlayLayers;
+  }, [overlayLayers, activeListLayer, activeDirectionsRoute]);
+
+  /** Directions panel reports its computed route (or null); frame it on the map. */
+  const handleDirectionsRouteChange = useCallback(
+    (layer: MapOverlayLayer | null) => {
+      setDirectionsRouteLayer(layer);
+      const line = layer?.lines[0];
+      if (line && line.coordinates.length > 0) {
+        mapRef.current?.fitToGeoJson(
+          {
+            type: "FeatureCollection" as const,
+            features: [
+              {
+                type: "Feature" as const,
+                geometry: { type: "LineString", coordinates: line.coordinates } as Record<
+                  string,
+                  unknown
+                >,
+                properties: null
+              }
+            ]
+          },
+          getMapPadding(true)
+        );
+      }
+    },
+    [getMapPadding]
+  );
+
+  /** Open a directions tab with the given place as the destination; origin defaults to the
+   *  user's current location (blank if unavailable). */
+  const handleGetDirections = useCallback(
+    (place: PlaceRecord) => {
+      const destination = waypointFromPlace(place);
+      if (!destination) return;
+      const openTab = (origin: DirectionsWaypoint | null): void => {
+        dispatchNav({
+          type: "navigate",
+          entry: {
+            kind: "directions",
+            id: crypto.randomUUID(),
+            label: "Directions",
+            origin,
+            destination,
+            mode: "auto" as TravelMode
+          },
+          newTab: true,
+          activate: true
+        });
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+      };
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          openTab({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            label: "Your location"
+          }),
+        () => openTab(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    },
+    [dispatchNav]
   );
 
   /** Click a list row: open the mini place card over its marker (same as clicking the
@@ -833,6 +961,33 @@ function App(): React.JSX.Element {
       }
     },
     [selectedFolder, getMapPadding, dispatchNav]
+  );
+
+  /** "+" in the tab strip: create a blank note in the chosen folder (null → vault root) and
+   *  open it in a new tab, title selected for rename (justCreated), same as the sidebar's new note. */
+  const handleNewNoteInFolder = useCallback(
+    async (folderPath: string | null) => {
+      const parent = folderPath ?? vaultRoot;
+      if (!parent) return;
+      const result = await window.api.fs.createNoteFile({ parentFolderPath: parent });
+      if (!result.success) return;
+      const filePath = result.filePath;
+      const title = (filePath.split(/[/\\]/).pop() ?? "Untitled.md").replace(/\.md$/i, "");
+      const resolved = (await window.api.places.getByPath(filePath)) ?? {
+        title,
+        type: "note",
+        filePath
+      };
+      const place: PlaceRecord = { ...resolved, justCreated: true };
+      setSelectionPulseAnchor(null);
+      setMapPeekPlace(null);
+      setSelectedPlace(place);
+      setPlaceMode("full");
+      setSelectedFolder(null);
+      setFeatureScreenPos(null);
+      dispatchNav({ type: "navigate", entry: { kind: "place", place }, newTab: true, activate: true });
+    },
+    [vaultRoot, dispatchNav]
   );
 
   const handleGeocodeSearchResult = useCallback(
@@ -1312,6 +1467,8 @@ function App(): React.JSX.Element {
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
             onTabReorder={handleNavTabReorder}
+            onNewNote={handleNewNoteInFolder}
+            newNoteDefaultFolder={parentFolderForNewFiles}
           />
         </div>
         <div
@@ -1389,6 +1546,7 @@ function App(): React.JSX.Element {
               mode="full"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
               onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
@@ -1435,6 +1593,43 @@ function App(): React.JSX.Element {
           </div>
         )}
 
+        {/* Directions — full-height pane sharing the main-pane slot. */}
+        {activeDirectionsEntry && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
+            style={{
+              left: projectSidebarOpen ? projectSidebarWidth : 0,
+              width: mainPaneWidth
+            }}
+          >
+            <DirectionsPanel
+              key={activeDirectionsEntry.id}
+              id={activeDirectionsEntry.id}
+              origin={activeDirectionsEntry.origin}
+              destination={activeDirectionsEntry.destination}
+              mode={activeDirectionsEntry.mode}
+              onChange={(next) =>
+                dispatchNav({
+                  type: "update-directions",
+                  id: activeDirectionsEntry.id,
+                  origin: next.origin,
+                  destination: next.destination,
+                  mode: next.mode
+                })
+              }
+              onRouteChange={handleDirectionsRouteChange}
+              onClose={() => handleNavTabClose(activeTabIndex)}
+            />
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize directions pane"
+              offset={0}
+              className="bottom-2"
+              onPointerDown={startMainPaneResize}
+            />
+          </div>
+        )}
+
         {/* Mini place card — floats above the selected map feature */}
         {isMini && featureScreenPos && (
           <div
@@ -1451,6 +1646,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
               onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
@@ -1484,6 +1680,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handleClosePeek}
               onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
               onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}

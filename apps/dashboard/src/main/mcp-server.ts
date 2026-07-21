@@ -25,6 +25,7 @@ import {
 import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
 import { computeBbox } from "./bbox";
 import {
+  normalizePlaceName,
   queryNear,
   querySpatialIndex,
   queryWithinPolygon,
@@ -242,7 +243,7 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 
 ## Vault location (authoritative — use exactly this path)
 The MapOS vault root on this machine is: ${vaultRoot}
-The agent working directory (cwd) for this session is set to that folder, and the environment variable MAPOS_VAULT_ROOT is also set to this path. Read, browse, and search the vault with the built-in tools: \`read_vault_file\` (read one file's contents), \`list_vault_files\` (enumerate paths, optionally by subfolder/extension), and \`search_vault_files\` (find notes by their contents). Prefer these over any generic shell/filesystem tools. If you do use generic \`find\`/\`grep\`/\`read\`/\`bash\`, confine them to this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes) — never guess home-directory layouts.
+The agent working directory (cwd) for this session is set to that folder, and the environment variable MAPOS_VAULT_ROOT is also set to this path. Read, browse, and search the vault with the built-in tools: \`read_vault_file\` (read one file's contents), \`list_vault_files\` (enumerate paths, optionally by subfolder/extension), and \`search_vault_files\` (find notes by filename or contents). Prefer these over any generic shell/filesystem tools. If you do use generic \`find\`/\`grep\`/\`read\`/\`bash\`, confine them to this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes) — never guess home-directory layouts.
 
 ## Place files and frontmatter
 
@@ -291,7 +292,7 @@ To search the user's own indexed places spatially (\`query_spatial_index\` takes
 
 Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
 
-To find one of the user's places BY NAME (e.g. "Home", "the office"), a place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\`. So look it up with \`spatial_sql\` \`SELECT file_path, geometry FROM features WHERE file_path LIKE '%home%'\` (this is exactly how the app's own search matches). Don't scan for a \`name\` property or shell out to \`find\` first.
+To find one of the user's places BY NAME (e.g. "Home", "Adrian's"), pass \`filters.name\` to \`query_spatial_index\` (or \`find_near\` / \`query_within_polygon\`). A place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\` — and the match is case-, accent- and apostrophe-insensitive. Don't scan for a \`name\` property or shell out to \`find\` first.
 
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
@@ -532,6 +533,12 @@ export function buildMaposCustomTools(
   // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
   const spatialFilters = Type.Object({
     folderPath: Type.Optional(Type.String()),
+    name: Type.Optional(
+      Type.String({
+        description:
+          "Find places by name: substring match on the file basename (a place's name IS its filename — 'Adrian' matches Friends/Adrian.md). Case-, accent- and apostrophe-insensitive ('adrian's' and 'cafe' work)."
+      })
+    ),
     properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
   });
 
@@ -910,7 +917,7 @@ export function buildMaposCustomTools(
     name: "query_spatial_index",
     label: "Query spatial index",
     description:
-      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. To find a place by name, don't scan here — use spatial_sql with `file_path LIKE '%name%'` (the file basename is the place's name).",
+      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. Use filters.name to find a place BY NAME ('Home', 'Adrian's') — it matches the file basename, which is the place's name.",
     parameters: Type.Object({
       bounds: Type.Optional(
         Type.Object(
@@ -1861,7 +1868,7 @@ export function buildMaposCustomTools(
     name: "search_vault_files",
     label: "Search vault files",
     description:
-      "Full-text search the CONTENTS of vault files for a query string (case-insensitive by default), returning matching files with line numbers and the matching lines. This is how to find notes by what they SAY — there is no full-text index. To find a place BY NAME, use spatial_sql on file_path; to find places spatially, use query_spatial_index / find_near.",
+      "Search vault files for a query string, matching both file CONTENTS (case-insensitive by default; returns line numbers and matching lines) and FILENAMES (always normalized: case-, accent- and apostrophe-insensitive; flagged `name_match`, so 'adrian's' finds Friends/Adrian.md even if its body never says it). There is no full-text index. To find places spatially or by name WITH their geometry, prefer query_spatial_index (filters.name) / find_near.",
     parameters: Type.Object({
       query: Type.String({ description: "Text to search for within file contents." }),
       folder: Type.Optional(
@@ -1897,34 +1904,46 @@ export function buildMaposCustomTools(
       const SNIPPET = 240;
       const MAX_BYTES = 512_000;
 
+      const nameNeedle = normalizePlaceName(args.query);
+
       const all: string[] = [];
       collectVaultFiles(base, maposDir, all, 20_000);
       const candidates = all.filter((p) => p.toLowerCase().endsWith(`.${ext}`));
 
-      const results: Array<{ path: string; matches: Array<{ line: number; text: string }> }> = [];
+      const results: Array<{
+        path: string;
+        name_match?: boolean;
+        matches: Array<{ line: number; text: string }>;
+      }> = [];
       let scanned = 0;
       for (const rel of candidates) {
         if (results.length >= maxFiles) break;
         scanned++;
-        let text: string;
+        const nameMatch = nameNeedle.length > 0 && normalizePlaceName(rel).includes(nameNeedle);
+        const matches: Array<{ line: number; text: string }> = [];
         try {
           const abs = join(maposDir, rel);
-          if (statSync(abs).size > MAX_BYTES) continue;
-          text = readFileSync(abs, "utf-8");
-        } catch {
-          continue;
-        }
-        const hay = args.case_sensitive ? text : text.toLowerCase();
-        if (!hay.includes(needle)) continue;
-        const lines = text.split(/\r?\n/);
-        const matches: Array<{ line: number; text: string }> = [];
-        for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
-          const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
-          if (cmp.includes(needle)) {
-            matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
+          if (statSync(abs).size <= MAX_BYTES) {
+            const text = readFileSync(abs, "utf-8");
+            const hay = args.case_sensitive ? text : text.toLowerCase();
+            if (hay.includes(needle)) {
+              const lines = text.split(/\r?\n/);
+              for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
+                const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
+                if (cmp.includes(needle)) {
+                  matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
+                }
+              }
+            }
           }
+        } catch {
+          // an unreadable/oversized body still counts as a filename match
         }
-        if (matches.length) results.push({ path: rel, matches });
+        if (nameMatch) {
+          results.push({ path: rel, name_match: true, matches });
+        } else if (matches.length) {
+          results.push({ path: rel, matches });
+        }
       }
       const truncated = results.length >= maxFiles && candidates.length > scanned;
       return TEXT_RESULT(

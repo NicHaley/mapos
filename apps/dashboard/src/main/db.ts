@@ -334,11 +334,36 @@ export function removeFeatures(filePaths: string[]): void {
   db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
-export type SpatialFilters = { properties?: Record<string, string[]>; folderPath?: string };
+export type SpatialFilters = {
+  properties?: Record<string, string[]>;
+  folderPath?: string;
+  name?: string;
+};
+
+/**
+ * Normalize a place name (or a query for one) for matching: lowercase, diacritics stripped,
+ * apostrophes dropped, and word-final "s" removed ("Adrian's"/"adrians" both find
+ * `Friends/Adrian.md`, "cafe" finds "Le Café Marly"). Both sides of a match get the same
+ * treatment, so the s-stripping only loosens substring matches — it never loses one.
+ */
+export function normalizePlaceName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/['’]?s(?=$|[^a-z0-9])/g, "")
+    .replace(/['’]/g, "");
+}
+
+/** A place's name is its file basename, extension stripped. */
+function placeNameOfPath(filePath: string): string {
+  const base = filePath.slice(filePath.lastIndexOf("/") + 1);
+  return base.replace(/\.[^.]+$/, "");
+}
 
 /**
  * Shared candidate selection for all spatial queries: an optional rtree bbox prefilter plus
- * the folder/property attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
+ * the folder/property/name attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
  * from their radius/polygon and then refine the result in JS with Turf. With `bounds === null`
  * there is no spatial prefilter (the filtered set is scanned).
  */
@@ -373,12 +398,22 @@ function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): Feat
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color ${from} ${whereSql}`;
-  const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
+  let rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
   }>;
+
+  // Name matching is normalized (accents/apostrophes), so it can't be a SQL LIKE against the
+  // raw file_path — refine in JS instead.
+  if (filters?.name) {
+    const needle = normalizePlaceName(filters.name);
+    if (needle) {
+      rows = rows.filter((r) => normalizePlaceName(placeNameOfPath(r.file_path)).includes(needle));
+    }
+  }
+
   return rows.map((r) => ({ ...r }));
 }
 

@@ -41,6 +41,7 @@ import { useVaultRoot } from "../hooks/use-vault-root";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
+import { NewNoteTooltipContent } from "./new-note-tooltip";
 import { CollapsibleGroupLabel } from "./project-sidebar/collapsible-group-label";
 import {
   type DragItem,
@@ -424,13 +425,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                   </SidebarMenuItem>
                 }
               />
-              <TooltipContent side="right">
-                Create a local note
-                <KbdGroup>
-                  <Kbd>{modSymbol}</Kbd>
-                  <Kbd>N</Kbd>
-                </KbdGroup>
-              </TooltipContent>
+              <NewNoteTooltipContent side="right" />
             </Tooltip>
             <Tooltip>
               <TooltipTrigger

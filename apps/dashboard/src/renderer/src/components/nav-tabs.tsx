@@ -9,6 +9,7 @@ import { FolderIcon, PlusIcon, RouteIcon, TextSearchIcon, XIcon } from "lucide-r
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
 import { FolderPickerPopover } from "./folder-picker-popover";
+import { NewNoteTooltipContent } from "./new-note-tooltip";
 
 export type NavTabData =
   | { id: string; title: string; kind: "place"; filePath: string }
@@ -171,7 +172,7 @@ export const NavTabs = memo(function NavTabs({
               />
             }
           />
-          <TooltipContent side="bottom">New note</TooltipContent>
+          <NewNoteTooltipContent side="bottom" />
         </Tooltip>
       </Surface>
 

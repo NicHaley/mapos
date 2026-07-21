@@ -1467,10 +1467,11 @@ function App(): React.JSX.Element {
           </div>
         )}
 
-        {/* Peek mini card — map selection while full PlaceCard is open */}
+        {/* Peek mini card — map selection while full PlaceCard is open. Sits below the
+            full main pane (z-20) so the committed card stays on top when they overlap. */}
         {isFull && mapPeekPlace && featureScreenPos && (
           <div
-            className="absolute pointer-events-none z-30"
+            className="absolute pointer-events-none z-10"
             style={{
               left: featureScreenPos.x,
               top: featureScreenPos.y - TOP_BAR_HEIGHT,

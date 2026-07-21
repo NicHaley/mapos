@@ -1,3 +1,4 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@mapos/ui/components/avatar";
 import { Button } from "@mapos/ui/components/button";
 import { Command, CommandGroup, CommandItem, CommandList } from "@mapos/ui/components/command";
 import { surfaceVariants } from "@mapos/ui/components/surface";
@@ -7,13 +8,13 @@ import type { MapOverlayLayer } from "@shared/types";
 import {
   CheckIcon,
   FileTextIcon,
-  ListIcon,
   Loader2Icon,
   MapPinIcon,
   PlusIcon,
+  TextSearchIcon,
   XIcon
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import type { PlaceRecord } from "./map-view";
 
@@ -26,9 +27,70 @@ export type FeatureListRow = {
   lng?: number;
   preview?: string;
   category?: string;
+  /** Street/context line (geocoder secondaryLabel), shown as the row subtitle. */
+  address?: string;
+  /** Wikidata QID, if known — used to resolve a Wikimedia thumbnail for the row. */
+  wikidataId?: string;
   /** True for a feature already saved in the vault (shown with a file icon). */
   isVault: boolean;
 };
+
+/** Commons thumbnails come back at 640px; a row thumb only needs ~2× its 36px slot. */
+const ROW_THUMB_WIDTH = 96;
+const QID_RE = /^Q\d+$/;
+
+/**
+ * Leading media slot for a row: a fixed square that shows a Wikimedia thumbnail when the
+ * feature has a resolvable `wikidata_id`, and falls back to the feature icon otherwise.
+ * The image lookup (a main-process network round-trip, session-cached) is deferred until
+ * the row scrolls into view so opening a long list doesn't fan out dozens of calls at once.
+ */
+function RowThumbnail({
+  wikidataId,
+  fallbackIcon: FallbackIcon
+}: {
+  wikidataId?: string;
+  fallbackIcon: ComponentType<{ className?: string }>;
+}): React.JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSrc(null);
+    const el = ref.current;
+    if (!el || !wikidataId || !QID_RE.test(wikidataId)) return;
+    let cancelled = false;
+    const resolve = () => {
+      void window.api.wiki.imageLookup(wikidataId).then((img) => {
+        if (!cancelled && img) setSrc(img.thumbUrl.replace(/width=\d+/, `width=${ROW_THUMB_WIDTH}`));
+      });
+    };
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    observer.observe(el);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [wikidataId]);
+
+  const fallback = (
+    <AvatarFallback className="rounded-md bg-muted text-muted-foreground">
+      <FallbackIcon className="size-4" />
+    </AvatarFallback>
+  );
+
+  return (
+    <Avatar ref={ref} className="size-9 shrink-0 rounded-md after:rounded-md">
+      {src ? <AvatarImage className="rounded-md" src={src} alt="" /> : null}
+      {fallback}
+    </Avatar>
+  );
+}
 
 /** Best-effort [lng, lat] from a PlaceRecord's GeoJSON geometry string, for Points only. */
 function pointCoords(place: PlaceRecord): [number, number] | null {
@@ -96,6 +158,8 @@ export function FeaturesListPanel({
         lng: p.lng,
         preview: firstLine(p.preview_markdown),
         category: p.properties?.category,
+        address: p.properties?.address,
+        wikidataId: p.properties?.wikidata_id,
         isVault: false
       });
     }
@@ -107,6 +171,8 @@ export function FeaturesListPanel({
         id: `vault:${path}`,
         title: place.title,
         ...(coords ? { lng: coords[0], lat: coords[1] } : {}),
+        category: place.properties?.category,
+        address: place.properties?.address,
         isVault: true
       });
     }
@@ -145,7 +211,7 @@ export function FeaturesListPanel({
     >
       <div className="flex min-h-12 shrink-0 items-center justify-between gap-1 p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
-          <ListIcon className="size-4 shrink-0 opacity-70" />
+          <TextSearchIcon className="size-4 shrink-0 opacity-70" />
           <span className="min-w-0 truncate font-medium text-sidebar-foreground">
             {layer?.layerName || "Results"}
           </span>
@@ -184,7 +250,7 @@ export function FeaturesListPanel({
         </div>
       ) : (
         <Command shouldFilter={false} loop className="flex min-h-0 flex-1 flex-col bg-transparent">
-          <CommandList className="max-h-none min-h-0 flex-1 p-1">
+          <CommandList className="max-h-none min-h-0 flex-1">
             <CommandGroup>
               {rows.map((row) => {
                 const saved = row.isVault || savedIds.has(row.id);
@@ -195,9 +261,9 @@ export function FeaturesListPanel({
                     key={row.id}
                     value={row.id}
                     onSelect={() => onOpenFeature(row)}
-                    className="group rounded-md"
+                    className="group items-center rounded-md"
                   >
-                    <RowIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <RowThumbnail wikidataId={row.wikidataId} fallbackIcon={RowIcon} />
                     <div className="flex min-w-0 flex-1 flex-col text-left">
                       <div className="flex min-w-0 items-baseline gap-1.5">
                         <span className="max-w-full shrink-0 truncate font-medium leading-tight">
@@ -209,9 +275,9 @@ export function FeaturesListPanel({
                           </span>
                         ) : null}
                       </div>
-                      {row.preview ? (
+                      {row.address ?? row.preview ? (
                         <span className="mt-0.5 truncate text-muted-foreground text-xs leading-tight">
-                          {row.preview}
+                          {row.address ?? row.preview}
                         </span>
                       ) : null}
                     </div>

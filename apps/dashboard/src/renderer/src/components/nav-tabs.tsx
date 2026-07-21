@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import { FolderIcon, ListIcon, XIcon } from "lucide-react";
+import { FolderIcon, TextSearchIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
 
@@ -27,7 +27,7 @@ const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
 
 function tabIcon(tab: NavTabData): React.ElementType {
   if (tab.kind === "folder") return FolderIcon;
-  if (tab.kind === "list") return ListIcon;
+  if (tab.kind === "list") return TextSearchIcon;
   return iconForFilename(tab.filePath);
 }
 
@@ -86,7 +86,8 @@ export const NavTabs = memo(function NavTabs({
                   style={noDrag}
                   className={cn(
                     // Avoid buttonVariants: base `active:translate-y-px` + `transition-all` conflict with Motion drag.
-                    "group relative inline-flex h-7 max-w-[160px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-0.5 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
+                    // Fixed width so every tab is the same size regardless of title length.
+                    "group relative inline-flex h-7 w-40 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-0.5 pl-2 text-[0.8rem] font-medium outline-none select-none transition-colors",
                     "focus-visible:ring-[3px] focus-visible:ring-ring/50",
                     isActive
                       ? "bg-card text-sidebar-foreground shadow-sm dark:bg-accent"
@@ -94,7 +95,7 @@ export const NavTabs = memo(function NavTabs({
                   )}
                 >
                   <Icon className="size-3.5 shrink-0 opacity-70" />
-                  <span className="truncate">{tab.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{tab.title}</span>
                   <Tooltip>
                     <TooltipTrigger
                       render={

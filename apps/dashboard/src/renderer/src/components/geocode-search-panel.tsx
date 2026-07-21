@@ -1,4 +1,4 @@
-import { FileTextIcon, ListIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
+import { FileTextIcon, Loader2Icon, MapPinIcon, SearchIcon, TextSearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -104,8 +104,9 @@ export type GeocodeSearchPanelProps = {
   /** Indexed vault files to search locally (matched by title and path). */
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
-  /** When provided and there are place results, offers "open all as a list". */
-  onOpenResults?: (results: GeocodeSearchResult[], query: string) => void;
+  /** When provided and there are place or file matches, offers "open all as a list".
+   *  `files` are the matched vault files, included in the list as vault rows. */
+  onOpenResults?: (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => void;
   className?: string;
   /** Shown to the right of the search field (e.g. clear action). */
   inputEndSlot?: ReactNode;
@@ -196,15 +197,19 @@ export function GeocodeSearchPanel({
 
   // Local matches filter instantly against the current (un-debounced) query.
   const needle = queryTrim.toLowerCase();
-  const fileMatches = useMemo(() => {
+  // All matches feed "open all as a list"; the popover shows only the first few.
+  const allFileMatches = useMemo(() => {
     if (!needle || !files) return [];
     return files
       .filter((f) => f.type !== "Search")
       .filter(
         (f) => f.title.toLowerCase().includes(needle) || f.filePath.toLowerCase().includes(needle)
-      )
-      .slice(0, LOCAL_RESULT_LIMIT);
+      );
   }, [files, needle]);
+  const fileMatches = useMemo(
+    () => allFileMatches.slice(0, LOCAL_RESULT_LIMIT),
+    [allFileMatches]
+  );
 
   // A settled result set clears the highlight (cmdk auto-selects first on search change;
   // this runs when items actually arrive, so nothing stays highlighted until ArrowDown).
@@ -255,6 +260,8 @@ export function GeocodeSearchPanel({
   );
 
   const hasAnyResults = results.length > 0 || fileMatches.length > 0;
+  // "Open all" spans place results + every matched vault file (not just the shown few).
+  const openAllCount = results.length + allFileMatches.length;
 
   return (
     <Command
@@ -280,13 +287,18 @@ export function GeocodeSearchPanel({
             placeholder={placeholder}
             autoComplete="off"
             onKeyDown={(e) => {
-              // Nothing highlighted + place results present → Enter opens all as a list
+              // Nothing highlighted + any matches present → Enter opens all as a list
               // (the default action). cmdk always preventDefaults Enter, so intercept here
               // and stop it reaching cmdk's root handler.
-              if (e.key === "Enter" && !selected && onOpenResults && results.length > 0) {
+              if (
+                e.key === "Enter" &&
+                !selected &&
+                onOpenResults &&
+                (results.length > 0 || allFileMatches.length > 0)
+              ) {
                 e.preventDefault();
                 e.stopPropagation();
-                onOpenResults(results, debouncedTrim);
+                onOpenResults(results, debouncedTrim, allFileMatches);
               }
             }}
             className="flex h-9 w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
@@ -365,16 +377,16 @@ export function GeocodeSearchPanel({
             })}
           </CommandGroup>
         ) : null}
-        {onOpenResults && results.length > 0 ? (
+        {onOpenResults && openAllCount > 0 ? (
           <CommandGroup>
             <CommandItem
               value="__open_all_results__"
-              onSelect={() => onOpenResults(results, debouncedTrim)}
+              onSelect={() => onOpenResults(results, debouncedTrim, allFileMatches)}
               className="rounded-md"
             >
-              <ListIcon className="size-4 shrink-0 text-muted-foreground" />
+              <TextSearchIcon className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-medium">
-                Open {results.length} result{results.length === 1 ? "" : "s"} as a list
+                Open {openAllCount} result{openAllCount === 1 ? "" : "s"} as a list
               </span>
             </CommandItem>
           </CommandGroup>

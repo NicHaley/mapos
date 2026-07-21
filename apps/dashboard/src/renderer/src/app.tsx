@@ -851,7 +851,7 @@ function App(): React.JSX.Element {
   /** "Open all results as a list": build an overlay layer from the search results and
    *  open it as a working-set tab (the same surface the agent's present_features uses). */
   const handleOpenSearchResults = useCallback(
-    (results: GeocodeSearchResult[], query: string) => {
+    (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => {
       const points = results.slice(0, LIST_MAX_FEATURES).map((r) => {
         const properties = detailPropertiesFromGeocodeResult(r);
         return {
@@ -862,13 +862,17 @@ function App(): React.JSX.Element {
           ...(Object.keys(properties).length > 0 ? { properties } : {})
         };
       });
-      if (points.length === 0) return;
+      // Vault files that matched the search ride along as vault rows (file icon, no
+      // add action) — the panel resolves them against the index by path.
+      const vaultPaths = files.map((f) => f.filePath);
+      if (points.length === 0 && vaultPaths.length === 0) return;
       handleOverlayLayer({
         id: `search:${crypto.randomUUID()}`,
         layerName: query.trim() || "Search results",
         points,
         lines: [],
-        polygons: []
+        polygons: [],
+        ...(vaultPaths.length > 0 ? { vaultPaths } : {})
       });
     },
     [handleOverlayLayer]
@@ -1059,19 +1063,13 @@ function App(): React.JSX.Element {
    *  that were successfully written so the list can mark them saved. Sequential so files
    *  landing in the same folder don't race on name collisions. */
   const handleSaveListFeatures = useCallback(
-    async (rowIds: string[], folderPath: string | null): Promise<string[]> => {
-      if (!activeListLayer) return [];
-      const saved: string[] = [];
+    async (rowIds: string[], folderPath: string | null): Promise<void> => {
+      if (!activeListLayer) return;
       for (const id of rowIds) {
         const point = activeListLayer.points.find((p) => p.id === id);
         if (!point) continue;
-        const created = await createPlaceFileFromPreview(
-          previewPlaceFromOverlayPoint(point),
-          folderPath
-        );
-        if (created) saved.push(id);
+        await createPlaceFileFromPreview(previewPlaceFromOverlayPoint(point), folderPath);
       }
-      return saved;
     },
     [activeListLayer, createPlaceFileFromPreview]
   );

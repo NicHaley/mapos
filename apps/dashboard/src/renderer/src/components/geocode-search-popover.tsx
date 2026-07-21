@@ -25,7 +25,7 @@ export function GeocodeSearchPopover({
   onSelectResult: (result: GeocodeSearchResult) => void;
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
-  onOpenResults?: (results: GeocodeSearchResult[], query: string) => void;
+  onOpenResults?: (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => void;
   className?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -51,8 +51,8 @@ export function GeocodeSearchPopover({
   );
 
   const handleOpenResults = useCallback(
-    (results: GeocodeSearchResult[], query: string) => {
-      onOpenResults?.(results, query);
+    (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => {
+      onOpenResults?.(results, query, files);
       setOpen(false);
     },
     [onOpenResults]

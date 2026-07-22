@@ -228,4 +228,14 @@ export type McpConnectionInfo = {
   port: number;
   token: string;
   url: string;
+  /** Most recent client to connect this session, or null if none has yet. */
+  lastClient: McpClientInfo | null;
+};
+
+/** A client that completed the MCP `initialize` handshake (name/version from its clientInfo). */
+export type McpClientInfo = {
+  name: string;
+  version: string;
+  /** Epoch ms of the connection. */
+  at: number;
 };

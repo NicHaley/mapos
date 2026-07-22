@@ -224,6 +224,11 @@ app.whenReady().then(() => {
   // Local MCP server: bind the HTTP listener once (vault-independent) so external MCP clients
   // can connect. The tool set is (re)targeted per vault by bootVault/teardownVault above.
   registerMcpIpc(appStateDir);
+  // Push a live "client connected" signal to the renderer's Connections UI. Wired here (not in
+  // setActiveVault) so it fires even during onboarding, when no vault is active yet.
+  mcpManager.onClientConnect = (client) => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:client-connected", client);
+  };
   const mcpConfig = getOrCreateMcpConfig(appStateDir);
   if (mcpConfig.enabled) {
     void mcpManager.start(mcpConfig.port, mcpConfig.token).catch((err) => {

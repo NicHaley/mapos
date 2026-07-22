@@ -1,11 +1,11 @@
 import { Button } from "@mapos/ui/components/button";
 import { ArrowLeftIcon } from "lucide-react";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
-import { RegionPicker } from "../settings/region-picker";
+import { McpConnect } from "../settings/mcp-connect";
 import { CmdEnterHint } from "./cmd-enter-hint";
 import { OnboardingStep } from "./onboarding-step";
 
-export function OfflineStep({
+export function ConnectStep({
   onBack,
   onNext
 }: {
@@ -16,7 +16,6 @@ export function OfflineStep({
 
   return (
     <OnboardingStep
-      fill
       footer={
         <div className="flex items-center justify-between">
           <Button size="lg" variant="ghost" onClick={onBack}>
@@ -35,16 +34,14 @@ export function OfflineStep({
         </div>
       }
     >
-      <h1 className="text-2xl font-semibold tracking-tight">Keep maps for offline</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Connect an AI client</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Download regions to browse and search them with no connection. Grab one now or skip — you
-        can add or remove regions any time in Settings.
+        MapOS can be driven by an MCP client like Claude Code or Cursor. This can be configured
+        later in Settings › Connections.
       </p>
 
-      {/* flex-1 + min-h-0 hands the leftover height to RegionPicker so its map stays pinned and
-          only the list scrolls — the body itself never grows the frame. */}
-      <div className="mt-6 flex min-h-0 flex-1 flex-col">
-        <RegionPicker />
+      <div className="mt-8 flex flex-col">
+        <McpConnect />
       </div>
     </OnboardingStep>
   );

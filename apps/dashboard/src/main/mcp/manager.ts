@@ -8,7 +8,7 @@ import type { GeocodeResult } from "@mapos/contracts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { BrowserWindow } from "electron";
-import type { MapOverlayLayer, PlaceRecord } from "../../shared/types";
+import type { MapOverlayLayer, McpClientInfo, PlaceRecord } from "../../shared/types";
 import {
   type StashedGeometry,
   type VaultOperation,
@@ -48,6 +48,13 @@ export class McpManager {
   private tools: ToolDefinition[] = [];
   private instructions: string | undefined;
 
+  // Most recent client to complete an `initialize` handshake, latched in-memory for the app
+  // session (a live signal, not persisted config — untouched by token regeneration). Backs the
+  // "Connected ✓" indicator in the renderer.
+  private lastClient: McpClientInfo | null = null;
+  /** Fired whenever a client completes `initialize`; wired to the renderer in index.ts. */
+  onClientConnect: ((client: McpClientInfo) => void) | null = null;
+
   // App-scoped stores, reused across the whole desktop session (there's no per-conversation
   // scope in MCP). Cleared on vault change so handles never leak across vaults.
   private readonly geocodeStore = new Map<string, GeocodeResult>();
@@ -57,6 +64,11 @@ export class McpManager {
 
   isRunning(): boolean {
     return this.http !== null;
+  }
+
+  /** The most recent client to connect this session, or null if none has. */
+  getLastClient(): McpClientInfo | null {
+    return this.lastClient;
   }
 
   /** Start the HTTP listener on 127.0.0.1:port. No-op if already running. */
@@ -165,6 +177,13 @@ export class McpManager {
     try {
       await server.connect(transport);
       await transport.handleRequest(req, res);
+      // Stateless mode gives each request a fresh Server, so only the request that carried the
+      // `initialize` handshake has a non-null client version — that's our per-connection latch.
+      const version = server.getClientVersion();
+      if (version) {
+        this.lastClient = { name: version.name, version: version.version, at: Date.now() };
+        this.onClientConnect?.(this.lastClient);
+      }
     } catch {
       if (!res.headersSent) {
         res.writeHead(500, { "content-type": "application/json" });

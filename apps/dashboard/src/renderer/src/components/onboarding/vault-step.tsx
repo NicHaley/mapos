@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { DEFAULT_VAULT_NAME, validateVaultName } from "../../lib/vault-name";
 import { CmdEnterHint } from "./cmd-enter-hint";
+import { OnboardingStep } from "./onboarding-step";
 
 export type VaultDraft =
   | { kind: "create"; name: string; targetPath: string; parentPath: string }
@@ -112,7 +113,32 @@ export function VaultStep({
   useCmdEnter(primaryAction, primaryEnabled);
 
   return (
-    <div className="flex flex-col">
+    <OnboardingStep
+      footer={
+        <div className="flex items-center justify-between">
+          <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
+            <ArrowLeftIcon className="size-4" />
+            Back
+          </Button>
+          {matchingDraft ? (
+            <Button size="lg" onClick={onNext}>
+              Continue
+              <CmdEnterHint tone="primary" />
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={() => void (mode === "create" ? pickCreateLocation() : pickExistingVault())}
+              disabled={busy || (mode === "create" && !name.trim())}
+            >
+              {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+              {mode === "create" ? "Choose location" : "Pick folder"}
+              <CmdEnterHint tone="primary" />
+            </Button>
+          )}
+        </div>
+      }
+    >
       <h1 className="text-2xl font-semibold tracking-tight">Set up your vault</h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Select where your files are stored. You can rename it or move it later.
@@ -205,29 +231,6 @@ export function VaultStep({
       )}
 
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
-
-      <div className="mt-8 flex items-center justify-between">
-        <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
-          <ArrowLeftIcon className="size-4" />
-          Back
-        </Button>
-        {matchingDraft ? (
-          <Button size="lg" onClick={onNext}>
-            Continue
-            <CmdEnterHint tone="primary" />
-          </Button>
-        ) : (
-          <Button
-            size="lg"
-            onClick={() => void (mode === "create" ? pickCreateLocation() : pickExistingVault())}
-            disabled={busy || (mode === "create" && !name.trim())}
-          >
-            {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            {mode === "create" ? "Choose location" : "Pick folder"}
-            <CmdEnterHint tone="primary" />
-          </Button>
-        )}
-      </div>
-    </div>
+    </OnboardingStep>
   );
 }

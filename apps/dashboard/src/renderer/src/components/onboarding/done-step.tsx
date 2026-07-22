@@ -67,7 +67,7 @@ export function DoneStep({
         : null;
 
   return (
-    <div className="flex flex-col items-center text-center">
+    <div className="flex h-full flex-col items-center justify-center text-center">
       <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
         <CheckIcon className="size-7" />
       </div>

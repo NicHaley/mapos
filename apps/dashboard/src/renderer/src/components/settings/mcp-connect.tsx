@@ -9,6 +9,13 @@ import {
   InputGroupButton,
   InputGroupInput
 } from "@mapos/ui/components/input-group";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle
+} from "@mapos/ui/components/item";
 import { Switch } from "@mapos/ui/components/switch";
 import { cn } from "@mapos/ui/lib/utils";
 import type { McpConnectionInfo } from "@shared/types";
@@ -123,8 +130,11 @@ export function McpConnect() {
 
   const toggle = useCallback(async (enabled: boolean) => {
     setBusy(true);
-    setInfo(await window.api.mcp.setEnabled(enabled));
-    setBusy(false);
+    try {
+      setInfo(await window.api.mcp.setEnabled(enabled));
+    } finally {
+      setBusy(false);
+    }
   }, []);
 
   const regenerate = useCallback(async () => {
@@ -140,20 +150,17 @@ export function McpConnect() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-7">
-      <div className="flex items-start justify-between gap-6">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-lg font-semibold tracking-tight">MCP server</h3>
-          <p className="max-w-md text-sm text-muted-foreground">
+      <Item className="px-0">
+        <ItemContent>
+          <ItemTitle>MCP server</ItemTitle>
+          <ItemDescription>
             Let an AI client drive MapOS. Runs locally, reachable only with your token.
-          </p>
-        </div>
-        <Switch
-          checked={info.enabled}
-          disabled={busy}
-          onCheckedChange={(c) => void toggle(c)}
-          className="mt-1"
-        />
-      </div>
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <Switch checked={info.enabled} disabled={busy} onCheckedChange={(c) => void toggle(c)} />
+        </ItemActions>
+      </Item>
 
       {info.enabled && (
         <>

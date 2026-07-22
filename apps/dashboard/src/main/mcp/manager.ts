@@ -94,8 +94,16 @@ export class McpManager {
   async stop(): Promise<void> {
     const http = this.http;
     this.http = null;
+    // Stopping the server severs any live connection, so the "connected" latch is stale now.
+    this.lastClient = null;
     if (!http) return;
-    await new Promise<void>((resolve) => http.close(() => resolve()));
+    // http.close() only resolves once every connection has drained; a connected MCP client's
+    // keep-alive socket (or an idle keep-alive socket from a prior request) would otherwise
+    // keep it pending forever. Force those closed so the listener actually releases the port.
+    await new Promise<void>((resolve) => {
+      http.close(() => resolve());
+      http.closeAllConnections();
+    });
   }
 
   /** Rotate the accepted token (existing clients must re-connect with the new one). */

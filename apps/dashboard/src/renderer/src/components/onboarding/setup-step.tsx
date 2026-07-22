@@ -93,129 +93,131 @@ export function SetupStep({
   const vaultPath = draft?.kind === "create" ? draft.targetPath : (draft?.path ?? null);
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="-mx-3.5 min-h-0 flex-1 overflow-y-auto px-3.5">
-        <div className="flex min-h-full flex-col">
-          <div className="my-auto flex w-full flex-col">
-            <header>
-              <h1 className="text-2xl font-semibold tracking-tight">Set up MapOS</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Pick where your files live, then tune the rest. Everything here can be changed later
-                in Settings.
-              </p>
-            </header>
+    <div className="flex h-full min-w-0 flex-col justify-center">
+      {/* No flex-1: the scroll region sizes to its content so the footer sits directly beneath
+          it, and justify-center centers the content+footer group vertically. min-h-0 + default
+          flex-shrink let the region shrink and scroll only when the content is taller than the
+          available space — at which point there's no free space to center and the footer stays
+          pinned in view. */}
+      <div className="-mx-3.5 min-h-0 overflow-y-auto px-3.5">
+        <div className="flex w-full flex-col">
+          <header>
+            <h1 className="text-2xl font-semibold tracking-tight">Set up MapOS</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Pick where your files live, then tune the rest. Everything here can be changed later
+              in Settings.
+            </p>
+          </header>
 
-            {!draft && (
-              <div className="mt-6 flex items-start gap-3 rounded-lg border border-amber-600/25 bg-amber-500/10 px-4 py-3 text-sm">
-                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium">No vault selected</span>
-                  <span className="text-muted-foreground">
-                    Choose where your files live to finish setup.
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <ItemGroup className="mt-8 gap-0">
-              <Item className="px-0">
-                <ItemContent>
-                  <ItemTitle>Vault</ItemTitle>
-                  {vaultPath ? (
-                    <ItemDescription className="truncate font-mono" title={vaultPath}>
-                      {vaultPath}
-                    </ItemDescription>
-                  ) : (
-                    <ItemDescription>Where your notes and places are stored.</ItemDescription>
-                  )}
-                </ItemContent>
-                <ItemActions>
-                  <Button variant="outline" onClick={() => setVaultOpen(true)}>
-                    {draft ? "Change" : "Choose…"}
-                  </Button>
-                </ItemActions>
-              </Item>
-              <ItemSeparator />
-
-              <Item className="px-0">
-                <ItemContent>
-                  <ItemTitle>Connect an AI client</ItemTitle>
-                  {lastClient ? (
-                    <ItemDescription className="text-emerald-700 dark:text-emerald-400">
-                      Connected — {lastClient.name}
-                    </ItemDescription>
-                  ) : (
-                    <ItemDescription>
-                      Drive MapOS from Claude Code, Cursor, and more.
-                    </ItemDescription>
-                  )}
-                </ItemContent>
-                <ItemActions>
-                  <Button variant="outline" onClick={() => setConnectOpen(true)}>
-                    {lastClient ? "Manage" : "Set up"}
-                  </Button>
-                </ItemActions>
-              </Item>
-              <ItemSeparator />
-
-              <Item className="px-0">
-                <ItemContent>
-                  <ItemTitle>Offline maps</ItemTitle>
-                  {installedCount > 0 ? (
-                    <ItemDescription>
-                      {installedCount} {installedCount === 1 ? "region" : "regions"} downloaded.
-                    </ItemDescription>
-                  ) : (
-                    <ItemDescription>
-                      Download regions to browse without a connection.
-                    </ItemDescription>
-                  )}
-                </ItemContent>
-                <ItemActions>
-                  <Button variant="outline" onClick={() => setOfflineOpen(true)}>
-                    Choose regions
-                  </Button>
-                </ItemActions>
-              </Item>
-              <ItemSeparator />
-
-              <Item className="items-start px-0">
-                <ItemContent>
-                  <ItemTitle>Theme</ItemTitle>
-                  <ItemDescription>Light, dark, or match your system.</ItemDescription>
-                </ItemContent>
-                <ItemActions className="w-[280px]">
-                  <ThemePicker value={theme} onChange={setTheme} />
-                </ItemActions>
-              </Item>
-              <ItemSeparator />
-
-              <Item className="items-start px-0">
-                <ItemContent>
-                  <ItemTitle>Accent color</ItemTitle>
-                  <ItemDescription>Tints pins and highlights across the map.</ItemDescription>
-                </ItemContent>
-                <ItemActions>
-                  <AccentPicker value={accent} onChange={setAccent} />
-                </ItemActions>
-              </Item>
-            </ItemGroup>
-
-            <div className="mt-10">
-              {error && <p className="mb-3 text-center text-xs text-destructive">{error}</p>}
-              <div className="flex items-center justify-between gap-3">
-                <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
-                  <ArrowLeftIcon className="size-4" />
-                  Back
-                </Button>
-                <Button size="lg" onClick={() => void handleFinish()} disabled={busy || !draft}>
-                  {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-                  Finish setup
-                  <CmdEnterHint tone="primary" />
-                </Button>
+          {!draft && (
+            <div className="mt-6 flex items-start gap-3 rounded-lg border border-amber-600/25 bg-amber-500/10 px-4 py-3 text-sm">
+              <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium">No vault selected</span>
+                <span className="text-muted-foreground">
+                  Choose where your files live to finish setup.
+                </span>
               </div>
             </div>
-          </div>
+          )}
+
+          <ItemGroup className="mt-8 gap-0">
+            <Item className="px-0">
+              <ItemContent>
+                <ItemTitle>Vault</ItemTitle>
+                {vaultPath ? (
+                  <ItemDescription className="truncate font-mono" title={vaultPath}>
+                    {vaultPath}
+                  </ItemDescription>
+                ) : (
+                  <ItemDescription>Where your notes and places are stored.</ItemDescription>
+                )}
+              </ItemContent>
+              <ItemActions>
+                <Button variant="outline" onClick={() => setVaultOpen(true)}>
+                  {draft ? "Change" : "Choose…"}
+                </Button>
+              </ItemActions>
+            </Item>
+            <ItemSeparator />
+
+            <Item className="px-0">
+              <ItemContent>
+                <ItemTitle>Connect an AI client</ItemTitle>
+                {lastClient ? (
+                  <ItemDescription className="text-emerald-700 dark:text-emerald-400">
+                    Connected — {lastClient.name}
+                  </ItemDescription>
+                ) : (
+                  <ItemDescription>Drive MapOS from Claude Code, Cursor, and more.</ItemDescription>
+                )}
+              </ItemContent>
+              <ItemActions>
+                <Button variant="outline" onClick={() => setConnectOpen(true)}>
+                  {lastClient ? "Manage" : "Set up"}
+                </Button>
+              </ItemActions>
+            </Item>
+            <ItemSeparator />
+
+            <Item className="px-0">
+              <ItemContent>
+                <ItemTitle>Offline maps</ItemTitle>
+                {installedCount > 0 ? (
+                  <ItemDescription>
+                    {installedCount} {installedCount === 1 ? "region" : "regions"} downloaded.
+                  </ItemDescription>
+                ) : (
+                  <ItemDescription>
+                    Download regions to browse without a connection.
+                  </ItemDescription>
+                )}
+              </ItemContent>
+              <ItemActions>
+                <Button variant="outline" onClick={() => setOfflineOpen(true)}>
+                  Choose regions
+                </Button>
+              </ItemActions>
+            </Item>
+            <ItemSeparator />
+
+            <Item className="items-start px-0">
+              <ItemContent>
+                <ItemTitle>Theme</ItemTitle>
+                <ItemDescription>Light, dark, or match your system.</ItemDescription>
+              </ItemContent>
+              <ItemActions className="w-[280px]">
+                <ThemePicker value={theme} onChange={setTheme} />
+              </ItemActions>
+            </Item>
+            <ItemSeparator />
+
+            <Item className="items-start px-0">
+              <ItemContent>
+                <ItemTitle>Accent color</ItemTitle>
+                <ItemDescription>Tints pins and highlights across the map.</ItemDescription>
+              </ItemContent>
+              <ItemActions>
+                <AccentPicker value={accent} onChange={setAccent} />
+              </ItemActions>
+            </Item>
+          </ItemGroup>
+        </div>
+      </div>
+
+      {/* Pinned footer: stays put while the setup content above scrolls. */}
+      <div className="shrink-0 pt-6">
+        {error && <p className="mb-3 text-center text-xs text-destructive">{error}</p>}
+        <div className="flex items-center justify-between gap-3">
+          <Button size="lg" variant="ghost" onClick={onBack} disabled={busy}>
+            <ArrowLeftIcon className="size-4" />
+            Back
+          </Button>
+          <Button size="lg" onClick={() => void handleFinish()} disabled={busy || !draft}>
+            {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+            Finish setup
+            <CmdEnterHint tone="primary" />
+          </Button>
         </div>
       </div>
 

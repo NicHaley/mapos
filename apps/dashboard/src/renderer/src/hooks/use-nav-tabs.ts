@@ -1,11 +1,32 @@
+import type { RouteCosting } from "@mapos/contracts";
+import type { MapOverlayLayer } from "@shared/types";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
 import { useVaultRoot } from "./use-vault-root";
 
+/** A resolved directions endpoint: coordinates plus the label shown in the input. */
+export type DirectionsWaypoint = { lat: number; lng: number; label: string };
+/** Travel mode for a directions request — the routing costing model. */
+export type TravelMode = RouteCosting;
+
 export type NavEntry =
   | { kind: "place"; place: PlaceRecord }
   | { kind: "folder"; folderPath: string; label: string }
-  | { kind: "chat"; convId: string; title: string };
+  // A working set of features. Carries its own overlay `layer` so the tab (and its
+  // markers) survive a refresh like any other tab — it is not path-based, so relocate
+  // and remove-path skip it. `label` is the overlay's name.
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer }
+  // A directions request. Like `list`, it is not path-based and carries its own inputs
+  // (origin/destination/mode) so the tab round-trips a refresh; the route geometry is
+  // recomputed by the panel, not persisted.
+  | {
+      kind: "directions";
+      id: string;
+      label: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
 export type NavState = { tabs: NavTab[]; activeTab: number };
@@ -21,7 +42,13 @@ export type NavAction =
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
   | { type: "update-entry"; filePath: string; place: PlaceRecord }
-  | { type: "update-chat-title"; convId: string; title: string };
+  | {
+      type: "update-directions";
+      id: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -43,7 +70,8 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
-  if (entry.kind === "chat") return entry;
+  // List and directions tabs are not path-based — moves never touch them.
+  if (entry.kind === "list" || entry.kind === "directions") return entry;
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -82,7 +110,15 @@ function relocateEntry(
 type PersistedTab =
   | { kind: "place"; filePath: string }
   | { kind: "folder"; folderPath: string }
-  | { kind: "chat"; convId: string; title: string };
+  | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer }
+  | {
+      kind: "directions";
+      id: string;
+      label: string;
+      origin: DirectionsWaypoint | null;
+      destination: DirectionsWaypoint | null;
+      mode: TravelMode;
+    };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
 // Scoped per vault — see useVaultRoot. The bare key predates scoping and is
@@ -94,7 +130,8 @@ export function folderLabel(folderPath: string): string {
 }
 
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
-  if (entry.kind === "chat") return false;
+  // List and directions tabs reference no vault path, so a path removal never matches them.
+  if (entry.kind === "list" || entry.kind === "directions") return false;
   if (entry.kind === "place") {
     if (isFolder) {
       return (
@@ -222,14 +259,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
-    case "update-chat-title": {
+    case "update-directions": {
       return {
         ...state,
         tabs: state.tabs.map((tab) => ({
           ...tab,
           history: tab.history.map((entry) =>
-            entry.kind === "chat" && entry.convId === action.convId
-              ? { ...entry, title: action.title }
+            entry.kind === "directions" && entry.id === action.id
+              ? {
+                  ...entry,
+                  origin: action.origin,
+                  destination: action.destination,
+                  mode: action.mode
+                }
               : entry
           )
         }))
@@ -255,19 +297,39 @@ export function useNavTabs({
   // Persist current tab heads to localStorage whenever nav changes
   useEffect(() => {
     if (!storageKey || !navRestoredRef.current) return;
-    if (nav.tabs.length === 0) {
+    // Persist each tab's current head. List tabs carry their own layer, so they (and
+    // their markers) round-trip too; if nothing is open, clear the key.
+    const persistTabs: PersistedTab[] = [];
+    for (const tab of nav.tabs) {
+      const current = tab.history[tab.cursor];
+      if (current.kind === "place")
+        persistTabs.push({ kind: "place", filePath: current.place.filePath });
+      else if (current.kind === "folder")
+        persistTabs.push({ kind: "folder", folderPath: current.folderPath });
+      else if (current.kind === "list")
+        persistTabs.push({
+          kind: "list",
+          layerId: current.layerId,
+          label: current.label,
+          layer: current.layer
+        });
+      else
+        persistTabs.push({
+          kind: "directions",
+          id: current.id,
+          label: current.label,
+          origin: current.origin,
+          destination: current.destination,
+          mode: current.mode
+        });
+    }
+    if (persistTabs.length === 0) {
       localStorage.removeItem(storageKey);
       return;
     }
     const toSave: PersistedNavState = {
-      tabs: nav.tabs.map((tab) => {
-        const current = tab.history[tab.cursor];
-        if (current.kind === "place") return { kind: "place", filePath: current.place.filePath };
-        if (current.kind === "chat")
-          return { kind: "chat", convId: current.convId, title: current.title };
-        return { kind: "folder", folderPath: current.folderPath };
-      }),
-      activeTab: nav.activeTab
+      tabs: persistTabs,
+      activeTab: Math.min(nav.activeTab, persistTabs.length - 1)
     };
     localStorage.setItem(storageKey, JSON.stringify(toSave));
   }, [nav, storageKey]);
@@ -300,10 +362,26 @@ export function useNavTabs({
             cursor: 0
           };
         }
-        if (tab.kind === "chat") {
+        if (tab.kind === "list") {
           return {
             id: crypto.randomUUID(),
-            history: [{ kind: "chat", convId: tab.convId, title: tab.title }],
+            history: [{ kind: "list", layerId: tab.layerId, label: tab.label, layer: tab.layer }],
+            cursor: 0
+          };
+        }
+        if (tab.kind === "directions") {
+          return {
+            id: crypto.randomUUID(),
+            history: [
+              {
+                kind: "directions",
+                id: tab.id,
+                label: tab.label,
+                origin: tab.origin,
+                destination: tab.destination,
+                mode: tab.mode
+              }
+            ],
             cursor: 0
           };
         }
@@ -393,13 +471,11 @@ export function useNavTabs({
         if (current?.kind === "folder") {
           return { id: tab.id, title: current.label, kind: "folder" as const };
         }
-        if (current?.kind === "chat") {
-          return {
-            id: tab.id,
-            title: current.title,
-            kind: "chat" as const,
-            convId: current.convId
-          };
+        if (current?.kind === "list") {
+          return { id: tab.id, title: current.label, kind: "list" as const };
+        }
+        if (current?.kind === "directions") {
+          return { id: tab.id, title: current.label, kind: "directions" as const };
         }
         return { id: tab.id, title: "", kind: "place" as const, filePath: "" };
       }),

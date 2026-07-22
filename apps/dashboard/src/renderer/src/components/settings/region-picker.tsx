@@ -11,7 +11,7 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useDarkMode } from "../../hooks/use-dark-mode";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { ContinentHeader, GroupHeader } from "./group-header";

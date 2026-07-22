@@ -63,6 +63,7 @@ import {
   Maximize2Icon,
   PencilIcon,
   PlusIcon,
+  RouteIcon,
   Trash2Icon,
   XIcon
 } from "lucide-react";
@@ -436,6 +437,7 @@ export const PlaceCard = memo(function PlaceCard({
   mode = "mini",
   onExpand,
   onNavigate,
+  onGetDirections,
   onOpenWikilink,
   onSaveSearchToVault,
   defaultParentFolderPath = null,
@@ -450,6 +452,8 @@ export const PlaceCard = memo(function PlaceCard({
   mode?: "mini" | "full";
   onExpand?: () => void;
   onNavigate?: (place: PlaceRecord, newTab?: boolean) => void;
+  /** Open a directions tab with this place as the destination. Shown when the place has geometry. */
+  onGetDirections?: (place: PlaceRecord) => void;
   /** Wikilink click — open the linked place in a mini/peek card instead of
    * navigating the panel. Falls back to onNavigate when unset. */
   onOpenWikilink?: (place: PlaceRecord, newTab?: boolean) => void;
@@ -854,6 +858,17 @@ export const PlaceCard = memo(function PlaceCard({
           }
         />
       )}
+      {onGetDirections && place.geometry && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onGetDirections(place)}
+          aria-label="Get directions"
+          title="Get directions"
+        >
+          <RouteIcon />
+        </Button>
+      )}
       {mode === "mini" && onExpand && (
         <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
           <Maximize2Icon />
@@ -954,7 +969,13 @@ export const PlaceCard = memo(function PlaceCard({
       >
         {mode === "mini" ? (
           /* Compact popup: actions pinned top-right over the content. */
-          <Surface variant="cluster" className="absolute top-2 right-2 z-10">
+          <Surface
+            variant="cluster"
+            // The cluster shadow reads as a floating toolbar over the map or a
+            // cover image; with no image it sits on the card's own surface and
+            // the shadow looks like an errant box — drop it in that case.
+            className={cn("absolute top-2 right-2 z-10", !coverVisible && "shadow-none")}
+          >
             {actionButtons}
           </Surface>
         ) : (

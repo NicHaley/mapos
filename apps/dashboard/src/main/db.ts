@@ -11,6 +11,7 @@ import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import { inferPropertyType } from "../shared/property-inference";
 import type { PlaceRecord, PropertyType } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS } from "../shared/types";
@@ -334,11 +335,15 @@ export function removeFeatures(filePaths: string[]): void {
   db.delete(features).where(inArray(features.file_path, filePaths)).run();
 }
 
-export type SpatialFilters = { properties?: Record<string, string[]>; folderPath?: string };
+export type SpatialFilters = {
+  properties?: Record<string, string[]>;
+  folderPath?: string;
+  name?: string;
+};
 
 /**
  * Shared candidate selection for all spatial queries: an optional rtree bbox prefilter plus
- * the folder/property attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
+ * the folder/property/name attribute filters. `queryNear`/`queryWithinPolygon` pass a bbox derived
  * from their radius/polygon and then refine the result in JS with Turf. With `bounds === null`
  * there is no spatial prefilter (the filtered set is scanned).
  */
@@ -379,6 +384,18 @@ function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): Feat
     geometry: string;
     color: string | null;
   }>;
+
+  // Name matching is fuzzy (accents/apostrophes/typos), so it can't be a SQL LIKE against
+  // the raw file_path — score in JS instead, best matches first.
+  if (filters?.name) {
+    const query = filters.name;
+    return rows
+      .map((r) => ({ r, score: scoreNameMatch(query, placeNameFromPath(r.file_path)) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => ({ ...x.r }));
+  }
+
   return rows.map((r) => ({ ...r }));
 }
 

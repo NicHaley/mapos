@@ -1,7 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@mapos/ui/components/alert";
 import { Badge } from "@mapos/ui/components/badge";
 import { Button } from "@mapos/ui/components/button";
-import type { ActiveSelectionView } from "@shared/ai-providers";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -10,10 +9,9 @@ import {
   Loader2Icon,
   MonitorIcon,
   MoonIcon,
-  SparklesIcon,
   SunIcon
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRegionPacks } from "../../hooks/use-region-packs";
 import { getTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
@@ -31,17 +29,7 @@ export function DoneStep({
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [aiActive, setAiActive] = useState<ActiveSelectionView>(null);
   const { installedPacks } = useRegionPacks(true);
-
-  // Surface the AI pick — kept live so a local download finishing mid-onboarding shows up.
-  useEffect(() => {
-    const sync = (): void => {
-      void window.api.ai.getState().then((s) => setAiActive(s.active));
-    };
-    sync();
-    return window.api.ai.onChanged(sync);
-  }, []);
 
   const regionCount = installedPacks.length;
   const theme = getTheme();
@@ -85,8 +73,7 @@ export function DoneStep({
       </div>
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">You're all set</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Drop a file in your vault, drag the map to look around, or open the chat panel and ask MapOS
-        a question.
+        Drop a file in your vault or drag the map to look around.
       </p>
       {vaultLabel && vaultDraft && (
         <Alert className="mt-6 text-left has-[>svg]:grid-cols-[auto_minmax(0,1fr)]">
@@ -106,12 +93,6 @@ export function DoneStep({
           {themeIcon}
           {themeLabel}
         </Badge>
-        {aiActive && (
-          <Badge variant="outline" className="text-muted-foreground">
-            <SparklesIcon />
-            {aiActive.model}
-          </Badge>
-        )}
       </div>
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
       <div className="mt-8 flex w-full items-center justify-between gap-3">

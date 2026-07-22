@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, sep } from "node:path";
-import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
+import {
+  type Dirent,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
@@ -13,14 +22,9 @@ import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
-import {
-  type MapOverlayLayer,
-  type PlaceRecord,
-  type StashedGeometry,
-  type VaultOperation,
-  orderDetailProperties
-} from "../shared/types";
+import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
 import { computeBbox } from "./bbox";
+import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import {
   queryNear,
   querySpatialIndex,
@@ -32,10 +36,42 @@ import {
   syncFeatureForFile
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
+import {
+  cancelDownload as cancelRegionDownload,
+  deleteRegion,
+  downloadRegion,
+  fetchManifest,
+  getActiveDownloads,
+  listLocal as listLocalRegions
+} from "./region-packs";
 import { getServiceClient } from "./services/client";
+import { type ToolAnnotations, type ToolDefinition, defineTool } from "./tool-defs";
+import { isProtectedVaultPath, resolveInVault } from "./vault-path";
 import { importAttachmentToVault, parsePlaceFile, uniquePathInDir } from "./watcher";
 import { downloadWikidataImage } from "./wiki-image";
 import { geometryToWkt } from "./wkt";
+
+/**
+ * A large geometry stashed server-side so its coordinates never cross the LLM boundary.
+ * The agent gets back an opaque id (`route_N`, `iso_N`, `geom_N`) and passes that id to
+ * render/query/save/geo_compute; the tool layer resolves it here.
+ */
+export type StashedGeometry = {
+  kind: "route" | "isochrone" | "geometry";
+  /** GeoJSON geometry (Point | LineString | Polygon | MultiPolygon | …). */
+  geometry: Geometry;
+  /** route only: summary facts, so saving a route derives them from the source. */
+  distanceMeters?: number;
+  durationSeconds?: number;
+  mode?: string;
+  /** isochrone only: the contour's minute value. */
+  minutes?: number;
+};
+
+export type VaultOperation = {
+  path: string;
+  previousContent: string | null; // null = file was created this turn (undo = delete it)
+};
 
 function errorPayload(err: unknown): string {
   if (err instanceof MapServiceError) {
@@ -91,13 +127,41 @@ function countPositions(geom: Geometry): number {
   return count;
 }
 
+/**
+ * Recursively collect vault-relative file paths under `dir`, skipping dotfiles and
+ * dot-directories (`.mapos`, `.git`, …). Paths use forward slashes so they read the
+ * same on every OS. `stopAt` bounds the walk so a huge vault can't blow up a tool call.
+ */
+function collectVaultFiles(dir: string, vaultRoot: string, out: string[], stopAt: number): void {
+  if (out.length >= stopAt) return;
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // unreadable dir — skip rather than fail the whole walk
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectVaultFiles(abs, vaultRoot, out, stopAt);
+    } else if (entry.isFile()) {
+      out.push(relative(vaultRoot, abs).split(sep).join("/"));
+    }
+    if (out.length >= stopAt) return;
+  }
+}
+
 // Some models — smaller local ones especially — emit an array-valued tool argument
 // as a JSON-encoded string (e.g. `features: "[{...}]"`) rather than a real array. The
 // SDK's TypeBox validation runs before the handler and doesn't parse it back, so the
 // call fails with a confusing "features.0: must be object". Tools that take such an
 // array declare the param with `jsonArrayParam` (accepts either shape) and normalize
 // the value with `coerceJsonArray` at the top of their handler.
-function jsonArrayParam(item: TSchema, options: { minItems?: number; description: string }) {
+function jsonArrayParam<T extends TSchema>(
+  item: T,
+  options: { minItems?: number; description: string }
+) {
   return Type.Union([Type.Array(item, options), Type.String()], {
     description: `${options.description} Pass a JSON array of objects; a JSON string of that same array is also accepted.`
   });
@@ -135,6 +199,33 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
   lastViewport = data;
 });
 
+/** One open tab / the active view. `path` is absolute (as the renderer knows it). */
+type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
+type NavStatePayload = { active: NavTabInfo | null; activeIndex: number; tabs: NavTabInfo[] };
+
+// The renderer pushes its current tab/selection state up whenever it changes, mirroring
+// the viewport cache above. get_active_file / get_open_tabs read this snapshot.
+let lastNavState: NavStatePayload | null = null;
+ipcMain.on("nav:state-update", (_event, data: NavStatePayload) => {
+  lastNavState = data;
+});
+
+// On-demand geolocation. The GPS fix comes from `navigator.geolocation`, which only
+// exists in the renderer, so get_current_location asks the renderer (geo:locate-request)
+// and awaits the correlated reply below. Registered once, module-scope, like the caches.
+type LocateReply =
+  | { id: string; ok: true; lat: number; lng: number; accuracy: number }
+  | { id: string; ok: false; error: string };
+const pendingLocates = new Map<string, (reply: LocateReply) => void>();
+let locateSeq = 0;
+ipcMain.on("geo:locate-reply", (_event, reply: LocateReply) => {
+  const resolve = pendingLocates.get(reply.id);
+  if (resolve) {
+    pendingLocates.delete(reply.id);
+    resolve(reply);
+  }
+});
+
 export function buildMaposSystemPrompt(vaultRoot: string): string {
   // Only document web search when the active services mode can actually serve it
   // (cloud). In local mode there's no provider, and the tool is omitted from the
@@ -152,7 +243,7 @@ MapOS is a local-first Electron application. Everything runs on the user's machi
 
 ## Vault location (authoritative — use exactly this path)
 The MapOS vault root on this machine is: ${vaultRoot}
-The agent working directory (cwd) for this session is set to that folder. The environment variable MAPOS_VAULT_ROOT is also set to this path (useful in bash). For find, grep, read, bash, and any file search or listing tools, search only under this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes). Do not guess home-directory layouts — always use the absolute path above.
+The agent working directory (cwd) for this session is set to that folder, and the environment variable MAPOS_VAULT_ROOT is also set to this path. Read, browse, and search the vault with the built-in tools: \`read_vault_file\` (read one file's contents), \`list_vault_files\` (enumerate paths, optionally by subfolder/extension), and \`search_vault_files\` (find notes by filename or contents). Prefer these over any generic shell/filesystem tools. If you do use generic \`find\`/\`grep\`/\`read\`/\`bash\`, confine them to this path (e.g. ${vaultRoot}${sep}**${sep}*.md for Markdown notes) — never guess home-directory layouts.
 
 ## Place files and frontmatter
 
@@ -174,6 +265,15 @@ Always ground responses in the user's actual files. Be concise and spatial — w
 
 Have a neutral tone. Don't be too friendly or too formal.
 
+## What the user is looking at
+
+You can see and drive the app's open files:
+- \`get_active_file\` — the file open in the active tab (path, title, kind). Call it to ground vague references — "this place", "what I'm looking at", "here" — instead of asking the user which file they mean.
+- \`get_open_tabs\` — every open tab plus which one is active, i.e. the user's current workspace.
+- \`open_file\` — open a vault file in a tab so the user actually sees it. After you create or find something the user will want to look at (e.g. a note from \`write_vault_file\` or a place from \`save_features_to_vault\`), open it rather than only describing it. Don't open files the user didn't ask to see.
+
+Where the user is looking is not where they are. For the map viewport (the visible area/center) use \`get_viewport\`; for the user's real physical position use \`get_current_location\` (device GPS). Ground "near me", "how far am I", or "route me home" in \`get_current_location\`, not the viewport — the map may be panned somewhere else entirely. For "where am I" or "take me to my location", call it with \`reveal_on_map: true\` — that single call shows the location on the map (marker + fly), so you don't need a separate \`pan_to\`; leave it false when you only need the coordinates for a calculation. It triggers a fresh fix and may prompt for OS permission the first time; if it returns null, fall back to asking the user or using the viewport, and say which you used.
+
 ## Map services (search, routing, reachability)
 
 For external spatial queries, use these tools — they are backed by OpenStreetMap data (Photon + Valhalla):
@@ -192,7 +292,7 @@ To search the user's own indexed places spatially (\`query_spatial_index\` takes
 
 Both return the same records as \`query_spatial_index\` (file paths to feed \`present_features\`).
 
-To find one of the user's places BY NAME (e.g. "Home", "the office"), a place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\`. So look it up with \`spatial_sql\` \`SELECT file_path, geometry FROM features WHERE file_path LIKE '%home%'\` (this is exactly how the app's own search matches). Don't scan for a \`name\` property or shell out to \`find\` first.
+To find one of the user's places BY NAME (e.g. "Home", "Adrian's"), pass \`filters.name\` to \`query_spatial_index\` (or \`find_near\` / \`query_within_polygon\`). A place's name is its **file basename**, not a \`name\` frontmatter property — many place files have only \`geometry\` — and the match is fuzzy (case, accents, apostrophes, small typos) with results ranked best-first. Don't scan for a \`name\` property or shell out to \`find\` first.
 
 For analytical questions about indexed files that \`query_spatial_index\` can't express — counts, \`GROUP BY\`, faceting, sorting, joins — use:
 
@@ -204,16 +304,31 @@ To COMPUTE geometry (as opposed to selecting places), use:
 
 After calling any of these, display the results:
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
-- a route from \`get_directions\` → \`render_overlay_on_map\` with a \`lines\` entry \`{ route_id }\`. The server resolves the id back to the geometry. Do NOT pass coordinates or polyline strings yourself for these routes — they cost tens of thousands of tokens and take minutes to generate.
+- a route the user wants directions for (will read the steps or adjust endpoints) → \`present_directions\`, which opens an interactive Directions tab (summary + turn-by-turn + walk/bike/drive toggle) and draws the route. It computes the route itself, so you need NOT call \`get_directions\` first. To merely draw a route line you already computed, pass its \`route_id\` from \`get_directions\` to \`render_overlay_on_map\` as a \`lines\` entry instead. Either way, do NOT pass route coordinates or polyline strings yourself — they cost tens of thousands of tokens and take minutes to generate.
 - each contour's \`isochrone_id\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry as \`{ isochrone_id }\` (or \`{ geometry_id }\` for a geo_compute result). Never pass polygon coordinates yourself.
 
 Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
+## Offline region packs
+
+The map services above can run offline from downloaded **region packs** (per-area bundles of geocoding, routing, and map-tile data). Manage them when the user asks what maps they have offline, or to add/remove offline coverage for an area:
+
+- \`list_region_packs\` — what's installed, what's downloading (with percent), and — with a \`query\` — matching packs available to download and their size. The catalog is large, so always pass a \`query\` to browse it.
+- \`download_region_pack\` — downloads can be LARGE (tens to hundreds of MB). Always look up the size with \`list_region_packs\` first, tell the user the size, and get their OK before downloading. You must pass \`acknowledge_size_mb\` (the size you told them) and it must match the real size, or the call is rejected. The download runs in the background — progress shows in the app's Offline tab; call \`list_region_packs\` again to see when it's installed.
+- \`cancel_region_download\` / \`delete_region_pack\` — stop an in-flight download, or remove an installed pack to reclaim space (re-downloadable).
+
 ${webSearchSection}## File operations
 
 For any vault file write or delete, use write_vault_file or delete_vault_file — never the raw bash redirect or other file tools. These tracked tools handle undo snapshots and spatial index updates automatically. After writing a place file, do NOT call index_file separately — write_vault_file handles indexing. When only the file path is changing (rename or move), use rename_vault_file instead of write+delete.
+
+To change PART of an existing file, prefer a targeted edit over rewriting the whole file with write_vault_file — it's safer (smaller blast radius, won't clobber other content or a concurrent user edit) and preserves the rest of the file verbatim:
+- \`write_frontmatter_property\` — set or delete one frontmatter key (e.g. add a \`rating\`, set \`geometry\`, add a tag). Omit the value to delete the key.
+- \`write_frontmatter_properties\` — set/delete several keys in one write.
+- \`write_place_body\` — replace the markdown body below the frontmatter, leaving the frontmatter untouched.
+
+Pair these with \`get_active_file\` for requests about what the user is looking at — e.g. "add a note to this place" → get_active_file, then write_place_body on that path.
 
 To SAVE places or routes to the vault — the user says save/add/keep after a search, or asks you to build a folder or collection of places — use \`save_features_to_vault\`, NOT hand-written write_vault_file content. It writes the exact same file format as the app's own save button: \`geometry\` WKT frontmatter, canonical properties from the geocoder source (category, address, osm_id, wikidata_id), and the place's cover photo. Reference looked-up places by \`result_id\`, exactly as with present_features; save a route from get_directions by its \`route_id\` plus a title (the app expands it to the LINESTRING geometry and fills in distance/duration/mode); pass genuinely ad-hoc points as title + lat/lng. Reserve write_vault_file for non-place notes, edits to existing files, and other non-point geometry you authored yourself.
 
@@ -250,10 +365,73 @@ When unsure: a couple dozen places the user might click → \`present_features\`
 (A \`<features refs="vault:<path>"/>\` tag is also still supported for referencing a single saved place inline within a sentence. Prefer \`present_features\` for any actual list.)`;
 }
 
+/** Representative point for a place's GeoJSON-geometry-JSON string (as stored on
+ *  {@link PlaceRecord}): a Point's coordinate, a LineString's midpoint, or a Polygon's
+ *  first-ring centroid. Null when the geometry is missing or unparseable. */
+function representativePoint(
+  geometryJson: string | undefined
+): { lat: number; lng: number } | null {
+  if (!geometryJson) return null;
+  try {
+    const geo = JSON.parse(geometryJson) as { type: string; coordinates: unknown };
+    if (geo.type === "Point") {
+      const [lng, lat] = geo.coordinates as number[];
+      if (typeof lng === "number" && typeof lat === "number") return { lat, lng };
+    } else if (geo.type === "LineString") {
+      const coords = geo.coordinates as [number, number][];
+      if (coords.length > 0) {
+        const [lng, lat] = coords[Math.floor(coords.length / 2)];
+        return { lat, lng };
+      }
+    } else if (geo.type === "Polygon") {
+      const ring = (geo.coordinates as [number, number][][])[0];
+      if (ring?.length) {
+        const sum = ring.reduce((a, [lng, lat]) => [a[0] + lng, a[1] + lat], [0, 0]);
+        return { lat: sum[1] / ring.length, lng: sum[0] / ring.length };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** One directions endpoint: a looked-up geocode result, a saved vault place, or an ad-hoc point. */
+const directionsEndpointSchema = Type.Object({
+  result_id: Type.Optional(
+    Type.String({
+      description:
+        "The `id` of a geocode_search/reverse_geocode result to use as this endpoint. PREFERRED — the app takes the coordinates and name from the cached result."
+    })
+  ),
+  path: Type.Optional(
+    Type.String({
+      description:
+        "Vault file path of a saved place (from query_spatial_index) to use as this endpoint; its geometry supplies the point and its title the label."
+    })
+  ),
+  lat: Type.Optional(
+    Type.Number({
+      description: "Latitude of an ad-hoc endpoint (set with lng when you have no result_id/path)."
+    })
+  ),
+  lng: Type.Optional(
+    Type.Number({ description: "Longitude of an ad-hoc endpoint (set with lat)." })
+  ),
+  label: Type.Optional(
+    Type.String({
+      description:
+        "Display name for an ad-hoc endpoint (lat/lng). Ignored when result_id/path is set."
+    })
+  )
+});
+
 export function buildMaposCustomTools(
   mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   maposDir: string,
+  /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
+  appStateDir: string,
   onVaultWrite: (op: VaultOperation) => void,
   onLayerUpdate: (layer: MapOverlayLayer) => void,
   onLayersClear: () => void,
@@ -345,13 +523,29 @@ export function buildMaposCustomTools(
     return { features, count: features.length, truncated };
   };
 
-  const vaultPrefix = maposDir.endsWith(sep) ? maposDir : maposDir + sep;
-  const isUnderVault = (p: string) => p === maposDir || p.startsWith(vaultPrefix);
+  // Confine a caller-supplied path to the vault, returning the canonical absolute path (or
+  // null if it escapes via `..`/absolute/symlink). Callers MUST use the returned path for
+  // every filesystem call afterward — Node's fs functions resolve a relative input (e.g. a
+  // vault-relative path handed back by get_active_file/list_vault_files) against the process's
+  // cwd, not the vault root, so re-using the raw input here would silently defeat the check.
+  const resolveUnderVault = (p: string): string | null => resolveInVault(maposDir, p);
+  // Writes additionally may not touch the protected `.mapos/` config + index subtree.
+  const resolveWritablePath = (p: string): string | null => {
+    const resolved = resolveInVault(maposDir, p);
+    if (resolved === null || isProtectedVaultPath(maposDir, p)) return null;
+    return resolved;
+  };
 
   // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
   // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
   const spatialFilters = Type.Object({
     folderPath: Type.Optional(Type.String()),
+    name: Type.Optional(
+      Type.String({
+        description:
+          "Find places by name: fuzzy match on the file basename (a place's name IS its filename — 'Adrian' matches Friends/Adrian.md), results ranked best-first. Tolerates case, accents, apostrophes, and small typos ('adrian's', 'cafe', 'adrain' all work)."
+      })
+    ),
     properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
   });
 
@@ -730,7 +924,7 @@ export function buildMaposCustomTools(
     name: "query_spatial_index",
     label: "Query spatial index",
     description:
-      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. To find a place by name, don't scan here — use spatial_sql with `file_path LIKE '%name%'` (the file basename is the place's name).",
+      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. Use filters.name to find a place BY NAME ('Home', 'Adrian's') — it matches the file basename, which is the place's name.",
     parameters: Type.Object({
       bounds: Type.Optional(
         Type.Object(
@@ -1020,13 +1214,14 @@ export function buildMaposCustomTools(
       })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      const path = resolveUnderVault(args.path);
+      if (!path) {
         return TEXT_RESULT(
           JSON.stringify({ success: false, reason: `Path must be under vault (${maposDir})` })
         );
       }
-      const record = await parsePlaceFile(args.path);
-      syncFeatureForFile(args.path, record);
+      const record = await parsePlaceFile(path);
+      syncFeatureForFile(path, record);
       if (record) return TEXT_RESULT(JSON.stringify({ success: true }));
       return TEXT_RESULT(JSON.stringify({ success: false, reason: "Could not parse file" }));
     }
@@ -1080,6 +1275,123 @@ export function buildMaposCustomTools(
     }
   });
 
+  // Absolute vault path → vault-relative POSIX (matching read/list/search output); falls
+  // back to the absolute path if it somehow isn't under the vault.
+  const toVaultRelative = (abs: string): string => {
+    const rel = relative(maposDir, abs);
+    return rel === "" || rel.startsWith("..") ? abs : rel.split(sep).join("/");
+  };
+
+  const getActiveFile = defineTool({
+    name: "get_active_file",
+    label: "Get active file",
+    description:
+      'Returns the file the user is currently viewing in the app (the active tab): its vault-relative path, title, and kind (\'place\' or \'folder\'). Use this to ground requests about what the user is looking at — "summarize this", "add a note to this place", "what\'s near here". Returns { activeFile: null } when nothing is open.',
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!lastNavState) {
+        return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
+      }
+      const a = lastNavState.active;
+      if (!a) return TEXT_RESULT(JSON.stringify({ activeFile: null }));
+      return TEXT_RESULT(
+        JSON.stringify({
+          activeFile: { path: toVaultRelative(a.path), kind: a.kind, title: a.title }
+        })
+      );
+    }
+  });
+
+  const getOpenTabs = defineTool({
+    name: "get_open_tabs",
+    label: "Get open tabs",
+    description:
+      "Returns the user's currently open tabs (their workspace): each tab's vault-relative path, title, and kind, plus which tab is active (activeIndex). Use this to see the full set of things the user is working with, not just the active one.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!lastNavState) {
+        return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
+      }
+      const tabs = lastNavState.tabs.map((t) => ({
+        path: toVaultRelative(t.path),
+        kind: t.kind,
+        title: t.title
+      }));
+      return TEXT_RESULT(
+        JSON.stringify({ tabs, activeIndex: lastNavState.activeIndex, count: tabs.length })
+      );
+    }
+  });
+
+  const openFile = defineTool({
+    name: "open_file",
+    label: "Open file",
+    description:
+      "Open a vault place file in a tab in the app so the user sees it (and its location on the map). Use this to SHOW the user a note or place you just created or found — e.g. after save_features_to_vault or write_vault_file. Takes an absolute or vault-relative path.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute or vault-relative path to the file to open" })
+    }),
+    execute: async (_id, args) => {
+      const abs = isAbsolute(args.path) ? args.path : join(maposDir, args.path);
+      if (!resolveInVault(maposDir, abs)) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+        );
+      }
+      if (!existsSync(abs)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+      }
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("nav:open-file", { path: abs });
+      }
+      return TEXT_RESULT(JSON.stringify({ success: true, path: toVaultRelative(abs) }));
+    }
+  });
+
+  const getCurrentLocation = defineTool({
+    name: "get_current_location",
+    label: "Get current location",
+    description:
+      "Get the user's current physical location (device GPS/Wi-Fi) as { lat, lng, accuracy (meters) }. Triggers a fresh fix each call — use it to ground 'near me', 'how far am I from…', or 'route me home' in where the user actually is, rather than the map viewport (where they're looking). Set `reveal_on_map: true` to also drop the location marker and fly the map there in the same call (identical to the app's 'My location' button) — do this for 'where am I' or 'take me to my location'; leave it false when you just need the coordinates for a calculation. The first call may prompt the OS for location permission; returns { location: null, error } if permission is denied, times out, or is unavailable.",
+    parameters: Type.Object({
+      reveal_on_map: Type.Optional(
+        Type.Boolean({
+          description:
+            "When true, also show the location on the map (drop the marker and fly to it), like clicking 'My location'. Default false — just return the coordinates without moving the map."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      if (mainWindow.isDestroyed()) {
+        return TEXT_RESULT(JSON.stringify({ location: null, error: "App window not available" }));
+      }
+      const id = `loc_${++locateSeq}`;
+      const reveal = args.reveal_on_map ?? false;
+      const reply = await new Promise<LocateReply>((resolve) => {
+        // 12s ceiling — just over the renderer's 10s getCurrentPosition timeout, so a
+        // hung fix still resolves the tool rather than blocking the client forever.
+        const timer = setTimeout(() => {
+          if (pendingLocates.delete(id)) {
+            resolve({ id, ok: false, error: "Location request timed out" });
+          }
+        }, 12_000);
+        pendingLocates.set(id, (r) => {
+          clearTimeout(timer);
+          resolve(r);
+        });
+        mainWindow.webContents.send("geo:locate-request", { id, reveal });
+      });
+      if (!reply.ok) {
+        return TEXT_RESULT(JSON.stringify({ location: null, error: reply.error }));
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          location: { lat: reply.lat, lng: reply.lng, accuracy: reply.accuracy }
+        })
+      );
+    }
+  });
+
   const geocodeSearch = defineTool({
     name: "geocode_search",
     label: "Geocode search",
@@ -1129,7 +1441,7 @@ export function buildMaposCustomTools(
       within_id: Type.Optional(
         Type.String({
           description:
-            "Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id). Results are hard-filtered to those inside this polygon, and it also biases ranking toward the polygon's area. Use this for \"within an isochrone/area\" queries — unlike bbox it excludes POIs outside the shape."
+            'Opaque id of a stashed polygon (an isochrone_id or a geo_compute geometry_id). Results are hard-filtered to those inside this polygon, and it also biases ranking toward the polygon\'s area. Use this for "within an isochrone/area" queries — unlike bbox it excludes POIs outside the shape.'
         })
       ),
       isochrone_id: Type.Optional(Type.String({ description: "Alias for within_id." })),
@@ -1271,6 +1583,83 @@ export function buildMaposCustomTools(
     }
   });
 
+  const presentDirections = defineTool({
+    name: "present_directions",
+    label: "Present directions",
+    description:
+      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: origin/destination inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT render_overlay_on_map — when the user wants directions to somewhere and will read the steps or adjust the endpoints. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. Set `destination` (required); omit `origin` to default to the user's current location, exactly like the app's own Get-directions button. Each endpoint is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
+    parameters: Type.Object({
+      destination: directionsEndpointSchema,
+      origin: Type.Optional(directionsEndpointSchema),
+      mode: Type.Optional(
+        Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
+          default: "auto",
+          description:
+            "Travel mode: 'auto' (drive), 'pedestrian' (walk), or 'bicycle'. Default 'auto'."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      const resolveEndpoint = (ep: {
+        result_id?: string;
+        path?: string;
+        lat?: number;
+        lng?: number;
+        label?: string;
+      }): { lat: number; lng: number; label: string } | { error: string } => {
+        if (ep.result_id) {
+          const cached = geocodeStore.get(ep.result_id);
+          if (!cached) {
+            return {
+              error: `result_id "${ep.result_id}" is no longer cached (cleared on app restart or provider/model change). Re-run geocode_search and use the fresh id.`
+            };
+          }
+          return { lat: cached.lat, lng: cached.lng, label: cached.primaryLabel };
+        }
+        if (ep.path) {
+          const abs = isAbsolute(ep.path) ? ep.path : join(maposDir, ep.path);
+          const place = places.get(abs) ?? places.get(ep.path);
+          if (!place) return { error: `No indexed place at path "${ep.path}".` };
+          const pt = representativePoint(place.geometry);
+          if (!pt) return { error: `Place "${ep.path}" has no location to route to.` };
+          return { lat: pt.lat, lng: pt.lng, label: place.title || "Saved place" };
+        }
+        if (typeof ep.lat === "number" && typeof ep.lng === "number") {
+          return { lat: ep.lat, lng: ep.lng, label: ep.label || "Point" };
+        }
+        return { error: "Each endpoint needs a result_id, a path, or lat+lng." };
+      };
+
+      const destination = resolveEndpoint(args.destination);
+      if ("error" in destination) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: destination.error }));
+      }
+      let origin: { lat: number; lng: number; label: string } | null = null;
+      if (args.origin) {
+        const resolved = resolveEndpoint(args.origin);
+        if ("error" in resolved) {
+          return TEXT_RESULT(JSON.stringify({ success: false, error: resolved.error }));
+        }
+        origin = resolved;
+      }
+      const mode = args.mode ?? "auto";
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("nav:open-directions", { origin, destination, mode });
+      }
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          kind: "directions",
+          origin: origin?.label ?? "current location",
+          destination: destination.label,
+          mode,
+          assistant_instructions:
+            "A Directions tab is now open with the route summary + turn-by-turn steps, and the route is drawn on the map. Do NOT re-list the steps or restate the distance/duration in your reply — the user can see them. Reply with at most one sentence (a caveat or standout), or nothing. If a needed offline map isn't downloaded, the tab shows a download prompt; only mention that if the user asked about offline availability."
+        })
+      );
+    }
+  });
+
   const getIsochroneTool = defineTool({
     name: "get_isochrone",
     label: "Get isochrone",
@@ -1397,28 +1786,233 @@ export function buildMaposCustomTools(
     }
   });
 
-  const writeVaultFile = defineTool({
-    name: "write_vault_file",
-    label: "Write vault file",
+  const readVaultFile = defineTool({
+    name: "read_vault_file",
+    label: "Read vault file",
     description:
-      "Write or overwrite a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this. To save geocoded or ad-hoc places as NEW place files, use save_features_to_vault instead — it writes the app's canonical place format for you.",
+      "Read a vault file's full text — markdown with its YAML frontmatter, or any UTF-8 text file. Use this to read a note before editing it, or to inspect a place file's frontmatter and body. Returns the raw contents. Binary files (images, etc.) return an error — reference those by path instead.",
     parameters: Type.Object({
-      path: Type.String({ description: "Absolute path within the MapOS vault" }),
-      content: Type.String({ description: "Full file content to write" })
+      path: Type.String({ description: "Absolute path to the file within the MapOS vault" })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      const resolved = resolveInVault(maposDir, args.path);
+      if (!resolved) {
         return TEXT_RESULT(
           JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
         );
       }
-      const previousContent = existsSync(args.path) ? readFileSync(args.path, "utf-8") : null;
-      onVaultWrite({ path: args.path, previousContent });
-      mkdirSync(dirname(args.path), { recursive: true });
-      writeFileSync(args.path, args.content, "utf-8");
+      if (!existsSync(resolved)) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+      }
+      let content: string;
       try {
-        const record = await parsePlaceFile(args.path);
-        syncFeatureForFile(args.path, record);
+        content = readFileSync(resolved, "utf-8");
+      } catch (err) {
+        return TEXT_RESULT(errorPayload(err));
+      }
+      if (content.includes("\u0000")) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error:
+              "File is not UTF-8 text (looks binary). Reference it by path instead of reading it."
+          })
+        );
+      }
+      const MAX_CHARS = 200_000;
+      const truncated = content.length > MAX_CHARS;
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          path: args.path,
+          content: truncated ? content.slice(0, MAX_CHARS) : content,
+          ...(truncated ? { truncated: true } : {})
+        })
+      );
+    }
+  });
+
+  const listVaultFiles = defineTool({
+    name: "list_vault_files",
+    label: "List vault files",
+    description:
+      "List files in the vault as vault-relative paths (forward slashes), for browsing or discovery. Optionally scope to a subfolder and/or filter by extension. Dot-directories like .mapos are skipped. Returns a flat, sorted list. Read one with read_vault_file, or find by content with search_vault_files.",
+    parameters: Type.Object({
+      folder: Type.Optional(
+        Type.String({
+          description:
+            "Absolute path to a subfolder within the vault to list. Defaults to the whole vault."
+        })
+      ),
+      extension: Type.Optional(
+        Type.String({
+          description: 'Filter to a single extension, e.g. "md" or "geojson" (no leading dot).'
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: "Max paths to return (default 500, max 2000)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const base = resolveInVault(maposDir, args.folder ?? maposDir);
+      if (!base) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+      const limit = Math.min(Math.max(args.limit ?? 500, 1), 2000);
+      const ext = args.extension?.replace(/^\./, "").toLowerCase();
+      const all: string[] = [];
+      collectVaultFiles(base, maposDir, all, 20_000);
+      let files = ext ? all.filter((p) => p.toLowerCase().endsWith(`.${ext}`)) : all;
+      files.sort();
+      const truncated = files.length > limit;
+      if (truncated) files = files.slice(0, limit);
+      return TEXT_RESULT(JSON.stringify({ success: true, files, count: files.length, truncated }));
+    }
+  });
+
+  const searchVaultFiles = defineTool({
+    name: "search_vault_files",
+    label: "Search vault files",
+    description:
+      "Search vault files for a query string, matching both file CONTENTS (case-insensitive by default; returns line numbers and matching lines) and FILENAMES (fuzzy: tolerates case, accents, apostrophes, and small typos; flagged `name_match` and ranked best-first, so 'adrian's' or 'adrain' finds Friends/Adrian.md even if its body never says it). Content matching is exact-substring — there is no full-text index. To find places spatially or by name WITH their geometry, prefer query_spatial_index (filters.name) / find_near.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Text to search for within file contents." }),
+      folder: Type.Optional(
+        Type.String({
+          description:
+            "Absolute path to a subfolder to limit the search to. Defaults to the whole vault."
+        })
+      ),
+      extension: Type.Optional(
+        Type.String({ description: 'Extension to search, no leading dot. Defaults to "md".' })
+      ),
+      case_sensitive: Type.Optional(
+        Type.Boolean({ description: "Match case exactly. Default false." })
+      ),
+      max_results: Type.Optional(
+        Type.Number({ description: "Max matching files to return (default 30, max 100)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      if (!args.query) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: "query is required" }));
+      }
+      const base = resolveInVault(maposDir, args.folder ?? maposDir);
+      if (!base) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+        );
+      }
+      const ext = (args.extension?.replace(/^\./, "") ?? "md").toLowerCase();
+      const maxFiles = Math.min(Math.max(args.max_results ?? 30, 1), 100);
+      const needle = args.case_sensitive ? args.query : args.query.toLowerCase();
+      const PER_FILE = 5;
+      const SNIPPET = 240;
+      const MAX_BYTES = 512_000;
+
+      const all: string[] = [];
+      collectVaultFiles(base, maposDir, all, 20_000);
+      const candidates = all.filter((p) => p.toLowerCase().endsWith(`.${ext}`));
+
+      // Filename matching is fuzzy and ranked, so score every candidate up front (cheap
+      // string ops); only the content scan below is capped. The basename is the place's
+      // name; the damped full-path score keeps folder-qualified queries working.
+      const nameScores = new Map<string, number>();
+      for (const rel of candidates) {
+        const score = Math.max(
+          scoreNameMatch(args.query, placeNameFromPath(rel)),
+          0.95 * scoreNameMatch(args.query, rel)
+        );
+        if (score > 0) nameScores.set(rel, score);
+      }
+
+      const contentMatches = new Map<string, Array<{ line: number; text: string }>>();
+      let scanned = 0;
+      for (const rel of candidates) {
+        if (contentMatches.size >= maxFiles) break;
+        scanned++;
+        try {
+          const abs = join(maposDir, rel);
+          if (statSync(abs).size > MAX_BYTES) continue;
+          const text = readFileSync(abs, "utf-8");
+          const hay = args.case_sensitive ? text : text.toLowerCase();
+          if (!hay.includes(needle)) continue;
+          const lines = text.split(/\r?\n/);
+          const matches: Array<{ line: number; text: string }> = [];
+          for (let i = 0; i < lines.length && matches.length < PER_FILE; i++) {
+            const cmp = args.case_sensitive ? lines[i] : lines[i].toLowerCase();
+            if (cmp.includes(needle)) {
+              matches.push({ line: i + 1, text: lines[i].trim().slice(0, SNIPPET) });
+            }
+          }
+          if (matches.length) contentMatches.set(rel, matches);
+        } catch {
+          // an unreadable body still allows a filename match
+        }
+      }
+
+      // Filename hits first (best score first), then content-only hits in walk order.
+      const ordered = [
+        ...[...nameScores.entries()].sort((a, b) => b[1] - a[1]).map(([rel]) => rel),
+        ...candidates.filter((rel) => contentMatches.has(rel) && !nameScores.has(rel))
+      ];
+      const results = ordered.slice(0, maxFiles).map((rel) => ({
+        path: rel,
+        ...(nameScores.has(rel) ? { name_match: true } : {}),
+        matches: contentMatches.get(rel) ?? []
+      }));
+      const truncated =
+        ordered.length > maxFiles || (contentMatches.size >= maxFiles && scanned < candidates.length);
+      return TEXT_RESULT(
+        JSON.stringify({ success: true, results, count: results.length, truncated })
+      );
+    }
+  });
+
+  const writeVaultFile = defineTool({
+    name: "write_vault_file",
+    label: "Write vault file",
+    description:
+      "Write a vault file. Use this for ALL vault file writes — never use bash redirects or other file tools. Handles undo tracking and spatial index updates automatically. Do not call index_file after this. To save geocoded or ad-hoc places as NEW place files, use save_features_to_vault instead — it writes the app's canonical place format for you. Creating a new file is allowed by default; overwriting an EXISTING file requires `overwrite: true` (so an unintended clobber fails loudly) — set it only when you intend to replace the file's entire contents.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      content: Type.String({ description: "Full file content to write" }),
+      overwrite: Type.Optional(
+        Type.Boolean({
+          description:
+            "Required to replace an existing file. Omit or set false to create-only: the call fails if the path already exists instead of clobbering it."
+        })
+      )
+    }),
+    execute: async (_id, args) => {
+      const path = resolveWritablePath(args.path);
+      if (!path) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+          })
+        );
+      }
+      const exists = existsSync(path);
+      if (exists && args.overwrite !== true) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error:
+              "File already exists. Pass overwrite: true to replace its entire contents, or use a targeted edit instead of a full rewrite."
+          })
+        );
+      }
+      const previousContent = exists ? readFileSync(path, "utf-8") : null;
+      onVaultWrite({ path, previousContent });
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, args.content, "utf-8");
+      try {
+        const record = await parsePlaceFile(path);
+        syncFeatureForFile(path, record);
       } catch {
         // Not a place file — skip indexing
       }
@@ -1437,7 +2031,7 @@ export function buildMaposCustomTools(
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.path,
+          path,
           action: previousContent === null ? "created" : "modified",
           previousContent,
           newContent: args.content,
@@ -1464,7 +2058,7 @@ export function buildMaposCustomTools(
           route_id: Type.Optional(
             Type.String({
               description:
-                "The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. \"Home to Café Olimpico\"); leave lat/lng unset."
+                'The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. "Home to Café Olimpico"); leave lat/lng unset.'
             })
           ),
           geometry_id: Type.Optional(
@@ -1515,10 +2109,13 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      const folder = args.folder ?? maposDir;
-      if (!isUnderVault(folder)) {
+      const folder = resolveWritablePath(args.folder ?? maposDir);
+      if (!folder) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: `Folder must be within vault (${maposDir})` })
+          JSON.stringify({
+            success: false,
+            error: `Folder must be within the vault and outside .mapos/ (${maposDir})`
+          })
         );
       }
       const features = coerceJsonArray(args.features);
@@ -1735,6 +2332,120 @@ export function buildMaposCustomTools(
     }
   });
 
+  // Shared path for targeted edits: confine + require-exists, snapshot for undo, let the
+  // caller transform the content, then write and re-index — mirroring write_vault_file so
+  // the index and undo trail stay consistent. `transform` receives a CLONE of the parsed
+  // frontmatter data (safe to mutate), the body, and the raw file text.
+  const applyVaultEdit = async (
+    rawPath: string,
+    transform: (data: Record<string, unknown>, body: string, raw: string) => string
+  ) => {
+    const filePath = resolveWritablePath(rawPath);
+    if (!filePath) {
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: false,
+          error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+        })
+      );
+    }
+    if (!existsSync(filePath)) {
+      return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
+    }
+    const previousContent = readFileSync(filePath, "utf-8");
+    let newContent: string;
+    try {
+      const parsed = matter(previousContent);
+      newContent = transform(
+        { ...(parsed.data as Record<string, unknown>) },
+        parsed.content,
+        previousContent
+      );
+    } catch (err) {
+      return TEXT_RESULT(errorPayload(err));
+    }
+    onVaultWrite({ path: filePath, previousContent });
+    writeFileSync(filePath, newContent, "utf-8");
+    try {
+      const record = await parsePlaceFile(filePath);
+      syncFeatureForFile(filePath, record);
+    } catch {
+      // Not a place file — skip indexing
+    }
+    return TEXT_RESULT(
+      JSON.stringify({
+        success: true,
+        path: filePath,
+        action: "modified",
+        previousContent,
+        newContent
+      })
+    );
+  };
+
+  const writeFrontmatterProperty = defineTool({
+    name: "write_frontmatter_property",
+    label: "Write frontmatter property",
+    description:
+      "Set or delete ONE YAML frontmatter key on an existing file, preserving the rest of the frontmatter and the body. Prefer this over rewriting the whole file with write_vault_file. Pass the value using the correct type (number/boolean/array/string); omit the value (or pass null) to delete the key. Setting `geometry` (WKT) moves the place; setting `color` recolors its marker.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      key: Type.String({ description: "Frontmatter key to set or delete" }),
+      value: Type.Optional(
+        Type.Unknown({
+          description:
+            "New value (number, boolean, array, or string). Omit or pass null to delete the key."
+        })
+      )
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (data, body) => {
+        if (args.value === null || args.value === undefined) delete data[args.key];
+        else data[args.key] = args.value;
+        return matter.stringify(body, data);
+      })
+  });
+
+  const writeFrontmatterProperties = defineTool({
+    name: "write_frontmatter_properties",
+    label: "Write frontmatter properties",
+    description:
+      "Set or delete SEVERAL frontmatter keys in one write, preserving other keys and the body. Each value: correct YAML type to set; empty string is skipped; null deletes the key. Prefer this over a full-file rewrite when changing multiple properties.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      properties: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Map of frontmatter key → value. null deletes a key; empty string is skipped."
+      })
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (data, body) => {
+        for (const [key, value] of Object.entries(args.properties)) {
+          if (value === "") continue;
+          if (value === null || value === undefined) delete data[key];
+          else data[key] = value;
+        }
+        return matter.stringify(body, data);
+      })
+  });
+
+  const writePlaceBody = defineTool({
+    name: "write_place_body",
+    label: "Write place body",
+    description:
+      "Replace the markdown body BELOW the frontmatter of an existing file, leaving the frontmatter (geometry, properties) exactly as-is. Use this to write or edit a note's prose without touching its structured fields. To reference saved places in the body, link them with [[Title]] wikilinks.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path within the MapOS vault" }),
+      body: Type.String({ description: "New markdown body (frontmatter is preserved separately)" })
+    }),
+    execute: async (_id, args) =>
+      applyVaultEdit(args.path, (_data, _body, raw) => {
+        // Preserve the exact frontmatter block byte-for-byte; only swap the body.
+        const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+        const fm = fmMatch ? fmMatch[0] : "";
+        return fm + (args.body.trim() ? `\n${args.body.trim()}\n` : "");
+      })
+  });
+
   const deleteVaultFile = defineTool({
     name: "delete_vault_file",
     label: "Delete vault file",
@@ -1744,23 +2455,27 @@ export function buildMaposCustomTools(
       path: Type.String({ description: "Absolute path within the MapOS vault to delete" })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      const path = resolveWritablePath(args.path);
+      if (!path) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: `Path must be within vault (${maposDir})` })
+          JSON.stringify({
+            success: false,
+            error: `Path must be within the vault and outside .mapos/ (${maposDir})`
+          })
         );
       }
-      if (!existsSync(args.path)) {
+      if (!existsSync(path)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
       }
-      const previousContent = readFileSync(args.path, "utf-8");
-      onVaultWrite({ path: args.path, previousContent });
-      removeFeatures([args.path]);
-      removeFeaturePropertiesForFile(args.path);
-      rmSync(args.path);
+      const previousContent = readFileSync(path, "utf-8");
+      onVaultWrite({ path, previousContent });
+      removeFeatures([path]);
+      removeFeaturePropertiesForFile(path);
+      rmSync(path);
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.path,
+          path,
           action: "deleted",
           previousContent,
           newContent: null
@@ -1773,46 +2488,274 @@ export function buildMaposCustomTools(
     name: "rename_vault_file",
     label: "Rename vault file",
     description:
-      "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically.",
+      "Rename or move a vault file. Use this instead of write+delete when only the path is changing. Handles undo tracking and spatial index updates automatically. Fails if a file already exists at toPath unless `overwrite: true` is set, so a move never silently clobbers an existing file.",
     parameters: Type.Object({
       fromPath: Type.String({ description: "Current absolute path of the file within the vault" }),
-      toPath: Type.String({ description: "New absolute path within the vault" })
+      toPath: Type.String({ description: "New absolute path within the vault" }),
+      overwrite: Type.Optional(
+        Type.Boolean({
+          description:
+            "Required when a file already exists at toPath. Omit or set false to fail instead of overwriting the destination."
+        })
+      )
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.fromPath) || !isUnderVault(args.toPath)) {
+      const fromPath = resolveWritablePath(args.fromPath);
+      const toPath = resolveWritablePath(args.toPath);
+      if (!fromPath || !toPath) {
         return TEXT_RESULT(
-          JSON.stringify({ success: false, error: "Both paths must be within vault" })
+          JSON.stringify({
+            success: false,
+            error: "Both paths must be within the vault and outside .mapos/"
+          })
         );
       }
-      if (!existsSync(args.fromPath)) {
+      if (!existsSync(fromPath)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "Source file not found" }));
       }
-      const content = readFileSync(args.fromPath, "utf-8");
-      onVaultWrite({ path: args.fromPath, previousContent: content });
+      if (existsSync(toPath) && args.overwrite !== true) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: "A file already exists at toPath. Pass overwrite: true to replace it."
+          })
+        );
+      }
+      const content = readFileSync(fromPath, "utf-8");
+      onVaultWrite({ path: fromPath, previousContent: content });
       onVaultWrite({
-        path: args.toPath,
-        previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null
+        path: toPath,
+        previousContent: existsSync(toPath) ? readFileSync(toPath, "utf-8") : null
       });
-      mkdirSync(dirname(args.toPath), { recursive: true });
-      renameSync(args.fromPath, args.toPath);
-      removeFeatures([args.fromPath]);
-      removeFeaturePropertiesForFile(args.fromPath);
+      mkdirSync(dirname(toPath), { recursive: true });
+      renameSync(fromPath, toPath);
+      removeFeatures([fromPath]);
+      removeFeaturePropertiesForFile(fromPath);
       try {
-        const record = await parsePlaceFile(args.toPath);
-        syncFeatureForFile(args.toPath, record);
+        const record = await parsePlaceFile(toPath);
+        syncFeatureForFile(toPath, record);
       } catch {
         // Not a place file
       }
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.toPath,
-          fromPath: args.fromPath,
+          path: toPath,
+          fromPath,
           action: "renamed",
           previousContent: content,
           newContent: content
         })
       );
+    }
+  });
+
+  // ── Region packs (offline map data) ─────────────────────────────────────────
+  // Managing downloadable offline data. Packs live under appStateDir/regions and are
+  // app-scoped (shared across vaults). Downloads can be large (tens to hundreds of MB),
+  // so download_region_pack forces the agent to have looked up (and thus can state) the
+  // size before starting, and the download runs in the background with progress shown in
+  // the app's Offline tab rather than blocking the tool call.
+  const regionsDir = join(appStateDir, "regions");
+  const bytesToMb = (b: number): number => Math.round((b / 1_000_000) * 10) / 10;
+  /** Total bytes of a region's version (defaults to `latest`), or null if unknown. */
+  const regionVersionBytes = async (
+    region: string,
+    version?: string
+  ): Promise<{ version: string; totalBytes: number; name?: string } | { error: string }> => {
+    const manifest = await fetchManifest();
+    const entry = manifest.regions[region];
+    if (!entry) return { error: `Unknown region "${region}".` };
+    const ver = version ?? entry.latest;
+    const versionEntry = entry.versions[ver];
+    if (!versionEntry) return { error: `Region "${region}" has no version "${ver}".` };
+    return {
+      version: ver,
+      totalBytes: versionEntry.total_bytes,
+      ...(entry.name ? { name: entry.name } : {})
+    };
+  };
+
+  const listRegionPacks = defineTool({
+    name: "list_region_packs",
+    label: "List region packs",
+    description:
+      "List offline map-data region packs: which are installed on disk, which are currently downloading (with percent), and — when you pass `query` — matching packs available to download with their size in MB. Region packs enable offline geocoding, routing, and map tiles for an area. The full catalog is large (hundreds of regions), so `available` results are only returned when you provide a `query` (matched against region slug and name). Use this to answer 'what maps do I have offline?' and to look up a download's size before calling download_region_pack.",
+    parameters: Type.Object({
+      query: Type.Optional(
+        Type.String({
+          description:
+            "Case-insensitive substring to search available regions by slug or name (e.g. 'quebec', 'france'). Omit to just see installed + in-progress packs."
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: "Max available-region matches to return (default 25)." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const installed = listLocalRegions(regionsDir).map((p) => ({
+        region: p.region,
+        ...(p.name ? { name: p.name } : {}),
+        version: p.version,
+        sizeMb: bytesToMb(p.totalBytes)
+      }));
+      const downloading = getActiveDownloads().map((p) => ({
+        region: p.region,
+        phase: p.phase,
+        percent: p.totalBytes > 0 ? Math.round((p.receivedBytes / p.totalBytes) * 100) : 0,
+        sizeMb: bytesToMb(p.totalBytes)
+      }));
+
+      let manifest: Awaited<ReturnType<typeof fetchManifest>>;
+      try {
+        manifest = await fetchManifest();
+      } catch (err) {
+        // Catalog needs the network; installed/downloading are local and still useful.
+        return TEXT_RESULT(
+          JSON.stringify({ installed, downloading, catalogError: errorPayload(err) })
+        );
+      }
+
+      const total = Object.keys(manifest.regions).length;
+      if (!args.query) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            installed,
+            downloading,
+            availableCount: total,
+            note: `Pass 'query' to search ${total} available regions by name.`
+          })
+        );
+      }
+      const q = args.query.toLowerCase();
+      const limit = args.limit ?? 25;
+      const matches = Object.entries(manifest.regions)
+        .filter(
+          ([slug, e]) => slug.toLowerCase().includes(q) || (e.name ?? "").toLowerCase().includes(q)
+        )
+        .slice(0, limit)
+        .map(([slug, e]) => {
+          const v = e.versions[e.latest];
+          return {
+            region: slug,
+            ...(e.name ? { name: e.name } : {}),
+            latestVersion: e.latest,
+            sizeMb: v ? bytesToMb(v.total_bytes) : null,
+            installed: installed.some((i) => i.region === slug)
+          };
+        });
+      return TEXT_RESULT(JSON.stringify({ installed, downloading, available: matches }));
+    }
+  });
+
+  const downloadRegionPack = defineTool({
+    name: "download_region_pack",
+    label: "Download region pack",
+    description:
+      "Download an offline map-data region pack (offline geocoding, routing, and map tiles for an area). Downloads can be LARGE — tens to hundreds of MB. Before calling this you MUST tell the user the download size (get it from list_region_packs) and get their confirmation. You must pass `acknowledge_size_mb` — the size in MB you told the user — and it must match the actual size, or the call is rejected. The download runs in the background; progress appears in the app's Offline tab. Use list_region_packs to check when it finishes. Reversible with delete_region_pack.",
+    parameters: Type.Object({
+      region: Type.String({
+        description: "Region slug to download (from list_region_packs, e.g. 'canada-quebec')."
+      }),
+      acknowledge_size_mb: Type.Number({
+        description:
+          "The download size in MB you told the user and they confirmed. Must match the actual pack size (from list_region_packs) within tolerance, else the call is rejected."
+      }),
+      version: Type.Optional(
+        Type.String({ description: "Specific version to download. Defaults to the latest." })
+      )
+    }),
+    execute: async (_id, args) => {
+      const info = await regionVersionBytes(args.region, args.version);
+      if ("error" in info) {
+        return TEXT_RESULT(JSON.stringify({ success: false, error: info.error }));
+      }
+      if (getActiveDownloads().some((d) => d.region === args.region)) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `Region "${args.region}" is already downloading.`
+          })
+        );
+      }
+      const already = listLocalRegions(regionsDir).find(
+        (p) => p.region === args.region && p.version === info.version
+      );
+      if (already) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `Region "${args.region}" (${info.version}) is already installed.`
+          })
+        );
+      }
+
+      const actualMb = bytesToMb(info.totalBytes);
+      // Forcing function: the agent can't start a big download without having looked up
+      // (and therefore being able to state) its size. Tolerance covers MB rounding.
+      const tolerance = Math.max(1, actualMb * 0.1);
+      if (Math.abs(args.acknowledge_size_mb - actualMb) > tolerance) {
+        return TEXT_RESULT(
+          JSON.stringify({
+            success: false,
+            error: `acknowledge_size_mb (${args.acknowledge_size_mb}) does not match the actual size. This pack is ${actualMb} MB. Tell the user the correct size, confirm, then retry with acknowledge_size_mb: ${actualMb}.`,
+            actualSizeMb: actualMb
+          })
+        );
+      }
+
+      // Fire-and-forget: the download streams progress to the app's Offline tab and can
+      // take minutes — blocking the tool call would stall the client. Failures surface
+      // there (and are swallowed here to avoid an unhandled rejection).
+      void downloadRegion(mainWindow, appStateDir, args.region, args.version).catch((err) => {
+        console.error(`[mcp] region download failed for ${args.region}:`, err);
+      });
+      return TEXT_RESULT(
+        JSON.stringify({
+          success: true,
+          started: true,
+          region: args.region,
+          version: info.version,
+          sizeMb: actualMb,
+          note: "Download started in the background. Progress shows in the app's Offline tab; call list_region_packs to check when it's installed."
+        })
+      );
+    }
+  });
+
+  const cancelRegionDownloadTool = defineTool({
+    name: "cancel_region_download",
+    label: "Cancel region download",
+    description:
+      "Cancel an in-flight region-pack download. Partially downloaded files are cleaned up; nothing is installed. No-op if the region isn't downloading.",
+    parameters: Type.Object({
+      region: Type.String({ description: "Region slug whose download to cancel." })
+    }),
+    execute: async (_id, args) => {
+      const wasActive = getActiveDownloads().some((d) => d.region === args.region);
+      cancelRegionDownload(args.region);
+      return TEXT_RESULT(JSON.stringify({ success: true, region: args.region, wasActive }));
+    }
+  });
+
+  const deleteRegionPack = defineTool({
+    name: "delete_region_pack",
+    label: "Delete region pack",
+    description:
+      "Delete an installed offline region pack from disk to reclaim space. Offline geocoding/routing/tiles for that area stop working until re-downloaded. Reversible by downloading it again.",
+    parameters: Type.Object({
+      region: Type.String({ description: "Region slug to delete (from list_region_packs)." })
+    }),
+    execute: async (_id, args) => {
+      const installed = listLocalRegions(regionsDir).some((p) => p.region === args.region);
+      if (!installed) {
+        return TEXT_RESULT(
+          JSON.stringify({ success: false, error: `Region "${args.region}" is not installed.` })
+        );
+      }
+      deleteRegion(appStateDir, args.region);
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:changed");
+      return TEXT_RESULT(JSON.stringify({ success: true, region: args.region, action: "deleted" }));
     }
   });
 
@@ -1825,7 +2768,92 @@ export function buildMaposCustomTools(
   // Restore `getServiceClient().isAvailable("webSearch")` to re-enable.
   const webSearchAvailable = false;
 
-  return [
+  // MCP behavior hints. Advisory (clients treat them as untrusted) — defense-in-depth
+  // over the vault sandbox + no-clobber guards, never the primary control. Categories:
+  const READ_ONLY: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: false
+  };
+  // read-only but hits an external service (geocoder/router/web)
+  const READ_ONLY_EXTERNAL: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: true
+  };
+  // read-only real-world sensor (device GPS) — not idempotent (the fix moves)
+  const SENSOR_READ: ToolAnnotations = {
+    readOnlyHint: true,
+    idempotentHint: false,
+    openWorldHint: true
+  };
+  // transient map/UI effect, no data or environment change
+  const MAP_EFFECT: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
+  // idempotent transient effect (clearing the map, moving the camera)
+  const MAP_EFFECT_IDEMPOTENT: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true
+  };
+  // rebuilds derived index only (never the vault); the index is a rebuildable cache
+  const INDEX_MAINT: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true
+  };
+  // creates new vault files, never overwrites
+  const CREATE_ONLY: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
+  // can overwrite/delete existing vault content
+  const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true };
+  // starts a background network download of offline data (adds data, reversible)
+  const REGION_DOWNLOAD: ToolAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true
+  };
+
+  const annotationsByName: Record<string, ToolAnnotations> = {
+    present_features: MAP_EFFECT,
+    render_overlay_on_map: MAP_EFFECT,
+    clear_map_overlay: MAP_EFFECT_IDEMPOTENT,
+    pan_to: MAP_EFFECT_IDEMPOTENT,
+    open_file: MAP_EFFECT,
+    get_viewport: READ_ONLY,
+    get_active_file: READ_ONLY,
+    get_open_tabs: READ_ONLY,
+    get_current_location: SENSOR_READ,
+    query_spatial_index: READ_ONLY,
+    find_near: READ_ONLY,
+    query_within_polygon: READ_ONLY,
+    spatial_sql: READ_ONLY,
+    geo_compute: READ_ONLY,
+    compute_bbox: READ_ONLY,
+    read_vault_file: READ_ONLY,
+    list_vault_files: READ_ONLY,
+    search_vault_files: READ_ONLY,
+    geocode_search: READ_ONLY_EXTERNAL,
+    reverse_geocode: READ_ONLY_EXTERNAL,
+    get_directions: READ_ONLY_EXTERNAL,
+    present_directions: MAP_EFFECT,
+    get_isochrone: READ_ONLY_EXTERNAL,
+    get_matrix: READ_ONLY_EXTERNAL,
+    web_search: { readOnlyHint: true, openWorldHint: true },
+    index_file: INDEX_MAINT,
+    rebuild_index: INDEX_MAINT,
+    save_features_to_vault: CREATE_ONLY,
+    write_vault_file: DESTRUCTIVE,
+    write_frontmatter_property: DESTRUCTIVE,
+    write_frontmatter_properties: DESTRUCTIVE,
+    write_place_body: DESTRUCTIVE,
+    delete_vault_file: DESTRUCTIVE,
+    rename_vault_file: DESTRUCTIVE,
+    list_region_packs: READ_ONLY_EXTERNAL,
+    download_region_pack: REGION_DOWNLOAD,
+    cancel_region_download: MAP_EFFECT_IDEMPOTENT,
+    delete_region_pack: DESTRUCTIVE
+  };
+
+  const tools: ToolDefinition[] = [
     presentFeatures,
     renderOverlayOnMap,
     clearMapOverlay,
@@ -1838,16 +2866,38 @@ export function buildMaposCustomTools(
     rebuildIndex,
     getViewport,
     panTo,
+    getActiveFile,
+    getOpenTabs,
+    openFile,
+    getCurrentLocation,
     geocodeSearch,
     reverseGeocodeTool,
     getDirectionsTool,
+    presentDirections,
     getIsochroneTool,
     getMatrixTool,
     ...(webSearchAvailable ? [webSearchTool] : []),
     computeBboxTool,
+    readVaultFile,
+    listVaultFiles,
+    searchVaultFiles,
     saveFeaturesToVault,
     writeVaultFile,
+    writeFrontmatterProperty,
+    writeFrontmatterProperties,
+    writePlaceBody,
     deleteVaultFile,
-    renameVaultFile
+    renameVaultFile,
+    listRegionPacks,
+    downloadRegionPack,
+    cancelRegionDownloadTool,
+    deleteRegionPack
   ];
+
+  // Attach hints. Any tool missing an entry defaults to the most cautious (destructive)
+  // classification so a newly added tool is never silently treated as safe.
+  for (const t of tools) {
+    t.annotations = annotationsByName[t.name] ?? DESTRUCTIVE;
+  }
+  return tools;
 }

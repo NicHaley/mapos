@@ -56,11 +56,23 @@ export function serveFile(root: string, rel: string, range: string | null): Resp
     const body = readRange(full, start, end);
     headers["content-range"] = `bytes ${start}-${start + body.length - 1}/${size}`;
     headers["content-length"] = String(body.length);
-    return new Response(body, { status: 206, headers });
+    return new Response(
+      new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength),
+      {
+        status: 206,
+        headers
+      }
+    );
   }
   const body = readRange(full, 0, size - 1);
   headers["content-length"] = String(body.length);
-  return new Response(body, { status: 200, headers });
+  return new Response(
+    new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength),
+    {
+      status: 200,
+      headers
+    }
+  );
 }
 
 // Reads bytes [start, end] from `path`. Returns only the bytes actually read —

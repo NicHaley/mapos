@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -6,6 +7,34 @@ import { z } from "zod";
 export const MAPOS_CONFIG_FILENAME = "mapos.json";
 
 const DEFAULT_VAULT_PATH = join(homedir(), "MapOS");
+
+/**
+ * Fixed default port for the local MCP server (127.0.0.1). Chosen high + uncommon to avoid
+ * collisions; overridable via `mapos.json`. Clients connect to `http://127.0.0.1:<port>/mcp`.
+ */
+export const DEFAULT_MCP_PORT = 51737;
+
+/**
+ * App-level MCP server settings. Lives in `userData/mapos.json` (machine/secrets tier — the
+ * bearer token must never enter a synced `.mapos/` file). Minted lazily on first access via
+ * {@link getOrCreateMcpConfig}; `enabled` defaults to on so the server is reachable out of the
+ * box, still gated by the token.
+ */
+const McpConfigSchema = z.object({
+  enabled: z.boolean(),
+  port: z.number().int().min(1).max(65535),
+  token: z.string().min(1)
+});
+
+export type McpConfig = z.infer<typeof McpConfigSchema>;
+
+function mintMcpToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+function freshMcpConfig(): McpConfig {
+  return { enabled: true, port: DEFAULT_MCP_PORT, token: mintMcpToken() };
+}
 
 /**
  * Two-mode connection config. `local` is the free, fully-offline path: capabilities
@@ -50,6 +79,8 @@ export type MaposJson = {
   activeVault?: string;
   /** Network services configuration (local / cloud). */
   services: ServicesConfig;
+  /** Local MCP server settings. Minted lazily (absent until first accessed). */
+  mcp?: McpConfig;
 };
 
 function defaultConfig(): MaposJson {
@@ -101,10 +132,12 @@ function parseConfig(raw: string): MaposJson | null {
     const services = ServicesConfigSchema.parse(
       normalizeLegacyServices((parsed as { services?: unknown }).services)
     );
+    const mcpParsed = McpConfigSchema.safeParse((parsed as { mcp?: unknown }).mcp);
     return {
       vaults: [...vaults],
       ...(typeof activeVault === "string" ? { activeVault } : {}),
-      services
+      services,
+      ...(mcpParsed.success ? { mcp: mcpParsed.data } : {})
     };
   } catch {
     return null;
@@ -197,7 +230,8 @@ export function appendVaultToConfig(
   const next: MaposJson = {
     vaults: [...normalized, resolved],
     ...(cfg.activeVault ? { activeVault: cfg.activeVault } : {}),
-    services: cfg.services
+    services: cfg.services,
+    ...(cfg.mcp ? { mcp: cfg.mcp } : {})
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -221,7 +255,8 @@ export function setActiveVaultInConfig(
   const next: MaposJson = {
     vaults: normalized,
     activeVault: resolved,
-    services: cfg.services
+    services: cfg.services,
+    ...(cfg.mcp ? { mcp: cfg.mcp } : {})
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -254,7 +289,8 @@ export function renameVaultInConfig(
   const next: MaposJson = {
     vaults: nextVaults,
     ...(nextActive ? { activeVault: nextActive } : {}),
-    services: cfg.services
+    services: cfg.services,
+    ...(cfg.mcp ? { mcp: cfg.mcp } : {})
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -282,7 +318,8 @@ export function removeVaultFromConfig(
   const next: MaposJson = {
     vaults: nextVaults,
     ...(nextActive ? { activeVault: nextActive } : {}),
-    services: cfg.services
+    services: cfg.services,
+    ...(cfg.mcp ? { mcp: cfg.mcp } : {})
   };
   writeFileSync(
     join(appStateDir, MAPOS_CONFIG_FILENAME),
@@ -297,4 +334,39 @@ export function removeVaultFromConfig(
  */
 export function vaultDotDir(vaultRoot: string): string {
   return join(vaultRoot, ".mapos");
+}
+
+/** Persist `mcp` onto `mapos.json`, preserving all other fields. Returns the written config. */
+function writeMcpConfig(appStateDir: string, mcp: McpConfig): McpConfig {
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  const next: MaposJson = { ...cfg, mcp };
+  writeFileSync(
+    join(appStateDir, MAPOS_CONFIG_FILENAME),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf-8"
+  );
+  return mcp;
+}
+
+/**
+ * Returns the MCP config, minting + persisting a fresh one (enabled, default port, random
+ * token) on first access. The token is a machine secret, so it lives here in `userData` and
+ * never in a per-vault `.mapos/` file.
+ */
+export function getOrCreateMcpConfig(appStateDir: string): McpConfig {
+  const cfg = loadOrInitMaposConfig(appStateDir);
+  if (cfg.mcp) return cfg.mcp;
+  return writeMcpConfig(appStateDir, freshMcpConfig());
+}
+
+/** Toggle the MCP server on/off; returns the updated config. */
+export function setMcpEnabledInConfig(appStateDir: string, enabled: boolean): McpConfig {
+  const current = getOrCreateMcpConfig(appStateDir);
+  return writeMcpConfig(appStateDir, { ...current, enabled });
+}
+
+/** Mint a new token (invalidates existing client connections); returns the updated config. */
+export function regenerateMcpTokenInConfig(appStateDir: string): McpConfig {
+  const current = getOrCreateMcpConfig(appStateDir);
+  return writeMcpConfig(appStateDir, { ...current, token: mintMcpToken() });
 }

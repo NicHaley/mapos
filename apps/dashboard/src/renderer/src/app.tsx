@@ -5,13 +5,14 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
-import type { ConversationMeta, MapOverlayLayer } from "@shared/types";
+import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChatPane } from "./components/chat-pane";
+import { DirectionsPanel } from "./components/directions-panel";
+import { type FeatureListRow, FeaturesListPanel } from "./components/features-list-panel";
 import { GeocodeSearchPopover } from "./components/geocode-search-popover";
 import MapView, {
   type MapSelectPlaceMeta,
@@ -25,12 +26,15 @@ import { NavTabs } from "./components/nav-tabs";
 import { PlaceCard } from "./components/place-card";
 import { ProjectSidebar } from "./components/project-sidebar";
 import { ResizeHandle } from "./components/resize-handle";
-import { useChatStore, useStreamingConvIds } from "./hooks/use-chat-store";
-import { useConversations } from "./hooks/use-conversations";
 import { useFullscreen } from "./hooks/use-fullscreen";
 import { useMapOverlaySync } from "./hooks/use-map-overlay-sync";
-import { type NavEntry, folderLabel, useNavTabs } from "./hooks/use-nav-tabs";
-import { useOverlayVaultSync } from "./hooks/use-overlay-vault-sync";
+import {
+  type DirectionsWaypoint,
+  type NavEntry,
+  type TravelMode,
+  folderLabel,
+  useNavTabs
+} from "./hooks/use-nav-tabs";
 import { usePathSync } from "./hooks/use-path-sync";
 import { usePlacesIndex } from "./hooks/use-places-index";
 import { usePlacesWatcher } from "./hooks/use-places-watcher";
@@ -40,6 +44,7 @@ import { useVaultRoot } from "./hooks/use-vault-root";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
+import { waypointFromPlace } from "./lib/place-waypoint";
 import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
@@ -54,6 +59,9 @@ const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS;
 const MAIN_PANE_MAX_WIDTH = 40 * BASE_UNITS;
 const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
 const FIT_BUFFER = 2.5 * BASE_UNITS;
+
+/** Above this many points, an overlay is treated as a bulk map layer, not a browsable list. */
+const LIST_MAX_FEATURES = 200;
 
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 
@@ -83,6 +91,33 @@ function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
     /** Present (may be empty) so PlaceCard stays in preview mode without reading a file. */
     previewMarkdown: "",
     ...(Object.keys(properties).length > 0 ? { properties } : {})
+  };
+}
+
+/** Build a preview PlaceRecord from an overlay point — the shape both the mini card and
+ *  the save-to-vault path consume (geometry + previewMarkdown + properties). */
+function previewPlaceFromOverlayPoint(point: OverlayPoint): PlaceRecord {
+  return {
+    filePath: `map-overlay:${point.id}`,
+    title: point.title || "Map overlay",
+    type: "Preview",
+    geometry: JSON.stringify({ type: "Point", coordinates: [point.lng, point.lat] }),
+    previewMarkdown: point.preview_markdown ?? "",
+    ...(point.properties && Object.keys(point.properties).length > 0
+      ? { properties: point.properties }
+      : {})
+  };
+}
+
+/** Minimal Point FeatureCollection for framing a list's markers via fitToGeoJson. */
+function pointsFeatureCollection(points: Array<{ lat: number; lng: number }>) {
+  return {
+    type: "FeatureCollection" as const,
+    features: points.map((p) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point", coordinates: [p.lng, p.lat] } as Record<string, unknown>,
+      properties: null
+    }))
   };
 }
 
@@ -134,15 +169,17 @@ function App(): React.JSX.Element {
   const [placeMode, setPlaceMode] = useState<"mini" | "full">("mini");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [projectSidebarOpen, setProjectSidebarOpen] = useState(true);
-  const [activeChatConvId, setActiveChatConvId] = useState<string | null>(null);
   const [featureScreenPos, setFeatureScreenPos] = useState<{ x: number; y: number } | null>(null);
   /** Map selection while full PlaceCard is open (floating mini card + highlight). */
   const [mapPeekPlace, setMapPeekPlace] = useState<PlaceRecord | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
-  /** Accumulated overlay layers across this conversation's result sets. */
+  /** Accumulated overlay layers currently rendered on the map (driven over map:overlay-add). */
   const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
-  /** Overlay feature to emphasize on the map (the hovered chat row); null = all full opacity. */
+  // Route overlay for the active directions tab, lifted from DirectionsPanel so it draws
+  // on the map (mirrors how a list tab's layer rides in visibleOverlayLayers).
+  const [directionsRouteLayer, setDirectionsRouteLayer] = useState<MapOverlayLayer | null>(null);
+  /** Overlay feature to emphasize on the map; null = all full opacity. */
   const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
     null
@@ -192,24 +229,11 @@ function App(): React.JSX.Element {
     [projectSidebarOpen, projectSidebarWidth, mainPaneWidth]
   );
 
-  const chatStore = useChatStore();
-  const { conversations, refresh: refreshConversations } = useConversations(chatStore);
-
-  /** convIds whose stream is currently in flight (renderer view); drives spinners on tabs and
-   * the sidebar list. Identity changes only when a stream starts/ends, so streaming chunks
-   * don't re-render App (the chat pane subscribes to its own conversation slice). */
-  const streamingConvIds = useStreamingConvIds(chatStore);
-
   const addLayer = useCallback((layer: MapOverlayLayer) => {
     setOverlayLayers((prev) => [...prev.filter((l) => l.id !== layer.id), layer]);
   }, []);
   const clearLayers = useCallback(() => {
     setOverlayLayers([]);
-    setFocusedFeatureId(null);
-  }, []);
-  /** Replace the on-screen layer set when switching/reopening a conversation. */
-  const handleLayersRestore = useCallback((layers: MapOverlayLayer[]) => {
-    setOverlayLayers(layers);
     setFocusedFeatureId(null);
   }, []);
 
@@ -301,7 +325,6 @@ function App(): React.JSX.Element {
   const openEntry = useCallback(
     (entry: NavEntry) => {
       if (entry.kind === "place") {
-        setActiveChatConvId(null);
         setSelectedPlace(entry.place);
         setPlaceMode("full");
         setSelectedFolder(null);
@@ -309,8 +332,34 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
         mapRef.current?.fitToPlace(entry.place, getMapPadding(true));
-      } else if (entry.kind === "folder") {
-        setActiveChatConvId(null);
+      } else if (entry.kind === "list") {
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+        if (entry.layer.points.length > 0) {
+          mapRef.current?.fitToGeoJson(
+            pointsFeatureCollection(entry.layer.points),
+            getMapPadding(true)
+          );
+        }
+      } else if (entry.kind === "directions") {
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+        // Frame the known endpoints; the panel refits to the full route once it computes.
+        const ends = [entry.origin, entry.destination].filter(
+          (w): w is DirectionsWaypoint => w !== null
+        );
+        if (ends.length > 0) {
+          mapRef.current?.fitToGeoJson(pointsFeatureCollection(ends), getMapPadding(true));
+        }
+      } else {
         setSelectedFolder(entry.folderPath);
         setSelectedPlace(null);
         setPlaceMode("mini");
@@ -318,26 +367,14 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
         mapRef.current?.fitToFolder(entry.folderPath, getMapPadding(false));
-      } else {
-        // chat: render chat pane in main-pane slot; clear place/folder selection.
-        setActiveChatConvId(entry.convId);
-        setSelectedPlace(null);
-        setPlaceMode("mini");
-        setSelectedFolder(null);
-        setFeatureScreenPos(null);
-        setMapPeekPlace(null);
-        setSelectionPulseAnchor(null);
-        // Lazy-load conversation; restore its saved overlay layers once loaded.
-        void chatStore.loadConversation(entry.convId).then(handleLayersRestore);
       }
     },
-    [getMapPadding, chatStore, handleLayersRestore]
+    [getMapPadding]
   );
 
   const onNavEmpty = useCallback(() => {
     clearPlace();
     setSelectedFolder(null);
-    setActiveChatConvId(null);
   }, [clearPlace]);
 
   const {
@@ -357,15 +394,175 @@ function App(): React.JSX.Element {
   const isFullscreen = useFullscreen();
 
   const placesByPath = usePlacesIndex();
-  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer, clearLayers });
 
-  /** Vault places presented by chat (present_features `path` entries), resolved
-   * against the live index. They may lie outside the selected folder, so the map
-   * draws them alongside the overlay layers they arrived with. */
+  /** A new overlay layer arrived (agent present/render, or user search). Pickable,
+   *  human-scale result sets become a list ("working set") tab whose layer rides in the
+   *  nav entry — drawn only while that tab is active, so closing the tab clears its markers.
+   *  Everything else (routes, isochrones, bulk point dumps) is an ambient map layer that
+   *  accumulates until explicitly cleared. */
+  const handleOverlayLayer = useCallback(
+    (layer: MapOverlayLayer) => {
+      const pickable =
+        (layer.points.length > 0 && layer.points.length <= LIST_MAX_FEATURES) ||
+        (layer.vaultPaths?.length ?? 0) > 0;
+      if (!pickable) {
+        addLayer(layer);
+        return;
+      }
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "list", layerId: layer.id, label: layer.layerName || "Results", layer },
+        newTab: true,
+        activate: true
+      });
+      setSelectedPlace(null);
+      setSelectedFolder(null);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+      if (layer.points.length > 0) {
+        mapRef.current?.fitToGeoJson(pointsFeatureCollection(layer.points), getMapPadding(true));
+      }
+    },
+    [addLayer, dispatchNav, getMapPadding]
+  );
+
+  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer: handleOverlayLayer, clearLayers });
+
+  /** Current active tab entry — drives which pane (place / list / folder) is shown. */
+  const activeNavEntry = useMemo(() => {
+    const tab = nav.tabs[nav.activeTab];
+    return tab ? tab.history[tab.cursor] : undefined;
+  }, [nav]);
+
+  /** The overlay layer backing the active list tab (null unless a list tab is active). */
+  const activeListLayer = activeNavEntry?.kind === "list" ? activeNavEntry.layer : null;
+
+  /** The active directions tab entry (null unless one is active) — drives the panel. */
+  const activeDirectionsEntry = activeNavEntry?.kind === "directions" ? activeNavEntry : null;
+
+  /** The computed route overlay, only while a directions tab is active. */
+  const activeDirectionsRoute = activeDirectionsEntry ? directionsRouteLayer : null;
+
+  /** Overlay layers drawn now: ambient layers (routes/isochrones/bulk) plus the active
+   *  list tab's layer or the active directions tab's route. Both live in per-tab state, not
+   *  in `overlayLayers`, so a closed or backgrounded tab draws nothing. */
+  const visibleOverlayLayers = useMemo(() => {
+    const extra = activeListLayer ?? activeDirectionsRoute;
+    return extra ? [...overlayLayers, extra] : overlayLayers;
+  }, [overlayLayers, activeListLayer, activeDirectionsRoute]);
+
+  /** Directions panel reports its computed route (or null); frame it on the map. */
+  const handleDirectionsRouteChange = useCallback(
+    (layer: MapOverlayLayer | null) => {
+      setDirectionsRouteLayer(layer);
+      const line = layer?.lines[0];
+      if (line && line.coordinates.length > 0) {
+        mapRef.current?.fitToGeoJson(
+          {
+            type: "FeatureCollection" as const,
+            features: [
+              {
+                type: "Feature" as const,
+                geometry: { type: "LineString", coordinates: line.coordinates } as Record<
+                  string,
+                  unknown
+                >,
+                properties: null
+              }
+            ]
+          },
+          getMapPadding(true)
+        );
+      }
+    },
+    [getMapPadding]
+  );
+
+  /** Open a Directions tab for the given destination. When `origin` is null, default it to
+   *  the user's current location (blank if unavailable) — the app's Get-directions behavior. */
+  const openDirectionsTab = useCallback(
+    (destination: DirectionsWaypoint, origin: DirectionsWaypoint | null, mode: TravelMode) => {
+      const open = (resolvedOrigin: DirectionsWaypoint | null): void => {
+        dispatchNav({
+          type: "navigate",
+          entry: {
+            kind: "directions",
+            id: crypto.randomUUID(),
+            label: "Directions",
+            origin: resolvedOrigin,
+            destination,
+            mode
+          },
+          newTab: true,
+          activate: true
+        });
+        setSelectedPlace(null);
+        setSelectedFolder(null);
+        setPlaceMode("mini");
+        setFeatureScreenPos(null);
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+      };
+      if (origin) {
+        open(origin);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          open({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" }),
+        () => open(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    },
+    [dispatchNav]
+  );
+
+  /** Get-directions button on a place card: destination = the place, origin = current location. */
+  const handleGetDirections = useCallback(
+    (place: PlaceRecord) => {
+      const destination = waypointFromPlace(place);
+      if (destination) openDirectionsTab(destination, null, "auto");
+    },
+    [openDirectionsTab]
+  );
+
+  /** Click a list row: open the mini place card over its marker (same as clicking the
+   *  marker on the map). Overlay points become a preview card; vault rows open their place. */
+  const handleOpenListRow = useCallback(
+    (row: FeatureListRow) => {
+      let place: PlaceRecord | null = null;
+      if (row.isVault) {
+        place = placesByPath.get(row.id.slice("vault:".length)) ?? null;
+      } else {
+        const point = activeListLayer?.points.find((p) => p.id === row.id);
+        if (point) place = previewPlaceFromOverlayPoint(point);
+      }
+      if (!place) return;
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+      setSelectedPlace(place);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      if (typeof row.lat === "number" && typeof row.lng === "number") {
+        // Pan and center at the current zoom — don't zoom in on the feature, and don't
+        // move at all if it's already visible clear of the sidebars (see panToPlace).
+        // The list panel shares the main-pane slot, so pad for it (`true`) — otherwise
+        // points hidden behind the panel read as "in view" and never get panned.
+        mapRef.current?.panToPlace(place, getMapPadding(true));
+      }
+    },
+    [activeListLayer, placesByPath, getMapPadding]
+  );
+
+  /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
+   * live index. They may lie outside the selected folder, so the map draws them
+   * alongside the overlay layers they arrived with. */
   const presentedPlaces = useMemo(() => {
     const seen = new Set<string>();
     const places: PlaceRecord[] = [];
-    for (const layer of overlayLayers) {
+    for (const layer of visibleOverlayLayers) {
       for (const path of layer.vaultPaths ?? []) {
         if (seen.has(path)) continue;
         seen.add(path);
@@ -374,31 +571,52 @@ function App(): React.JSX.Element {
       }
     }
     return places;
-  }, [overlayLayers, placesByPath]);
+  }, [visibleOverlayLayers, placesByPath]);
 
-  /** AI `pan_to` from chat: route through the map handle so the camera respects
+  /** `pan_to` map command: route through the map handle so the camera respects
    * sidebar/main-pane padding instead of centering behind them. */
   useEffect(() => {
     window.api.map.onPanTo(({ lat, lng, zoom }) => {
-      const padding = getMapPadding(activeChatConvId !== null);
-      mapRef.current?.flyTo(lat, lng, { zoom, padding });
+      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
+      mapRef.current?.flyTo(lat, lng, { zoom, padding: getMapPadding(mainPaneOpen) });
     });
     return () => window.api.map.removeListeners();
-  }, [getMapPadding, activeChatConvId]);
+  }, [getMapPadding, placeMode, selectedPlace]);
+
+  /** Push the current tab/selection state to main so the agent's get_active_file /
+   * get_open_tabs tools can see what the user is looking at. Mirrors the viewport push. */
+  useEffect(() => {
+    const toInfo = (tab: (typeof nav.tabs)[number]) => {
+      const cur = tab.history[tab.cursor];
+      if (cur.kind === "place")
+        return { path: cur.place.filePath, kind: "place" as const, title: cur.place.title };
+      if (cur.kind === "folder")
+        return { path: cur.folderPath, kind: "folder" as const, title: cur.label };
+      // List tabs are ephemeral working sets the agent itself produced — not reported.
+      return null;
+    };
+    const infos = nav.tabs.map(toInfo);
+    const tabs = infos.filter((t): t is NonNullable<typeof t> => t !== null);
+    const active = nav.activeTab >= 0 ? (infos[nav.activeTab] ?? null) : null;
+    window.api.nav.sendNavState({
+      active,
+      activeIndex: active ? tabs.indexOf(active) : -1,
+      tabs
+    });
+  }, [nav]);
 
   /** "My location" control: store the fix for the marker layer and center on it
    * through the same padding-aware handle so it isn't hidden behind open panes. */
   const handleUserLocationChange = useCallback(
     (location: UserLocation, targetZoom: number) => {
       setUserLocation(location);
-      const mainPaneOpen =
-        (placeMode === "full" && selectedPlace !== null) || activeChatConvId !== null;
+      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
       mapRef.current?.flyTo(location.lat, location.lng, {
         zoom: targetZoom,
         padding: getMapPadding(mainPaneOpen)
       });
     },
-    [getMapPadding, placeMode, selectedPlace, activeChatConvId]
+    [getMapPadding, placeMode, selectedPlace]
   );
 
   /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */
@@ -456,6 +674,7 @@ function App(): React.JSX.Element {
     }
 
     setActiveGeoJsonLayers([]);
+    return undefined;
   }, [geoJsonLayerPlacePath, selectedFolder]);
 
   /** Live-refresh a .geojson on disk if it's currently rendered on the map (e.g. an
@@ -482,76 +701,6 @@ function App(): React.JSX.Element {
     return off;
   }, [activeGeoJsonLayers]);
 
-  const handleNewChat = useCallback(() => {
-    const convId = crypto.randomUUID();
-    const entry: NavEntry = { kind: "chat", convId, title: "New Chat" };
-    dispatchNav({ type: "navigate", entry, newTab: true, activate: true });
-    openEntry(entry);
-  }, [dispatchNav, openEntry]);
-
-  const handleSwitchChatConv = useCallback(
-    (convId: string, title: string, newTab = false) => {
-      const entry: NavEntry = { kind: "chat", convId, title };
-      if (newTab) {
-        dispatchNav({ type: "navigate", entry, newTab: true });
-        return;
-      }
-      dispatchNav({ type: "navigate", entry, newTab: false });
-      openEntry(entry);
-    },
-    [dispatchNav, openEntry]
-  );
-
-  const handleChatDeleted = useCallback(
-    (convId: string) => {
-      // The conversation file is gone; close any tabs showing it.
-      let i = nav.tabs.length;
-      while (i--) {
-        const e = nav.tabs[i].history[nav.tabs[i].cursor];
-        if (e.kind === "chat" && e.convId === convId) {
-          handleNavTabClose(i);
-        }
-      }
-      void refreshConversations();
-    },
-    [nav.tabs, handleNavTabClose, refreshConversations]
-  );
-
-  const handleSidebarDeleteChat = useCallback(
-    async (convId: string) => {
-      await chatStore.deleteConversation(convId);
-      handleChatDeleted(convId);
-    },
-    [chatStore, handleChatDeleted]
-  );
-
-  const handleSidebarRenameChat = useCallback(
-    async (convId: string, title: string) => {
-      const result = await chatStore.renameConversation(convId, title);
-      if (result.success) await refreshConversations();
-      return result;
-    },
-    [chatStore, refreshConversations]
-  );
-
-  /** Topbar chat tabs cache their title in the nav entry (defaulted to "New Chat"
-   * at creation). Sync it from the conversations index so the tab follows the
-   * same `title || preview || "Chat"` rule the sidebar uses — without this the
-   * topbar stays on "New Chat" until the tab is closed and reopened. */
-  useEffect(() => {
-    const convsById = new Map(conversations.map((c) => [c.id, c]));
-    for (const tab of nav.tabs) {
-      const current = tab.history[tab.cursor];
-      if (current?.kind !== "chat") continue;
-      const conv = convsById.get(current.convId);
-      if (!conv) continue;
-      const expected = conv.title || conv.preview || "Chat";
-      if (expected !== current.title) {
-        dispatchNav({ type: "update-chat-title", convId: current.convId, title: expected });
-      }
-    }
-  }, [conversations, nav.tabs, dispatchNav]);
-
   useShortcuts([
     {
       def: { key: "w", meta: true, enabled: activeTabIndex >= 0 },
@@ -573,16 +722,9 @@ function App(): React.JSX.Element {
     {
       def: { code: "BracketRight", meta: true, shift: true, enabled: navTabsData.length > 1 },
       handler: () => handleNavTabActivate((activeTabIndex + 1) % navTabsData.length)
-    },
-    {
-      def: { key: "o", meta: true },
-      handler: handleNewChat
     }
   ]);
 
-  /** Closing a chat tab keeps the stream running so the assistant message still completes
-   * and persists to disk. The chat remains accessible via the sidebar conversation list,
-   * with a streaming indicator while in flight. */
   const handleCloseTab = useCallback(
     (index: number) => {
       handleNavTabClose(index);
@@ -646,7 +788,6 @@ function App(): React.JSX.Element {
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
       const alreadyOpen = placeMode === "full" && selectedPlace?.filePath === place.filePath;
-      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -659,19 +800,52 @@ function App(): React.JSX.Element {
     [placeMode, selectedPlace, getMapPadding, dispatchNav]
   );
 
-  /** Chat feature-list row click: pan to the feature and open it in mini mode. */
-  const handleOpenFeatureFromChat = useCallback(
-    (place: PlaceRecord) => {
-      setSelectionPulseAnchor(null);
-      setMapPeekPlace(null);
-      setSelectedPlace(place);
-      setPlaceMode("mini");
-      setFeatureScreenPos(null);
-      // Chat pane is open when this fires (the click came from it), so the main pane occupies left padding.
-      mapRef.current?.fitToPlace(place, getMapPadding(true));
-    },
-    [getMapPadding]
-  );
+  /** `open_file` agent command: resolve the path to a place record and open it in a tab,
+   * exactly as a sidebar click would. Ignores non-place paths (folders/unknown). */
+  useEffect(() => {
+    window.api.nav.onOpenFile(async ({ path }) => {
+      const place = await window.api.places.getByPath(path);
+      if (place) handleSelectPlaceFromSidebar(place);
+    });
+    // `present_directions`: open a Directions tab for the endpoints the agent resolved.
+    window.api.nav.onOpenDirections(({ origin, destination, mode }) => {
+      openDirectionsTab(destination, origin, mode);
+    });
+    return () => window.api.nav.removeListeners();
+  }, [handleSelectPlaceFromSidebar, openDirectionsTab]);
+
+  /** `get_current_location` agent request: run the same geolocation fix as the "My
+   * location" control and reply with the coords. When `reveal` is set, also drop the
+   * marker and fly to it (identical to clicking the button); otherwise stay silent so
+   * the agent can read the location without hijacking the user's view. */
+  useEffect(() => {
+    window.api.geo.onLocateRequest(({ id, reveal }) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          if (reveal) {
+            const zoom = mapRef.current?.getZoom() ?? 0;
+            handleUserLocationChange(
+              { lng: longitude, lat: latitude, accuracy },
+              Math.max(zoom, 14)
+            );
+          }
+          window.api.geo.sendLocateReply({ id, ok: true, lat: latitude, lng: longitude, accuracy });
+        },
+        (err) => {
+          const error =
+            err.code === err.PERMISSION_DENIED
+              ? "Location access denied"
+              : err.code === err.TIMEOUT
+                ? "Location timed out"
+                : "Location unavailable";
+          window.api.geo.sendLocateReply({ id, ok: false, error });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+    return () => window.api.geo.removeListeners();
+  }, [handleUserLocationChange]);
 
   /** Wikilink click in a place card body: mini card over the target feature
    * (a floating peek when a full panel is open), matching map-click semantics.
@@ -687,15 +861,15 @@ function App(): React.JSX.Element {
       if (placeMode === "full") {
         // Link to the open file itself: just bring its feature into view.
         if (selectedPlace?.filePath !== place.filePath) setMapPeekPlace(place);
-        mapRef.current?.fitToPlace(place, getMapPadding(true));
+        mapRef.current?.panToPlace(place, getMapPadding(true));
         return;
       }
       setMapPeekPlace(null);
       setSelectedPlace(place);
       setPlaceMode("mini");
-      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
+      mapRef.current?.panToPlace(place, getMapPadding(false));
     },
-    [placeMode, selectedPlace, activeChatConvId, getMapPadding, handleSelectPlaceFromSidebar]
+    [placeMode, selectedPlace, getMapPadding, handleSelectPlaceFromSidebar]
   );
 
   // Sidebar folder click — navigate within active tab (or background tab on cmd/ctrl+click)
@@ -712,7 +886,6 @@ function App(): React.JSX.Element {
       }
       setSelectionPulseAnchor(null);
       setMapPeekPlace(null);
-      setActiveChatConvId(null);
       setSelectedFolder(folderPath);
       setSelectedPlace(null);
       setPlaceMode("mini");
@@ -739,7 +912,6 @@ function App(): React.JSX.Element {
           filePath
       );
       const place: PlaceRecord = { filePath, type: "GeoJsonLayer", title };
-      setActiveChatConvId(null);
       setSelectedPlace(place);
       setPlaceMode("full");
       setSelectedFolder(null);
@@ -773,6 +945,38 @@ function App(): React.JSX.Element {
     [selectedFolder, getMapPadding, dispatchNav]
   );
 
+  /** "+" in the tab strip: create a blank note in the chosen folder (null → vault root) and
+   *  open it in a new tab, title selected for rename (justCreated), same as the sidebar's new note. */
+  const handleNewNoteInFolder = useCallback(
+    async (folderPath: string | null) => {
+      const parent = folderPath ?? vaultRoot;
+      if (!parent) return;
+      const result = await window.api.fs.createNoteFile({ parentFolderPath: parent });
+      if (!result.success) return;
+      const filePath = result.filePath;
+      const title = (filePath.split(/[/\\]/).pop() ?? "Untitled.md").replace(/\.md$/i, "");
+      const resolved = (await window.api.places.getByPath(filePath)) ?? {
+        title,
+        type: "note",
+        filePath
+      };
+      const place: PlaceRecord = { ...resolved, justCreated: true };
+      setSelectionPulseAnchor(null);
+      setMapPeekPlace(null);
+      setSelectedPlace(place);
+      setPlaceMode("full");
+      setSelectedFolder(null);
+      setFeatureScreenPos(null);
+      dispatchNav({
+        type: "navigate",
+        entry: { kind: "place", place },
+        newTab: true,
+        activate: true
+      });
+    },
+    [vaultRoot, dispatchNav]
+  );
+
   const handleGeocodeSearchResult = useCallback(
     (r: GeocodeSearchResult) => {
       setSelectionPulseAnchor(null);
@@ -781,9 +985,39 @@ function App(): React.JSX.Element {
       setSelectedPlace(place);
       setPlaceMode("mini");
       setFeatureScreenPos(null);
-      mapRef.current?.fitToPlace(place, getMapPadding(activeChatConvId !== null));
+      mapRef.current?.fitToPlace(place, getMapPadding(false));
     },
-    [getMapPadding, activeChatConvId]
+    [getMapPadding]
+  );
+
+  /** "Open all results as a list": build an overlay layer from the search results and
+   *  open it as a working-set tab (the same surface the agent's present_features uses). */
+  const handleOpenSearchResults = useCallback(
+    (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => {
+      const points = results.slice(0, LIST_MAX_FEATURES).map((r) => {
+        const properties = detailPropertiesFromGeocodeResult(r);
+        return {
+          id: `search-${r.id}`,
+          lat: r.lat,
+          lng: r.lng,
+          title: r.primaryLabel,
+          ...(Object.keys(properties).length > 0 ? { properties } : {})
+        };
+      });
+      // Vault files that matched the search ride along as vault rows (file icon, no
+      // add action) — the panel resolves them against the index by path.
+      const vaultPaths = files.map((f) => f.filePath);
+      if (points.length === 0 && vaultPaths.length === 0) return;
+      handleOverlayLayer({
+        id: `search:${crypto.randomUUID()}`,
+        layerName: query.trim() || "Search results",
+        points,
+        lines: [],
+        polygons: [],
+        ...(vaultPaths.length > 0 ? { vaultPaths } : {})
+      });
+    },
+    [handleOverlayLayer]
   );
 
   // Flattened view of the indexed vault for the search popover's "Files" group.
@@ -798,13 +1032,6 @@ function App(): React.JSX.Element {
       handleSelectPlaceFromSidebar(file);
     },
     [handleSelectGeoJson, handleSelectPlaceFromSidebar]
-  );
-
-  const handleSearchSelectConversation = useCallback(
-    (conversation: ConversationMeta) => {
-      handleSwitchChatConv(conversation.id, conversation.title || conversation.preview || "Chat");
-    },
-    [handleSwitchChatConv]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -864,29 +1091,30 @@ function App(): React.JSX.Element {
     [dispatchNav]
   );
 
-  const savePreviewPlaceToVault = useCallback(
-    async (place: PlaceRecord | null, folderPathOverride?: string | null) => {
-      if (place?.previewMarkdown === undefined || !place.geometry) return;
+  /** Write a preview place (search result / overlay feature) to the vault as a new file,
+   *  returning the resulting PlaceRecord. Pure file-creation: no selection or nav side
+   *  effects, so it is safe to call in a loop for bulk saves. */
+  const createPlaceFileFromPreview = useCallback(
+    async (place: PlaceRecord, folderPath: string | null): Promise<PlaceRecord | null> => {
+      if (place.previewMarkdown === undefined || !place.geometry) return null;
       // Preserve the feature's geometry type: points save as lat/lng, lines and
       // polygons as WKT — otherwise a selected polygon would be flattened to a point.
       const geometryArgs = geometryJsonToCreateArgs(place.geometry);
-      if (!geometryArgs) return;
-      const parentFolderPath =
-        folderPathOverride !== undefined ? folderPathOverride : parentFolderForNewFiles;
+      if (!geometryArgs) return null;
       const create = await window.api.fs.createNoteFile({
-        parentFolderPath,
+        parentFolderPath: folderPath,
         ...geometryArgs,
         includePlaceFrontmatterDefaults: false
       });
       if (!create.success) {
-        console.error("[save search]", create.error);
-        return;
+        console.error("[save place]", create.error);
+        return null;
       }
       const baseName = filenameBaseFromPlaceTitle(place.title);
       const renamed = await renameCreatedPlaceToSlug(create.filePath, baseName);
       if (!renamed.ok) {
-        console.error("[save search]", renamed.error);
-        return;
+        console.error("[save place]", renamed.error);
+        return null;
       }
       // Persist the previewed details as frontmatter (canonical order, empties dropped)
       // so the saved file matches the preview card exactly.
@@ -898,11 +1126,11 @@ function App(): React.JSX.Element {
         typeof qid === "string" && /^Q\d+$/.test(qid) ? window.api.wiki.importImage(qid) : null;
       if (Object.keys(properties).length > 0) {
         const wp = await window.api.fs.writeFrontmatterProperties(renamed.filePath, properties);
-        if (!wp.success) console.error("[save search] write properties", wp.error);
+        if (!wp.success) console.error("[save place] write properties", wp.error);
       }
       if (place.previewMarkdown.trim()) {
         const w = await window.api.fs.writePlaceBody(renamed.filePath, place.previewMarkdown);
-        if (!w.success) console.error("[save search] write body", w.error);
+        if (!w.success) console.error("[save place] write body", w.error);
       }
       if (coverImport) {
         const writeCover = async (img: Awaited<typeof coverImport>) => {
@@ -913,7 +1141,7 @@ function App(): React.JSX.Element {
             // lightbox "Source" attribution link.
             cover_source: img.pageUrl
           });
-          if (!wc.success) console.error("[save search] write cover", wc.error);
+          if (!wc.success) console.error("[save place] write cover", wc.error);
         };
         // Wait briefly so the fast path opens the card with its cover already
         // set; on a slow network stop blocking the card open and let the write
@@ -925,14 +1153,26 @@ function App(): React.JSX.Element {
         if (img) await writeCover(img);
         else void coverImport.then(writeCover);
       }
-      const created =
+      return (
         (await window.api.places.getByPath(renamed.filePath)) ??
         ({
           filePath: renamed.filePath,
           title: place.title,
           type: "place",
           geometry: place.geometry
-        } satisfies PlaceRecord);
+        } satisfies PlaceRecord)
+      );
+    },
+    []
+  );
+
+  const savePreviewPlaceToVault = useCallback(
+    async (place: PlaceRecord | null, folderPathOverride?: string | null) => {
+      if (place?.previewMarkdown === undefined || !place.geometry) return;
+      const parentFolderPath =
+        folderPathOverride !== undefined ? folderPathOverride : parentFolderForNewFiles;
+      const created = await createPlaceFileFromPreview(place, parentFolderPath);
+      if (!created) return;
       setMapPeekPlace(null);
       setSelectionPulseAnchor(null);
       if (selectedFolder) {
@@ -941,7 +1181,6 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         mapRef.current?.fitToPlace(created, getMapPadding(false));
       } else {
-        setActiveChatConvId(null);
         setSelectedPlace(created);
         setPlaceMode("full");
         setFeatureScreenPos(null);
@@ -953,7 +1192,28 @@ function App(): React.JSX.Element {
         mapRef.current?.fitToPlace(created, getMapPadding(true));
       }
     },
-    [parentFolderForNewFiles, selectedFolder, getMapPadding, dispatchNav]
+    [
+      createPlaceFileFromPreview,
+      parentFolderForNewFiles,
+      selectedFolder,
+      getMapPadding,
+      dispatchNav
+    ]
+  );
+
+  /** Save one or more list features (by overlay-point id) to the vault. Returns the ids
+   *  that were successfully written so the list can mark them saved. Sequential so files
+   *  landing in the same folder don't race on name collisions. */
+  const handleSaveListFeatures = useCallback(
+    async (rowIds: string[], folderPath: string | null): Promise<void> => {
+      if (!activeListLayer) return;
+      for (const id of rowIds) {
+        const point = activeListLayer.points.find((p) => p.id === id);
+        if (!point) continue;
+        await createPlaceFileFromPreview(previewPlaceFromOverlayPoint(point), folderPath);
+      }
+    },
+    [activeListLayer, createPlaceFileFromPreview]
   );
 
   const handleSaveSearchToVault = useCallback(
@@ -961,16 +1221,6 @@ function App(): React.JSX.Element {
       await savePreviewPlaceToVault(selectedPlace, folderPath);
     },
     [selectedPlace, savePreviewPlaceToVault]
-  );
-
-  const { addLayerToVault } = useOverlayVaultSync();
-  /** Add a result layer's features to the vault. The overlay stays on the map so the
-   *  card's rows remain resolvable and visible afterward. */
-  const handleAddLayerToVault = useCallback(
-    async (layer: MapOverlayLayer, parentFolderPath: string | null) => {
-      await addLayerToVault(layer, parentFolderPath);
-    },
-    [addLayerToVault]
   );
 
   const { handlePathRelocated, handleDeletedPath } = usePathSync({
@@ -1061,11 +1311,6 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson]
   );
 
-  const handleDeleteChatFromSidebar = useCallback(
-    (convId: string) => void handleSidebarDeleteChat(convId),
-    [handleSidebarDeleteChat]
-  );
-
   const handleMapClickEmpty = useCallback(() => {
     if (isMini) {
       clearPlace();
@@ -1101,9 +1346,9 @@ function App(): React.JSX.Element {
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
           onSelectedFeaturePosition={handleFeatureScreenPos}
-          overlayLayers={overlayLayers}
+          overlayLayers={visibleOverlayLayers}
           focusedFeatureId={focusedFeatureId}
-          showOverlay={activeChatConvId !== null}
+          showOverlay={visibleOverlayLayers.length > 0}
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
@@ -1160,8 +1405,7 @@ function App(): React.JSX.Element {
               onSelectResult={handleGeocodeSearchResult}
               files={indexedFiles}
               onSelectFile={handleSearchSelectFile}
-              conversations={conversations}
-              onSelectConversation={handleSearchSelectConversation}
+              onOpenResults={handleOpenSearchResults}
             />
             <Tooltip>
               <TooltipTrigger
@@ -1207,10 +1451,11 @@ function App(): React.JSX.Element {
           <NavTabs
             tabs={navTabsData}
             activeTabIndex={activeTabIndex}
-            streamingConvIds={streamingConvIds}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
             onTabReorder={handleNavTabReorder}
+            onNewNote={handleNewNoteInFolder}
+            newNoteDefaultFolder={parentFolderForNewFiles}
           />
         </div>
         <div
@@ -1225,32 +1470,26 @@ function App(): React.JSX.Element {
       </motion.div>
 
       {/* Left sidebar — full viewport height, flush left, sitting under the top-bar
-          controls (its content is padded down to clear them). */}
+          controls (its content is padded down to clear them). Sits above the content
+          wrapper (z-20) so floating mini/peek cards tuck behind it, but below the
+          resize rail (z-[25]) and top bar (z-30). */}
       <SidebarProvider
         name="sidebar-left"
         open={projectSidebarOpen}
         onOpenChange={setProjectSidebarOpen}
         keyboardShortcut={SIDEBAR_KB_PROJECT}
-        className="fixed inset-0 z-10 pointer-events-none bg-transparent"
+        className="fixed inset-0 z-[21] pointer-events-none bg-transparent"
         style={{ "--sidebar-width": `${projectSidebarWidth}px` } as React.CSSProperties}
       >
         <ProjectSidebar
           selectedFilePath={selectedFilePathForSidebar}
           selectedFolderPath={selectedFolder ?? undefined}
-          activeChatConvId={activeChatConvId}
-          conversations={conversations}
-          streamingConvIds={streamingConvIds}
           onSelectPlace={handleSelectPlaceFromSidebar}
           onSelectFolder={handleSelectFolder}
           onSelectGeoJson={handleSelectGeoJsonFromSidebar}
           onDeletePath={handleDeletedPath}
           onRenamePath={handlePathRelocated}
           onMoved={handlePathRelocated}
-          onNewChat={handleNewChat}
-          onSelectChat={handleSwitchChatConv}
-          onDeleteChat={handleDeleteChatFromSidebar}
-          onRenameChat={handleSidebarRenameChat}
-          onStopChat={chatStore.abort}
         />
       </SidebarProvider>
 
@@ -1279,8 +1518,8 @@ function App(): React.JSX.Element {
         className="fixed inset-x-0 bottom-0 z-20 pointer-events-none"
         style={{ top: TOP_BAR_HEIGHT, contain: "layout" }}
       >
-        {/* Main pane — full-height place panel and chat tab share this column. */}
-        {((isFull && selectedPlace) || activeChatConvId) && (
+        {/* Main pane — full-height place panel. */}
+        {isFull && selectedPlace && (
           <div
             className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
             style={{
@@ -1288,65 +1527,90 @@ function App(): React.JSX.Element {
               width: mainPaneWidth
             }}
           >
-            {isFull && selectedPlace && (
-              <PlaceCard
-                key={selectedPlaceCardKey}
-                place={selectedPlace}
-                mode="full"
-                onClose={handlePlaceCardClose}
-                onNavigate={handleSelectPlaceFromSidebar}
-                onOpenWikilink={handleOpenWikilink}
-                onRename={handlePlaceRename}
-                onCommitPointLocation={commitVaultPointLocation}
-                onClearPointLocation={clearVaultPointLocation}
-                onDelete={handleDeletePlaceFile}
-                onOpenFolder={handleSelectFolder}
-              />
-            )}
-            {activeChatConvId && (
-              <ChatPane
-                key={activeChatConvId}
-                convId={activeChatConvId}
-                convTitle={(() => {
-                  const c = conversations.find((c) => c.id === activeChatConvId);
-                  return c?.title || c?.preview || "New Chat";
-                })()}
-                chatStore={chatStore}
-                overlayLayers={overlayLayers}
-                focusFeature={setFocusedFeatureId}
-                defaultParentFolderPath={parentFolderForNewFiles}
-                isSavedConversation={conversations.some((c) => c.id === activeChatConvId)}
-                onAddLayerToVault={handleAddLayerToVault}
-                onSubmit={(text) => chatStore.sendMessage(activeChatConvId, text)}
-                onOpenInNewTab={() => {
-                  const c = conversations.find((c) => c.id === activeChatConvId);
-                  handleSwitchChatConv(
-                    activeChatConvId,
-                    c?.title || c?.preview || "New Chat",
-                    true
-                  );
-                }}
-                onAbort={() => chatStore.abort(activeChatConvId)}
-                onRename={(title) => handleSidebarRenameChat(activeChatConvId, title)}
-                onUndo={() => void chatStore.undo(activeChatConvId)}
-                onClose={() => {
-                  if (activeTabIndex >= 0) handleCloseTab(activeTabIndex);
-                  else setActiveChatConvId(null);
-                }}
-                onDeleted={handleChatDeleted}
-                onOpenFile={async (filePath) => {
-                  const place = await window.api.places.getByPath(filePath);
-                  if (place) handleSelectPlaceFromSidebar(place);
-                }}
-                placesByPath={placesByPath}
-                selectedFilePath={selectedPlace?.filePath ?? null}
-                onOpenFeature={handleOpenFeatureFromChat}
-              />
-            )}
+            <PlaceCard
+              key={selectedPlaceCardKey}
+              place={selectedPlace}
+              mode="full"
+              onClose={handlePlaceCardClose}
+              onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
+              onOpenWikilink={handleOpenWikilink}
+              onRename={handlePlaceRename}
+              onCommitPointLocation={commitVaultPointLocation}
+              onClearPointLocation={clearVaultPointLocation}
+              onDelete={handleDeletePlaceFile}
+              onOpenFolder={handleSelectFolder}
+            />
             {/* Rail tracks the card edges: offset = -(right padding), bottom = bottom padding. */}
             <ResizeHandle
               side="right"
               ariaLabel="Resize main pane"
+              offset={0}
+              className="bottom-2"
+              onPointerDown={startMainPaneResize}
+            />
+          </div>
+        )}
+
+        {/* Working-set list — full-height pane sharing the main-pane slot. */}
+        {activeListLayer && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
+            style={{
+              left: projectSidebarOpen ? projectSidebarWidth : 0,
+              width: mainPaneWidth
+            }}
+          >
+            <FeaturesListPanel
+              key={activeListLayer.id}
+              layer={activeListLayer}
+              placesByPath={placesByPath}
+              defaultParentFolderPath={parentFolderForNewFiles}
+              onClose={() => handleNavTabClose(activeTabIndex)}
+              onOpenFeature={handleOpenListRow}
+              onSaveFeatures={handleSaveListFeatures}
+            />
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize list pane"
+              offset={0}
+              className="bottom-2"
+              onPointerDown={startMainPaneResize}
+            />
+          </div>
+        )}
+
+        {/* Directions — full-height pane sharing the main-pane slot. */}
+        {activeDirectionsEntry && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-auto pb-2 pl-2"
+            style={{
+              left: projectSidebarOpen ? projectSidebarWidth : 0,
+              width: mainPaneWidth
+            }}
+          >
+            <DirectionsPanel
+              key={activeDirectionsEntry.id}
+              id={activeDirectionsEntry.id}
+              origin={activeDirectionsEntry.origin}
+              destination={activeDirectionsEntry.destination}
+              mode={activeDirectionsEntry.mode}
+              files={indexedFiles}
+              onChange={(next) =>
+                dispatchNav({
+                  type: "update-directions",
+                  id: activeDirectionsEntry.id,
+                  origin: next.origin,
+                  destination: next.destination,
+                  mode: next.mode
+                })
+              }
+              onRouteChange={handleDirectionsRouteChange}
+              onClose={() => handleNavTabClose(activeTabIndex)}
+            />
+            <ResizeHandle
+              side="right"
+              ariaLabel="Resize directions pane"
               offset={0}
               className="bottom-2"
               onPointerDown={startMainPaneResize}
@@ -1370,6 +1634,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handlePlaceCardClose}
               onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
               onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
@@ -1386,10 +1651,11 @@ function App(): React.JSX.Element {
           </div>
         )}
 
-        {/* Peek mini card — map selection while full PlaceCard is open */}
+        {/* Peek mini card — map selection while full PlaceCard is open. Sits below the
+            full main pane (z-20) so the committed card stays on top when they overlap. */}
         {isFull && mapPeekPlace && featureScreenPos && (
           <div
-            className="absolute pointer-events-none z-30"
+            className="absolute pointer-events-none z-10"
             style={{
               left: featureScreenPos.x,
               top: featureScreenPos.y - TOP_BAR_HEIGHT,
@@ -1402,6 +1668,7 @@ function App(): React.JSX.Element {
               mode="mini"
               onClose={handleClosePeek}
               onNavigate={handleSelectPlaceFromSidebar}
+              onGetDirections={handleGetDirections}
               onOpenWikilink={handleOpenWikilink}
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}

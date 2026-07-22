@@ -9,7 +9,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import chokidar from "chokidar";
 import { type BrowserWindow, ipcMain, shell } from "electron";
 import matter from "gray-matter";
@@ -17,7 +17,6 @@ import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import { readVaultAppearance, writeVaultAppearance } from "./appearance";
 import {
-  closeDb,
   getAllPropertyKeysWithTypes,
   getFeatureCount,
   indexFeatures,
@@ -33,6 +32,7 @@ import {
   syncFeatureForFile
 } from "./db";
 import { vaultDotDir as vaultDotDirPath } from "./mapos-config";
+import { isProtectedVaultPath, resolveInVault } from "./vault-path";
 import { parseWkt } from "./wkt";
 
 /**
@@ -274,7 +274,7 @@ export function initVaultOnDisk(vaultRoot: string): void {
 export function setupPlacesWatcher(
   mainWindow: BrowserWindow,
   vaultRoot: string,
-  appStateDir: string
+  _appStateDir: string
 ): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
   initVaultOnDisk(vaultRoot);
 
@@ -444,6 +444,13 @@ export function setupPlacesWatcher(
     pendingInitialSenders = [];
   });
 
+  // Confine caller-supplied paths to the vault. resolveInVault canonicalizes and
+  // rejects `..`/absolute/symlink escapes that a raw startsWith check would miss;
+  // writes additionally may not touch the protected `.mapos/` config + index subtree.
+  const confineRead = (p: string) => resolveInVault(vaultRoot, p) !== null;
+  const confineWrite = (p: string) =>
+    resolveInVault(vaultRoot, p) !== null && !isProtectedVaultPath(vaultRoot, p);
+
   ipcMain.handle("fs:list-dir", () => readDirTree(vaultRoot));
 
   ipcMain.handle("places:get-by-path", (_event, filePath: string) => {
@@ -451,9 +458,7 @@ export function setupPlacesWatcher(
   });
 
   ipcMain.handle("fs:read-file", async (_event, filePath: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { error: "Path outside vault" };
+    if (!confineRead(filePath)) return { error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
       const { content, data } = matter(raw);
@@ -475,9 +480,7 @@ export function setupPlacesWatcher(
   });
 
   ipcMain.handle("fs:write-file", async (_event, filePath: string, content: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    if (!confineWrite(filePath)) return { success: false, error: "Path outside vault" };
     try {
       writeVaultFile(filePath, content);
       return { success: true };
@@ -490,9 +493,7 @@ export function setupPlacesWatcher(
   // Reads the current file, regex-extracts the frontmatter block, then writes
   // frontmatter + new body — so the renderer never has to round-trip YAML.
   ipcMain.handle("fs:write-place-body", async (_event, filePath: string, body: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    if (!confineWrite(filePath)) return { success: false, error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
       // Match the YAML front-matter block including the trailing newline after ---
@@ -512,9 +513,7 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:write-frontmatter-property",
     async (_event, filePath: string, key: string, value: unknown) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-      if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-        return { success: false, error: "Path outside vault" };
+      if (!confineWrite(filePath)) return { success: false, error: "Path outside vault" };
       try {
         const raw = await readFile(filePath, "utf-8");
         const parsed = matter(raw);
@@ -558,9 +557,7 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:write-frontmatter-properties",
     async (_event, filePath: string, properties: Record<string, unknown>) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-      if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-        return { success: false, error: "Path outside vault" };
+      if (!confineWrite(filePath)) return { success: false, error: "Path outside vault" };
       try {
         const raw = await readFile(filePath, "utf-8");
         const parsed = matter(raw);
@@ -592,9 +589,7 @@ export function setupPlacesWatcher(
 
   // Rewrite frontmatter with keys in the given order, preserving all values and the body.
   ipcMain.handle("fs:reorder-frontmatter", async (_event, filePath: string, keyOrder: string[]) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (filePath !== vaultRoot && !filePath.startsWith(vaultPrefix))
-      return { success: false, error: "Path outside vault" };
+    if (!confineWrite(filePath)) return { success: false, error: "Path outside vault" };
     try {
       const raw = await readFile(filePath, "utf-8");
       const parsed = matter(raw);
@@ -622,9 +617,7 @@ export function setupPlacesWatcher(
 
   ipcMain.handle("fs:rename-file", async (_event, oldPath: string, newName: string) => {
     // Ensure we only get files within the vault.
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-
-    if (!oldPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+    if (!confineWrite(oldPath)) return { success: false, error: "Path outside vault" };
 
     const safeName = newName.replace(/[/\\]/g, "").trim();
 
@@ -636,7 +629,7 @@ export function setupPlacesWatcher(
     const finalName = isDir || safeName.includes(".") ? safeName : `${safeName}${oldExt}`;
     const newPath = uniquePathInDir(dir, finalName, isDir, oldPath);
 
-    if (!newPath.startsWith(vaultPrefix)) return { success: false, error: "Path outside vault" };
+    if (!confineWrite(newPath)) return { success: false, error: "Path outside vault" };
 
     try {
       pendingRenameOldPaths.add(oldPath);
@@ -681,12 +674,10 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:move-into",
     async (_event, sourcePath: string, destinationFolderPath: string) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-
-      if (sourcePath !== vaultRoot && !sourcePath.startsWith(vaultPrefix)) {
+      if (!confineWrite(sourcePath)) {
         return { success: false as const, error: "Path outside vault" };
       }
-      if (destinationFolderPath !== vaultRoot && !destinationFolderPath.startsWith(vaultPrefix)) {
+      if (!confineWrite(destinationFolderPath)) {
         return { success: false as const, error: "Path outside vault" };
       }
 
@@ -728,7 +719,7 @@ export function setupPlacesWatcher(
 
       const newPath = uniquePathInDir(destinationFolderPath, basename(sourcePath), sourceIsDir);
 
-      if (!newPath.startsWith(vaultPrefix)) {
+      if (!confineWrite(newPath)) {
         return { success: false as const, error: "Path outside vault" };
       }
 
@@ -772,11 +763,11 @@ export function setupPlacesWatcher(
   );
 
   ipcMain.handle("fs:delete-path", async (_event, targetPath: string) => {
-    const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
-    if (targetPath !== vaultRoot && !targetPath.startsWith(vaultPrefix)) {
+    const resolved = resolveInVault(vaultRoot, targetPath);
+    if (!resolved || isProtectedVaultPath(vaultRoot, targetPath)) {
       return { success: false as const, error: "Path outside vault" };
     }
-    if (targetPath === vaultRoot) {
+    if (resolved === resolveInVault(vaultRoot, vaultRoot)) {
       return { success: false as const, error: "Cannot delete vault root" };
     }
     try {
@@ -802,18 +793,15 @@ export function setupPlacesWatcher(
   ipcMain.handle(
     "fs:create-folder",
     (_event, args: { parentFolderPath: string; folderName: string }) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
       const parent = args.parentFolderPath;
-      if (parent !== vaultRoot && !parent.startsWith(vaultPrefix))
-        return { success: false as const, error: "Path outside vault" };
+      if (!confineWrite(parent)) return { success: false as const, error: "Path outside vault" };
 
       const safeName = args.folderName.replace(/[/\\]/g, "").trim();
       if (!safeName) return { success: false as const, error: "Empty name" };
 
       const candidate = uniquePathInDir(parent, safeName, true);
 
-      if (!candidate.startsWith(vaultPrefix))
-        return { success: false as const, error: "Path outside vault" };
+      if (!confineWrite(candidate)) return { success: false as const, error: "Path outside vault" };
 
       try {
         mkdirSync(candidate);
@@ -845,11 +833,10 @@ export function setupPlacesWatcher(
         includePlaceFrontmatterDefaults?: boolean;
       }
     ) => {
-      const vaultPrefix = vaultRoot.endsWith(sep) ? vaultRoot : vaultRoot + sep;
       let dir: string;
       if (args.parentFolderPath) {
         const p = args.parentFolderPath;
-        if (p !== vaultRoot && !p.startsWith(vaultPrefix)) {
+        if (!confineWrite(p)) {
           return { success: false as const, error: "Path outside vault" };
         }
         dir = p;

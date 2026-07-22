@@ -1,4 +1,4 @@
-import { FileTextIcon, Loader2Icon, MapPinIcon, MessageCircleIcon, SearchIcon } from "lucide-react";
+import { FileTextIcon, Loader2Icon, MapPinIcon, SearchIcon, TextSearchIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -16,11 +16,17 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
-import type { ConversationMeta, PlaceRecord } from "@shared/types";
+import { scoreNameMatch } from "@shared/name-match";
+import type { PlaceRecord } from "@shared/types";
 
 const DEBOUNCE_MS = 300;
-/** Cap local (file / conversation) matches so the popover stays scannable. */
+/** Cap local (file) matches so the popover stays scannable. */
 const LOCAL_RESULT_LIMIT = 6;
+/** Cap place results shown in the popover; the full set opens via "Open all as a list". */
+const POPOVER_RESULT_LIMIT = 5;
+/** How many results to request from the backend (clamped to 50). The popover shows the
+ *  first few; the rest are reachable via "Open all as a list". */
+const SEARCH_RESULT_LIMIT = 50;
 /** ⌘1–⌘9 select the Nth visible result; one keyboard row's worth. */
 const MAX_HOTKEYS = 9;
 
@@ -54,16 +60,6 @@ function fileRelativeDir(filePath: string, vaultRoot: string): string {
   return slash > 0 ? rel.slice(0, slash) : "";
 }
 
-function conversationTitle(c: ConversationMeta): string {
-  return c.title || c.preview || "Chat";
-}
-
-function formatConversationDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
 /**
  * Electron wraps IPC failures as "Error invoking remote method '…': SomeError: <msg>".
  * Strip the invoke wrapper and the error-class prefix so the user sees the human
@@ -78,10 +74,9 @@ function cleanErrorMessage(e: unknown): string {
   return cleaned || "Search failed";
 }
 
-/** A row reachable via ⌘N, in display order (files → conversations → places). */
+/** A row reachable via ⌘N, in display order (files → places). */
 type HotkeyTarget =
   | { kind: "file"; file: PlaceRecord }
-  | { kind: "conversation"; conversation: ConversationMeta }
   | { kind: "place"; result: GeocodeSearchResult };
 
 /**
@@ -110,9 +105,9 @@ export type GeocodeSearchPanelProps = {
   /** Indexed vault files to search locally (matched by title and path). */
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
-  /** Saved conversations to search locally (matched by title and preview). */
-  conversations?: ConversationMeta[];
-  onSelectConversation?: (conversation: ConversationMeta) => void;
+  /** When provided and there are place or file matches, offers "open all as a list".
+   *  `files` are the matched vault files, included in the list as vault rows. */
+  onOpenResults?: (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => void;
   className?: string;
   /** Shown to the right of the search field (e.g. clear action). */
   inputEndSlot?: ReactNode;
@@ -124,8 +119,7 @@ export function GeocodeSearchPanel({
   onSelectResult,
   files,
   onSelectFile,
-  conversations,
-  onSelectConversation,
+  onOpenResults,
   className,
   inputEndSlot
 }: GeocodeSearchPanelProps): React.JSX.Element {
@@ -134,6 +128,10 @@ export function GeocodeSearchPanel({
   const [results, setResults] = useState<GeocodeSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Controlled cmdk selection. Kept empty so nothing is highlighted by default (cmdk
+  // otherwise auto-selects the first item); ArrowDown moves to the first result, and
+  // Enter with nothing highlighted runs the default "open all" action (see onKeyDown).
+  const [selected, setSelected] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { getViewportBBox } = useMapViewport();
   // Vault root, for showing file locations as vault-relative folders.
@@ -175,7 +173,12 @@ export function GeocodeSearchPanel({
     const ac = new AbortController();
     // Read the viewport at fire time so the bias tracks the latest pan/zoom.
     const bbox = getViewportBBox() ?? undefined;
-    void searchGeocode(debouncedTrim, { signal: ac.signal, lang: pickLang(), bbox })
+    void searchGeocode(debouncedTrim, {
+      signal: ac.signal,
+      lang: pickLang(),
+      bbox,
+      limit: SEARCH_RESULT_LIMIT
+    })
       .then((r) => {
         setResults(r);
       })
@@ -193,24 +196,39 @@ export function GeocodeSearchPanel({
     };
   }, [debouncedTrim, active, getViewportBBox]);
 
-  // Local matches filter instantly against the current (un-debounced) query.
-  const needle = queryTrim.toLowerCase();
-  const fileMatches = useMemo(() => {
-    if (!needle || !files) return [];
+  // Local matches filter instantly against the current (un-debounced) query, fuzzy-scored
+  // and ranked best-first. Paths are scored vault-relative (and damped vs the title) so a
+  // query can name a folder without home-directory segments matching everything.
+  const allFileMatches = useMemo(() => {
+    if (!queryTrim || !files) return [];
     return files
       .filter((f) => f.type !== "Search")
-      .filter(
-        (f) => f.title.toLowerCase().includes(needle) || f.filePath.toLowerCase().includes(needle)
-      )
-      .slice(0, LOCAL_RESULT_LIMIT);
-  }, [files, needle]);
+      .map((f) => {
+        const relPath =
+          vaultRoot && f.filePath.startsWith(vaultRoot)
+            ? f.filePath.slice(vaultRoot.length + 1)
+            : f.title;
+        const score = Math.max(
+          scoreNameMatch(queryTrim, f.title),
+          0.95 * scoreNameMatch(queryTrim, relPath)
+        );
+        return { f, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.f);
+  }, [files, queryTrim, vaultRoot]);
+  const fileMatches = useMemo(
+    () => allFileMatches.slice(0, LOCAL_RESULT_LIMIT),
+    [allFileMatches]
+  );
 
-  const conversationMatches = useMemo(() => {
-    if (!needle || !conversations) return [];
-    return conversations
-      .filter((c) => conversationTitle(c).toLowerCase().includes(needle))
-      .slice(0, LOCAL_RESULT_LIMIT);
-  }, [conversations, needle]);
+  // A settled result set clears the highlight (cmdk auto-selects first on search change;
+  // this runs when items actually arrive, so nothing stays highlighted until ArrowDown).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the lists change, not read
+  useEffect(() => {
+    setSelected("");
+  }, [results, fileMatches]);
 
   const pick = useCallback(
     (r: GeocodeSearchResult) => {
@@ -222,16 +240,17 @@ export function GeocodeSearchPanel({
   // ⌘1–⌘9 quick-select, numbering every visible row in display order. Built from
   // the same lists the groups render, so the chip on row N and the key ⌘N can't
   // disagree. Digit codes (not e.key) are layout-independent under modifiers.
+  // Only the first few place results are shown in the popover; the rest are reachable
+  // via "Open all as a list".
+  const visibleResults = useMemo(() => results.slice(0, POPOVER_RESULT_LIMIT), [results]);
+
   const hotkeyTargets = useMemo<HotkeyTarget[]>(
     () =>
       [
         ...fileMatches.map((file) => ({ kind: "file", file }) as const),
-        ...conversationMatches.map(
-          (conversation) => ({ kind: "conversation", conversation }) as const
-        ),
-        ...results.map((result) => ({ kind: "place", result }) as const)
+        ...visibleResults.map((result) => ({ kind: "place", result }) as const)
       ].slice(0, MAX_HOTKEYS),
-    [fileMatches, conversationMatches, results]
+    [fileMatches, visibleResults]
   );
 
   useShortcuts(
@@ -247,17 +266,23 @@ export function GeocodeSearchPanel({
         const target = hotkeyTargets[i];
         if (!target) return;
         if (target.kind === "place") pick(target.result);
-        else if (target.kind === "file") onSelectFile?.(target.file);
-        else onSelectConversation?.(target.conversation);
+        else onSelectFile?.(target.file);
       }
     }))
   );
 
-  const hasAnyResults =
-    results.length > 0 || fileMatches.length > 0 || conversationMatches.length > 0;
+  const hasAnyResults = results.length > 0 || fileMatches.length > 0;
+  // "Open all" spans place results + every matched vault file (not just the shown few).
+  const openAllCount = results.length + allFileMatches.length;
 
   return (
-    <Command shouldFilter={false} loop className={cn("flex flex-col", className)}>
+    <Command
+      shouldFilter={false}
+      loop
+      value={selected}
+      onValueChange={setSelected}
+      className={cn("flex flex-col", className)}
+    >
       <div className="p-1 pb-0" data-slot="geocode-search-input">
         <InputGroup className="min-w-0 w-full">
           <InputGroupAddon align="inline-start">
@@ -273,6 +298,21 @@ export function GeocodeSearchPanel({
             onValueChange={setQuery}
             placeholder={placeholder}
             autoComplete="off"
+            onKeyDown={(e) => {
+              // Nothing highlighted + any matches present → Enter opens all as a list
+              // (the default action). cmdk always preventDefaults Enter, so intercept here
+              // and stop it reaching cmdk's root handler.
+              if (
+                e.key === "Enter" &&
+                !selected &&
+                onOpenResults &&
+                (results.length > 0 || allFileMatches.length > 0)
+              ) {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenResults(results, debouncedTrim, allFileMatches);
+              }
+            }}
             className="flex h-9 w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           />
           {inputEndSlot ? (
@@ -287,9 +327,7 @@ export function GeocodeSearchPanel({
               <SearchIcon className="size-5 opacity-70" aria-hidden />
             </div>
             <p className="text-base font-medium">Search</p>
-            <p className="max-w-[16rem] text-xs text-muted-foreground">
-              Find places, files, and conversations.
-            </p>
+            <p className="max-w-[16rem] text-xs text-muted-foreground">Find places and files.</p>
           </div>
         ) : null}
         {fileMatches.length > 0 ? (
@@ -320,39 +358,9 @@ export function GeocodeSearchPanel({
             })}
           </CommandGroup>
         ) : null}
-        {conversationMatches.length > 0 ? (
-          <CommandGroup heading="Conversations">
-            {conversationMatches.map((c, index) => {
-              const title = conversationTitle(c);
-              const secondary =
-                c.title && c.preview ? c.preview : formatConversationDate(c.updated_at);
-              return (
-                <CommandItem
-                  key={`conv-${c.id}`}
-                  value={`conv-${c.id}`}
-                  onSelect={() => onSelectConversation?.(c)}
-                  className="rounded-md"
-                >
-                  <MessageCircleIcon className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
-                    <span className="max-w-full shrink-0 truncate font-medium leading-tight">
-                      {title}
-                    </span>
-                    {secondary ? (
-                      <span className="min-w-0 truncate text-xs leading-tight text-muted-foreground">
-                        {capitalize(secondary)}
-                      </span>
-                    ) : null}
-                  </div>
-                  <HotkeyHint index={fileMatches.length + index} />
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-        ) : null}
-        {results.length > 0 ? (
+        {visibleResults.length > 0 ? (
           <CommandGroup heading="Places">
-            {results.map((r, index) => {
+            {visibleResults.map((r, index) => {
               const value = `${r.id}-${index}`;
               return (
                 <CommandItem
@@ -375,10 +383,24 @@ export function GeocodeSearchPanel({
                       </span>
                     ) : null}
                   </div>
-                  <HotkeyHint index={fileMatches.length + conversationMatches.length + index} />
+                  <HotkeyHint index={fileMatches.length + index} />
                 </CommandItem>
               );
             })}
+          </CommandGroup>
+        ) : null}
+        {onOpenResults && openAllCount > 0 ? (
+          <CommandGroup>
+            <CommandItem
+              value="__open_all_results__"
+              onSelect={() => onOpenResults(results, debouncedTrim, allFileMatches)}
+              className="rounded-md"
+            >
+              <TextSearchIcon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                Open {openAllCount} result{openAllCount === 1 ? "" : "s"} as a list
+              </span>
+            </CommandItem>
           </CommandGroup>
         ) : null}
         {error ? (

@@ -3,24 +3,15 @@ import type {
   GeocodeForwardRequest,
   GeocodeResult,
   GeocodeReverseRequest,
+  Route,
+  RouteDirectionsRequest,
   TileStyleRequest
 } from "@mapos/contracts";
 import { contextBridge, ipcRenderer } from "electron";
-import type { ModelCapabilities } from "../shared/ai-models";
 import type {
-  AiState,
-  FetchedModel,
-  KnownProviderOption,
-  ProviderInput
-} from "../shared/ai-providers";
-import type {
-  ChatChunkPayload,
-  ChatDonePayload,
-  ChatErrorPayload,
-  ChatToolCallPayload,
-  ChatToolResultPayload,
   InstalledRegionPack,
   MapOverlayLayer,
+  McpConnectionInfo,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -30,6 +21,9 @@ import type {
 const api = {
   app: {
     getVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>
+  },
+  clipboard: {
+    writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text) as Promise<void>
   },
   places: {
     requestInitial: () => ipcRenderer.send("places:request-initial"),
@@ -73,6 +67,43 @@ const api = {
     removeOverlayListeners: () => {
       ipcRenderer.removeAllListeners("map:overlay-add");
       ipcRenderer.removeAllListeners("map:overlay-clear");
+    }
+  },
+  nav: {
+    sendNavState: (data: {
+      active: { path: string; kind: "place" | "folder"; title: string } | null;
+      activeIndex: number;
+      tabs: Array<{ path: string; kind: "place" | "folder"; title: string }>;
+    }) => ipcRenderer.send("nav:state-update", data),
+    onOpenFile: (cb: (data: { path: string }) => void) =>
+      ipcRenderer.on("nav:open-file", (_e, data) => cb(data)),
+    /** Agent `present_directions`: open a Directions tab for the given endpoints.
+     * `origin: null` → the renderer defaults to the user's current location. */
+    onOpenDirections: (
+      cb: (data: {
+        origin: { lat: number; lng: number; label: string } | null;
+        destination: { lat: number; lng: number; label: string };
+        mode: "auto" | "pedestrian" | "bicycle";
+      }) => void
+    ) => ipcRenderer.on("nav:open-directions", (_e, data) => cb(data)),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("nav:open-file");
+      ipcRenderer.removeAllListeners("nav:open-directions");
+    }
+  },
+  geo: {
+    /** Main asks the renderer for a fresh geolocation fix (correlated by `id`).
+     * `reveal` = also drop the marker + fly to it, like the "My location" button. */
+    onLocateRequest: (cb: (data: { id: string; reveal: boolean }) => void) =>
+      ipcRenderer.on("geo:locate-request", (_e, data) => cb(data)),
+    /** Renderer returns the fix (or an error) for the matching request `id`. */
+    sendLocateReply: (
+      data:
+        | { id: string; ok: true; lat: number; lng: number; accuracy: number }
+        | { id: string; ok: false; error: string }
+    ) => ipcRenderer.send("geo:locate-reply", data),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners("geo:locate-request");
     }
   },
   fs: {
@@ -226,6 +257,13 @@ const api = {
         { ok: true } | { ok: false; error: string }
       >
   },
+  mcp: {
+    getConnectionInfo: () =>
+      ipcRenderer.invoke("mcp:get-connection-info") as Promise<McpConnectionInfo>,
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke("mcp:set-enabled", enabled) as Promise<McpConnectionInfo>,
+    regenerateToken: () => ipcRenderer.invoke("mcp:regenerate-token") as Promise<McpConnectionInfo>
+  },
   properties: {
     listAllKeys: () =>
       ipcRenderer.invoke("properties:list-all-keys") as Promise<
@@ -247,92 +285,6 @@ const api = {
   system: {
     openLocationSettings: () =>
       ipcRenderer.invoke("system:open-location-settings") as Promise<{ ok: boolean }>
-  },
-  ai: {
-    getState: () => ipcRenderer.invoke("ai:get-state") as Promise<AiState>,
-    getStatus: () =>
-      ipcRenderer.invoke("ai:get-status") as Promise<{
-        configured: boolean;
-        activeProvider: "anthropic" | "local";
-        model: string;
-      }>,
-    addProvider: (input: ProviderInput) =>
-      ipcRenderer.invoke("ai:add-provider", input) as Promise<
-        { ok: true; id: string } | { ok: false; error: string }
-      >,
-    updateProvider: (id: string, patch: ProviderInput) =>
-      ipcRenderer.invoke("ai:update-provider", { id, patch }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    removeProvider: (id: string) =>
-      ipcRenderer.invoke("ai:remove-provider", { id }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    setActive: (providerId: string, model: string, capabilities: ModelCapabilities) =>
-      ipcRenderer.invoke("ai:set-active", { providerId, model, capabilities }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    clearActive: () => ipcRenderer.invoke("ai:clear-active") as Promise<{ ok: true }>,
-    listModels: (providerId: string) =>
-      ipcRenderer.invoke("ai:list-models", { providerId }) as Promise<
-        { ok: true; models: FetchedModel[] } | { ok: false; error: string }
-      >,
-    testProvider: (input: ProviderInput, providerId?: string) =>
-      ipcRenderer.invoke("ai:test-provider", { input, providerId }) as Promise<
-        { ok: true; modelCount: number } | { ok: false; error: string }
-      >,
-    revealSecret: (providerId: string) =>
-      ipcRenderer.invoke("ai:reveal-secret", { providerId }) as Promise<
-        { ok: true; secret: string } | { ok: false; error: string }
-      >,
-    listKnownProviders: () =>
-      ipcRenderer.invoke("ai:list-known-providers") as Promise<KnownProviderOption[]>,
-    addKnownProvider: (provider: string) =>
-      ipcRenderer.invoke("ai:add-known-provider", { provider }) as Promise<
-        { ok: true; id: string } | { ok: false; error: string }
-      >,
-    setApiKey: (provider: string, key: string) =>
-      ipcRenderer.invoke("ai:set-api-key", { provider, key }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    oauthLogin: (provider: string) =>
-      ipcRenderer.invoke("ai:oauth-login", { provider }) as Promise<
-        { ok: true } | { ok: false; error: string }
-      >,
-    oauthCancel: () => ipcRenderer.invoke("ai:oauth-cancel") as Promise<{ ok: true }>,
-    disconnect: (provider: string) =>
-      ipcRenderer.invoke("ai:disconnect", { provider }) as Promise<{ ok: true }>,
-    onOAuthProgress: (
-      cb: (data: {
-        provider: string;
-        status: string;
-        url?: string;
-        userCode?: string;
-        verificationUri?: string;
-      }) => void
-    ): (() => void) => {
-      const listener = (
-        _e: unknown,
-        data: {
-          provider: string;
-          status: string;
-          url?: string;
-          userCode?: string;
-          verificationUri?: string;
-        }
-      ): void => cb(data);
-      ipcRenderer.on("ai:oauth-progress", listener);
-      return () => {
-        ipcRenderer.off("ai:oauth-progress", listener);
-      };
-    },
-    onChanged: (cb: () => void): (() => void) => {
-      const listener = (): void => cb();
-      ipcRenderer.on("ai:changed", listener);
-      return () => {
-        ipcRenderer.off("ai:changed", listener);
-      };
-    }
   },
   updater: {
     install: () => ipcRenderer.invoke("updater:install") as Promise<void>,
@@ -372,44 +324,13 @@ const api = {
       };
     }
   },
-  chat: {
-    send: (convId: string, message: string) => ipcRenderer.send("chat:send", { convId, message }),
-    abort: (convId: string) => ipcRenderer.send("chat:abort", { convId }),
-    loadConversation: (convId: string) => ipcRenderer.invoke("chat:load-conversation", convId),
-    listConversations: () => ipcRenderer.invoke("chat:list-conversations"),
-    deleteConversation: (id: string) => ipcRenderer.invoke("chat:delete-conversation", id),
-    renameConversation: (id: string, title: string) =>
-      ipcRenderer.invoke("chat:rename-conversation", id, title) as Promise<{
-        success: boolean;
-        error?: string;
-      }>,
-    onChunk: (cb: (data: ChatChunkPayload) => void) =>
-      ipcRenderer.on("chat:chunk", (_e, d) => cb(d)),
-    onThinkingChunk: (cb: (data: ChatChunkPayload) => void) =>
-      ipcRenderer.on("chat:thinking_chunk", (_e, d) => cb(d)),
-    onDone: (cb: (data: ChatDonePayload) => void) =>
-      ipcRenderer.on("chat:done", (_e, data) => cb(data)),
-    undo: (convId: string) => ipcRenderer.invoke("chat:undo", convId),
-    onError: (cb: (data: ChatErrorPayload) => void) =>
-      ipcRenderer.on("chat:error", (_e, d) => cb(d)),
-    onToolCall: (cb: (data: ChatToolCallPayload) => void) =>
-      ipcRenderer.on("chat:tool_call", (_e, d) => cb(d)),
-    onToolResult: (cb: (data: ChatToolResultPayload) => void) =>
-      ipcRenderer.on("chat:tool_result", (_e, d) => cb(d)),
-    removeListeners: () => {
-      ipcRenderer.removeAllListeners("chat:chunk");
-      ipcRenderer.removeAllListeners("chat:thinking_chunk");
-      ipcRenderer.removeAllListeners("chat:done");
-      ipcRenderer.removeAllListeners("chat:error");
-      ipcRenderer.removeAllListeners("chat:tool_call");
-      ipcRenderer.removeAllListeners("chat:tool_result");
-    }
-  },
   services: {
     geocodingForward: (req: GeocodeForwardRequest) =>
       ipcRenderer.invoke("services:geocoding-forward", req) as Promise<GeocodeResult[]>,
     geocodingReverse: (req: GeocodeReverseRequest) =>
       ipcRenderer.invoke("services:geocoding-reverse", req) as Promise<GeocodeResult[]>,
+    routingDirections: (req: RouteDirectionsRequest) =>
+      ipcRenderer.invoke("services:routing-directions", req) as Promise<Route>,
     tilesStyleUrl: (req: TileStyleRequest) =>
       ipcRenderer.invoke("services:tiles-style-url", req) as Promise<string>
   },

@@ -1,18 +1,17 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import { BrowserWindow, app, ipcMain, session, shell } from "electron";
+import { BrowserWindow, app, clipboard, ipcMain, session, shell } from "electron";
 
 // Electron `userData` is `appData` + app name; keep the on-disk folder as MapOS.
 app.setName("MapOS");
 import icon from "../../resources/icon.png?asset";
-import { registerAiIpc } from "./ai-ipc";
-import { bindAiVaultRoot } from "./ai-vault";
 import { setupAppMenu } from "./app-menu";
 import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
 import { closeDb } from "./db";
 import {
+  getOrCreateMcpConfig,
   getPrimaryVaultRoot,
   isOnboardingPending,
   loadOrInitMaposConfig,
@@ -21,6 +20,8 @@ import {
   setActiveVaultInConfig
 } from "./mapos-config";
 import { registerMaposIpc } from "./mapos-ipc";
+import { registerMcpIpc } from "./mcp-ipc";
+import { mcpManager } from "./mcp/manager";
 import { registerRegionPacksIpc } from "./region-packs";
 import {
   registerAssetProtocol,
@@ -60,9 +61,6 @@ function createWindow(): BrowserWindow {
     console.log(`[startup] window ready-to-show at ${process.uptime().toFixed(2)}s`);
     mainWindow.show();
     if (is.dev) mainWindow.webContents.openDevTools();
-    // Warm the chat chunk (Pi SDK) off the critical path. Also covers the onboarding
-    // flow (no bootVault) and registers mcp-server's module-level viewport listener.
-    setImmediate(() => void import("./chat"));
   });
 
   const sendFullscreenState = (isFullScreen: boolean): void => {
@@ -114,6 +112,12 @@ app.whenReady().then(() => {
   ipcMain.on("ping", () => console.log("pong"));
 
   ipcMain.handle("app:get-version", () => app.getVersion());
+
+  // Copy through the native clipboard: the renderer's `navigator.clipboard` is blocked by our
+  // deny-by-default permission handler (only geolocation is granted), so route writes here.
+  ipcMain.handle("clipboard:write-text", (_e, text: string) => {
+    clipboard.writeText(text);
+  });
 
   ipcMain.handle("window:is-fullscreen", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -172,29 +176,20 @@ app.whenReady().then(() => {
   let maposConfig = loadOrInitMaposConfig(appStateDir);
   setActiveServicesForCsp(maposConfig.services);
   let vaultRoot = "";
-  // AI default-model reads this per request — empty during onboarding (stages in userData).
-  bindAiVaultRoot(() => vaultRoot);
-  let places: Awaited<ReturnType<typeof setupPlacesWatcher>>["places"] = new Map();
   let stopWatcher: () => Promise<void> = async () => notReady();
-  let stopChat: () => void = notReady;
   // Tracks whether `setupPlacesWatcher` has registered its IPC handlers. Re-running onboarding
   // mid-session (e.g. user wipes mapos.json without quitting on macOS, then reloads) would
   // otherwise re-call setupPlacesWatcher and collide with its own handlers.
   let vaultActive = false;
-  // In-flight boot, awaited before teardown so a teardown can't race the async chat setup.
+  // In-flight boot, awaited before teardown so a teardown can't race the async vault setup.
   let bootPromise: Promise<void> | undefined;
-
-  // `./chat` pulls in the Pi SDK and mcp-server — dynamically imported so the app
-  // window isn't blocked on evaluating them at startup.
-  async function bootChat(): Promise<void> {
-    const { setupChat } = await import("./chat");
-    stopChat = setupChat(mainWindow, places, vaultRoot);
-  }
 
   async function teardownVault(): Promise<void> {
     await bootPromise?.catch(() => {});
     if (!vaultActive) return;
-    stopChat();
+    // Empty the MCP tool set (tools/list goes empty) — the listener stays bound so a connected
+    // client survives the switch/rename/delete and picks up the new vault's tools on re-boot.
+    mcpManager.clearActiveVault();
     await stopWatcher();
     closeDb();
     // Release the offline service handles too — Valhalla Actors, geocode SQLite,
@@ -202,10 +197,8 @@ app.whenReady().then(() => {
     // and were never torn down here, so they kept the process alive on quit.
     invalidateServiceClient();
     vaultActive = false;
-    // Drop the vault binding so AI config (bindAiVaultRoot) reports "no vault" while torn
-    // down. Otherwise deleting the last vault leaves `vaultRoot` pointing at the removed
-    // folder, and onboarding would read/write its `.mapos/ai.json` instead of staging in
-    // userData. Re-boot paths (switch/rename/onboarding-complete) set `vaultRoot` again.
+    // Reflect "no active vault" while torn down. Re-boot paths (switch/rename/
+    // onboarding-complete) set `vaultRoot` again.
     vaultRoot = "";
   }
 
@@ -213,26 +206,36 @@ app.whenReady().then(() => {
     bootPromise = (async () => {
       maposConfig = loadOrInitMaposConfig(appStateDir);
       vaultRoot = getPrimaryVaultRoot(maposConfig);
-      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      await bootChat();
+      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      stopWatcher = watcher.stop;
+      // Hand the live vault (window/index/filesystem) to the MCP server so its tool set targets
+      // this vault. The HTTP listener itself is bound once at startup and survives switches.
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       vaultActive = true;
     })();
     return bootPromise;
   }
 
-  // AI config: providers are app-global; the active model is per-vault (see ai.ts).
-  // Handlers register once; vault root is read via bindAiVaultRoot.
-  registerAiIpc(mainWindow);
   registerServicesIpc();
   registerRegionPacksIpc(mainWindow, appStateDir);
   setupUpdater(mainWindow);
   setupAppMenu();
 
+  // Local MCP server: bind the HTTP listener once (vault-independent) so external MCP clients
+  // can connect. The tool set is (re)targeted per vault by bootVault/teardownVault above.
+  registerMcpIpc(appStateDir);
+  const mcpConfig = getOrCreateMcpConfig(appStateDir);
+  if (mcpConfig.enabled) {
+    void mcpManager.start(mcpConfig.port, mcpConfig.token).catch((err) => {
+      console.error("[mcp] failed to start local server:", err);
+    });
+  }
+
   // Vault management + onboarding IPCs are also vault-independent. They power both the
   // first-launch onboarding flow and the in-app vault switcher.
   registerMaposIpc(mainWindow, {
     onOnboardingComplete: async () => {
-      // Renderer has already created a vault and saved AI config through existing IPCs.
+      // Renderer has already created a vault through existing IPCs.
       // If a previous vault is active (e.g. user wiped mapos.json mid-session and is
       // re-onboarding), tear it down first so handler registration doesn't collide.
       await teardownVault();
@@ -251,15 +254,16 @@ app.whenReady().then(() => {
 
     // Tear down current vault
     await bootPromise?.catch(() => {});
-    stopChat();
+    mcpManager.clearActiveVault();
     await stopWatcher();
     closeDb();
 
     // Re-initialize with new vault
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    await bootChat();
+    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    stopWatcher = watcher.stop;
+    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
 
     // Reload the renderer (fast — no process restart)
     mainWindow.webContents.reload();
@@ -286,7 +290,7 @@ app.whenReady().then(() => {
 
     // Tear down current vault so we can release file handles before renaming on disk.
     await bootPromise?.catch(() => {});
-    stopChat();
+    mcpManager.clearActiveVault();
     await stopWatcher();
     closeDb();
 
@@ -294,8 +298,9 @@ app.whenReady().then(() => {
       renameSync(oldPath, newPath);
     } catch (e) {
       // Re-initialize at the original path so the app is not left in a broken state.
-      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      await bootChat();
+      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      stopWatcher = watcher.stop;
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: `Rename failed: ${String(e)}` };
     }
 
@@ -307,8 +312,9 @@ app.whenReady().then(() => {
       } catch {
         /* best-effort rollback */
       }
-      ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-      await bootChat();
+      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      stopWatcher = watcher.stop;
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: updated.error };
     }
 
@@ -323,8 +329,9 @@ app.whenReady().then(() => {
 
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ places, stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
-    await bootChat();
+    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    stopWatcher = watcher.stop;
+    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
 
     mainWindow.webContents.reload();
 
@@ -389,6 +396,7 @@ app.whenReady().then(() => {
     if (quitting) return; // re-entry from quitAndInstall()'s own quit — let it proceed.
     quitting = true;
     event.preventDefault();
+    void mcpManager.stop();
     void teardownVault().finally(() => {
       if (installDownloadedUpdateOnQuit()) {
         setTimeout(() => app.exit(0), 5000);

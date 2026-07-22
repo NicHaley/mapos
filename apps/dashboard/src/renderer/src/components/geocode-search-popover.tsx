@@ -12,22 +12,20 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
-import type { ConversationMeta, PlaceRecord } from "@shared/types";
+import type { PlaceRecord } from "@shared/types";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
 
 export function GeocodeSearchPopover({
   onSelectResult,
   files,
   onSelectFile,
-  conversations,
-  onSelectConversation,
+  onOpenResults,
   className
 }: {
   onSelectResult: (result: GeocodeSearchResult) => void;
   files?: PlaceRecord[];
   onSelectFile?: (file: PlaceRecord) => void;
-  conversations?: ConversationMeta[];
-  onSelectConversation?: (conversation: ConversationMeta) => void;
+  onOpenResults?: (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => void;
   className?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -52,12 +50,12 @@ export function GeocodeSearchPopover({
     [onSelectFile]
   );
 
-  const handleSelectConversation = useCallback(
-    (conversation: ConversationMeta) => {
-      onSelectConversation?.(conversation);
+  const handleOpenResults = useCallback(
+    (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => {
+      onOpenResults?.(results, query, files);
       setOpen(false);
     },
-    [onSelectConversation]
+    [onOpenResults]
   );
 
   useShortcuts([{ def: { key: "k", meta: true }, handler: () => setOpen(true) }]);
@@ -95,12 +93,11 @@ export function GeocodeSearchPopover({
             active={open}
             // Command ships an opaque bg-popover; drop it so the frosted PopoverContent shows.
             className="bg-transparent"
-            placeholder="Search places, files, conversations…"
+            placeholder="Search places and files…"
             onSelectResult={handleSelect}
             files={files}
             onSelectFile={handleSelectFile}
-            conversations={conversations}
-            onSelectConversation={handleSelectConversation}
+            onOpenResults={onOpenResults ? handleOpenResults : undefined}
           />
         </PopoverContent>
       </Popover>

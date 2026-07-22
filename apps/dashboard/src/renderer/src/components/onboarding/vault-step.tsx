@@ -120,10 +120,9 @@ export function VaultStep({
 
       <ItemGroup className="mt-6 grid grid-cols-2 gap-3">
         <Item
-          render={<button type="button" />}
+          render={<button type="button" disabled={busy} />}
           variant="outline"
           selected={mode === "create"}
-          disabled={busy}
           onClick={() => changeMode("create")}
           className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >
@@ -134,10 +133,9 @@ export function VaultStep({
           </ItemContent>
         </Item>
         <Item
-          render={<button type="button" />}
+          render={<button type="button" disabled={busy} />}
           variant="outline"
           selected={mode === "existing"}
-          disabled={busy}
           onClick={() => changeMode("existing")}
           className="flex-col items-start gap-2 cursor-pointer not-data-[selected]:hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >

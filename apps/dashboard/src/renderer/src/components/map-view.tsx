@@ -1,13 +1,12 @@
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { bbox } from "@turf/bbox";
-import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
+import type { DataDrivenPropertyValueSpecification, FilterSpecification } from "maplibre-gl";
 import {
   forwardRef,
   memo,
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -17,8 +16,7 @@ import MapGL, {
   type MapLayerMouseEvent,
   type MapRef,
   Marker,
-  Source,
-  useMap
+  Source
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
@@ -301,9 +299,13 @@ export type MapViewHandle = {
   flyTo: (lat: number, lng: number, opts?: { zoom?: number; padding?: FitPadding }) => void;
   fitToFolder: (folderPath: string, padding: FitPadding) => void;
   fitToPlace: (place: PlaceRecord, padding: FitPadding) => void;
+  /** Center on a place's geometry while keeping the current zoom (pan, don't zoom in). */
+  panToPlace: (place: PlaceRecord, padding: FitPadding) => void;
   fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => void;
   fitToGeoJson: (data: RawFeatureCollection, padding: FitPadding) => void;
   invalidateFolderPlace: (filePath: string) => void;
+  /** Current camera zoom, or undefined before the map is ready. */
+  getZoom: () => number | undefined;
 };
 
 /**
@@ -352,8 +354,15 @@ type SelectionAnchorGeoJSON = {
  */
 function SelectionMarker({
   data,
-  color
-}: { data: SelectionAnchorGeoJSON; color: string }): React.JSX.Element {
+  color,
+  chip
+}: {
+  data: SelectionAnchorGeoJSON;
+  color: string;
+  // When set, render the search-result "poker chip" look (dashed border) instead of the
+  // solid selection dot, so an active search result keeps its overlay styling.
+  chip?: { fill: string; borderColor: string };
+}): React.JSX.Element {
   return (
     <>
       {data.features.map((f) => {
@@ -364,7 +373,15 @@ function SelectionMarker({
           <Marker key={`${lng},${lat}`} longitude={lng} latitude={lat} anchor="center">
             <div
               className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
-              style={{ backgroundColor: fill }}
+              style={
+                chip
+                  ? {
+                      backgroundColor: chip.fill,
+                      borderStyle: "dashed",
+                      borderColor: chip.borderColor
+                    }
+                  : { backgroundColor: fill }
+              }
             />
           </Marker>
         );
@@ -582,6 +599,7 @@ const MapView = forwardRef<
         });
       },
       fitToFolder,
+      getZoom: () => mapRef.current?.getZoom(),
       fitToPlace: (place: PlaceRecord, padding: FitPadding) => {
         const map = mapRef.current;
         if (!map || !place.geometry) return;
@@ -608,6 +626,29 @@ const MapView = forwardRef<
         } catch {
           /* invalid geometry */
         }
+      },
+      panToPlace: (place: PlaceRecord, padding: FitPadding) => {
+        const map = mapRef.current;
+        if (!map || !place.geometry) return;
+        let center: [number, number];
+        try {
+          center = getGeometryCenter(parseGeometry(place.geometry));
+        } catch {
+          return; /* invalid geometry */
+        }
+        // Skip the pan if the target already sits inside the visible area — i.e. within
+        // the viewport minus the sidebar/pane padding. project() reflects the point's
+        // real on-screen pixel, so this honours the current camera exactly.
+        const { x, y } = map.project(center);
+        const { clientWidth: w, clientHeight: h } = map.getContainer();
+        const inView =
+          x >= padding.left &&
+          x <= w - padding.right &&
+          y >= padding.top &&
+          y <= h - padding.bottom;
+        if (inView) return;
+        // Otherwise pan (keeping zoom); the padding offsets the center clear of the sidebars.
+        map.flyTo({ center, zoom: map.getZoom(), duration: 600, padding });
       },
       fitToPlaceAndLinks: (place: PlaceRecord, links: PlaceRecord[], padding: FitPadding) => {
         const map = mapRef.current;
@@ -1316,12 +1357,13 @@ const MapView = forwardRef<
             <Layer
               id="selected-circle"
               type="circle"
-              // @ts-expect-error - MapLibre filter expression
-              filter={[
-                "all",
-                POINT_FILTER,
-                ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
-              ]}
+              filter={
+                [
+                  "all",
+                  POINT_FILTER,
+                  ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
+                ] as unknown as FilterSpecification
+              }
               paint={selectedCirclePaint(featureColor)}
             />
           </Source>
@@ -1395,7 +1437,6 @@ const MapView = forwardRef<
             const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
             const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
             return (
-              // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
                 <Layer
                   id={`${sourceId}-polygons`}
@@ -1439,7 +1480,18 @@ const MapView = forwardRef<
             );
           })}
         {selectionAnchorGeoJSON && (
-          <SelectionMarker data={selectionAnchorGeoJSON} color={featureColor} />
+          <SelectionMarker
+            data={selectionAnchorGeoJSON}
+            color={featureColor}
+            chip={
+              selectedPlace?.filePath.startsWith(MAP_OVERLAY_PREFIX)
+                ? {
+                    fill: accentColor ?? foregroundColor,
+                    borderColor: accentColor ? "white" : isDark ? "#111111" : "#ffffff"
+                  }
+                : undefined
+            }
+          />
         )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}

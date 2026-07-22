@@ -10,7 +10,7 @@ const surfaceVariants = cva("", {
   variants: {
     variant: {
       // Floating translucent toolbar holding ghost icon buttons (over map / sidebar).
-      cluster: "flex h-8 items-center gap-0.5 rounded-lg bg-sidebar/60 shadow-sm backdrop-blur-sm",
+      cluster: "flex h-8 items-center rounded-lg bg-sidebar/60 shadow-sm backdrop-blur-sm",
       // Glass info pill over the map (coverage / status) — same sidebar glass and
       // shadow as the clusters. Shape + padding at call site.
       pill: "flex items-center bg-sidebar/60 shadow-sm backdrop-blur-sm",

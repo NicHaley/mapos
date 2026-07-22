@@ -35,6 +35,18 @@ let manifestCache: { at: number; data: RegionManifest } | null = null;
 /** Active downloads keyed by region slug, so cancelDownload can abort them. */
 const activeDownloads = new Map<string, AbortController>();
 
+/**
+ * Latest progress for in-flight downloads, keyed by region slug. Updated on every
+ * `send()`; the entry is dropped when the download reaches `done`/`error`. Lets callers
+ * without the renderer's progress IPC (e.g. the MCP tools) query "what's downloading now".
+ */
+const downloadProgress = new Map<string, RegionDownloadProgress>();
+
+/** Snapshot of currently in-flight downloads. */
+export function getActiveDownloads(): RegionDownloadProgress[] {
+  return [...downloadProgress.values()];
+}
+
 function regionsDirFor(appStateDir: string): string {
   return join(appStateDir, "regions");
 }
@@ -184,6 +196,8 @@ export async function downloadRegion(
   let received = 0;
   let lastSent = 0;
   const send = (p: RegionDownloadProgress): void => {
+    if (p.phase === "done" || p.phase === "error") downloadProgress.delete(region);
+    else downloadProgress.set(region, p);
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:download-progress", p);
   };
   const emitDownloading = (): void => {

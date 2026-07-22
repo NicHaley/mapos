@@ -2,6 +2,8 @@ import {
   GeocodeForwardRequestSchema,
   GeocodeResultSchema,
   GeocodeReverseRequestSchema,
+  RouteDirectionsRequestSchema,
+  RouteSchema,
   TileStyleRequestSchema
 } from "@mapos/contracts";
 import { ipcMain } from "electron";
@@ -11,6 +13,7 @@ import { getServiceClient } from "./services/client";
 const CHANNELS = [
   "services:geocoding-forward",
   "services:geocoding-reverse",
+  "services:routing-directions",
   "services:tiles-style-url"
 ] as const;
 
@@ -68,6 +71,9 @@ export function registerServicesIpc(): void {
     GeocodeReverseRequestSchema,
     GeocodeResultArraySchema,
     (req) => getServiceClient().geocoding.reverse(req)
+  );
+  handler("services:routing-directions", RouteDirectionsRequestSchema, RouteSchema, (req) =>
+    getServiceClient().routing.directions(req)
   );
   handler("services:tiles-style-url", TileStyleRequestSchema, TileStyleUrlSchema, (req) =>
     getServiceClient().tiles.styleUrl(req)

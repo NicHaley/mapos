@@ -15,6 +15,8 @@ type SearchOptions = {
   lang?: string;
   /** Current map viewport. When set, biases results toward what's on screen — honoured by every backend (offline FTS rank, Photon, mapos_v1). */
   bbox?: BBox;
+  /** Max results to request (backend clamps to 50). Omit for the backend default. */
+  limit?: number;
 };
 
 export async function searchGeocode(
@@ -35,7 +37,8 @@ export async function searchGeocode(
       .geocodingForward({
         query,
         ...(options.lang ? { lang: options.lang } : {}),
-        ...(options.bbox ? { bbox: options.bbox } : {})
+        ...(options.bbox ? { bbox: options.bbox } : {}),
+        ...(options.limit ? { limit: options.limit } : {})
       })
       .then(resolve, reject)
       .finally(() => {

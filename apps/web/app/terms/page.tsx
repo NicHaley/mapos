@@ -81,8 +81,8 @@ export default function TermsPage() {
       <p>
         We may update these terms from time to time; the &ldquo;last updated&rdquo; date at the top
         reflects the current version, and continuing to use MapOS means you accept the updated
-        terms. If you have any questions, contact{" "}
-        <a href="mailto:hello@mapos.md">hello@mapos.md</a>.
+        terms. If you have any questions, contact <a href="mailto:hello@mapos.md">hello@mapos.md</a>
+        .
       </p>
     </LegalPage>
   );

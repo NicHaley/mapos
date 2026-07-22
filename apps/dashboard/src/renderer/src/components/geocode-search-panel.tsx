@@ -218,10 +218,7 @@ export function GeocodeSearchPanel({
       .sort((a, b) => b.score - a.score)
       .map((x) => x.f);
   }, [files, queryTrim, vaultRoot]);
-  const fileMatches = useMemo(
-    () => allFileMatches.slice(0, LOCAL_RESULT_LIMIT),
-    [allFileMatches]
-  );
+  const fileMatches = useMemo(() => allFileMatches.slice(0, LOCAL_RESULT_LIMIT), [allFileMatches]);
 
   // A settled result set clears the highlight (cmdk auto-selects first on search change;
   // this runs when items actually arrive, so nothing stays highlighted until ArrowDown).

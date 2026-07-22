@@ -3,10 +3,7 @@ import { Button } from "@mapos/ui/components/button";
 import { Command, CommandGroup, CommandItem, CommandList } from "@mapos/ui/components/command";
 import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
-import {
-  isVaultRelativePath,
-  vaultImageUrl
-} from "@renderer/extensions/vault-image-extension";
+import { isVaultRelativePath, vaultImageUrl } from "@renderer/extensions/vault-image-extension";
 import { type MapOverlayLayer, isServableImageFile } from "@shared/types";
 import {
   FileTextIcon,
@@ -82,7 +79,8 @@ function RowThumbnail({
       // Overlay row: resolve the Wikidata QID to a (downsized) Commons thumbnail.
       if (qid) {
         const img = await window.api.wiki.imageLookup(qid);
-        if (!cancelled && img) setSrc(img.thumbUrl.replace(/width=\d+/, `width=${ROW_THUMB_WIDTH}`));
+        if (!cancelled && img)
+          setSrc(img.thumbUrl.replace(/width=\d+/, `width=${ROW_THUMB_WIDTH}`));
       }
     };
     const observer = new IntersectionObserver((entries) => {
@@ -204,10 +202,7 @@ export function FeaturesListPanel({
   /** Overlay features that can be written (vault rows are already files). Saving is
    *  repeatable — a place can be copied into any number of folders — so there's no
    *  "already saved" state to exclude here. */
-  const overlayIds = useMemo(
-    () => rows.filter((r) => !r.isVault).map((r) => r.id),
-    [rows]
-  );
+  const overlayIds = useMemo(() => rows.filter((r) => !r.isVault).map((r) => r.id), [rows]);
 
   const saveIds = useCallback(
     async (ids: string[], folderPath: string | null) => {
@@ -301,7 +296,7 @@ export function FeaturesListPanel({
                           </span>
                         ) : null}
                       </div>
-                      {row.address ?? row.preview ? (
+                      {(row.address ?? row.preview) ? (
                         <span className="mt-0.5 truncate text-muted-foreground text-xs leading-tight">
                           {row.address ?? row.preview}
                         </span>

@@ -78,14 +78,19 @@ export function MapColorPicker({
   const isDark = useDarkMode();
   return (
     <div className="grid grid-cols-3 gap-3">
-      {MAP_COLOR_OPTIONS.map(({ value: option, label }) => {
+      {MAP_COLOR_OPTIONS.map(({ value: option, label }, i) => {
         const selected = value === option;
         return (
           <button
             key={option}
             type="button"
             onClick={() => onChange(option)}
-            className="group flex cursor-pointer flex-col gap-2 text-center"
+            className={cn(
+              "group flex cursor-pointer flex-col gap-2 text-center",
+              // Two options in a 3-col grid (kept 3-wide to match ThemePicker's card size):
+              // push the first into column 2 so the pair right-aligns instead of leaving a gap.
+              i === 0 && "col-start-2"
+            )}
           >
             <span
               className={cn(

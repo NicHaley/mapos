@@ -229,7 +229,7 @@ export function SetupStep({
       />
 
       <Sheet open={connectOpen} onOpenChange={setConnectOpen}>
-        <SheetContent side="right" className="data-[side=right]:sm:max-w-lg">
+        <SheetContent side="right" className="data-[side=right]:sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Connect an AI client</SheetTitle>
             <SheetDescription>
@@ -243,7 +243,7 @@ export function SetupStep({
       </Sheet>
 
       <Sheet open={offlineOpen} onOpenChange={setOfflineOpen}>
-        <SheetContent side="right" className="data-[side=right]:sm:max-w-xl">
+        <SheetContent side="right" className="data-[side=right]:sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Offline maps</SheetTitle>
             <SheetDescription>

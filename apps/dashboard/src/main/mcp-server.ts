@@ -523,11 +523,18 @@ export function buildMaposCustomTools(
     return { features, count: features.length, truncated };
   };
 
-  // Confine a caller-supplied path to the vault. resolveInVault canonicalizes
-  // and rejects `..`/absolute/symlink escapes — a raw startsWith check does not.
-  const isUnderVault = (p: string) => resolveInVault(maposDir, p) !== null;
+  // Confine a caller-supplied path to the vault, returning the canonical absolute path (or
+  // null if it escapes via `..`/absolute/symlink). Callers MUST use the returned path for
+  // every filesystem call afterward — Node's fs functions resolve a relative input (e.g. a
+  // vault-relative path handed back by get_active_file/list_vault_files) against the process's
+  // cwd, not the vault root, so re-using the raw input here would silently defeat the check.
+  const resolveUnderVault = (p: string): string | null => resolveInVault(maposDir, p);
   // Writes additionally may not touch the protected `.mapos/` config + index subtree.
-  const isWritableVaultPath = (p: string) => isUnderVault(p) && !isProtectedVaultPath(maposDir, p);
+  const resolveWritablePath = (p: string): string | null => {
+    const resolved = resolveInVault(maposDir, p);
+    if (resolved === null || isProtectedVaultPath(maposDir, p)) return null;
+    return resolved;
+  };
 
   // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
   // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
@@ -1207,13 +1214,14 @@ export function buildMaposCustomTools(
       })
     }),
     execute: async (_id, args) => {
-      if (!isUnderVault(args.path)) {
+      const path = resolveUnderVault(args.path);
+      if (!path) {
         return TEXT_RESULT(
           JSON.stringify({ success: false, reason: `Path must be under vault (${maposDir})` })
         );
       }
-      const record = await parsePlaceFile(args.path);
-      syncFeatureForFile(args.path, record);
+      const record = await parsePlaceFile(path);
+      syncFeatureForFile(path, record);
       if (record) return TEXT_RESULT(JSON.stringify({ success: true }));
       return TEXT_RESULT(JSON.stringify({ success: false, reason: "Could not parse file" }));
     }
@@ -1979,7 +1987,8 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      if (!isWritableVaultPath(args.path)) {
+      const path = resolveWritablePath(args.path);
+      if (!path) {
         return TEXT_RESULT(
           JSON.stringify({
             success: false,
@@ -1987,7 +1996,7 @@ export function buildMaposCustomTools(
           })
         );
       }
-      const exists = existsSync(args.path);
+      const exists = existsSync(path);
       if (exists && args.overwrite !== true) {
         return TEXT_RESULT(
           JSON.stringify({
@@ -1997,13 +2006,13 @@ export function buildMaposCustomTools(
           })
         );
       }
-      const previousContent = exists ? readFileSync(args.path, "utf-8") : null;
-      onVaultWrite({ path: args.path, previousContent });
-      mkdirSync(dirname(args.path), { recursive: true });
-      writeFileSync(args.path, args.content, "utf-8");
+      const previousContent = exists ? readFileSync(path, "utf-8") : null;
+      onVaultWrite({ path, previousContent });
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, args.content, "utf-8");
       try {
-        const record = await parsePlaceFile(args.path);
-        syncFeatureForFile(args.path, record);
+        const record = await parsePlaceFile(path);
+        syncFeatureForFile(path, record);
       } catch {
         // Not a place file — skip indexing
       }
@@ -2022,7 +2031,7 @@ export function buildMaposCustomTools(
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.path,
+          path,
           action: previousContent === null ? "created" : "modified",
           previousContent,
           newContent: args.content,
@@ -2100,8 +2109,8 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      const folder = args.folder ?? maposDir;
-      if (!isWritableVaultPath(folder)) {
+      const folder = resolveWritablePath(args.folder ?? maposDir);
+      if (!folder) {
         return TEXT_RESULT(
           JSON.stringify({
             success: false,
@@ -2328,10 +2337,11 @@ export function buildMaposCustomTools(
   // the index and undo trail stay consistent. `transform` receives a CLONE of the parsed
   // frontmatter data (safe to mutate), the body, and the raw file text.
   const applyVaultEdit = async (
-    filePath: string,
+    rawPath: string,
     transform: (data: Record<string, unknown>, body: string, raw: string) => string
   ) => {
-    if (!isWritableVaultPath(filePath)) {
+    const filePath = resolveWritablePath(rawPath);
+    if (!filePath) {
       return TEXT_RESULT(
         JSON.stringify({
           success: false,
@@ -2445,7 +2455,8 @@ export function buildMaposCustomTools(
       path: Type.String({ description: "Absolute path within the MapOS vault to delete" })
     }),
     execute: async (_id, args) => {
-      if (!isWritableVaultPath(args.path)) {
+      const path = resolveWritablePath(args.path);
+      if (!path) {
         return TEXT_RESULT(
           JSON.stringify({
             success: false,
@@ -2453,18 +2464,18 @@ export function buildMaposCustomTools(
           })
         );
       }
-      if (!existsSync(args.path)) {
+      if (!existsSync(path)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
       }
-      const previousContent = readFileSync(args.path, "utf-8");
-      onVaultWrite({ path: args.path, previousContent });
-      removeFeatures([args.path]);
-      removeFeaturePropertiesForFile(args.path);
-      rmSync(args.path);
+      const previousContent = readFileSync(path, "utf-8");
+      onVaultWrite({ path, previousContent });
+      removeFeatures([path]);
+      removeFeaturePropertiesForFile(path);
+      rmSync(path);
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.path,
+          path,
           action: "deleted",
           previousContent,
           newContent: null
@@ -2489,7 +2500,9 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      if (!isWritableVaultPath(args.fromPath) || !isWritableVaultPath(args.toPath)) {
+      const fromPath = resolveWritablePath(args.fromPath);
+      const toPath = resolveWritablePath(args.toPath);
+      if (!fromPath || !toPath) {
         return TEXT_RESULT(
           JSON.stringify({
             success: false,
@@ -2497,10 +2510,10 @@ export function buildMaposCustomTools(
           })
         );
       }
-      if (!existsSync(args.fromPath)) {
+      if (!existsSync(fromPath)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "Source file not found" }));
       }
-      if (existsSync(args.toPath) && args.overwrite !== true) {
+      if (existsSync(toPath) && args.overwrite !== true) {
         return TEXT_RESULT(
           JSON.stringify({
             success: false,
@@ -2508,27 +2521,27 @@ export function buildMaposCustomTools(
           })
         );
       }
-      const content = readFileSync(args.fromPath, "utf-8");
-      onVaultWrite({ path: args.fromPath, previousContent: content });
+      const content = readFileSync(fromPath, "utf-8");
+      onVaultWrite({ path: fromPath, previousContent: content });
       onVaultWrite({
-        path: args.toPath,
-        previousContent: existsSync(args.toPath) ? readFileSync(args.toPath, "utf-8") : null
+        path: toPath,
+        previousContent: existsSync(toPath) ? readFileSync(toPath, "utf-8") : null
       });
-      mkdirSync(dirname(args.toPath), { recursive: true });
-      renameSync(args.fromPath, args.toPath);
-      removeFeatures([args.fromPath]);
-      removeFeaturePropertiesForFile(args.fromPath);
+      mkdirSync(dirname(toPath), { recursive: true });
+      renameSync(fromPath, toPath);
+      removeFeatures([fromPath]);
+      removeFeaturePropertiesForFile(fromPath);
       try {
-        const record = await parsePlaceFile(args.toPath);
-        syncFeatureForFile(args.toPath, record);
+        const record = await parsePlaceFile(toPath);
+        syncFeatureForFile(toPath, record);
       } catch {
         // Not a place file
       }
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
-          path: args.toPath,
-          fromPath: args.fromPath,
+          path: toPath,
+          fromPath,
           action: "renamed",
           previousContent: content,
           newContent: content

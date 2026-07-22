@@ -254,13 +254,16 @@ app.whenReady().then(() => {
 
     // Tear down current vault
     await bootPromise?.catch(() => {});
+    mcpManager.clearActiveVault();
     await stopWatcher();
     closeDb();
 
     // Re-initialize with new vault
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    stopWatcher = watcher.stop;
+    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
 
     // Reload the renderer (fast — no process restart)
     mainWindow.webContents.reload();
@@ -287,6 +290,7 @@ app.whenReady().then(() => {
 
     // Tear down current vault so we can release file handles before renaming on disk.
     await bootPromise?.catch(() => {});
+    mcpManager.clearActiveVault();
     await stopWatcher();
     closeDb();
 
@@ -294,7 +298,9 @@ app.whenReady().then(() => {
       renameSync(oldPath, newPath);
     } catch (e) {
       // Re-initialize at the original path so the app is not left in a broken state.
-      ({ stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      stopWatcher = watcher.stop;
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: `Rename failed: ${String(e)}` };
     }
 
@@ -306,7 +312,9 @@ app.whenReady().then(() => {
       } catch {
         /* best-effort rollback */
       }
-      ({ stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      stopWatcher = watcher.stop;
+      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: updated.error };
     }
 
@@ -321,7 +329,9 @@ app.whenReady().then(() => {
 
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    ({ stop: stopWatcher } = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir));
+    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    stopWatcher = watcher.stop;
+    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
 
     mainWindow.webContents.reload();
 

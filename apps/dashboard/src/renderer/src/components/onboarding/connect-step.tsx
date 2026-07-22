@@ -40,7 +40,7 @@ export function ConnectStep({
         later in Settings › Connections.
       </p>
 
-      <div className="mt-8 flex flex-col">
+      <div className="mt-8 flex w-full min-w-0 flex-col">
         <McpConnect />
       </div>
     </OnboardingStep>

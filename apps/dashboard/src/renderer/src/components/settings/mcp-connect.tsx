@@ -139,7 +139,7 @@ export function McpConnect() {
   const active = snippets[client] ?? snippets[0];
 
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex w-full min-w-0 flex-col gap-7">
       <div className="flex items-start justify-between gap-6">
         <div className="flex flex-col gap-1">
           <h3 className="text-lg font-semibold tracking-tight">MCP server</h3>

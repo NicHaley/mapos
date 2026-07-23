@@ -17,6 +17,15 @@ import {
   InputGroupInput
 } from "@mapos/ui/components/input-group";
 import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle
+} from "@mapos/ui/components/item";
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -37,6 +46,7 @@ import { MapColorPicker } from "./map-color-picker";
 import { AboutTab } from "./settings/about-tab";
 import { ConnectionsTab } from "./settings/connections-tab";
 import { OfflineTab } from "./settings/offline-tab";
+import { PageHeader } from "./settings/page-header";
 import { ThemePicker } from "./theme-picker";
 
 // ── Settings sheet slot ───────────────────────────────────────────────────────
@@ -57,28 +67,6 @@ export function useSettingsSheetSlot(): HTMLDivElement | null {
 
 type SettingsPage = "general" | "appearance" | "connections" | "offline" | "about";
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
-
-function Section({
-  title,
-  description,
-  children
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <h3 className="text-base font-medium">{title}</h3>
-        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 // ── General page ──────────────────────────────────────────────────────────────
 
 function vaultBasename(path: string): string {
@@ -89,17 +77,15 @@ function vaultBasename(path: string): string {
 function GeneralPage({
   onRequestDelete
 }: {
-  onRequestDelete: (name: string, isLastVault: boolean) => void;
+  onRequestDelete: (name: string) => void;
 }) {
-  const [vaultCount, setVaultCount] = useState<number>(0);
   const [activeVaultPath, setActiveVaultPath] = useState<string>("");
   const [draftName, setDraftName] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    void window.api.mapos.getVaultsConfig().then(({ vaults, activeVaultPath: a }) => {
-      setVaultCount(vaults.length);
+    void window.api.mapos.getVaultsConfig().then(({ activeVaultPath: a }) => {
       setActiveVaultPath(a);
       setDraftName(vaultBasename(a));
     });
@@ -111,7 +97,6 @@ function GeneralPage({
 
   const currentName = vaultBasename(activeVaultPath);
   const isDirty = draftName !== currentName;
-  const isLastVault = vaultCount <= 1;
 
   async function handleSave() {
     const trimmed = draftName.trim();
@@ -132,63 +117,71 @@ function GeneralPage({
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <Section
-        title="Vault name"
-        description="Rename the folder on disk. All references to the folder path will update."
-      >
-        <div className="flex flex-col gap-2">
-          <InputGroup className="bg-background">
-            <InputGroupInput
-              value={draftName}
-              disabled={busy}
-              onChange={(e) => {
-                setDraftName(e.target.value);
-                if (renameError) setRenameError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleSave();
-                } else if (e.key === "Escape") {
-                  handleCancel();
-                }
-              }}
-              aria-invalid={!!renameError}
-            />
-            {isDirty && (
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  variant="default"
-                  disabled={busy || !draftName.trim()}
-                  onClick={() => void handleSave()}
-                >
-                  Save
-                </InputGroupButton>
-              </InputGroupAddon>
-            )}
-          </InputGroup>
-          {renameError && <p className="text-xs text-destructive">{renameError}</p>}
-        </div>
-      </Section>
+    <div className="flex flex-col gap-6">
+      <PageHeader title="General" description="Vault name and basic preferences." />
+      <ItemGroup className="gap-0">
+        <Item className="items-start px-0">
+          <ItemContent>
+            <ItemTitle>Vault name</ItemTitle>
+            <ItemDescription>
+              Rename the folder on disk. All references to the folder path will update.
+            </ItemDescription>
+            <div className="mt-3 flex flex-col gap-2">
+              <InputGroup className="bg-background">
+                <InputGroupInput
+                  value={draftName}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setDraftName(e.target.value);
+                    if (renameError) setRenameError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSave();
+                    } else if (e.key === "Escape") {
+                      handleCancel();
+                    }
+                  }}
+                  aria-invalid={!!renameError}
+                />
+                {isDirty && (
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupButton
+                      variant="default"
+                      disabled={busy || !draftName.trim()}
+                      onClick={() => void handleSave()}
+                    >
+                      Save
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                )}
+              </InputGroup>
+              {renameError && <p className="text-xs text-destructive">{renameError}</p>}
+            </div>
+          </ItemContent>
+        </Item>
 
-      <Section
-        title="Danger zone"
-        description={
-          isLastVault
-            ? "Delete this vault from MapOS. Files on disk are kept — since it's your only vault, you'll be returned to the welcome screen."
-            : "Delete this vault from MapOS. Files on disk are kept — you can add the folder back later from the vault switcher."
-        }
-      >
-        <Button
-          variant="destructive"
-          className="self-start"
-          onClick={() => onRequestDelete(currentName, isLastVault)}
-          disabled={busy}
-        >
-          Delete vault
-        </Button>
-      </Section>
+        <ItemSeparator />
+
+        <Item className="px-0">
+          <ItemContent>
+            <ItemTitle>Danger zone</ItemTitle>
+            <ItemDescription>
+              Delete this vault from MapOS. Files on disk are kept.
+            </ItemDescription>
+          </ItemContent>
+          <ItemActions>
+            <Button
+              variant="destructive"
+              onClick={() => onRequestDelete(currentName)}
+              disabled={busy}
+            >
+              Delete vault
+            </Button>
+          </ItemActions>
+        </Item>
+      </ItemGroup>
     </div>
   );
 }
@@ -204,21 +197,42 @@ function AppearancePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Section
-        title="Accent color"
-        description="Tints buttons, the vault icon, and map features. Monochrome follows the theme."
-      >
-        <AccentPicker value={accent} onChange={setAccent} />
-      </Section>
-      <Section title="Theme" description="Choose how MapOS looks. System follows your OS setting.">
-        <ThemePicker value={theme} onChange={setTheme} />
-      </Section>
-      <Section
-        title="Map color"
-        description="Full uses the tinted basemap; Monochrome uses a clean white or black one."
-      >
-        <MapColorPicker value={mapColor} onChange={setMapColor} />
-      </Section>
+      <PageHeader title="Appearance" description="Colors, theme, and map style." />
+      <ItemGroup className="gap-0">
+        <Item className="items-start px-0">
+          <ItemContent>
+            <ItemTitle>Accent color</ItemTitle>
+            <ItemDescription>Tints buttons, icons, and map features.</ItemDescription>
+          </ItemContent>
+          <ItemActions className="w-[300px]">
+            <AccentPicker value={accent} onChange={setAccent} />
+          </ItemActions>
+        </Item>
+
+        <ItemSeparator />
+
+        <Item className="items-start px-0">
+          <ItemContent>
+            <ItemTitle>Theme</ItemTitle>
+            <ItemDescription>Light, dark, or match your system.</ItemDescription>
+          </ItemContent>
+          <ItemActions className="w-[300px]">
+            <ThemePicker value={theme} onChange={setTheme} />
+          </ItemActions>
+        </Item>
+
+        <ItemSeparator />
+
+        <Item className="items-start px-0">
+          <ItemContent>
+            <ItemTitle>Map color</ItemTitle>
+            <ItemDescription>Tinted or monochrome basemap.</ItemDescription>
+          </ItemContent>
+          <ItemActions className="w-[300px]">
+            <MapColorPicker value={mapColor} onChange={setMapColor} />
+          </ItemActions>
+        </Item>
+      </ItemGroup>
     </div>
   );
 }
@@ -229,7 +243,7 @@ const NAV_ITEMS: { id: SettingsPage; label: string; icon: React.ElementType }[] 
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
   { id: "connections", label: "Connections", icon: PlugIcon },
-  { id: "offline", label: "Offline", icon: GlobeIcon },
+  { id: "offline", label: "Regions", icon: GlobeIcon },
   { id: "about", label: "About", icon: InfoIcon }
 ];
 
@@ -245,10 +259,7 @@ export function SettingsDialog({
   initialPage?: SettingsPage;
 }) {
   const [page, setPage] = useState<SettingsPage>(initialPage);
-  const [pendingDelete, setPendingDelete] = useState<{
-    name: string;
-    isLastVault: boolean;
-  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLDivElement | null>(null);
@@ -321,9 +332,9 @@ export function SettingsDialog({
                   >
                     {page === "general" && (
                       <GeneralPage
-                        onRequestDelete={(name, isLastVault) => {
+                        onRequestDelete={(name) => {
                           setDeleteError(null);
-                          setPendingDelete({ name, isLastVault });
+                          setPendingDelete({ name });
                         }}
                       />
                     )}
@@ -357,10 +368,7 @@ export function SettingsDialog({
             <AlertDialogTitle>Delete this vault?</AlertDialogTitle>
             <AlertDialogDescription>
               &quot;{pendingDelete?.name}&quot; will be removed from MapOS. The folder on disk will
-              not be deleted —{" "}
-              {pendingDelete?.isLastVault
-                ? "since it's your only vault, you'll be returned to the welcome screen."
-                : "you can add it back later from the vault switcher."}
+              not be deleted.
             </AlertDialogDescription>
             {deleteError ? (
               <AlertDialogDescription className="text-destructive">

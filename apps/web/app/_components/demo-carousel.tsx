@@ -13,8 +13,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FaPause, FaPlay } from "react-icons/fa6";
 import downloadDemo from "../../videos/MapOS-Download.mp4";
 import filesDemo from "../../videos/Mapos-Files.mp4";
-import chatDemo from "../../videos/Obsidian-Chat.mp4";
 import vaultDemo from "../../videos/Mapos-Obsidian.mp4";
+import chatDemo from "../../videos/Obsidian-Chat.mp4";
 
 // Demo videos are next-video assets: drop an MP4 into apps/web/videos, run
 // `npx next-video sync` to upload it to R2, then import it and set it on the
@@ -32,10 +32,25 @@ type DemoSlide = {
 };
 
 const SLIDES: DemoSlide[] = [
-  { id: "agent", tag: "AI agent", title: "Chat with your map. Your own GIS expert.", video: chatDemo },
+  {
+    id: "agent",
+    tag: "AI agent",
+    title: "Chat with your map. Your own GIS expert.",
+    video: chatDemo
+  },
   { id: "files", tag: "Markdown", title: "Own your content. No lock-in.", video: filesDemo },
-  { id: "offline", tag: "Offline", title: "Maps, routing, AI. No internet required.", video: downloadDemo },
-  { id: "vault", tag: "Vault", title: "Just Markdown files. Obsidian, or anything else.", video: vaultDemo },
+  {
+    id: "offline",
+    tag: "Offline",
+    title: "Maps, routing, AI. No internet required.",
+    video: downloadDemo
+  },
+  {
+    id: "vault",
+    tag: "Vault",
+    title: "Just Markdown files. Obsidian, or anything else.",
+    video: vaultDemo
+  }
 ];
 
 // Fallback duration for slides without a video; video slides run for the

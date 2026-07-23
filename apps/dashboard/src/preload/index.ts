@@ -11,6 +11,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   InstalledRegionPack,
   MapOverlayLayer,
+  McpClientInfo,
   McpConnectionInfo,
   PropertyType,
   RegionDownloadProgress,
@@ -262,7 +263,15 @@ const api = {
       ipcRenderer.invoke("mcp:get-connection-info") as Promise<McpConnectionInfo>,
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke("mcp:set-enabled", enabled) as Promise<McpConnectionInfo>,
-    regenerateToken: () => ipcRenderer.invoke("mcp:regenerate-token") as Promise<McpConnectionInfo>
+    regenerateToken: () => ipcRenderer.invoke("mcp:regenerate-token") as Promise<McpConnectionInfo>,
+    /** Fires when a client completes the MCP handshake. Returns a cleanup fn to unregister. */
+    onClientConnected: (cb: (client: McpClientInfo) => void): (() => void) => {
+      const listener = (_e: unknown, client: McpClientInfo): void => cb(client);
+      ipcRenderer.on("mcp:client-connected", listener);
+      return () => {
+        ipcRenderer.off("mcp:client-connected", listener);
+      };
+    }
   },
   properties: {
     listAllKeys: () =>

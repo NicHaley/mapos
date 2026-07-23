@@ -95,6 +95,11 @@ export const ACCENT_PALETTE: AccentOption[] = [
   }
 ];
 
+/**
+ * Onboarding staging key — used only when appearance IPC isn't available yet so the
+ * accent pick survives the post-complete reload. Canonical store is `.mapos/appearance.json`.
+ */
+export const ACCENT_KEY = "mapos_accent";
 const CHANGE_EVENT = "mapos:accent-changed";
 
 /** Grey used for un-coloured map features when the accent is monochrome — matches
@@ -147,15 +152,24 @@ export function hydrateAccent(accent: Accent): void {
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-/** Apply and persist to the active vault's appearance.json. */
+/** Apply and persist to the active vault's appearance.json. Stages to localStorage when
+ * IPC isn't available yet (onboarding) so the pick survives the post-complete reload. */
 export function setAccent(accent: Accent): void {
   hydrateAccent(accent);
   void window.api.appearance
     .set({ accent })
     .then((r) => {
-      if (!r.ok) console.error("Failed to save accent:", r.error);
+      if (r.ok) {
+        localStorage.removeItem(ACCENT_KEY);
+      } else {
+        localStorage.setItem(ACCENT_KEY, accent);
+        console.error("Failed to save accent:", r.error);
+      }
     })
-    .catch((e) => console.error("Failed to save accent:", e));
+    .catch((e) => {
+      localStorage.setItem(ACCENT_KEY, accent);
+      console.error("Failed to save accent:", e);
+    });
 }
 
 /** The default colour for map features with no explicit `color` frontmatter:

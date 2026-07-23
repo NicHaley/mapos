@@ -18,7 +18,7 @@ export function AccentPicker({
   const selectedLabel = ACCENT_PALETTE.find((o) => o.id === value)?.label ?? "Monochrome";
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2.5">
         {ACCENT_PALETTE.map(({ id, label, hex, foreground }) => {
           const selected = value === id;
           // Monochrome is a fixed half-white / half-black split; every other option is a solid hue.
@@ -32,7 +32,7 @@ export function AccentPicker({
               title={label}
               aria-label={label}
               aria-pressed={selected}
-              className="flex size-7 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+              className="flex size-6 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
               style={{
                 background,
                 boxShadow: selected
@@ -41,7 +41,7 @@ export function AccentPicker({
               }}
             >
               {selected && hex && (
-                <CheckIcon className="size-3.5" strokeWidth={3} style={{ color: foreground }} />
+                <CheckIcon className="size-3" strokeWidth={3} style={{ color: foreground }} />
               )}
             </button>
           );

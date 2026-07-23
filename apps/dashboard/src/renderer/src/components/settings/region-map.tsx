@@ -13,7 +13,11 @@ export type RegionMarker = {
   color: string;
   /** Quiet pin — hidden until hovered or focused. Used for not-yet-downloaded regions. */
   subtle?: boolean;
+  /** Covers the user's current location — always shown with a highlight ring. */
+  recommended?: boolean;
 };
+
+const RECOMMENDED_RING = "#10b981";
 
 const FRAME_RATIO = 2.8;
 
@@ -88,21 +92,23 @@ export function RegionMap({
                 key={p.id}
                 cx={p.x}
                 cy={p.y}
-                r={1}
+                r={p.recommended ? 1.4 : 1}
                 fill={p.color}
-                // Transparent stroke widens the hover hit area without changing the
-                // visual — strokes count for pointer-events as long as they're not "none".
-                stroke="transparent"
+                // Recommended pins wear an emerald ring so the packs covering the user's
+                // location stand out; otherwise a transparent stroke just widens the hover
+                // hit area (strokes count for pointer-events as long as they're not "none").
+                stroke={p.recommended ? RECOMMENDED_RING : "transparent"}
                 strokeWidth={1.5}
                 onClick={onSelect ? () => onSelect(p.id) : undefined}
                 onMouseEnter={() => setHovered(p.id)}
                 onMouseLeave={() => setHovered(null)}
                 // Subtle pins are invisible until hovered (opacity keeps them
-                // hit-testable, unlike visibility) or focused from the list.
+                // hit-testable, unlike visibility) or focused from the list — but a
+                // recommended pin always shows, that's the whole point of the highlight.
                 className={cn(
                   "transition-all duration-200",
                   onSelect && "cursor-pointer",
-                  p.subtle && !active && "opacity-0"
+                  p.subtle && !active && !p.recommended && "opacity-0"
                 )}
               />
             );

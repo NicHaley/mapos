@@ -1,4 +1,4 @@
-import { hydrateAccent, parseAccent } from "./accent";
+import { ACCENT_KEY, hydrateAccent, parseAccent } from "./accent";
 import { hydrateMapColor, parseMapColor } from "./map-color";
 import { THEME_KEY, hydrateTheme, parseTheme } from "./theme";
 
@@ -7,8 +7,9 @@ import { THEME_KEY, hydrateTheme, parseTheme } from "./theme";
  * Never rejects. Root awaits this before first paint.
  *
  * During onboarding (no vault / IPC unavailable) falls back to in-memory defaults, with
- * theme optionally staged in localStorage so the onboarding pick survives the post-complete
- * reload. That staging key is promoted into appearance.json on the first successful vault read.
+ * accent + theme optionally staged in localStorage so the onboarding pick survives the
+ * post-complete reload. Those staging keys are promoted into appearance.json on the first
+ * successful vault read.
  */
 export async function hydrateAppearance(): Promise<void> {
   let raw: Record<string, unknown> | null;
@@ -19,34 +20,47 @@ export async function hydrateAppearance(): Promise<void> {
   }
 
   if (raw === null) {
-    hydrateAccent(parseAccent(undefined));
+    hydrateAccent(parseAccent(localStorage.getItem(ACCENT_KEY)));
     hydrateMapColor(parseMapColor(undefined));
     hydrateTheme(parseTheme(localStorage.getItem(THEME_KEY)));
     return;
   }
 
-  hydrateAccent(parseAccent(raw.accent));
   hydrateMapColor(parseMapColor(raw.mapColor));
+  await hydrateStaged(raw, "accent", ACCENT_KEY, parseAccent, hydrateAccent);
+  await hydrateStaged(raw, "theme", THEME_KEY, parseTheme, hydrateTheme);
+}
 
-  if (raw.theme !== undefined) {
-    hydrateTheme(parseTheme(raw.theme));
-    localStorage.removeItem(THEME_KEY);
+/**
+ * Resolve one appearance field: prefer the value already in appearance.json (clearing any
+ * stale staging), else promote an onboarding-staged localStorage value into the vault once,
+ * else fall back to the parsed default.
+ */
+async function hydrateStaged<T>(
+  raw: Record<string, unknown>,
+  field: "accent" | "theme",
+  stagingKey: string,
+  parse: (value: unknown) => T,
+  hydrate: (value: T) => void
+): Promise<void> {
+  if (raw[field] !== undefined) {
+    hydrate(parse(raw[field]));
+    localStorage.removeItem(stagingKey);
     return;
   }
 
-  // Promote onboarding-staged theme into the vault once.
-  const staged = localStorage.getItem(THEME_KEY);
+  const staged = localStorage.getItem(stagingKey);
   if (staged !== null) {
-    const theme = parseTheme(staged);
-    hydrateTheme(theme);
+    const value = parse(staged);
+    hydrate(value);
     try {
-      const result = await window.api.appearance.set({ theme });
-      if (result.ok) localStorage.removeItem(THEME_KEY);
+      const result = await window.api.appearance.set({ [field]: staged });
+      if (result.ok) localStorage.removeItem(stagingKey);
     } catch {
       /* keep staging for next boot */
     }
     return;
   }
 
-  hydrateTheme(parseTheme(undefined));
+  hydrate(parse(undefined));
 }

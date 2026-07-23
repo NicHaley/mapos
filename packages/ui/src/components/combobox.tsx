@@ -9,10 +9,7 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
   return <ComboboxPrimitive.Root {...props} />;
 }
 
-function ComboboxInput({
-  className,
-  ...props
-}: ComboboxPrimitive.Input.Props): React.JSX.Element {
+function ComboboxInput({ className, ...props }: ComboboxPrimitive.Input.Props): React.JSX.Element {
   return (
     <ComboboxPrimitive.Input
       data-slot="combobox-input"
@@ -54,10 +51,7 @@ function ComboboxContent({
   );
 }
 
-function ComboboxList({
-  className,
-  ...props
-}: ComboboxPrimitive.List.Props): React.JSX.Element {
+function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): React.JSX.Element {
   return (
     <ComboboxPrimitive.List
       data-slot="combobox-list"
@@ -67,10 +61,7 @@ function ComboboxList({
   );
 }
 
-function ComboboxItem({
-  className,
-  ...props
-}: ComboboxPrimitive.Item.Props): React.JSX.Element {
+function ComboboxItem({ className, ...props }: ComboboxPrimitive.Item.Props): React.JSX.Element {
   return (
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
@@ -83,10 +74,7 @@ function ComboboxItem({
   );
 }
 
-function ComboboxEmpty({
-  className,
-  ...props
-}: ComboboxPrimitive.Empty.Props): React.JSX.Element {
+function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props): React.JSX.Element {
   return (
     <ComboboxPrimitive.Empty
       data-slot="combobox-empty"
@@ -96,11 +84,4 @@ function ComboboxEmpty({
   );
 }
 
-export {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList
-};
+export { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList };

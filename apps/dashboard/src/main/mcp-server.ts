@@ -22,9 +22,9 @@ import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
+import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
 import { computeBbox } from "./bbox";
-import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import {
   queryNear,
   querySpatialIndex,
@@ -1964,7 +1964,8 @@ export function buildMaposCustomTools(
         matches: contentMatches.get(rel) ?? []
       }));
       const truncated =
-        ordered.length > maxFiles || (contentMatches.size >= maxFiles && scanned < candidates.length);
+        ordered.length > maxFiles ||
+        (contentMatches.size >= maxFiles && scanned < candidates.length);
       return TEXT_RESULT(
         JSON.stringify({ success: true, results, count: results.length, truncated })
       );

@@ -18,6 +18,8 @@ export type RegionRow = {
   slug: string;
   name: string;
   group?: string;
+  /** Continent slug — used to reject cross-continent bbox false-positives when locating. */
+  continent?: string;
   /** [lng, lat] — globe marker position, when the pack carries geometry. */
   center?: [number, number];
   /** [minLng, minLat, maxLng, maxLat] — coverage box, used to find the region under a point. */
@@ -187,6 +189,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
         slug,
         name: entry.name ?? slug,
         group: entry.group,
+        continent: entry.continent,
         center: entry.center,
         bbox: entry.bbox,
         latest: entry.latest,

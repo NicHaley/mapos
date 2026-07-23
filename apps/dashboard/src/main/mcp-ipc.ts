@@ -14,7 +14,8 @@ function connectionInfo(appStateDir: string): McpConnectionInfo {
     running: mcpManager.isRunning(),
     port: cfg.port,
     token: cfg.token,
-    url: `http://127.0.0.1:${cfg.port}/mcp`
+    url: `http://127.0.0.1:${cfg.port}/mcp`,
+    lastClient: mcpManager.getLastClient()
   };
 }
 

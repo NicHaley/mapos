@@ -8,7 +8,7 @@ import type { GeocodeResult } from "@mapos/contracts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { BrowserWindow } from "electron";
-import type { MapOverlayLayer, McpClientInfo, PlaceRecord } from "../../shared/types";
+import type { McpClientInfo, PlaceRecord } from "../../shared/types";
 import {
   type StashedGeometry,
   type VaultOperation,
@@ -59,8 +59,6 @@ export class McpManager {
   // scope in MCP). Cleared on vault change so handles never leak across vaults.
   private readonly geocodeStore = new Map<string, GeocodeResult>();
   private readonly geometryStore = new Map<string, StashedGeometry>();
-  // Overlay-layer bookkeeping backing hasLayers()/onLayersClear() (was conversation-owned).
-  private layerCount = 0;
 
   isRunning(): boolean {
     return this.http !== null;
@@ -117,7 +115,6 @@ export class McpManager {
   /** (Re)build the tool set for the active vault. Called from bootVault once it's ready. */
   setActiveVault(v: ActiveVault): void {
     this.instructions = buildMaposSystemPrompt(v.vaultRoot);
-    this.layerCount = 0;
     this.geocodeStore.clear();
     this.geometryStore.clear();
     this.tools = buildMaposCustomTools(
@@ -127,13 +124,6 @@ export class McpManager {
       v.appStateDir,
       // Undo tracking + geometry-stash persistence are out of scope for v1 (no-ops).
       (_op: VaultOperation) => {},
-      (_layer: MapOverlayLayer) => {
-        this.layerCount += 1;
-      },
-      () => {
-        this.layerCount = 0;
-      },
-      () => this.layerCount > 0,
       this.geocodeStore,
       this.geometryStore,
       () => {}
@@ -144,7 +134,6 @@ export class McpManager {
   clearActiveVault(): void {
     this.tools = [];
     this.instructions = undefined;
-    this.layerCount = 0;
     this.geocodeStore.clear();
     this.geometryStore.clear();
   }

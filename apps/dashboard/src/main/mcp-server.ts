@@ -280,8 +280,8 @@ For external spatial queries, use these tools — they are backed by OpenStreetM
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
-- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to render, pass the \`route_id\` to a \`render_overlay_on_map\` lines entry; to save it as a vault file, pass it to \`save_features_to_vault\` with a title. Do not try to retrieve, decode, or downsample route geometry yourself.
-- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes). Each contour comes back as an \`isochrone_id\` (opaque handle) plus pointCount/bbox — the polygon shape never crosses the LLM boundary. Pass the id to render (\`polygons\` entry), \`geo_compute\`, or \`save_features_to_vault\`; never re-emit its coordinates. To find things INSIDE the isochrone: the user's own saved places → \`query_within_polygon\` (\`region_id\`); external POIs like gas stations or cafes → \`geocode_search\` with \`within_id\` (a plain \`bbox\` is only a rectangular bias and leaks in POIs outside the shape).
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, a \`route_id\` (opaque handle to the server-side route geometry), \`pointCount\`, and turn-by-turn maneuvers. The route shape never crosses the LLM boundary; to draw the route, pass the \`route_id\` to \`present_features\` as a feature with \`route_id\`; to save it as a vault file, pass it to \`save_features_to_vault\` with a title. Do not try to retrieve, decode, or downsample route geometry yourself.
+- \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (in minutes). Each contour comes back as an \`isochrone_id\` (opaque handle) plus pointCount/bbox — the polygon shape never crosses the LLM boundary. Pass the id to \`present_features\` (as a feature with \`isochrone_id\`) to draw it, or to \`geo_compute\` / \`save_features_to_vault\`; never re-emit its coordinates. To find things INSIDE the isochrone: the user's own saved places → \`query_within_polygon\` (\`region_id\`); external POIs like gas stations or cafes → \`geocode_search\` with \`within_id\` (a plain \`bbox\` is only a rectangular bias and leaks in POIs outside the shape).
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side) — cost grows with the product of both sides.
 - \`compute_bbox\` — bounding box for a set of lat/lng points; useful for framing a viewport around results.
 
@@ -300,14 +300,14 @@ For analytical questions about indexed files that \`query_spatial_index\` can't 
 
 To COMPUTE geometry (as opposed to selecting places), use:
 
-- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is a handle (\`geometry_id\`/\`geometry_b_id\`, e.g. an isochrone_id), \`feature_paths\` resolved from the index, or inline GeoJSON (\`geometry\`/\`geometry_b\`) for hand-built input — prefer handles/paths so geometry doesn't re-cross the boundary. Geometry-producing ops return a new \`geometry_id\` (measurement ops return values inline); pass that id to \`render_overlay_on_map\`, \`query_within_polygon\`, or \`save_features_to_vault\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect on their two isochrone_ids → \`query_within_polygon\` with the resulting geometry_id.
+- \`geo_compute\` — one offline geometry operation: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input is a handle (\`geometry_id\`/\`geometry_b_id\`, e.g. an isochrone_id), \`feature_paths\` resolved from the index, or inline GeoJSON (\`geometry\`/\`geometry_b\`) for hand-built input — prefer handles/paths so geometry doesn't re-cross the boundary. Geometry-producing ops return a new \`geometry_id\` (measurement ops return values inline); pass that id to \`present_features\`, \`query_within_polygon\`, or \`save_features_to_vault\`. E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` calls → \`geo_compute\` intersect on their two isochrone_ids → \`query_within_polygon\` with the resulting geometry_id.
 
-After calling any of these, display the results:
+After calling any of these, display the results with \`present_features\` — the one tool for putting transient features on the map (points, lines, and polygons):
 - points from \`geocode_search\` / \`reverse_geocode\` the user will browse or pick from → \`present_features\` (draws the markers AND renders a clickable list, kept in sync). See "Showing places and features in chat" below.
-- a route the user wants directions for (will read the steps or adjust endpoints) → \`present_directions\`, which opens an interactive Directions tab (summary + turn-by-turn + walk/bike/drive toggle) and draws the route. It computes the route itself, so you need NOT call \`get_directions\` first. To merely draw a route line you already computed, pass its \`route_id\` from \`get_directions\` to \`render_overlay_on_map\` as a \`lines\` entry instead. Either way, do NOT pass route coordinates or polyline strings yourself — they cost tens of thousands of tokens and take minutes to generate.
-- each contour's \`isochrone_id\` from \`get_isochrone\` → a \`render_overlay_on_map\` \`polygons\` entry as \`{ isochrone_id }\` (or \`{ geometry_id }\` for a geo_compute result). Never pass polygon coordinates yourself.
+- a route to simply draw → \`present_features\` with a \`{ route_id }\` feature. But when the user wants directions they'll read step-by-step or re-route → \`present_directions\`, which opens an interactive Directions tab (summary + turn-by-turn + walk/bike/drive toggle) and draws the route; it computes the route itself, so you need NOT call \`get_directions\` first. Either way, do NOT pass route coordinates or polyline strings yourself — they cost tens of thousands of tokens and take minutes to generate.
+- each contour's \`isochrone_id\` from \`get_isochrone\` → \`present_features\` with an \`{ isochrone_id }\` feature (or \`{ geometry_id }\` for a geo_compute result). Never pass polygon coordinates yourself.
 
-Result sets accumulate on the map across the conversation — each \`present_features\` / \`render_overlay_on_map\` call adds its own layer rather than replacing the last. Don't clear between searches. Only call \`clear_map_overlay\` when the user explicitly asks to clear the map.
+A \`present_features\` call replaces the layer of the tab it opens, but each call opens its own tab, so earlier result sets stay put — you don't clear between searches. A shown feature set lives in its tab and clears when the user closes it; there is no separate "clear the map" tool.
 
 After showing results on the map, do not explain how to interact with the UI (e.g. do not say to click markers, to say "save", or to use Add all — those affordances are visible in the app). Give a short substantive answer only: what you found, names, or next steps that are not redundant with the map.
 
@@ -334,7 +334,7 @@ To SAVE places or routes to the vault — the user says save/add/keep after a se
 
 ## Display vs. action intent
 
-- If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features for a browsable list of places; use render_overlay_on_map for routes, areas, and bulk geometry.
+- If the user asks you to find, show, search, explore, or preview → display results ephemerally without writing files. Use present_features to show places, routes, and areas on the map.
 - If the user asks you to save, create, add, update, mark, or organize → write actual vault files: save_features_to_vault for new places and routes, write_vault_file for everything else.
 
 ## Showing places and features in chat
@@ -347,6 +347,8 @@ The list \`present_features\` renders IS the user's view of the results — ever
 - a geocode/POI result you just looked up — set \`result_id\` to that result's \`id\`. This is STRONGLY PREFERRED: the app fills in the marker, title, and structured properties (category, address, …) from the cached result, so the card is identical to the search UI and you never have to (and must not) re-type or reformat its facts. Add only an optional \`preview_markdown\` note.
 - a saved vault place — set \`path\` to its vault file path (from \`query_spatial_index\`). Its marker already exists on the map.
 - a genuinely ad-hoc place you could NOT look up — set \`lat\`, \`lng\`, \`title\`, optional \`properties\`, optional \`preview_markdown\`.
+- a route line — set \`route_id\` (from get_directions), optional \`title\`/\`preview_markdown\`. Draws the route; it is not a browsable place row.
+- a polygon/area — set \`isochrone_id\` (from get_isochrone) or \`geometry_id\` (from geo_compute), optional \`title\`/\`preview_markdown\`.
 
 Do not transcribe a geocoder result's name/category/address into the call — reference it by \`result_id\` and let the app derive them; transcribing causes drift (e.g. "fast_food" becoming "fast food"). For ad-hoc places, put structured facts in \`properties\` using canonical keys (\`category\` as a lowercase token, \`address\`, \`source_url\`, plus extra keys like \`cuisine\`), and reserve \`preview_markdown\` for free prose (why it's relevant, a recommendation). Never provide \`osm_id\`/\`wikidata_id\` yourself — you have no reliable source and they're dropped. Never write a per-row note as a prose list in your reply.
 
@@ -356,11 +358,7 @@ Example — the user asks for taco places near home. Call \`geocode_search\`, th
 \`present_features({ features: [ { result_id: "offline:quebec:1023", preview_markdown: "Great al pastor, very close to home." }, { result_id: "offline:quebec:4471" }, ... ] })\`
 Then a reply like: "Seven taco spots near your home — Mont Tacos and Maison du Tacos on Saint-Denis are the closest." No list of the seven; the card already shows them.
 
-Use \`render_overlay_on_map\` instead when the result is NOT a browsable list:
-- routes (lines), isochrones/areas (polygons), or other pure geometry
-- a large dataset or layer the user views in aggregate rather than picking from row by row (e.g. "map every cafe in the city", an imported file)
-
-When unsure: a couple dozen places the user might click → \`present_features\`; geometry or bulk layers → \`render_overlay_on_map\`.
+\`present_features\` also carries pure geometry that isn't a browsable place list — a route line (\`route_id\`), an isochrone/area (\`isochrone_id\`/\`geometry_id\`), or a large dataset the user views in aggregate rather than picking through row by row ("map every cafe in the city", an imported file). It's the single tool for all of these; the list simply shows whatever rows the features produce.
 
 (A \`<features refs="vault:<path>"/>\` tag is also still supported for referencing a single saved place inline within a sentence. Prefer \`present_features\` for any actual list.)`;
 }
@@ -433,9 +431,6 @@ export function buildMaposCustomTools(
   /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
   appStateDir: string,
   onVaultWrite: (op: VaultOperation) => void,
-  onLayerUpdate: (layer: MapOverlayLayer) => void,
-  onLayersClear: () => void,
-  hasLayers: () => boolean,
   /** Conversation-scoped cache of geocoder results, keyed by `GeocodeResult.id`. Owned by
    *  the caller so it outlives this tool set (which is rebuilt when the session is). */
   geocodeStore: Map<string, GeocodeResult>,
@@ -484,6 +479,15 @@ export function buildMaposCustomTools(
       );
     }
     return stored;
+  };
+  // Ensure a polygon ring is explicitly closed (first point repeated at the end).
+  const closeRing = (ring: [number, number][]): [number, number][] => {
+    if (ring.length < 2) return ring;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!first || !last) return ring;
+    const isClosed = first[0] === last[0] && first[1] === last[1];
+    return isClosed ? ring : [...ring, first];
   };
 
   // `geocodeStore` (passed in, conversation-scoped) caches geocoder results so
@@ -549,197 +553,11 @@ export function buildMaposCustomTools(
     properties: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String())))
   });
 
-  const renderOverlayOnMap = defineTool({
-    name: "render_overlay_on_map",
-    label: "Render map overlay",
-    description:
-      "Display lines, polygons, or bulk points on the map as a temporary overlay without saving. Use for routes, isochrones/areas, and large datasets/layers the user views in aggregate. For a browsable list of places the user will pick from, use present_features instead (it renders a clickable, map-connected list). Lines: routes, boundaries. Polygons: isochrones, areas. Pass geometry by handle, never by coordinates: a route from get_directions → `route_id` on a `lines` entry; an isochrone or computed polygon → `isochrone_id`/`geometry_id` on a `polygons` entry. Re-emitting coordinates yourself costs tens of thousands of output tokens and takes minutes.",
-    parameters: Type.Object({
-      points: Type.Optional(
-        Type.Array(
-          Type.Object({
-            lat: Type.Number({ description: "Latitude in decimal degrees" }),
-            lng: Type.Number({ description: "Longitude in decimal degrees" }),
-            title: Type.String({ description: "Display name for the marker" }),
-            id: Type.Optional(Type.String({ description: "Unique identifier for the point" })),
-            preview_markdown: Type.Optional(
-              Type.String({
-                description: "Optional markdown shown in the place preview card before save"
-              })
-            )
-          })
-        )
-      ),
-      lines: Type.Optional(
-        Type.Array(
-          Type.Object({
-            route_id: Type.Optional(
-              Type.String({
-                description:
-                  "Opaque id returned by get_directions. Preferred for routes — server resolves to the full geometry without re-transmitting it through the LLM."
-              })
-            ),
-            coordinates: Type.Optional(
-              Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 }), {
-                description:
-                  "Array of [longitude, latitude] pairs. Use only for short, hand-built lines."
-              })
-            ),
-            title: Type.Optional(Type.String()),
-            id: Type.Optional(Type.String()),
-            preview_markdown: Type.Optional(
-              Type.String({
-                description: "Optional markdown shown in the place preview card before save"
-              })
-            )
-          })
-        )
-      ),
-      polygons: Type.Optional(
-        Type.Array(
-          Type.Object({
-            geometry_id: Type.Optional(
-              Type.String({
-                description:
-                  "Opaque id of a stashed polygon (a geometry_id from geo_compute, or an isochrone_id from get_isochrone — either key works here). Preferred — the server resolves it to the full polygon without re-transmitting coordinates through the LLM. A MultiPolygon is expanded to several polygon shapes automatically."
-              })
-            ),
-            isochrone_id: Type.Optional(
-              Type.String({ description: "Alias for geometry_id when the handle is an isochrone." })
-            ),
-            coordinates: Type.Optional(
-              Type.Array(Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 })), {
-                description:
-                  "Array of rings; each ring is [[lng, lat], ...]. First ring is outer boundary (must close). Use only for short, hand-built polygons — for isochrones or computed geometry, pass geometry_id."
-              })
-            ),
-            title: Type.Optional(Type.String()),
-            id: Type.Optional(Type.String()),
-            preview_markdown: Type.Optional(
-              Type.String({
-                description: "Optional markdown shown in the place preview card before save"
-              })
-            )
-          })
-        )
-      ),
-      layer_name: Type.Optional(
-        Type.String({
-          default: "search-results",
-          description: "Name for this overlay layer"
-        })
-      )
-    }),
-    execute: async (toolCallId, args) => {
-      if (!mainWindow.isDestroyed()) {
-        // Namespace every marker id with the layer id so ids stay unique once
-        // layers accumulate on the map (two calls would otherwise both emit
-        // `overlay-point-0`).
-        const layerId = toolCallId;
-        const points = (args.points ?? []).map((p, i) => ({
-          id: `${layerId}:${p.id ?? `point-${i}`}`,
-          lat: p.lat,
-          lng: p.lng,
-          title: p.title,
-          ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
-        }));
-        const lines = (args.lines ?? []).map((l, i) => {
-          let coordinates: [number, number][];
-          if (l.route_id) {
-            const geom = resolveGeometryId(l.route_id).geometry;
-            if (geom.type !== "LineString") {
-              throw new Error(
-                `Geometry id "${l.route_id}" is a ${geom.type}, not a line. Pass a route_id from get_directions to a lines entry.`
-              );
-            }
-            coordinates = geom.coordinates as [number, number][];
-          } else if (l.coordinates && l.coordinates.length > 0) {
-            coordinates = l.coordinates as [number, number][];
-          } else {
-            // Neither a route_id nor inline coordinates — a malformed entry that would
-            // otherwise render an invisible empty line and falsely report success.
-            throw new Error("A lines entry needs route_id (preferred) or non-empty coordinates.");
-          }
-          return {
-            id: `${layerId}:${l.id ?? `line-${i}`}`,
-            coordinates,
-            title: l.title,
-            ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
-          };
-        });
-        const closeRing = (ring: [number, number][]): [number, number][] => {
-          if (ring.length < 2) return ring;
-          const first = ring[0];
-          const last = ring[ring.length - 1];
-          if (!first || !last) return ring;
-          const isClosed = first[0] === last[0] && first[1] === last[1];
-          return isClosed ? ring : [...ring, first];
-        };
-        // A polygon entry may resolve to several shapes (a MultiPolygon), so build the
-        // list imperatively rather than 1:1.
-        const polygons: MapOverlayLayer["polygons"] = [];
-        (args.polygons ?? []).forEach((p, i) => {
-          const handle = p.geometry_id ?? p.isochrone_id;
-          let ringSets: [number, number][][][];
-          if (handle) {
-            const geom = resolveGeometryId(handle).geometry;
-            if (geom.type === "Polygon") {
-              ringSets = [geom.coordinates as [number, number][][]];
-            } else if (geom.type === "MultiPolygon") {
-              ringSets = geom.coordinates as [number, number][][][];
-            } else {
-              throw new Error(
-                `Geometry id "${handle}" is a ${geom.type}, not a polygon. Pass an isochrone_id or a polygon geometry_id to a polygons entry.`
-              );
-            }
-          } else if (p.coordinates && p.coordinates.length > 0) {
-            ringSets = [p.coordinates as [number, number][][]];
-          } else {
-            // Neither a handle nor inline rings — a malformed entry that would otherwise
-            // render an invisible empty polygon and falsely report success.
-            throw new Error(
-              "A polygons entry needs geometry_id/isochrone_id (preferred) or non-empty coordinates."
-            );
-          }
-          ringSets.forEach((rings, j) => {
-            const base = p.id ?? `polygon-${i}`;
-            polygons.push({
-              id: `${layerId}:${base}${ringSets.length > 1 ? `-${j}` : ""}`,
-              coordinates: rings.map(closeRing),
-              title: p.title,
-              ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
-            });
-          });
-        });
-        const layer: MapOverlayLayer = {
-          id: layerId,
-          layerName: args.layer_name ?? "search-results",
-          points,
-          lines,
-          polygons
-        };
-        mainWindow.webContents.send("map:overlay-add", layer);
-        onLayerUpdate(layer);
-      }
-      const counts = {
-        points: (args.points ?? []).length,
-        lines: (args.lines ?? []).length,
-        polygons: (args.polygons ?? []).length
-      };
-      const parts = [
-        counts.points && `${counts.points} points`,
-        counts.lines && `${counts.lines} lines`,
-        counts.polygons && `${counts.polygons} polygons`
-      ].filter(Boolean);
-      return TEXT_RESULT(`Displayed ${parts.join(", ")} on map`);
-    }
-  });
-
   const presentFeatures = defineTool({
     name: "present_features",
     label: "Present features",
     description:
-      "Show the user a browsable list of places/features: draws their markers on the map AND renders a clickable, map-connected list in the chat, kept in sync. Use this — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query). Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), or a genuinely ad-hoc place you couldn't look up (set `lat`, `lng`, `title`). Order is preserved. For routes, isochrones/areas, or a large dataset viewed in aggregate, use render_overlay_on_map instead.",
+      "Show the user transient features on the map AND, for places, a clickable map-connected list in the chat, kept in sync. This is the ONE tool for putting features on the map without saving them — points, lines, and polygons. Use it — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query), and use it to draw routes and areas. Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), a genuinely ad-hoc point you couldn't look up (set `lat`, `lng`, `title`), a route line (set `route_id` from get_directions), or a polygon/area (set `isochrone_id` from get_isochrone or `geometry_id` from geo_compute). Pass geometry by handle, NEVER by coordinates — re-emitting coordinates costs tens of thousands of tokens. Order is preserved. For a route the user will read turn-by-turn or re-route, use present_directions; to keep anything, use save_features_to_vault.",
     parameters: Type.Object({
       features: jsonArrayParam(
         Type.Object({
@@ -784,6 +602,21 @@ export function buildMaposCustomTools(
               description:
                 'Structured details for an AD-HOC feature only (with result_id the app supplies these from the source). Use canonical keys when you genuinely know them: `category` (lowercase token, e.g. "restaurant", "fast_food"), `address` (street line), `source_url` (full URL). You may add extra keys (e.g. `cuisine`). Do NOT provide `osm_id`/`wikidata_id` — you have no reliable source for them and they will be dropped.'
             })
+          ),
+          route_id: Type.Optional(
+            Type.String({
+              description:
+                "Opaque id returned by get_directions — draws that route as a line. The server resolves it to the full geometry without re-transmitting it through the LLM. Set only this (plus optional title/preview_markdown); it is not a browsable place."
+            })
+          ),
+          geometry_id: Type.Optional(
+            Type.String({
+              description:
+                "Opaque id of a stashed polygon (a geometry_id from geo_compute, or an isochrone_id from get_isochrone) — draws that area as a polygon. A MultiPolygon is expanded to several shapes automatically. Set only this (plus optional title/preview_markdown)."
+            })
+          ),
+          isochrone_id: Type.Optional(
+            Type.String({ description: "Alias for geometry_id when the handle is an isochrone." })
           )
         }),
         {
@@ -808,6 +641,8 @@ export function buildMaposCustomTools(
       }
       const refs: string[] = [];
       const points: MapOverlayLayer["points"] = [];
+      const lines: MapOverlayLayer["lines"] = [];
+      const polygons: MapOverlayLayer["polygons"] = [];
       const vaultPaths: string[] = [];
       // result_ids the model referenced that aren't in the cache (and had no coord
       // fallback), so they were dropped. Reported back so the agent re-searches instead
@@ -819,6 +654,55 @@ export function buildMaposCustomTools(
           vaultPaths.push(f.path);
           return;
         }
+
+        // A route line, referenced by an opaque get_directions handle. Geometry is
+        // resolved HERE from the stash so it never round-trips through the model.
+        if (f.route_id) {
+          const geom = resolveGeometryId(f.route_id).geometry;
+          if (geom.type !== "LineString") {
+            throw new Error(
+              `Geometry id "${f.route_id}" is a ${geom.type}, not a line. Pass a route_id from get_directions.`
+            );
+          }
+          const lineId = `${layerId}:line-${i}`;
+          lines.push({
+            id: lineId,
+            coordinates: geom.coordinates as [number, number][],
+            title: f.title,
+            ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
+          });
+          refs.push(`overlay:${lineId}`);
+          return;
+        }
+
+        // A polygon/area, referenced by an isochrone_id or geo_compute geometry_id. A
+        // MultiPolygon expands to several shapes.
+        const polyHandle = f.geometry_id ?? f.isochrone_id;
+        if (polyHandle) {
+          const geom = resolveGeometryId(polyHandle).geometry;
+          let ringSets: [number, number][][][];
+          if (geom.type === "Polygon") {
+            ringSets = [geom.coordinates as [number, number][][]];
+          } else if (geom.type === "MultiPolygon") {
+            ringSets = geom.coordinates as [number, number][][][];
+          } else {
+            throw new Error(
+              `Geometry id "${polyHandle}" is a ${geom.type}, not a polygon. Pass an isochrone_id or a polygon geometry_id.`
+            );
+          }
+          ringSets.forEach((rings, j) => {
+            const polyId = `${layerId}:polygon-${i}${ringSets.length > 1 ? `-${j}` : ""}`;
+            polygons.push({
+              id: polyId,
+              coordinates: rings.map(closeRing),
+              title: f.title,
+              ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
+            });
+            refs.push(`overlay:${polyId}`);
+          });
+          return;
+        }
+
         // Namespace with the layer id so ids stay unique across accumulated layers.
         const id = `${layerId}:feature-${i}`;
 
@@ -872,17 +756,19 @@ export function buildMaposCustomTools(
       // Vault paths ride along on the layer: the renderer resolves them against the
       // places index and draws their markers, since a presented place may lie outside
       // the selected folder and would otherwise have no marker on the map.
-      if ((points.length > 0 || vaultPaths.length > 0) && !mainWindow.isDestroyed()) {
+      if (
+        (points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0) &&
+        !mainWindow.isDestroyed()
+      ) {
         const layer: MapOverlayLayer = {
           id: layerId,
           layerName: args.layer_name ?? "search-results",
           points,
-          lines: [],
-          polygons: [],
+          lines,
+          polygons,
           ...(vaultPaths.length > 0 ? { vaultPaths } : {})
         };
         mainWindow.webContents.send("map:overlay-add", layer);
-        onLayerUpdate(layer);
       }
 
       return TEXT_RESULT(
@@ -900,23 +786,6 @@ export function buildMaposCustomTools(
             "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
         })
       );
-    }
-  });
-
-  const clearMapOverlay = defineTool({
-    name: "clear_map_overlay",
-    label: "Clear map overlay",
-    description:
-      "Remove ALL temporary overlay layers from the map (every result set shown this conversation). Call only when the user explicitly asks to clear the map. Result sets otherwise stay on the map and accumulate, so you rarely need this.",
-    parameters: Type.Object({}),
-    execute: async () => {
-      if (hasLayers()) {
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("map:overlay-clear");
-        }
-        onLayersClear();
-      }
-      return TEXT_RESULT("Cleared all overlay layers");
     }
   });
 
@@ -1093,7 +962,7 @@ export function buildMaposCustomTools(
       "For a second operand (union/intersect) use `geometry_b_id` or `geometry_b`. Geometry-producing " +
       "ops (buffer, centroid, convex_hull, simplify, union, intersect) DON'T return raw coordinates — " +
       "they stash the result and return a new `geometry_id` (plus type/pointCount/bbox) you pass " +
-      "straight to render_overlay_on_map, query_within_polygon, or save_features_to_vault. Measurement " +
+      "straight to present_features, query_within_polygon, or save_features_to_vault. Measurement " +
       "ops (area, length, bbox) and clusters_dbscan return their values inline. Operations:\n" +
       "- buffer — expand a shape by `params.radius_m` meters → Polygon.\n" +
       "- area — square meters of a polygon (returns { area_m2 }).\n" +
@@ -1540,7 +1409,7 @@ export function buildMaposCustomTools(
     name: "get_directions",
     label: "Get directions",
     description:
-      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to render it, pass the `route_id` to a `render_overlay_on_map` lines entry; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
+      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to draw it, pass the `route_id` to `present_features` as a feature with `route_id`; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
     parameters: Type.Object({
       locations: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
         minItems: 2,
@@ -1587,7 +1456,7 @@ export function buildMaposCustomTools(
     name: "present_directions",
     label: "Present directions",
     description:
-      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: origin/destination inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT render_overlay_on_map — when the user wants directions to somewhere and will read the steps or adjust the endpoints. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. Set `destination` (required); omit `origin` to default to the user's current location, exactly like the app's own Get-directions button. Each endpoint is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
+      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: origin/destination inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT present_features — when the user wants directions to somewhere and will read the steps or adjust the endpoints. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. Set `destination` (required); omit `origin` to default to the user's current location, exactly like the app's own Get-directions button. Each endpoint is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
     parameters: Type.Object({
       destination: directionsEndpointSchema,
       origin: Type.Optional(directionsEndpointSchema),
@@ -1664,7 +1533,7 @@ export function buildMaposCustomTools(
     name: "get_isochrone",
     label: "Get isochrone",
     description:
-      "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has an `isochrone_id` (opaque handle to the polygon, kept off the LLM boundary) plus pointCount and bbox. To render a contour, pass its `isochrone_id` to a render_overlay_on_map `polygons` entry; to find places inside it, pass it as `query_within_polygon`'s `region_id`; to intersect two isochrones, pass their ids to geo_compute. Do not try to retrieve or re-emit the polygon coordinates yourself.",
+      "Compute reachable-area polygon(s) from a location for one or more time contours (in minutes). Returns contours sorted ascending by minutes; each has an `isochrone_id` (opaque handle to the polygon, kept off the LLM boundary) plus pointCount and bbox. To draw a contour, pass its `isochrone_id` to `present_features` as a feature with `isochrone_id`; to find places inside it, pass it as `query_within_polygon`'s `region_id`; to intersect two isochrones, pass their ids to geo_compute. Do not try to retrieve or re-emit the polygon coordinates yourself.",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),
@@ -2815,8 +2684,6 @@ export function buildMaposCustomTools(
 
   const annotationsByName: Record<string, ToolAnnotations> = {
     present_features: MAP_EFFECT,
-    render_overlay_on_map: MAP_EFFECT,
-    clear_map_overlay: MAP_EFFECT_IDEMPOTENT,
     pan_to: MAP_EFFECT_IDEMPOTENT,
     open_file: MAP_EFFECT,
     get_viewport: READ_ONLY,
@@ -2856,8 +2723,6 @@ export function buildMaposCustomTools(
 
   const tools: ToolDefinition[] = [
     presentFeatures,
-    renderOverlayOnMap,
-    clearMapOverlay,
     querySpatialIndexTool,
     findNear,
     queryWithinPolygonTool,

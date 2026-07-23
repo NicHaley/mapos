@@ -42,6 +42,7 @@ export type NavAction =
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
   | { type: "update-entry"; filePath: string; place: PlaceRecord }
+  | { type: "update-list"; layerId: string; layer: MapOverlayLayer }
   | {
       type: "update-directions";
       id: string;
@@ -254,6 +255,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           history: tab.history.map((entry) =>
             entry.kind === "place" && entry.place.filePath === action.filePath
               ? { ...entry, place: action.place }
+              : entry
+          )
+        }))
+      };
+    }
+    case "update-list": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "list" && entry.layerId === action.layerId
+              ? { ...entry, layer: action.layer }
               : entry
           )
         }))

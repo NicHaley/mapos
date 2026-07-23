@@ -268,6 +268,16 @@ function findOverlayGeometry(layers: MapOverlayLayer[], id: string): GeoJSONGeom
   return null;
 }
 
+/** Look up an overlay point by id across all layers — the point carries its own
+ *  properties (category/address/…), so its card is richer than the geometry-only path. */
+function findOverlayPoint(layers: MapOverlayLayer[], id: string): OverlayPoint | null {
+  for (const layer of layers) {
+    const point = layer.points.find((p) => p.id === id);
+    if (point) return point;
+  }
+  return null;
+}
+
 const POINT_FILTER = ["==", ["geometry-type"], "Point"];
 const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
 const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
@@ -472,11 +482,6 @@ const MapView = forwardRef<
   } | null>(null);
 
   const [folderPlaces, setFolderPlaces] = useState<PlaceRecord[]>([]);
-  /** All overlay points across layers, each tagged with its layer id for focus dimming. */
-  const overlayPoints = useMemo(
-    () => overlayLayers.flatMap((l) => l.points.map((p) => ({ ...p, layerId: l.id }))),
-    [overlayLayers]
-  );
 
   const onSelectedFeaturePositionRef = useRef(onSelectedFeaturePosition);
   onSelectedFeaturePositionRef.current = onSelectedFeaturePosition;
@@ -849,10 +854,23 @@ const MapView = forwardRef<
         const features: Array<{
           type: "Feature";
           geometry:
+            | { type: "Point"; coordinates: [number, number] }
             | { type: "LineString"; coordinates: [number, number][] }
             | { type: "Polygon"; coordinates: [number, number][][] };
           properties: Record<string, unknown>;
         }> = [];
+        for (const pt of l.points) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [pt.lng, pt.lat] },
+            properties: {
+              kind: "overlay",
+              overlayId: pt.id,
+              title: pt.title,
+              preview_markdown: pt.preview_markdown
+            }
+          });
+        }
         for (const ln of l.lines) {
           features.push({
             type: "Feature",
@@ -1079,6 +1097,13 @@ const MapView = forwardRef<
         const title = (feature.properties.title as string | undefined) ?? "Map overlay";
         const previewMarkdown = (feature.properties.preview_markdown as string | undefined) ?? "";
         try {
+          // A point carries its own properties (category/address/…) — build its card from
+          // the source point so those survive; MapLibre feature.properties are stringified.
+          const point = findOverlayPoint(overlayLayers, id);
+          if (point) {
+            onSelectPlace?.(placeFromOverlayPoint(point), clickMeta);
+            return;
+          }
           // MapLibre clips `feature.geometry` to the vector tile the click landed
           // in, so a polygon spanning multiple tiles comes back as just the clicked
           // tile's slice. Recover the full, unclipped geometry from the source data
@@ -1151,7 +1176,12 @@ const MapView = forwardRef<
       ids.push("selected-circle", "selected-fill", "selected-line");
     }
     for (const { sourceId } of overlayLayerSources) {
-      ids.push(`${sourceId}-polygons`, `${sourceId}-lines-hit`, `${sourceId}-lines`);
+      ids.push(
+        `${sourceId}-polygons`,
+        `${sourceId}-lines-hit`,
+        `${sourceId}-lines`,
+        `${sourceId}-points`
+      );
     }
     for (const { sourceId } of augmentedGeoJsonLayers) {
       ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
@@ -1368,36 +1398,6 @@ const MapView = forwardRef<
             />
           </Source>
         )}
-        {showOverlay &&
-          overlayPoints.map((p) => {
-            const dimmed = focusedFeatureId != null && p.id !== focusedFeatureId;
-            return (
-              <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="center">
-                <button
-                  type="button"
-                  title={p.title}
-                  onPointerDown={(ev) => ev.stopPropagation()}
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    onSelectPlace?.(placeFromOverlayPoint(p));
-                  }}
-                  className="block p-0 m-0 border-0 bg-transparent cursor-pointer"
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: "50%",
-                    // Accent chip with a white dashed border; monochrome adapts to the theme
-                    // (light-on-dark / dark-on-light) so the chip and border always contrast.
-                    backgroundColor: accentColor ?? foregroundColor,
-                    border: `2px dashed ${accentColor ? "white" : isDark ? "#111111" : "#ffffff"}`,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                    opacity: dimmed ? UNFOCUSED_OPACITY : 1,
-                    transition: "opacity 120ms ease-out"
-                  }}
-                />
-              </Marker>
-            );
-          })}
         {augmentedGeoJsonLayers.map(({ sourceId, data }) => (
           // @ts-expect-error - GeoJSON structure is valid; maplibre types are strict
           <Source key={sourceId} id={sourceId} type="geojson" data={data}>
@@ -1474,6 +1474,22 @@ const MapView = forwardRef<
                     "line-width": 2,
                     "line-opacity": lineOpacity,
                     "line-dasharray": [2, 1]
+                  }}
+                />
+                {/* Overlay points as a GeoJSON circle layer (not HTML markers) so a large
+                    result set stays cheap — MapLibre draws thousands of points as one layer. */}
+                <Layer
+                  id={`${sourceId}-points`}
+                  type="circle"
+                  // @ts-expect-error - MapLibre filter expression
+                  filter={POINT_FILTER}
+                  paint={{
+                    "circle-radius": 6,
+                    "circle-color": accentColor ?? foregroundColor,
+                    "circle-opacity": lineOpacity,
+                    "circle-stroke-width": 2,
+                    "circle-stroke-color": accentColor ? "#ffffff" : isDark ? "#111111" : "#ffffff",
+                    "circle-stroke-opacity": lineOpacity
                   }}
                 />
               </Source>

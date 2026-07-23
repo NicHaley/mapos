@@ -1,15 +1,17 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@mapos/ui/components/avatar";
 import { Button } from "@mapos/ui/components/button";
-import { Command, CommandGroup, CommandItem, CommandList } from "@mapos/ui/components/command";
 import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { isVaultRelativePath, vaultImageUrl } from "@renderer/extensions/vault-image-extension";
 import { type MapOverlayLayer, isServableImageFile } from "@shared/types";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   FileTextIcon,
   Loader2Icon,
   MapPinIcon,
+  PentagonIcon,
   PlusIcon,
+  RouteIcon,
   TextSearchIcon,
   XIcon
 } from "lucide-react";
@@ -17,10 +19,14 @@ import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState }
 import { FolderPickerPopover } from "./folder-picker-popover";
 import type { PlaceRecord } from "./map-view";
 
-/** One rendered list row, normalized from an overlay point or a resolved vault place. */
+/** The geometry a row stands for — drives its icon and how a click frames the map. */
+export type FeatureGeometryKind = "point" | "line" | "polygon";
+
+/** One rendered list row, normalized from an overlay point/line/polygon or a vault place. */
 export type FeatureListRow = {
   id: string;
   title: string;
+  geometryKind: FeatureGeometryKind;
   /** Present when the feature has point geometry — enables click-to-focus on the map. */
   lat?: number;
   lng?: number;
@@ -143,6 +149,8 @@ export type FeaturesListPanelProps = {
   onOpenFeature: (row: FeatureListRow) => void;
   /** Copy the given overlay features into `folderPath` (repeatable). */
   onSaveFeatures: (rowIds: string[], folderPath: string | null) => Promise<void>;
+  /** Remove one feature from this transient list (does not touch the vault). */
+  onDismissFeature: (rowId: string) => void;
 };
 
 /**
@@ -159,12 +167,14 @@ export function FeaturesListPanel({
   defaultParentFolderPath,
   onClose,
   onOpenFeature,
-  onSaveFeatures
+  onSaveFeatures,
+  onDismissFeature
 }: FeaturesListPanelProps): React.JSX.Element {
   const [savingIds, setSavingIds] = useState<ReadonlySet<string>>(new Set());
   const [addAllOpen, setAddAllOpen] = useState(false);
   // Id of the row whose folder picker is open (one at a time), or null when none.
   const [saveRowId, setSaveRowId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const rows = useMemo<FeatureListRow[]>(() => {
     if (!layer) return [];
@@ -173,12 +183,31 @@ export function FeaturesListPanel({
       out.push({
         id: p.id,
         title: p.title,
+        geometryKind: "point",
         lat: p.lat,
         lng: p.lng,
         preview: firstLine(p.preview_markdown),
         category: p.properties?.category,
         address: p.properties?.address,
         wikidataId: p.properties?.wikidata_id,
+        isVault: false
+      });
+    }
+    for (const l of layer.lines) {
+      out.push({
+        id: l.id,
+        title: l.title || "Route",
+        geometryKind: "line",
+        preview: firstLine(l.preview_markdown),
+        isVault: false
+      });
+    }
+    for (const pg of layer.polygons) {
+      out.push({
+        id: pg.id,
+        title: pg.title || "Area",
+        geometryKind: "polygon",
+        preview: firstLine(pg.preview_markdown),
         isVault: false
       });
     }
@@ -189,6 +218,7 @@ export function FeaturesListPanel({
       out.push({
         id: `vault:${path}`,
         title: place.title,
+        geometryKind: "point",
         ...(coords ? { lng: coords[0], lat: coords[1] } : {}),
         category: place.properties?.category,
         address: place.properties?.address,
@@ -199,10 +229,20 @@ export function FeaturesListPanel({
     return out;
   }, [layer, placesByPath]);
 
-  /** Overlay features that can be written (vault rows are already files). Saving is
-   *  repeatable — a place can be copied into any number of folders — so there's no
-   *  "already saved" state to exclude here. */
-  const overlayIds = useMemo(() => rows.filter((r) => !r.isVault).map((r) => r.id), [rows]);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 52,
+    overscan: 10
+  });
+
+  /** Overlay point features that can be written (vault rows are already files; the save
+   *  path is point-only). Saving is repeatable — a place can be copied into any number of
+   *  folders — so there's no "already saved" state to exclude here. */
+  const overlayIds = useMemo(
+    () => rows.filter((r) => !r.isVault && r.geometryKind === "point").map((r) => r.id),
+    [rows]
+  );
 
   const saveIds = useCallback(
     async (ids: string[], folderPath: string | null) => {
@@ -267,47 +307,65 @@ export function FeaturesListPanel({
           <p className="text-muted-foreground text-sm">No features in this list.</p>
         </div>
       ) : (
-        <Command shouldFilter={false} loop className="flex min-h-0 flex-1 flex-col bg-transparent">
-          <CommandList className="max-h-none min-h-0 flex-1">
-            <CommandGroup>
-              {rows.map((row) => {
-                const saving = savingIds.has(row.id);
-                const RowIcon = row.isVault ? FileTextIcon : MapPinIcon;
-                return (
-                  <CommandItem
-                    key={row.id}
-                    value={row.id}
-                    onSelect={() => onOpenFeature(row)}
-                    className="group items-center rounded-md"
-                  >
-                    <RowThumbnail
-                      wikidataId={row.wikidataId}
-                      vaultFilePath={row.filePath}
-                      fallbackIcon={RowIcon}
-                    />
-                    <div className="flex min-w-0 flex-1 flex-col text-left">
-                      <div className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="max-w-full shrink-0 truncate font-medium leading-tight">
-                          {row.title}
-                        </span>
-                        {row.category ? (
-                          <span className="min-w-0 truncate text-muted-foreground text-xs leading-tight capitalize">
-                            {row.category.replace(/_/g, " ")}
+        // Virtualized so a large result set (thousands of features) renders only the rows
+        // in view — the map draws the full set via its symbol layer, not this list.
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+          <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+            {virtualizer.getVirtualItems().map((vItem) => {
+              const row = rows[vItem.index];
+              const saving = savingIds.has(row.id);
+              const canSave = !row.isVault && row.geometryKind === "point";
+              const RowIcon = row.isVault
+                ? FileTextIcon
+                : row.geometryKind === "line"
+                  ? RouteIcon
+                  : row.geometryKind === "polygon"
+                    ? PentagonIcon
+                    : MapPinIcon;
+              return (
+                <div
+                  key={row.id}
+                  data-index={vItem.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute top-0 left-0 w-full"
+                  style={{ transform: `translateY(${vItem.start}px)` }}
+                >
+                  {/* The row itself is the button; per-row actions are absolutely-positioned
+                      siblings, not descendants, so we don't nest buttons inside a button. The
+                      hover background lives on the wrapper (matching CommandItem) so hovering an
+                      action button keeps the whole row highlighted. */}
+                  <div className="group relative rounded-md transition-colors hover:bg-hover">
+                    <button
+                      type="button"
+                      onClick={() => onOpenFeature(row)}
+                      className="flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 pr-14 text-left text-sm outline-hidden focus-visible:bg-hover"
+                    >
+                      <RowThumbnail
+                        wikidataId={row.wikidataId}
+                        vaultFilePath={row.filePath}
+                        fallbackIcon={RowIcon}
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col text-left">
+                        <div className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="max-w-full shrink-0 truncate font-medium leading-tight">
+                            {row.title}
+                          </span>
+                          {row.category ? (
+                            <span className="min-w-0 truncate text-muted-foreground text-xs leading-tight capitalize">
+                              {row.category.replace(/_/g, " ")}
+                            </span>
+                          ) : null}
+                        </div>
+                        {(row.address ?? row.preview) ? (
+                          <span className="mt-0.5 truncate text-muted-foreground text-xs leading-tight">
+                            {row.address ?? row.preview}
                           </span>
                         ) : null}
                       </div>
-                      {(row.address ?? row.preview) ? (
-                        <span className="mt-0.5 truncate text-muted-foreground text-xs leading-tight">
-                          {row.address ?? row.preview}
-                        </span>
-                      ) : null}
-                    </div>
-                    {row.isVault ? null : (
-                      <span
-                        data-slot="command-shortcut"
-                        className="ml-auto flex shrink-0 items-center"
-                      >
-                        {saving ? (
+                    </button>
+                    <span className="-translate-y-1/2 absolute top-1/2 right-1.5 flex items-center gap-0.5">
+                      {canSave &&
+                        (saving ? (
                           <Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
                         ) : (
                           <FolderPickerPopover
@@ -325,21 +383,29 @@ export function FeaturesListPanel({
                                 className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
                                 aria-label="Save to vault"
                                 title="Save to folder"
-                                onClick={(e) => e.stopPropagation()}
                               >
                                 <PlusIcon className="size-4" />
                               </Button>
                             }
                           />
-                        )}
-                      </span>
-                    )}
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+                        ))}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+                        aria-label="Remove from list"
+                        title="Remove from list"
+                        onClick={() => onDismissFeature(row.id)}
+                      >
+                        <XIcon className="size-4" />
+                      </Button>
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

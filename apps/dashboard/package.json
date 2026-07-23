@@ -29,6 +29,7 @@
     "@mapos/ui": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@protomaps/basemaps": "^5.7.2",
+    "@tanstack/react-virtual": "^3.13.12",
     "@tiptap/extension-image": "^3.27.1",
     "@turf/area": "^7.3.5",
     "@turf/bbox": "^7.3.4",

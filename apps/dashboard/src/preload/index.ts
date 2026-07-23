@@ -48,7 +48,6 @@ const api = {
   map: {
     onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) =>
       ipcRenderer.on("map:overlay-add", (_e, layer) => cb(layer)),
-    onOverlayClear: (cb: () => void) => ipcRenderer.on("map:overlay-clear", () => cb()),
     sendViewport: (data: {
       north: number;
       south: number;
@@ -64,10 +63,9 @@ const api = {
       ipcRenderer.removeAllListeners("map:pan-to");
       ipcRenderer.removeAllListeners("map:viewport-update");
     },
-    /** Overlay listeners are owned by App (shared with Chat); not cleared by MapView.removeListeners. */
+    /** Overlay listener is owned by App; not cleared by MapView.removeListeners. */
     removeOverlayListeners: () => {
       ipcRenderer.removeAllListeners("map:overlay-add");
-      ipcRenderer.removeAllListeners("map:overlay-clear");
     }
   },
   nav: {

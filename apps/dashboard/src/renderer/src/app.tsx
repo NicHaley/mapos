@@ -60,9 +60,6 @@ const MAIN_PANE_MAX_WIDTH = 40 * BASE_UNITS;
 const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
 const FIT_BUFFER = 2.5 * BASE_UNITS;
 
-/** Above this many points, an overlay is treated as a bulk map layer, not a browsable list. */
-const LIST_MAX_FEATURES = 200;
-
 const SIDEBAR_KB_PROJECT: SidebarKeyboardShortcutConfig = { shift: false };
 
 /** Lines, polygons, etc. — pulse should anchor at map click; Points use geometry coordinates. */
@@ -121,6 +118,28 @@ function pointsFeatureCollection(points: Array<{ lat: number; lng: number }>) {
   };
 }
 
+/** Wrap raw GeoJSON geometries as a FeatureCollection for framing via fitToGeoJson. */
+function geometryFeatureCollection(geometries: Array<Record<string, unknown>>) {
+  return {
+    type: "FeatureCollection" as const,
+    features: geometries.map((geometry) => ({
+      type: "Feature" as const,
+      geometry,
+      properties: null
+    }))
+  };
+}
+
+/** All of a layer's geometry (points, lines, polygons) as a FeatureCollection, for framing
+ *  the whole overlay — geometry-agnostic, so a route or area frames like a point set. */
+function overlayFeatureCollection(layer: MapOverlayLayer) {
+  return geometryFeatureCollection([
+    ...layer.points.map((p) => ({ type: "Point", coordinates: [p.lng, p.lat] })),
+    ...layer.lines.map((l) => ({ type: "LineString", coordinates: l.coordinates })),
+    ...layer.polygons.map((pg) => ({ type: "Polygon", coordinates: pg.coordinates }))
+  ]);
+}
+
 /** Directory containing a vault file path (browser-safe; avoids Node `path` in the renderer bundle). */
 function parentFolderOfVaultFile(filePath: string): string {
   const n = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
@@ -174,8 +193,6 @@ function App(): React.JSX.Element {
   const [mapPeekPlace, setMapPeekPlace] = useState<PlaceRecord | null>(null);
   /** Last real vault file path (kept when switching to a Photon search preview). */
   const [lastVaultFilePath, setLastVaultFilePath] = useState<string | null>(null);
-  /** Accumulated overlay layers currently rendered on the map (driven over map:overlay-add). */
-  const [overlayLayers, setOverlayLayers] = useState<MapOverlayLayer[]>([]);
   // Route overlay for the active directions tab, lifted from DirectionsPanel so it draws
   // on the map (mirrors how a list tab's layer rides in visibleOverlayLayers).
   const [directionsRouteLayer, setDirectionsRouteLayer] = useState<MapOverlayLayer | null>(null);
@@ -228,14 +245,6 @@ function App(): React.JSX.Element {
     }),
     [projectSidebarOpen, projectSidebarWidth, mainPaneWidth]
   );
-
-  const addLayer = useCallback((layer: MapOverlayLayer) => {
-    setOverlayLayers((prev) => [...prev.filter((l) => l.id !== layer.id), layer]);
-  }, []);
-  const clearLayers = useCallback(() => {
-    setOverlayLayers([]);
-    setFocusedFeatureId(null);
-  }, []);
 
   useEffect(() => {
     const p = selectedPlace?.filePath;
@@ -395,20 +404,12 @@ function App(): React.JSX.Element {
 
   const placesByPath = usePlacesIndex();
 
-  /** A new overlay layer arrived (agent present/render, or user search). Pickable,
-   *  human-scale result sets become a list ("working set") tab whose layer rides in the
-   *  nav entry — drawn only while that tab is active, so closing the tab clears its markers.
-   *  Everything else (routes, isochrones, bulk point dumps) is an ambient map layer that
-   *  accumulates until explicitly cleared. */
+  /** A new overlay layer arrived (agent present_features, or a user search). It always
+   *  becomes a list ("working set") tab whose layer rides in the nav entry — drawn only
+   *  while that tab is active, so closing the tab clears its features. Nothing floats
+   *  unowned on the map. */
   const handleOverlayLayer = useCallback(
     (layer: MapOverlayLayer) => {
-      const pickable =
-        (layer.points.length > 0 && layer.points.length <= LIST_MAX_FEATURES) ||
-        (layer.vaultPaths?.length ?? 0) > 0;
-      if (!pickable) {
-        addLayer(layer);
-        return;
-      }
       dispatchNav({
         type: "navigate",
         entry: { kind: "list", layerId: layer.id, label: layer.layerName || "Results", layer },
@@ -421,14 +422,15 @@ function App(): React.JSX.Element {
       setFeatureScreenPos(null);
       setMapPeekPlace(null);
       setSelectionPulseAnchor(null);
-      if (layer.points.length > 0) {
-        mapRef.current?.fitToGeoJson(pointsFeatureCollection(layer.points), getMapPadding(true));
+      const frame = overlayFeatureCollection(layer);
+      if (frame.features.length > 0) {
+        mapRef.current?.fitToGeoJson(frame, getMapPadding(true));
       }
     },
-    [addLayer, dispatchNav, getMapPadding]
+    [dispatchNav, getMapPadding]
   );
 
-  useMapOverlaySync({ selectedPlaceRef, clearPlace, addLayer: handleOverlayLayer, clearLayers });
+  useMapOverlaySync({ addLayer: handleOverlayLayer });
 
   /** Current active tab entry — drives which pane (place / list / folder) is shown. */
   const activeNavEntry = useMemo(() => {
@@ -454,13 +456,13 @@ function App(): React.JSX.Element {
     activeListLayer !== null ||
     activeDirectionsEntry !== null;
 
-  /** Overlay layers drawn now: ambient layers (routes/isochrones/bulk) plus the active
-   *  list tab's layer or the active directions tab's route. Both live in per-tab state, not
-   *  in `overlayLayers`, so a closed or backgrounded tab draws nothing. */
+  /** Overlay layers drawn now: the active list tab's layer, or the active directions tab's
+   *  route. Both live in per-tab state, so a closed or backgrounded tab draws nothing — no
+   *  layer floats unowned. */
   const visibleOverlayLayers = useMemo(() => {
     const extra = activeListLayer ?? activeDirectionsRoute;
-    return extra ? [...overlayLayers, extra] : overlayLayers;
-  }, [overlayLayers, activeListLayer, activeDirectionsRoute]);
+    return extra ? [extra] : [];
+  }, [activeListLayer, activeDirectionsRoute]);
 
   /** Directions panel reports its computed route (or null); frame it on the map. */
   const handleDirectionsRouteChange = useCallback(
@@ -537,10 +539,23 @@ function App(): React.JSX.Element {
     [openDirectionsTab]
   );
 
-  /** Click a list row: open the mini place card over its marker (same as clicking the
-   *  marker on the map). Overlay points become a preview card; vault rows open their place. */
+  /** Click a list row: for a point, open the mini place card over its marker (same as
+   *  clicking the marker). For a line or polygon there's no card — just frame it. */
   const handleOpenListRow = useCallback(
     (row: FeatureListRow) => {
+      if (row.geometryKind === "line" || row.geometryKind === "polygon") {
+        const geometry =
+          row.geometryKind === "line"
+            ? activeListLayer?.lines.find((l) => l.id === row.id)
+            : activeListLayer?.polygons.find((pg) => pg.id === row.id);
+        if (!geometry) return;
+        const feature =
+          row.geometryKind === "line"
+            ? { type: "LineString", coordinates: geometry.coordinates }
+            : { type: "Polygon", coordinates: geometry.coordinates };
+        mapRef.current?.fitToGeoJson(geometryFeatureCollection([feature]), getMapPadding(true));
+        return;
+      }
       let place: PlaceRecord | null = null;
       if (row.isVault) {
         place = placesByPath.get(row.id.slice("vault:".length)) ?? null;
@@ -563,6 +578,26 @@ function App(): React.JSX.Element {
       }
     },
     [activeListLayer, placesByPath, getMapPadding]
+  );
+
+  /** Remove one feature from the active list layer (does not touch the vault). Rebuilds
+   *  the layer without that id and updates the nav entry so the map + list stay in sync. */
+  const handleDismissListFeature = useCallback(
+    (rowId: string) => {
+      if (!activeListLayer) return;
+      const next: MapOverlayLayer = {
+        ...activeListLayer,
+        points: activeListLayer.points.filter((p) => p.id !== rowId),
+        lines: activeListLayer.lines.filter((l) => l.id !== rowId),
+        polygons: activeListLayer.polygons.filter((pg) => pg.id !== rowId),
+        ...(activeListLayer.vaultPaths
+          ? { vaultPaths: activeListLayer.vaultPaths.filter((p) => `vault:${p}` !== rowId) }
+          : {})
+      };
+      if (focusedFeatureId === rowId) setFocusedFeatureId(null);
+      dispatchNav({ type: "update-list", layerId: activeListLayer.id, layer: next });
+    },
+    [activeListLayer, focusedFeatureId, dispatchNav]
   );
 
   /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
@@ -1001,7 +1036,7 @@ function App(): React.JSX.Element {
    *  open it as a working-set tab (the same surface the agent's present_features uses). */
   const handleOpenSearchResults = useCallback(
     (results: GeocodeSearchResult[], query: string, files: PlaceRecord[]) => {
-      const points = results.slice(0, LIST_MAX_FEATURES).map((r) => {
+      const points = results.map((r) => {
         const properties = detailPropertiesFromGeocodeResult(r);
         return {
           id: `search-${r.id}`,
@@ -1576,6 +1611,7 @@ function App(): React.JSX.Element {
               onClose={() => handleNavTabClose(activeTabIndex)}
               onOpenFeature={handleOpenListRow}
               onSaveFeatures={handleSaveListFeatures}
+              onDismissFeature={handleDismissListFeature}
             />
             <ResizeHandle
               side="right"

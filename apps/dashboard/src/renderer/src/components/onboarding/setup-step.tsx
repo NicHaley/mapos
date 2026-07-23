@@ -228,7 +228,18 @@ export function SetupStep({
         onDraftChange={onDraftChange}
       />
 
-      <Sheet open={connectOpen} onOpenChange={setConnectOpen}>
+      <Sheet
+        open={connectOpen}
+        onOpenChange={(open) => {
+          setConnectOpen(open);
+          // The nested sheet can disable the server or rotate the token — both clear the
+          // connected latch on the main process. Refetch on close so the row doesn't keep
+          // showing a stale "Connected".
+          if (!open) {
+            void window.api.mcp.getConnectionInfo().then((info) => setLastClient(info.lastClient));
+          }
+        }}
+      >
         <SheetContent side="right" className="data-[side=right]:sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Connect an AI client</SheetTitle>

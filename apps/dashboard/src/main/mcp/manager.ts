@@ -109,6 +109,9 @@ export class McpManager {
   /** Rotate the accepted token (existing clients must re-connect with the new one). */
   setToken(token: string): void {
     this.token = token;
+    // Rotating the token revokes the prior client's access until it adopts the new value, so
+    // the "connected" latch is stale now — same reasoning as stop().
+    this.lastClient = null;
   }
 
   /** (Re)build the tool set for the active vault. Called from bootVault once it's ready. */

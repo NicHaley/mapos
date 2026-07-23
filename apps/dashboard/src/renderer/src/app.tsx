@@ -361,10 +361,8 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
-        // Frame the known endpoints; the panel refits to the full route once it computes.
-        const ends = [entry.origin, entry.destination].filter(
-          (w): w is DirectionsWaypoint => w !== null
-        );
+        // Frame the known stops; the panel refits to the full route once it computes.
+        const ends = entry.stops.filter((w): w is DirectionsWaypoint => w !== null);
         if (ends.length > 0) {
           mapRef.current?.fitToGeoJson(pointsFeatureCollection(ends), getMapPadding(true));
         }
@@ -491,19 +489,19 @@ function App(): React.JSX.Element {
     [getMapPadding]
   );
 
-  /** Open a Directions tab for the given destination. When `origin` is null, default it to
-   *  the user's current location (blank if unavailable) — the app's Get-directions behavior. */
+  /** Open a Directions tab for the given ordered stops (stops[0] = origin, last =
+   *  destination). When the first stop is null, default it to the user's current location
+   *  (left blank if unavailable) — the app's Get-directions behavior. */
   const openDirectionsTab = useCallback(
-    (destination: DirectionsWaypoint, origin: DirectionsWaypoint | null, mode: TravelMode) => {
-      const open = (resolvedOrigin: DirectionsWaypoint | null): void => {
+    (stops: (DirectionsWaypoint | null)[], mode: TravelMode) => {
+      const open = (resolvedStops: (DirectionsWaypoint | null)[]): void => {
         dispatchNav({
           type: "navigate",
           entry: {
             kind: "directions",
             id: crypto.randomUUID(),
             label: "Directions",
-            origin: resolvedOrigin,
-            destination,
+            stops: resolvedStops,
             mode
           },
           newTab: true,
@@ -516,14 +514,17 @@ function App(): React.JSX.Element {
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
       };
-      if (origin) {
-        open(origin);
+      if (stops[0]) {
+        open(stops);
         return;
       }
       navigator.geolocation.getCurrentPosition(
         (pos) =>
-          open({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" }),
-        () => open(null),
+          open([
+            { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" },
+            ...stops.slice(1)
+          ]),
+        () => open(stops),
         { enableHighAccuracy: true, timeout: 10000 }
       );
     },
@@ -534,7 +535,7 @@ function App(): React.JSX.Element {
   const handleGetDirections = useCallback(
     (place: PlaceRecord) => {
       const destination = waypointFromPlace(place);
-      if (destination) openDirectionsTab(destination, null, "auto");
+      if (destination) openDirectionsTab([null, destination], "auto");
     },
     [openDirectionsTab]
   );
@@ -849,9 +850,9 @@ function App(): React.JSX.Element {
       const place = await window.api.places.getByPath(path);
       if (place) handleSelectPlaceFromSidebar(place);
     });
-    // `present_directions`: open a Directions tab for the endpoints the agent resolved.
-    window.api.nav.onOpenDirections(({ origin, destination, mode }) => {
-      openDirectionsTab(destination, origin, mode);
+    // `present_directions`: open a Directions tab for the stops the agent resolved.
+    window.api.nav.onOpenDirections(({ stops, mode }) => {
+      openDirectionsTab(stops, mode);
     });
     return () => window.api.nav.removeListeners();
   }, [handleSelectPlaceFromSidebar, openDirectionsTab]);
@@ -1635,16 +1636,14 @@ function App(): React.JSX.Element {
             <DirectionsPanel
               key={activeDirectionsEntry.id}
               id={activeDirectionsEntry.id}
-              origin={activeDirectionsEntry.origin}
-              destination={activeDirectionsEntry.destination}
+              stops={activeDirectionsEntry.stops}
               mode={activeDirectionsEntry.mode}
               files={indexedFiles}
               onChange={(next) =>
                 dispatchNav({
                   type: "update-directions",
                   id: activeDirectionsEntry.id,
-                  origin: next.origin,
-                  destination: next.destination,
+                  stops: next.stops,
                   mode: next.mode
                 })
               }

@@ -17,38 +17,39 @@ import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { formatBytes, formatDistance, formatDuration } from "@renderer/lib/format";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
 import { waypointFromPlace } from "@renderer/lib/place-waypoint";
-import { resolveCoverageAt } from "@renderer/lib/region-coverage";
+import { type Bbox, bboxArea, bboxContains, bboxUsable } from "@renderer/lib/region-coverage";
 import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import {
+  ArrowUpDownIcon,
   BikeIcon,
   CarIcon,
   CircleDotIcon,
+  CircleIcon,
   DownloadIcon,
   FileTextIcon,
   FootprintsIcon,
+  GripVerticalIcon,
   Loader2Icon,
   LocateFixedIcon,
   MapPinIcon,
-  RepeatIcon,
+  PlusIcon,
   RouteIcon,
   XIcon
 } from "lucide-react";
+import { Reorder, useDragControls } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
   id: string;
-  origin: DirectionsWaypoint | null;
-  destination: DirectionsWaypoint | null;
+  /** Ordered stops: stops[0] = origin, last = destination, any in between are waypoints.
+   *  A null entry is a blank input. Always at least two entries. */
+  stops: (DirectionsWaypoint | null)[];
   mode: TravelMode;
   /** Indexed vault places, offered alongside geocode results in the location inputs. */
   files?: PlaceRecord[];
-  /** Persist input/mode changes back to the nav entry. */
-  onChange: (next: {
-    origin: DirectionsWaypoint | null;
-    destination: DirectionsWaypoint | null;
-    mode: TravelMode;
-  }) => void;
+  /** Persist stop/mode changes back to the nav entry. */
+  onChange: (next: { stops: (DirectionsWaypoint | null)[]; mode: TravelMode }) => void;
   /** Lift the computed route (as a map overlay layer) up to the app so it draws on the map. */
   onRouteChange: (layer: MapOverlayLayer | null) => void;
   onClose: () => void;
@@ -65,8 +66,6 @@ const OFFLINE_SIGNATURES = [
   "not available offline",
   "Local Valhalla error"
 ];
-const OFFLINE_MESSAGE =
-  "This route isn’t available offline yet. Download a region pack from Settings → Offline.";
 
 /** Strip Electron's IPC-invoke wrapper + error-class prefix so the user sees the reason. */
 function cleanErrorMessage(e: unknown): string {
@@ -113,22 +112,18 @@ function sampleSegment(
 
 function buildRouteLayer(
   id: string,
-  origin: DirectionsWaypoint,
-  destination: DirectionsWaypoint,
+  stops: DirectionsWaypoint[],
   coordinates: [number, number][]
 ): MapOverlayLayer {
   return {
     id: `directions:${id}`,
     layerName: "Route",
-    points: [
-      { id: `directions:${id}:a`, lat: origin.lat, lng: origin.lng, title: origin.label },
-      {
-        id: `directions:${id}:b`,
-        lat: destination.lat,
-        lng: destination.lng,
-        title: destination.label
-      }
-    ],
+    points: stops.map((s, i) => ({
+      id: `directions:${id}:stop-${i}`,
+      lat: s.lat,
+      lng: s.lng,
+      title: s.label
+    })),
     lines: [{ id: `directions:${id}:line`, coordinates, title: "Route" }],
     polygons: []
   };
@@ -141,10 +136,16 @@ type RouteState =
   | { status: "error"; message: string }
   | { status: "needs-region" };
 
+/** Whether a missing-region route can be unblocked by one download, or is inherently
+ *  cross-region (no single pack covers the whole trip — see the one-graph note above). */
+type CoverageGap =
+  | { kind: "idle" }
+  | { kind: "download"; region: RegionRow }
+  | { kind: "cross-region" };
+
 export function DirectionsPanel({
   id,
-  origin,
-  destination,
+  stops,
   mode,
   files,
   onChange,
@@ -152,6 +153,13 @@ export function DirectionsPanel({
   onClose
 }: DirectionsPanelProps): React.JSX.Element {
   const packs = useRegionPacks(true);
+  // The resolved (non-null) stops in order — what actually gets routed. A stable key over
+  // their coordinates drives the routing/coverage effects without depending on array identity.
+  const routableStops = useMemo(
+    () => stops.filter((s): s is DirectionsWaypoint => s != null),
+    [stops]
+  );
+  const stopsKey = routableStops.map((s) => `${s.lat},${s.lng}`).join("|");
   const [route, setRoute] = useState<RouteState>({ status: "idle" });
   // Bumped to force a re-route (a needed region pack finished downloading). Kept separate
   // from the pack list so the initial pack load doesn't spuriously re-run — and flash — the route.
@@ -171,10 +179,11 @@ export function DirectionsPanel({
     if (statusRef.current === "needs-region") setRetryNonce((n) => n + 1);
   }, [packs.installedPacks]);
 
-  // Compute the route whenever the endpoints or mode change (or a retry is requested).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: retryNonce is a manual re-route trigger, not read in the body
+  // Compute the route whenever the stops or mode change (or a retry is requested). `stopsKey`
+  // is the coordinate-derived trigger; `routableStops` is read fresh from the same render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stopsKey stands in for routableStops; retryNonce is a manual re-route trigger
   useEffect(() => {
-    if (!origin || !destination) {
+    if (routableStops.length < 2) {
       setRoute({ status: "idle" });
       onRouteChangeRef.current(null);
       return;
@@ -183,10 +192,7 @@ export function DirectionsPanel({
     let cancelled = false;
     window.api.services
       .routingDirections({
-        locations: [
-          { lat: origin.lat, lng: origin.lng },
-          { lat: destination.lat, lng: destination.lng }
-        ],
+        locations: routableStops.map((s) => ({ lat: s.lat, lng: s.lng })),
         costing: mode
       })
       .then((r) => {
@@ -198,7 +204,7 @@ export function DirectionsPanel({
           maneuvers: r.maneuvers
         });
         onRouteChangeRef.current(
-          buildRouteLayer(id, origin, destination, r.geometry.coordinates as [number, number][])
+          buildRouteLayer(id, routableStops, r.geometry.coordinates as [number, number][])
         );
       })
       .catch((e: unknown) => {
@@ -214,35 +220,71 @@ export function DirectionsPanel({
     return () => {
       cancelled = true;
     };
-  }, [id, origin, destination, mode, retryNonce]);
+  }, [id, stopsKey, mode, retryNonce]);
 
-  // Which not-yet-downloaded region packs would unblock this route. Recomputed from the
-  // live pack state so the download buttons reflect progress and disappear as packs install.
-  const coverageGap = useMemo(() => {
-    if (route.status !== "needs-region" || !origin || !destination) {
-      return { downloadable: [] as RegionRow[], hasUnavailableGap: false };
+  // Offline routing runs inside a *single* region's Valhalla graph — separate packs can't be
+  // joined (their coarse tiles collide and border roads are clipped). So a download only helps
+  // when one downloadable region covers the *entire* route; otherwise the trip is cross-region
+  // and can't be routed offline at all. Recomputed live so the offer reflects download progress.
+  const coverageGap = useMemo<CoverageGap>(() => {
+    if (route.status !== "needs-region" || routableStops.length < 2) {
+      return { kind: "idle" };
     }
-    const byslug = new Map<string, RegionRow>();
-    let hasUnavailableGap = false;
-    for (const p of sampleSegment(origin, destination)) {
-      const cov = resolveCoverageAt(packs.installedPacks, packs.regions, p.lng, p.lat);
-      if (cov.kind === "covered") continue;
-      if (cov.kind === "none") hasUnavailableGap = true;
-      else byslug.set(cov.row.slug, cov.row);
+    const points: { lng: number; lat: number }[] = [];
+    for (let i = 0; i < routableStops.length - 1; i++) {
+      points.push(...sampleSegment(routableStops[i], routableStops[i + 1]));
     }
-    return { downloadable: [...byslug.values()], hasUnavailableGap };
-  }, [route.status, origin, destination, packs.installedPacks, packs.regions]);
+    const coversWholeRoute = (r: RegionRow): boolean =>
+      !!r.bbox &&
+      bboxUsable(r.bbox) &&
+      points.every((p) => bboxContains(r.bbox as Bbox, p.lng, p.lat));
+    const single = packs.regions
+      .filter(
+        (r) =>
+          r.status === "available" ||
+          r.status === "error" ||
+          r.status === "downloading" ||
+          r.status === "verifying"
+      )
+      .filter(coversWholeRoute)
+      .sort((a, b) => bboxArea(a.bbox as Bbox) - bboxArea(b.bbox as Bbox))[0];
+    return single ? { kind: "download", region: single } : { kind: "cross-region" };
+  }, [route.status, routableStops, packs.regions]);
 
-  const setEndpoints = (next: {
-    origin?: DirectionsWaypoint | null;
-    destination?: DirectionsWaypoint | null;
-    mode?: TravelMode;
-  }): void => {
-    onChange({
-      origin: next.origin !== undefined ? next.origin : origin,
-      destination: next.destination !== undefined ? next.destination : destination,
-      mode: next.mode ?? mode
-    });
+  // Stable per-row identity, aligned positionally with `stops`, so the drag reorder can track
+  // rows even when several are null (a bare index/value isn't unique). Mutated in lockstep with
+  // `stops` below; only external changes (tab restore, MCP) desync the length, reconciled at render.
+  const [rowKeys, setRowKeys] = useState<string[]>(() => stops.map((_, i) => String(i)));
+  if (rowKeys.length !== stops.length) {
+    setRowKeys(stops.map((_, i) => String(i)));
+  }
+  const nextKey = (): string => String(Math.max(-1, ...rowKeys.map(Number)) + 1);
+
+  const setStops = (next: (DirectionsWaypoint | null)[], nextMode?: TravelMode): void => {
+    onChange({ stops: next, mode: nextMode ?? mode });
+  };
+  const updateStop = (i: number, wp: DirectionsWaypoint | null): void => {
+    setStops(stops.map((s, j) => (j === i ? wp : s)));
+  };
+  const addStop = (): void => {
+    setStops([...stops, null]);
+    setRowKeys([...rowKeys, nextKey()]);
+  };
+  const removeStop = (i: number): void => {
+    if (stops.length <= 2) return;
+    setStops(stops.filter((_, j) => j !== i));
+    setRowKeys(rowKeys.filter((_, j) => j !== i));
+  };
+  // Drag reorder: motion hands back the reordered keys; remap stops to match, in lockstep.
+  const reorderStops = (nextKeys: string[]): void => {
+    const stopByKey = new Map(rowKeys.map((k, i) => [k, stops[i]]));
+    setRowKeys(nextKeys);
+    setStops(nextKeys.map((k) => stopByKey.get(k) ?? null));
+  };
+  // Swap start ↔ destination — the two-stop shorthand for reordering.
+  const swapStops = (): void => {
+    setStops([...stops].reverse());
+    setRowKeys([...rowKeys].reverse());
   };
 
   return (
@@ -263,33 +305,64 @@ export function DirectionsPanel({
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 px-3 pb-3">
-        <div className="flex items-center gap-1.5">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <LocationInput
-              value={origin}
-              onSelect={(wp) => setEndpoints({ origin: wp })}
-              placeholder="Choose starting point"
-              icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
-              files={files}
-              allowCurrentLocation
-            />
-            <LocationInput
-              value={destination}
-              onSelect={(wp) => setEndpoints({ destination: wp })}
-              placeholder="Choose destination"
-              icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
-              files={files}
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Swap origin and destination"
-            title="Swap"
-            disabled={!origin && !destination}
-            onClick={() => setEndpoints({ origin: destination, destination: origin })}
-          >
-            <RepeatIcon className="size-4" />
+        <div className="flex flex-col gap-1.5">
+          {stops.length === 2 ? (
+            // Two stops: nothing to remove (min is 2) and reordering is just a swap, so a single
+            // centered swap button replaces the per-row drag handle + remove controls.
+            <div className="flex items-center gap-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <LocationInput
+                  value={stops[0]}
+                  onSelect={(wp) => updateStop(0, wp)}
+                  placeholder="Choose starting point"
+                  icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
+                  files={files}
+                  allowCurrentLocation
+                />
+                <LocationInput
+                  value={stops[1]}
+                  onSelect={(wp) => updateStop(1, wp)}
+                  placeholder="Choose destination, or click on the map"
+                  icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
+                  files={files}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="Swap start and destination"
+                title="Swap"
+                onClick={swapStops}
+              >
+                <ArrowUpDownIcon className="size-4" />
+              </Button>
+            </div>
+          ) : (
+            <Reorder.Group
+              axis="y"
+              values={rowKeys}
+              onReorder={reorderStops}
+              as="div"
+              className="flex flex-col gap-1.5"
+            >
+              {stops.map((stop, i) => (
+                <StopRow
+                  key={rowKeys[i]}
+                  rowKey={rowKeys[i]}
+                  stop={stop}
+                  isFirst={i === 0}
+                  isLast={i === stops.length - 1}
+                  canRemove={stops.length > 2}
+                  files={files}
+                  onSelect={(wp) => updateStop(i, wp)}
+                  onRemove={() => removeStop(i)}
+                />
+              ))}
+            </Reorder.Group>
+          )}
+          <Button variant="ghost" size="sm" className="self-start gap-1.5" onClick={addStop}>
+            <PlusIcon className="size-4" /> Add stop
           </Button>
         </div>
 
@@ -298,7 +371,7 @@ export function DirectionsPanel({
             <button
               key={m}
               type="button"
-              onClick={() => setEndpoints({ mode: m })}
+              onClick={() => setStops(stops, m)}
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
                 m === mode
@@ -317,11 +390,81 @@ export function DirectionsPanel({
         <RouteBody
           state={route}
           coverageGap={coverageGap}
-          hasEndpoints={Boolean(origin && destination)}
+          hasEndpoints={routableStops.length >= 2}
           onDownload={(slug) => packs.download(slug)}
         />
       </div>
     </div>
+  );
+}
+
+/** One reorderable stop row: a drag handle, a full-width location input, and a remove button. */
+function StopRow({
+  rowKey,
+  stop,
+  isFirst,
+  isLast,
+  canRemove,
+  files,
+  onSelect,
+  onRemove
+}: {
+  rowKey: string;
+  stop: DirectionsWaypoint | null;
+  isFirst: boolean;
+  isLast: boolean;
+  canRemove: boolean;
+  files?: PlaceRecord[];
+  onSelect: (wp: DirectionsWaypoint | null) => void;
+  onRemove: () => void;
+}): React.JSX.Element {
+  const controls = useDragControls();
+  const icon = isFirst ? (
+    <CircleDotIcon className="size-4 shrink-0 opacity-60" />
+  ) : isLast ? (
+    <MapPinIcon className="size-4 shrink-0 opacity-60" />
+  ) : (
+    <CircleIcon className="size-3.5 shrink-0 opacity-40" />
+  );
+  return (
+    <Reorder.Item
+      value={rowKey}
+      dragListener={false}
+      dragControls={controls}
+      as="div"
+      className="flex items-center gap-1"
+    >
+      <button
+        type="button"
+        aria-label="Drag to reorder"
+        onPointerDown={(e) => controls.start(e)}
+        className="flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
+      >
+        <GripVerticalIcon className="size-4" />
+      </button>
+      <div className="min-w-0 flex-1">
+        <LocationInput
+          value={stop}
+          onSelect={onSelect}
+          placeholder={
+            isFirst ? "Choose starting point" : isLast ? "Choose destination" : "Add stop"
+          }
+          icon={icon}
+          files={files}
+          allowCurrentLocation={isFirst}
+        />
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Remove stop"
+        title="Remove stop"
+        disabled={!canRemove}
+        onClick={onRemove}
+      >
+        <XIcon className="size-3.5" />
+      </Button>
+    </Reorder.Item>
   );
 }
 
@@ -332,7 +475,7 @@ function RouteBody({
   onDownload
 }: {
   state: RouteState;
-  coverageGap: { downloadable: RegionRow[]; hasUnavailableGap: boolean };
+  coverageGap: CoverageGap;
   hasEndpoints: boolean;
   onDownload: (slug: string) => void;
 }): React.JSX.Element {
@@ -358,56 +501,52 @@ function RouteBody({
   }
 
   if (state.status === "needs-region") {
+    if (coverageGap.kind === "download") {
+      const row = coverageGap.region;
+      const downloading = row.status === "downloading" || row.status === "verifying";
+      const percent =
+        row.progress && row.progress.total > 0
+          ? Math.min(100, Math.round((row.progress.received / row.progress.total) * 100))
+          : 0;
+      return (
+        <div className="flex flex-col gap-3 px-4 py-6">
+          <p className="text-muted-foreground text-sm">
+            Routing here needs a map that isn’t downloaded yet.
+          </p>
+          <Button
+            variant="outline"
+            className="h-9 justify-between"
+            disabled={downloading}
+            onClick={() => onDownload(row.slug)}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              {downloading ? (
+                <Loader2Icon className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <DownloadIcon className="size-4 shrink-0" />
+              )}
+              <span className="min-w-0 truncate">{row.name}</span>
+            </span>
+            <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+              {downloading
+                ? `${row.status === "verifying" ? "Verifying" : `${percent}%`}`
+                : formatBytes(row.latestBytes)}
+            </span>
+          </Button>
+        </div>
+      );
+    }
+    // Cross-region: no single downloaded pack can cover the whole trip, and offline packs
+    // can't be joined — so a download won't help. Nothing to offer yet; state the limit plainly.
     return (
-      <div className="flex flex-col gap-3 px-4 py-6">
-        {coverageGap.downloadable.length > 0 ? (
-          <>
-            <p className="text-muted-foreground text-sm">
-              Routing here needs{" "}
-              {coverageGap.downloadable.length === 1 ? "a map that isn’t" : "maps that aren’t"}{" "}
-              downloaded yet.
-            </p>
-            <div className="flex flex-col gap-2">
-              {coverageGap.downloadable.map((row) => {
-                const downloading = row.status === "downloading" || row.status === "verifying";
-                const percent =
-                  row.progress && row.progress.total > 0
-                    ? Math.min(100, Math.round((row.progress.received / row.progress.total) * 100))
-                    : 0;
-                return (
-                  <Button
-                    key={row.slug}
-                    variant="outline"
-                    className="h-9 justify-between"
-                    disabled={downloading}
-                    onClick={() => onDownload(row.slug)}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      {downloading ? (
-                        <Loader2Icon className="size-4 shrink-0 animate-spin" />
-                      ) : (
-                        <DownloadIcon className="size-4 shrink-0" />
-                      )}
-                      <span className="min-w-0 truncate">{row.name}</span>
-                    </span>
-                    <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-                      {downloading
-                        ? `${row.status === "verifying" ? "Verifying" : `${percent}%`}`
-                        : formatBytes(row.latestBytes)}
-                    </span>
-                  </Button>
-                );
-              })}
-            </div>
-            {coverageGap.hasUnavailableGap ? (
-              <p className="text-muted-foreground text-xs">
-                Part of this route isn’t available as a downloadable map yet.
-              </p>
-            ) : null}
-          </>
-        ) : (
-          <p className="text-muted-foreground text-sm">{OFFLINE_MESSAGE}</p>
-        )}
+      <div className="flex flex-col gap-2 px-4 py-6">
+        <p className="text-muted-foreground text-sm">
+          Offline routing works within one downloaded region, and this trip crosses regions that
+          can’t be combined yet.
+        </p>
+        <p className="text-muted-foreground text-xs">
+          Try picking stops within the same region for now.
+        </p>
       </div>
     );
   }

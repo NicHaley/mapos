@@ -79,8 +79,7 @@ declare global {
         onOpenFile: (cb: (data: { path: string }) => void) => void;
         onOpenDirections: (
           cb: (data: {
-            origin: { lat: number; lng: number; label: string } | null;
-            destination: { lat: number; lng: number; label: string };
+            stops: ({ lat: number; lng: number; label: string } | null)[];
             mode: "auto" | "pedestrian" | "bicycle";
           }) => void
         ) => void;

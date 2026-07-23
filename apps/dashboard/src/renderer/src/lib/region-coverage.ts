@@ -18,6 +18,15 @@ export function bboxArea(b: Bbox): number {
   return (b[2] - b[0]) * (b[3] - b[1]);
 }
 
+/**
+ * A bbox usable for point-location. A region crossing the antimeridian (Alaska, NZ, Fiji,
+ * Russia's Far East…) gets a header bbox that wraps to the full -180..180 span, so it "contains"
+ * points an ocean away — reject anything spanning half the globe or more.
+ */
+export function bboxUsable(b: Bbox): boolean {
+  return b[2] - b[0] < 180;
+}
+
 /** Region-pack coverage at a single point, in priority order. */
 export type CoverageAt =
   | { kind: "covered"; pack: InstalledRegionPack }

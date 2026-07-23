@@ -1456,10 +1456,16 @@ export function buildMaposCustomTools(
     name: "present_directions",
     label: "Present directions",
     description:
-      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: origin/destination inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT present_features — when the user wants directions to somewhere and will read the steps or adjust the endpoints. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. Set `destination` (required); omit `origin` to default to the user's current location, exactly like the app's own Get-directions button. Each endpoint is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
+      "Show the user turn-by-turn directions in a dedicated Directions tab (Google-Maps-style: an ordered list of stop inputs, a walk/bike/drive toggle, route summary, and the step list) and draw the route on the map. Use this — NOT present_features — when the user wants directions somewhere and will read the steps or adjust the stops. The tab computes and renders the route itself (and shows a download prompt if an offline region pack is missing), so you do NOT need to call get_directions first. For a simple A→B route, set `destination` (required) and optionally `origin` (omit it to default to the user's current location, exactly like the app's own Get-directions button). For a multi-stop route, pass `locations` — an ordered array of 2+ stops (first is the origin, last the destination, any in between are waypoints). Each endpoint/stop is ONE of: a geocode result you looked up (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Reserve get_directions for when you only need the distance/duration/steps as data to reason about.",
     parameters: Type.Object({
-      destination: directionsEndpointSchema,
+      destination: Type.Optional(directionsEndpointSchema),
       origin: Type.Optional(directionsEndpointSchema),
+      locations: Type.Optional(
+        Type.Array(directionsEndpointSchema, {
+          description:
+            "Ordered stops for a multi-stop route (2 or more): stops[0] is the origin, the last is the destination, any in between are waypoints. Use this INSTEAD of origin/destination when there are more than two stops."
+        })
+      ),
       mode: Type.Optional(
         Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
           default: "auto",
@@ -1499,28 +1505,63 @@ export function buildMaposCustomTools(
         return { error: "Each endpoint needs a result_id, a path, or lat+lng." };
       };
 
-      const destination = resolveEndpoint(args.destination);
-      if ("error" in destination) {
-        return TEXT_RESULT(JSON.stringify({ success: false, error: destination.error }));
-      }
-      let origin: { lat: number; lng: number; label: string } | null = null;
-      if (args.origin) {
-        const resolved = resolveEndpoint(args.origin);
-        if ("error" in resolved) {
-          return TEXT_RESULT(JSON.stringify({ success: false, error: resolved.error }));
-        }
-        origin = resolved;
-      }
+      type ResolvedStop = { lat: number; lng: number; label: string };
       const mode = args.mode ?? "auto";
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("nav:open-directions", { origin, destination, mode });
+      // Ordered stops sent to the renderer; a null entry is a blank input (only stops[0]
+      // may be null → the renderer fills the user's current location).
+      let stops: (ResolvedStop | null)[];
+
+      if (args.locations && args.locations.length > 0) {
+        if (args.locations.length < 2) {
+          return TEXT_RESULT(
+            JSON.stringify({ success: false, error: "`locations` needs at least 2 stops." })
+          );
+        }
+        const resolved: ResolvedStop[] = [];
+        for (const loc of args.locations) {
+          const r = resolveEndpoint(loc);
+          if ("error" in r) {
+            return TEXT_RESULT(JSON.stringify({ success: false, error: r.error }));
+          }
+          resolved.push(r);
+        }
+        stops = resolved;
+      } else {
+        if (!args.destination) {
+          return TEXT_RESULT(
+            JSON.stringify({
+              success: false,
+              error: "Provide `destination` (with optional `origin`), or `locations` for 2+ stops."
+            })
+          );
+        }
+        const destination = resolveEndpoint(args.destination);
+        if ("error" in destination) {
+          return TEXT_RESULT(JSON.stringify({ success: false, error: destination.error }));
+        }
+        let origin: ResolvedStop | null = null;
+        if (args.origin) {
+          const resolved = resolveEndpoint(args.origin);
+          if ("error" in resolved) {
+            return TEXT_RESULT(JSON.stringify({ success: false, error: resolved.error }));
+          }
+          origin = resolved;
+        }
+        stops = [origin, destination];
       }
+
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("nav:open-directions", { stops, mode });
+      }
+      const originLabel = stops[0]?.label ?? "current location";
+      const destinationLabel = stops[stops.length - 1]?.label ?? "destination";
       return TEXT_RESULT(
         JSON.stringify({
           success: true,
           kind: "directions",
-          origin: origin?.label ?? "current location",
-          destination: destination.label,
+          origin: originLabel,
+          destination: destinationLabel,
+          stops: stops.length,
           mode,
           assistant_instructions:
             "A Directions tab is now open with the route summary + turn-by-turn steps, and the route is drawn on the map. Do NOT re-list the steps or restate the distance/duration in your reply — the user can see them. Reply with at most one sentence (a caveat or standout), or nothing. If a needed offline map isn't downloaded, the tab shows a download prompt; only mention that if the user asked about offline availability."

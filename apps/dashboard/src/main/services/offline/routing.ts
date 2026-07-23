@@ -24,7 +24,7 @@ import {
   parseRouteResponse
 } from "@mapos/service-adapters";
 import type { Actor } from "@valhallajs/valhallajs";
-import { listInstalledRegions, regionsContaining } from "./installed-regions";
+import { listInstalledRegions, regionCoveringPoints, regionsContaining } from "./installed-regions";
 import configTemplate from "./valhalla-config.template.json";
 
 /**
@@ -104,6 +104,31 @@ function pickValhallaTar(regionsDir: string, lng: number, lat: number): string {
   return hit.valhalla;
 }
 
+/**
+ * Pick the single Valhalla tar covering an *entire* route/matrix. Because graphs can't be
+ * joined, every point must sit in one pack — so we resolve the smallest pack covering them all
+ * up front rather than picking the origin's pack and letting Valhalla fail deep in the route
+ * with a misleading "no suitable edges" once the path leaves that pack's tiles. A trip that no
+ * single pack covers is cross-region and can't be routed offline yet.
+ */
+function pickValhallaTarForRoute(
+  regionsDir: string,
+  points: { lng: number; lat: number }[]
+): string {
+  const withValhalla = listInstalledRegions(regionsDir).filter((r) => r.valhalla);
+  const hit = regionCoveringPoints(withValhalla, points);
+  if (hit?.valhalla) return hit.valhalla;
+  // Both messages match the panel's offline signature and surface as needs-region; the split
+  // just makes the log say whether the start itself is uncovered or the trip leaves its pack.
+  const originCovered = points[0] && regionCoveringPoints(withValhalla, [points[0]]);
+  throw new MapServiceError(
+    originCovered
+      ? "No downloaded region covers this whole route"
+      : "No downloaded region covers this location",
+    { status: 404, url: regionsDir }
+  );
+}
+
 function toServiceError(url: string, err: unknown): MapServiceError | MapServiceValidationError {
   if (err instanceof MapServiceError || err instanceof MapServiceValidationError) return err;
   const message = err instanceof Error ? err.message : String(err);
@@ -118,8 +143,7 @@ async function directions(
   ep: Endpoint,
   _ctx: AdapterContext = {}
 ): Promise<Route> {
-  const origin = req.locations[0];
-  const tarPath = pickValhallaTar(ep.url, origin.lng, origin.lat);
+  const tarPath = pickValhallaTarForRoute(ep.url, req.locations);
   let raw: unknown;
   try {
     const actor = await getActor(tarPath);
@@ -142,8 +166,7 @@ async function matrix(
   ep: Endpoint,
   _ctx: AdapterContext = {}
 ): Promise<Matrix> {
-  const origin = req.sources[0];
-  const tarPath = pickValhallaTar(ep.url, origin.lng, origin.lat);
+  const tarPath = pickValhallaTarForRoute(ep.url, [...req.sources, ...req.targets]);
   let raw: unknown;
   try {
     const actor = await getActor(tarPath);

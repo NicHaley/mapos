@@ -17,14 +17,15 @@ export type NavEntry =
   // and remove-path skip it. `label` is the overlay's name.
   | { kind: "list"; layerId: string; label: string; layer: MapOverlayLayer }
   // A directions request. Like `list`, it is not path-based and carries its own inputs
-  // (origin/destination/mode) so the tab round-trips a refresh; the route geometry is
-  // recomputed by the panel, not persisted.
+  // (an ordered list of stops + mode) so the tab round-trips a refresh; the route geometry
+  // is recomputed by the panel, not persisted. `stops[0]` is the origin, the last is the
+  // destination, and any in between are waypoints; a null entry is an empty input. At least
+  // two entries always exist.
   | {
       kind: "directions";
       id: string;
       label: string;
-      origin: DirectionsWaypoint | null;
-      destination: DirectionsWaypoint | null;
+      stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
     };
 
@@ -46,8 +47,7 @@ export type NavAction =
   | {
       type: "update-directions";
       id: string;
-      origin: DirectionsWaypoint | null;
-      destination: DirectionsWaypoint | null;
+      stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
     };
 
@@ -116,8 +116,7 @@ type PersistedTab =
       kind: "directions";
       id: string;
       label: string;
-      origin: DirectionsWaypoint | null;
-      destination: DirectionsWaypoint | null;
+      stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
     };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
@@ -280,12 +279,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           ...tab,
           history: tab.history.map((entry) =>
             entry.kind === "directions" && entry.id === action.id
-              ? {
-                  ...entry,
-                  origin: action.origin,
-                  destination: action.destination,
-                  mode: action.mode
-                }
+              ? { ...entry, stops: action.stops, mode: action.mode }
               : entry
           )
         }))
@@ -332,8 +326,7 @@ export function useNavTabs({
           kind: "directions",
           id: current.id,
           label: current.label,
-          origin: current.origin,
-          destination: current.destination,
+          stops: current.stops,
           mode: current.mode
         });
     }
@@ -384,18 +377,17 @@ export function useNavTabs({
           };
         }
         if (tab.kind === "directions") {
+          // Migrate a legacy persisted tab (origin/destination) to the stops array.
+          const legacy = tab as typeof tab & {
+            origin?: DirectionsWaypoint | null;
+            destination?: DirectionsWaypoint | null;
+          };
+          const stops = Array.isArray(tab.stops)
+            ? tab.stops
+            : [legacy.origin ?? null, legacy.destination ?? null];
           return {
             id: crypto.randomUUID(),
-            history: [
-              {
-                kind: "directions",
-                id: tab.id,
-                label: tab.label,
-                origin: tab.origin,
-                destination: tab.destination,
-                mode: tab.mode
-              }
-            ],
+            history: [{ kind: "directions", id: tab.id, label: tab.label, stops, mode: tab.mode }],
             cursor: 0
           };
         }

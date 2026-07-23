@@ -85,3 +85,30 @@ export function regionsContaining(
   if (hits.length || !failOpen) return hits;
   return regions.filter((r) => !r.bbox);
 }
+
+function bboxArea(b: [number, number, number, number]): number {
+  return (b[2] - b[0]) * (b[3] - b[1]);
+}
+
+/**
+ * The smallest installed pack whose bbox contains EVERY point — the single pack a whole
+ * route/matrix must run inside, since Valhalla graphs can't be joined. `undefined` when no
+ * one pack covers them all (a cross-region trip) or none carries a bbox. Smallest box wins so
+ * a city subdivision is preferred over the whole-country pack when both cover the trip.
+ */
+export function regionCoveringPoints(
+  regions: InstalledRegion[],
+  points: { lng: number; lat: number }[]
+): InstalledRegion | undefined {
+  return regions
+    .filter(
+      (r) =>
+        r.bbox &&
+        points.every((p) => contains(r.bbox as [number, number, number, number], p.lng, p.lat))
+    )
+    .sort(
+      (a, b) =>
+        bboxArea(a.bbox as [number, number, number, number]) -
+        bboxArea(b.bbox as [number, number, number, number])
+    )[0];
+}

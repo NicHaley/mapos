@@ -76,12 +76,12 @@ const api = {
     }) => ipcRenderer.send("nav:state-update", data),
     onOpenFile: (cb: (data: { path: string }) => void) =>
       ipcRenderer.on("nav:open-file", (_e, data) => cb(data)),
-    /** Agent `present_directions`: open a Directions tab for the given endpoints.
-     * `origin: null` → the renderer defaults to the user's current location. */
+    /** Agent `present_directions`: open a Directions tab for the given ordered stops
+     * (stops[0] = origin, last = destination, any in between are waypoints). A null first
+     * stop → the renderer defaults to the user's current location. */
     onOpenDirections: (
       cb: (data: {
-        origin: { lat: number; lng: number; label: string } | null;
-        destination: { lat: number; lng: number; label: string };
+        stops: ({ lat: number; lng: number; label: string } | null)[];
         mode: "auto" | "pedestrian" | "bicycle";
       }) => void
     ) => ipcRenderer.on("nav:open-directions", (_e, data) => cb(data)),

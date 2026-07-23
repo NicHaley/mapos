@@ -56,7 +56,11 @@ const ValhallaManeuverSchema = z.object({
   // in `units` (km or mi)
   length: z.number().optional(),
   // seconds
-  time: z.number().optional()
+  time: z.number().optional(),
+  // Index range into THIS leg's decoded shape (leg-relative — rebased to the concatenated
+  // route below).
+  begin_shape_index: z.number().optional(),
+  end_shape_index: z.number().optional()
 });
 
 const ValhallaLegSchema = z.object({
@@ -109,6 +113,10 @@ export function parseRouteResponse(data: ValhallaRouteResponse): Route {
   const allCoords: [number, number][] = [];
   const maneuvers: Maneuver[] = [];
   for (const leg of trip.legs) {
+    // Global index of this leg's decoded[0]. Legs share a seam point: leg N>0's first shape
+    // point equals the previous leg's last, which we don't re-push — so its decoded[k] lands
+    // at (currentLength - 1) + k. For the first leg the base is simply 0.
+    const legBase = allCoords.length === 0 ? 0 : allCoords.length - 1;
     if (leg.shape) {
       const decoded = decodePolyline6(leg.shape);
       for (let i = 0; i < decoded.length; i++) {
@@ -123,7 +131,11 @@ export function parseRouteResponse(data: ValhallaRouteResponse): Route {
         instruction: m.instruction ?? "",
         distanceMeters: Math.round((m.length ?? 0) * 1000),
         durationSeconds: Math.round(m.time ?? 0),
-        type: m.type ?? 0
+        type: m.type ?? 0,
+        ...(m.begin_shape_index !== undefined
+          ? { beginShapeIndex: legBase + m.begin_shape_index }
+          : {}),
+        ...(m.end_shape_index !== undefined ? { endShapeIndex: legBase + m.end_shape_index } : {})
       });
     }
   }

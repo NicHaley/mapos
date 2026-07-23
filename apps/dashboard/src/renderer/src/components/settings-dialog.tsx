@@ -167,9 +167,7 @@ function GeneralPage({
         <Item className="px-0">
           <ItemContent>
             <ItemTitle>Danger zone</ItemTitle>
-            <ItemDescription>
-              Delete this vault from MapOS. Files on disk are kept.
-            </ItemDescription>
+            <ItemDescription>Delete this vault from MapOS. Files on disk are kept.</ItemDescription>
           </ItemContent>
           <ItemActions>
             <Button

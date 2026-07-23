@@ -24,7 +24,12 @@ export const ManeuverSchema = z.object({
   distanceMeters: z.number(),
   durationSeconds: z.number(),
   /** Valhalla maneuver type code (kept for UI icon mapping). */
-  type: z.number()
+  type: z.number(),
+  /** Inclusive index range into `Route.geometry.coordinates` (global across legs) that this
+   *  maneuver covers — lets the UI highlight the exact segment for a step and map a click on
+   *  the line back to a step. Optional: a provider may omit shape indices. */
+  beginShapeIndex: z.number().optional(),
+  endShapeIndex: z.number().optional()
 });
 export type Maneuver = z.infer<typeof ManeuverSchema>;
 

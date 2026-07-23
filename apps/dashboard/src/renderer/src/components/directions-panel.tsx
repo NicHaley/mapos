@@ -43,7 +43,7 @@ import {
   XIcon
 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
@@ -58,6 +58,8 @@ export type DirectionsPanelProps = {
   onChange: (next: { stops: (DirectionsWaypoint | null)[]; mode: TravelMode }) => void;
   /** Lift the computed route (as a map overlay layer) up to the app so it draws on the map. */
   onRouteChange: (layer: MapOverlayLayer | null) => void;
+  /** Emphasize a step's segment on the map (and, when `focus`, ease the camera to it). Null clears. */
+  onHighlightSegment: (coordinates: [number, number][] | null, focus: boolean) => void;
   onClose: () => void;
 };
 
@@ -138,7 +140,14 @@ function buildRouteLayer(
 type RouteState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; distanceMeters: number; durationSeconds: number; maneuvers: Maneuver[] }
+  | {
+      status: "done";
+      distanceMeters: number;
+      durationSeconds: number;
+      maneuvers: Maneuver[];
+      /** Full route shape; maneuvers' shape indices point into this array. */
+      coordinates: [number, number][];
+    }
   | { status: "error"; message: string }
   | { status: "needs-region" };
 
@@ -156,6 +165,7 @@ export function DirectionsPanel({
   files,
   onChange,
   onRouteChange,
+  onHighlightSegment,
   onClose
 }: DirectionsPanelProps): React.JSX.Element {
   const packs = useRegionPacks(true);
@@ -175,6 +185,52 @@ export function DirectionsPanel({
   const onRouteChangeRef = useRef(onRouteChange);
   onRouteChangeRef.current = onRouteChange;
   useEffect(() => () => onRouteChangeRef.current(null), []);
+
+  const onHighlightRef = useRef(onHighlightSegment);
+  onHighlightRef.current = onHighlightSegment;
+  useEffect(() => () => onHighlightRef.current(null, false), []);
+
+  // The step under the cursor. Drives the map highlight below; nothing sticks after the cursor
+  // leaves (clicking only eases the camera — see handleStepClick).
+  const [hoveredStep, setHoveredStep] = useState<number | null>(null);
+  const activeStep = hoveredStep;
+
+  // The slice of the route shape a step covers (its begin→end shape indices), or null when the
+  // route isn't ready or the step carries no geometry. Clamped to valid bounds defensively.
+  const segmentFor = useCallback(
+    (i: number): [number, number][] | null => {
+      if (route.status !== "done") return null;
+      const m = route.maneuvers[i];
+      const coords = route.coordinates;
+      if (!m || m.beginShapeIndex === undefined || coords.length === 0) return null;
+      const last = coords.length - 1;
+      const begin = Math.max(0, Math.min(m.beginShapeIndex, last));
+      const end = Math.max(begin, Math.min(m.endShapeIndex ?? m.beginShapeIndex, last));
+      return coords.slice(begin, end + 1);
+    },
+    [route]
+  );
+
+  // A route recompute (new stops/mode/retry) makes prior step indices stale — drop the hover.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on the route trigger, not setter identity
+  useEffect(() => {
+    setHoveredStep(null);
+  }, [stopsKey, mode, retryNonce]);
+
+  // Draw the hovered step's segment on the map — highlight only, never move the camera (hovering
+  // down the list shouldn't pan). Clicking a step eases to it (see handleStepClick).
+  useEffect(() => {
+    onHighlightRef.current(activeStep === null ? null : segmentFor(activeStep), false);
+  }, [activeStep, segmentFor]);
+
+  // Click just eases the camera to frame the step's segment — nothing is pinned or remembered.
+  const handleStepClick = useCallback(
+    (i: number) => {
+      const seg = segmentFor(i);
+      if (seg) onHighlightRef.current(seg, true);
+    },
+    [segmentFor]
+  );
 
   // Auto-retry only when we're actually blocked on a missing region: read the live status via
   // a ref so this fires on pack changes, not on status transitions (which would loop).
@@ -207,7 +263,8 @@ export function DirectionsPanel({
           status: "done",
           distanceMeters: r.distanceMeters,
           durationSeconds: r.durationSeconds,
-          maneuvers: r.maneuvers
+          maneuvers: r.maneuvers,
+          coordinates: r.geometry.coordinates as [number, number][]
         });
         onRouteChangeRef.current(
           buildRouteLayer(id, routableStops, r.geometry.coordinates as [number, number][])
@@ -407,6 +464,10 @@ export function DirectionsPanel({
           coverageGap={coverageGap}
           hasEndpoints={routableStops.length >= 2}
           onDownload={(slug) => packs.download(slug)}
+          activeStep={activeStep}
+          onStepEnter={setHoveredStep}
+          onStepLeave={() => setHoveredStep(null)}
+          onStepClick={handleStepClick}
         />
       </div>
     </div>
@@ -487,12 +548,20 @@ function RouteBody({
   state,
   coverageGap,
   hasEndpoints,
-  onDownload
+  onDownload,
+  activeStep,
+  onStepEnter,
+  onStepLeave,
+  onStepClick
 }: {
   state: RouteState;
   coverageGap: CoverageGap;
   hasEndpoints: boolean;
   onDownload: (slug: string) => void;
+  activeStep: number | null;
+  onStepEnter: (i: number) => void;
+  onStepLeave: (i: number) => void;
+  onStepClick: (i: number) => void;
 }): React.JSX.Element {
   if (!hasEndpoints || state.status === "idle") {
     return (
@@ -581,23 +650,43 @@ function RouteBody({
         </span>
       </div>
       <ol className="flex flex-col">
-        {state.maneuvers.map((m, i) => (
-          <li
-            // biome-ignore lint/suspicious/noArrayIndexKey: maneuvers are a positional, static list
-            key={i}
-            className="flex items-start gap-3 border-sidebar-border/60 border-t px-4 py-2.5 text-sm"
-          >
-            <span className="mt-0.5 w-6 shrink-0 text-muted-foreground text-xs tabular-nums">
-              {i + 1}
-            </span>
-            <span className="min-w-0 flex-1">{m.instruction}</span>
-            {m.distanceMeters > 0 ? (
-              <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-                {formatDistance(m.distanceMeters)}
-              </span>
-            ) : null}
-          </li>
-        ))}
+        {state.maneuvers.map((m, i) => {
+          const locatable = m.beginShapeIndex !== undefined;
+          return (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: maneuvers are a positional, static list
+              key={i}
+              className="border-sidebar-border/60 border-t"
+            >
+              <button
+                type="button"
+                disabled={!locatable}
+                onMouseEnter={() => onStepEnter(i)}
+                onMouseLeave={() => onStepLeave(i)}
+                onFocus={() => onStepEnter(i)}
+                onBlur={() => onStepLeave(i)}
+                onClick={() => onStepClick(i)}
+                className={cn(
+                  "flex w-full items-start gap-3 px-4 py-2.5 text-left text-sm outline-hidden transition-colors",
+                  locatable
+                    ? "cursor-pointer hover:bg-hover focus-visible:bg-hover"
+                    : "cursor-default",
+                  activeStep === i && "bg-hover"
+                )}
+              >
+                <span className="mt-0.5 w-6 shrink-0 text-muted-foreground text-xs tabular-nums">
+                  {i + 1}
+                </span>
+                <span className="min-w-0 flex-1">{m.instruction}</span>
+                {m.distanceMeters > 0 ? (
+                  <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+                    {formatDistance(m.distanceMeters)}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );

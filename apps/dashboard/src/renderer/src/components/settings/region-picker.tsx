@@ -309,10 +309,7 @@ export function RegionPicker() {
     [userPoint, packs.regions]
   );
   const recommended = coverage?.toGet ?? [];
-  const recommendedSet = useMemo(
-    () => new Set(recommended.map((r) => r.slug)),
-    [recommended]
-  );
+  const recommendedSet = useMemo(() => new Set(recommended.map((r) => r.slug)), [recommended]);
 
   // Draw attention to the top match: focus its pin (tooltip) and scroll its row in. Cleared
   // as soon as the user hovers any row, so it's a nudge, not a permanent state.

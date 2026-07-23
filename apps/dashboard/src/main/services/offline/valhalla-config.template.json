@@ -250,7 +250,7 @@
       "max_matrix_location_pairs": 2500
     },
     "bicycle": {
-      "max_distance": 3000000,
+      "max_distance": 10000000,
       "max_locations": 50,
       "max_matrix_distance": 200000,
       "max_matrix_location_pairs": 2500

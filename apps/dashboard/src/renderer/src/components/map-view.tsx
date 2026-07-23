@@ -434,6 +434,9 @@ const MapView = forwardRef<
     openPlace?: PlaceRecord | null;
     /** The user's current position (from the top-bar locate control); drawn as a dot + accuracy ring. */
     userLocation?: UserLocation | null;
+    /** Coordinates of the directions step currently hovered/selected, drawn as an emphasized
+     *  segment on top of the route. Null = nothing highlighted. */
+    directionsHighlight?: [number, number][] | null;
   }
 >(function MapView(
   {
@@ -452,7 +455,8 @@ const MapView = forwardRef<
     linkedPlaces = [],
     presentedPlaces = [],
     openPlace = null,
-    userLocation = null
+    userLocation = null,
+    directionsHighlight = null
   },
   ref
 ) {
@@ -903,6 +907,22 @@ const MapView = forwardRef<
       })
       .filter((s): s is typeof s & { data: NonNullable<(typeof s)["data"]> } => s.data != null);
   }, [overlayLayers]);
+
+  // The hovered/selected directions step as a single LineString, drawn emphasized on top of
+  // the route. Null when nothing is highlighted (so the source/layers unmount).
+  const directionsHighlightGeoJSON = useMemo(() => {
+    if (!directionsHighlight || directionsHighlight.length === 0) return null;
+    return {
+      type: "FeatureCollection" as const,
+      features: [
+        {
+          type: "Feature" as const,
+          geometry: { type: "LineString" as const, coordinates: directionsHighlight },
+          properties: {}
+        }
+      ]
+    };
+  }, [directionsHighlight]);
 
   const toFeature = useCallback((p: PlaceRecord & { geometry: string }) => {
     return {
@@ -1495,6 +1515,28 @@ const MapView = forwardRef<
               </Source>
             );
           })}
+        {directionsHighlightGeoJSON && (
+          <Source id="directions-highlight" type="geojson" data={directionsHighlightGeoJSON}>
+            {/* White casing under the accent line so the emphasized step pops off the
+                same-colored dashed route beneath it. */}
+            <Layer
+              id="directions-highlight-casing"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{
+                "line-color": isDark ? "#111111" : "#ffffff",
+                "line-width": 9,
+                "line-opacity": 0.9
+              }}
+            />
+            <Layer
+              id="directions-highlight-line"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": accentColor ?? foregroundColor, "line-width": 5 }}
+            />
+          </Source>
+        )}
         {selectionAnchorGeoJSON && (
           <SelectionMarker
             data={selectionAnchorGeoJSON}

@@ -29,7 +29,11 @@ export function bboxUsable(b: Bbox): boolean {
 
 /** Squared planar distance from a pack's center to (lng,lat); ∞ when the pack has no center.
  *  Cheap and used only to rank which covering pack is geographically closest — not a real metric. */
-export function centerDist2(center: [number, number] | undefined, lng: number, lat: number): number {
+export function centerDist2(
+  center: [number, number] | undefined,
+  lng: number,
+  lat: number
+): number {
   if (!center) return Number.POSITIVE_INFINITY;
   const dx = center[0] - lng;
   const dy = center[1] - lat;

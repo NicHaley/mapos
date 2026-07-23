@@ -196,6 +196,9 @@ function App(): React.JSX.Element {
   // Route overlay for the active directions tab, lifted from DirectionsPanel so it draws
   // on the map (mirrors how a list tab's layer rides in visibleOverlayLayers).
   const [directionsRouteLayer, setDirectionsRouteLayer] = useState<MapOverlayLayer | null>(null);
+  /** Coordinates of the directions step the user is hovering/selected; drawn emphasized on the
+   *  route. Lifted from DirectionsPanel so MapView (which owns the route source) can highlight it. */
+  const [directionsHighlight, setDirectionsHighlight] = useState<[number, number][] | null>(null);
   /** Overlay feature to emphasize on the map; null = all full opacity. */
   const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
   const [selectionPulseAnchor, setSelectionPulseAnchor] = useState<SelectionPulseAnchor | null>(
@@ -466,6 +469,8 @@ function App(): React.JSX.Element {
   const handleDirectionsRouteChange = useCallback(
     (layer: MapOverlayLayer | null) => {
       setDirectionsRouteLayer(layer);
+      // A new (or cleared) route invalidates any step highlight from the previous one.
+      setDirectionsHighlight(null);
       const line = layer?.lines[0];
       if (line && line.coordinates.length > 0) {
         mapRef.current?.fitToGeoJson(
@@ -478,6 +483,30 @@ function App(): React.JSX.Element {
                   string,
                   unknown
                 >,
+                properties: null
+              }
+            ]
+          },
+          getMapPadding(true)
+        );
+      }
+    },
+    [getMapPadding]
+  );
+
+  /** A directions step was hovered or clicked: emphasize its segment on the map. Hover only
+   *  highlights (`zoom` false); a click also zooms the camera to frame the segment. Null clears. */
+  const handleDirectionsHighlight = useCallback(
+    (coordinates: [number, number][] | null, zoom: boolean) => {
+      setDirectionsHighlight(coordinates);
+      if (zoom && coordinates && coordinates.length > 0) {
+        mapRef.current?.fitToGeoJson(
+          {
+            type: "FeatureCollection" as const,
+            features: [
+              {
+                type: "Feature" as const,
+                geometry: { type: "LineString", coordinates } as Record<string, unknown>,
                 properties: null
               }
             ]
@@ -1415,6 +1444,7 @@ function App(): React.JSX.Element {
           presentedPlaces={presentedPlaces}
           openPlace={mapPeekPlace ? selectedPlace : null}
           userLocation={userLocation}
+          directionsHighlight={activeDirectionsEntry ? directionsHighlight : null}
         />
       </div>
 
@@ -1664,6 +1694,7 @@ function App(): React.JSX.Element {
                 })
               }
               onRouteChange={handleDirectionsRouteChange}
+              onHighlightSegment={handleDirectionsHighlight}
               onClose={() => handleNavTabClose(activeTabIndex)}
             />
             <ResizeHandle

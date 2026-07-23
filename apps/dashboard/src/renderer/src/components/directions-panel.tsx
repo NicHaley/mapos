@@ -17,7 +17,13 @@ import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { formatBytes, formatDistance, formatDuration } from "@renderer/lib/format";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
 import { waypointFromPlace } from "@renderer/lib/place-waypoint";
-import { type Bbox, bboxArea, bboxContains, bboxUsable } from "@renderer/lib/region-coverage";
+import {
+  type Bbox,
+  bboxArea,
+  bboxContains,
+  bboxUsable,
+  rejectForeignContinents
+} from "@renderer/lib/region-coverage";
 import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
 import {
   ArrowUpDownIcon,
@@ -61,19 +67,19 @@ const MODES: { mode: TravelMode; label: string; Icon: typeof CarIcon }[] = [
   { mode: "auto", label: "Drive", Icon: CarIcon }
 ];
 
-const OFFLINE_SIGNATURES = [
-  "No downloaded region covers",
-  "not available offline",
-  "Local Valhalla error"
-];
+// Only a genuine coverage gap ("no pack covers this") should offer a download. A Valhalla
+// failure — route over the distance limit, no path between stops — is NOT a missing map, so
+// it must fall through to a plain error with its real reason rather than a bogus download prompt.
+const OFFLINE_SIGNATURES = ["No downloaded region covers", "not available offline"];
 
-/** Strip Electron's IPC-invoke wrapper + error-class prefix so the user sees the reason. */
+/** Strip Electron's IPC-invoke wrapper + error-class prefixes so the user sees the reason. */
 function cleanErrorMessage(e: unknown): string {
   const raw = e instanceof Error ? e.message : "";
   return (
     raw
       .replace(/^Error invoking remote method '[^']*':\s*/, "")
       .replace(/^\w*Error:\s*/, "")
+      .replace(/^Local Valhalla error:\s*/, "")
       .trim() || "Couldn’t find a route"
   );
 }
@@ -238,7 +244,17 @@ export function DirectionsPanel({
       !!r.bbox &&
       bboxUsable(r.bbox) &&
       points.every((p) => bboxContains(r.bbox as Bbox, p.lng, p.lat));
-    const single = packs.regions
+    // Every pack (installed or not) whose bbox spans the whole trip, minus cross-continent
+    // false-positives (Greenland's box reaches Iceland) via the route centroid.
+    const cx = points.reduce((s, p) => s + p.lng, 0) / points.length;
+    const cy = points.reduce((s, p) => s + p.lat, 0) / points.length;
+    const covers = rejectForeignContinents(packs.regions.filter(coversWholeRoute), cx, cy);
+    // A pack already on disk spans the trip → routing failed for some other reason (not
+    // coverage), so don't offer a redundant download.
+    if (covers.some((r) => r.status === "installed" || r.status === "update-available")) {
+      return { kind: "idle" };
+    }
+    const single = covers
       .filter(
         (r) =>
           r.status === "available" ||
@@ -246,7 +262,6 @@ export function DirectionsPanel({
           r.status === "downloading" ||
           r.status === "verifying"
       )
-      .filter(coversWholeRoute)
       .sort((a, b) => bboxArea(a.bbox as Bbox) - bboxArea(b.bbox as Bbox))[0];
     return single ? { kind: "download", region: single } : { kind: "cross-region" };
   }, [route.status, routableStops, packs.regions]);

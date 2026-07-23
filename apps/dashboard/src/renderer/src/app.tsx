@@ -513,6 +513,22 @@ function App(): React.JSX.Element {
         setFeatureScreenPos(null);
         setMapPeekPlace(null);
         setSelectionPulseAnchor(null);
+        // Frame the stops right away so the camera moves even before the route computes (and
+        // stays put if it can't). handleDirectionsRouteChange re-fits to the line once routed.
+        const framePoints = resolvedStops.filter((s): s is DirectionsWaypoint => s != null);
+        if (framePoints.length > 0) {
+          mapRef.current?.fitToGeoJson(
+            {
+              type: "FeatureCollection" as const,
+              features: framePoints.map((s) => ({
+                type: "Feature" as const,
+                geometry: { type: "Point", coordinates: [s.lng, s.lat] } as Record<string, unknown>,
+                properties: null
+              }))
+            },
+            getMapPadding(true)
+          );
+        }
       };
       if (stops[0]) {
         open(stops);
@@ -528,7 +544,7 @@ function App(): React.JSX.Element {
         { enableHighAccuracy: true, timeout: 10000 }
       );
     },
-    [dispatchNav]
+    [dispatchNav, getMapPadding]
   );
 
   /** Get-directions button on a place card: destination = the place, origin = current location. */

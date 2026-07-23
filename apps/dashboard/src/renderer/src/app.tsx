@@ -445,6 +445,15 @@ function App(): React.JSX.Element {
   /** The computed route overlay, only while a directions tab is active. */
   const activeDirectionsRoute = activeDirectionsEntry ? directionsRouteLayer : null;
 
+  /** Whether the main-pane slot is currently occupied by any pane — the full place
+   *  card, a list tab, or a directions tab all share the same on-screen footprint.
+   *  Callers that center on the live view pass this to `getMapPadding` so the target
+   *  clears the pane instead of landing behind it. */
+  const mainPaneOpen =
+    (placeMode === "full" && selectedPlace !== null) ||
+    activeListLayer !== null ||
+    activeDirectionsEntry !== null;
+
   /** Overlay layers drawn now: ambient layers (routes/isochrones/bulk) plus the active
    *  list tab's layer or the active directions tab's route. Both live in per-tab state, not
    *  in `overlayLayers`, so a closed or backgrounded tab draws nothing. */
@@ -577,11 +586,10 @@ function App(): React.JSX.Element {
    * sidebar/main-pane padding instead of centering behind them. */
   useEffect(() => {
     window.api.map.onPanTo(({ lat, lng, zoom }) => {
-      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
       mapRef.current?.flyTo(lat, lng, { zoom, padding: getMapPadding(mainPaneOpen) });
     });
     return () => window.api.map.removeListeners();
-  }, [getMapPadding, placeMode, selectedPlace]);
+  }, [getMapPadding, mainPaneOpen]);
 
   /** Push the current tab/selection state to main so the agent's get_active_file /
    * get_open_tabs tools can see what the user is looking at. Mirrors the viewport push. */
@@ -610,13 +618,12 @@ function App(): React.JSX.Element {
   const handleUserLocationChange = useCallback(
     (location: UserLocation, targetZoom: number) => {
       setUserLocation(location);
-      const mainPaneOpen = placeMode === "full" && selectedPlace !== null;
       mapRef.current?.flyTo(location.lat, location.lng, {
         zoom: targetZoom,
         padding: getMapPadding(mainPaneOpen)
       });
     },
-    [getMapPadding, placeMode, selectedPlace]
+    [getMapPadding, mainPaneOpen]
   );
 
   /** Keep file-based GeoJSON on the map in sync with selection (clears when navigating away). */

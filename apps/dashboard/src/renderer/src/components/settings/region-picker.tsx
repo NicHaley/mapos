@@ -11,7 +11,7 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDarkMode } from "../../hooks/use-dark-mode";
 import { type RegionRow, type RegionStatus, useRegionPacks } from "../../hooks/use-region-packs";
 import { ContinentHeader, GroupHeader } from "./group-header";
@@ -36,6 +36,81 @@ function markerColor(r: RegionRow, dark: boolean): string {
 
 const isDownloaded = (r: RegionRow): boolean =>
   r.status === "installed" || r.status === "update-available";
+
+type LngLat = { lng: number; lat: number };
+
+// Point-in-bbox, mirroring main's installed-regions.ts. bbox is [minLng, minLat, maxLng, maxLat].
+function bboxContains(b: [number, number, number, number], lng: number, lat: number): boolean {
+  return lng >= b[0] && lng <= b[2] && lat >= b[1] && lat <= b[3];
+}
+
+function bboxArea(b: [number, number, number, number]): number {
+  return Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+}
+
+const RECOMMENDED_LIMIT = 6;
+
+// A pack whose box spans half the globe or more is an antimeridian artifact: a region
+// crossing 180° (Alaska, NZ, Fiji, Russia's Far East…) gets a PMTiles-header bbox that
+// wraps to the full -180..180 range, so it "contains" points an ocean away. Useless for
+// locating — reject it outright.
+function bboxUsable(b: [number, number, number, number]): boolean {
+  return b[2] - b[0] < 180;
+}
+
+// Coverage for a point: only packs whose box actually contains it — we never suggest a
+// far-away pack as "your area". Two guards keep bad bbox data out: antimeridian boxes are
+// dropped, and we trust the smallest (most specific) covering box to locate the user, then
+// keep only packs on its continent — so a polluted extract box (e.g. an English county
+// stretched across the Atlantic) that also "contains" the point is dropped as a
+// different-continent match. `toGet` is the not-yet-downloaded matches, smallest box first
+// so a subdivision ranks above the whole country; `covered` is true when a covering pack is
+// already installed (so we can say "you're set" instead).
+function coverageFor(
+  regions: RegionRow[],
+  point: LngLat
+): { toGet: RegionRow[]; covered: boolean } {
+  const covering = regions
+    .flatMap((r) =>
+      r.bbox && bboxUsable(r.bbox) && bboxContains(r.bbox, point.lng, point.lat)
+        ? [{ r, area: bboxArea(r.bbox) }]
+        : []
+    )
+    .sort((a, b) => a.area - b.area);
+  const anchor = covering[0]?.r.continent;
+  const local = anchor ? covering.filter(({ r }) => r.continent === anchor) : covering;
+  const toGet = local
+    .filter(({ r }) => r.status === "available" || r.status === "error")
+    .map(({ r }) => r)
+    .slice(0, RECOMMENDED_LIMIT);
+  const covered = local.some(({ r }) => isDownloaded(r));
+  return { toGet, covered };
+}
+
+// Renderer-side geolocation, matching the "My location" map control. Rejects with a
+// user-facing message so the picker can explain why no recommendation appeared.
+function requestCurrentPosition(): Promise<LngLat> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Location unavailable"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude }),
+      (err) =>
+        reject(
+          new Error(
+            err.code === err.PERMISSION_DENIED
+              ? "Location access denied"
+              : err.code === err.TIMEOUT
+                ? "Location timed out"
+                : "Location unavailable"
+          )
+        ),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
 
 // Status-tinted badge — mirrors the Models page's ProviderBadge so the two
 // settings pages read as siblings. Color carries the status (emerald =
@@ -192,6 +267,63 @@ export function RegionPicker() {
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  // Recommend the packs covering the user's location. We only try when online (downloads
+  // need the network anyway) and once the manifest is loaded; offline, the picker already
+  // routes to its "couldn't load regions" state, so nothing extra is shown.
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [userPoint, setUserPoint] = useState<LngLat | null>(null);
+  const [locError, setLocError] = useState<string | null>(null);
+  const [located, setLocated] = useState(false);
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    // Reconnecting resets the attempt so a failed/skipped lookup gets one more try.
+    const off = () => {
+      setOnline(false);
+      setLocated(false);
+      setLocError(null);
+    };
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
+  const manifestReady = !packs.loading && packs.regions.length > 0;
+  useEffect(() => {
+    if (!online || !manifestReady || located || userPoint) return;
+    setLocated(true);
+    requestCurrentPosition().then(
+      (p) => {
+        setUserPoint(p);
+        setLocError(null);
+      },
+      (e: unknown) => setLocError(e instanceof Error ? e.message : String(e))
+    );
+  }, [online, manifestReady, located, userPoint]);
+
+  const coverage = useMemo(
+    () => (userPoint ? coverageFor(packs.regions, userPoint) : null),
+    [userPoint, packs.regions]
+  );
+  const recommended = coverage?.toGet ?? [];
+  const recommendedSet = useMemo(
+    () => new Set(recommended.map((r) => r.slug)),
+    [recommended]
+  );
+
+  // Draw attention to the top match: focus its pin (tooltip) and scroll its row in. Cleared
+  // as soon as the user hovers any row, so it's a nudge, not a permanent state.
+  const topRecommended = recommended[0]?.slug ?? null;
+  useEffect(() => {
+    if (!topRecommended) return;
+    setFocus(topRecommended);
+    const id = window.setTimeout(() => scrollToRegion(topRecommended), 0);
+    return () => window.clearTimeout(id);
+  }, [topRecommended, scrollToRegion]);
+
   const markers = useMemo<RegionMarker[]>(
     () =>
       packs.regions.flatMap((r) =>
@@ -202,12 +334,13 @@ export function RegionPicker() {
                 name: r.name,
                 center: r.center,
                 color: markerColor(r, dark),
-                subtle: r.status === "available"
+                subtle: r.status === "available",
+                recommended: recommendedSet.has(r.slug)
               }
             ]
           : []
       ),
-    [packs.regions, dark]
+    [packs.regions, dark, recommendedSet]
   );
 
   // Downloaded regions float to a dedicated section at the top so they stay easy to
@@ -335,9 +468,33 @@ export function RegionPicker() {
     </div>
   );
 
+  // Location-based recommendation, pinned above everything. Hidden while a search query
+  // is active so filtered results stay clean.
+  const recommendation =
+    !q && online && userPoint && coverage ? (
+      recommended.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <GroupHeader label="Recommended for your area" />
+          <RegionList rows={recommended} packs={packs} onHover={setFocus} />
+        </section>
+      ) : coverage.covered ? (
+        <p className="px-1 text-xs text-muted-foreground">
+          You already have offline coverage for your area.
+        </p>
+      ) : null
+    ) : null;
+
+  const locNote = !q && online && !userPoint && locError && (
+    <p className="px-1 text-xs text-muted-foreground">
+      Couldn’t detect your location — {locError}.
+    </p>
+  );
+
   const list = (
     // -mr-2/pr-2 parks the scrollbar in the gutter.
     <div ref={listRef} className="-mr-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-2">
+      {recommendation}
+      {locNote}
       {nothing ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {q ? `No regions match “${query}”.` : "No regions available."}

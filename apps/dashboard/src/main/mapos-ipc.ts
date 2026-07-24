@@ -1,7 +1,8 @@
 import { existsSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type BrowserWindow, app, dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain } from "electron";
 import { closeDb } from "./db";
+import { getMainWindow } from "./main-window";
 import {
   appendVaultToConfig,
   getPrimaryVaultRoot,
@@ -45,7 +46,7 @@ export type OnboardingVaultDraft =
  * registered once for the lifetime of the window and remain available before, during,
  * and after onboarding.
  */
-export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts): void {
+export function registerMaposIpc(opts: RegisterOpts): void {
   ipcMain.handle("mapos:get-vaults-config", () => {
     const appStateDir = app.getPath("userData");
     const cfg = loadOrInitMaposConfig(appStateDir);
@@ -54,8 +55,9 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
   });
 
   ipcMain.handle("mapos:set-folder-as-vault", async () => {
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
+    const win = getMainWindow();
+    if (!win) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(win, {
       properties: ["openDirectory"],
       title: "Choose folder to use as a vault"
     });
@@ -83,8 +85,9 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
       return { ok: false as const, error: "Name cannot start with a dot." };
     }
 
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
+    const win = getMainWindow();
+    if (!win) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(win, {
       properties: ["openDirectory", "createDirectory"],
       title: "Choose where to create the new vault"
     });
@@ -130,8 +133,9 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
   ipcMain.handle("onboarding:pick-create-location", async (_event, name: string) => {
     const validated = validateVaultName(name);
     if (!validated.ok) return { ok: false as const, error: validated.error };
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
+    const win = getMainWindow();
+    if (!win) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(win, {
       properties: ["openDirectory", "createDirectory"],
       title: "Choose where to create the new vault"
     });
@@ -149,8 +153,9 @@ export function registerMaposIpc(mainWindow: BrowserWindow, opts: RegisterOpts):
    * registering it. Onboarding stores it as a draft and commits on Done.
    */
   ipcMain.handle("onboarding:pick-existing-vault", async () => {
-    if (mainWindow.isDestroyed()) return { canceled: true as const };
-    const picked = await dialog.showOpenDialog(mainWindow, {
+    const win = getMainWindow();
+    if (!win) return { canceled: true as const };
+    const picked = await dialog.showOpenDialog(win, {
       properties: ["openDirectory"],
       title: "Choose folder to use as a vault"
     });

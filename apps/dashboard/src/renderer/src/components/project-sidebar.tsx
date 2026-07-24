@@ -94,9 +94,9 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialPage, setSettingsInitialPage] = useState<"general" | "appearance">(
-    "general"
-  );
+  const [settingsInitialPage, setSettingsInitialPage] = useState<
+    "general" | "appearance" | "connections"
+  >("general");
   const [filesGroupOpen, setFilesGroupOpen] = useState(true);
   // Folders the user has expanded, persisted per vault. Folders default closed
   // (Obsidian / Finder behavior); the key is null until the vault root resolves,
@@ -372,7 +372,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   // Allow other components to deep-link into a specific settings page.
   useEffect(() => {
     function handleOpenSettings(e: Event): void {
-      const detail = (e as CustomEvent<{ section?: "general" | "appearance" }>).detail;
+      const detail = (e as CustomEvent<{ section?: "general" | "appearance" | "connections" }>)
+        .detail;
       setSettingsInitialPage(detail?.section ?? "general");
       setSettingsOpen(true);
     }

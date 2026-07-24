@@ -24,7 +24,7 @@ import {
   bboxUsable,
   rejectForeignContinents
 } from "@renderer/lib/region-coverage";
-import type { MapOverlayLayer, PlaceRecord } from "@shared/types";
+import { DIRECTIONS_OVERLAY_PREFIX, type MapOverlayLayer, type PlaceRecord } from "@shared/types";
 import {
   ArrowUpDownIcon,
   BikeIcon,
@@ -124,15 +124,15 @@ function buildRouteLayer(
   coordinates: [number, number][]
 ): MapOverlayLayer {
   return {
-    id: `directions:${id}`,
+    id: `${DIRECTIONS_OVERLAY_PREFIX}${id}`,
     layerName: "Route",
     points: stops.map((s, i) => ({
-      id: `directions:${id}:stop-${i}`,
+      id: `${DIRECTIONS_OVERLAY_PREFIX}${id}:stop-${i}`,
       lat: s.lat,
       lng: s.lng,
       title: s.label
     })),
-    lines: [{ id: `directions:${id}:line`, coordinates, title: "Route" }],
+    lines: [{ id: `${DIRECTIONS_OVERLAY_PREFIX}${id}:line`, coordinates, title: "Route" }],
     polygons: []
   };
 }

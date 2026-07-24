@@ -14,7 +14,7 @@ import type { GeocodeResult } from "@mapos/contracts";
 import { MapServiceError } from "@mapos/service-adapters";
 import { bbox as turfBbox } from "@turf/bbox";
 import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon";
-import { type BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import type { Geometry, MultiPolygon, Polygon } from "geojson";
 import matter from "gray-matter";
 import { type TSchema, Type } from "typebox";
@@ -36,6 +36,7 @@ import {
   syncFeatureForFile
 } from "./db";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
+import { getMainWindow, sendToRenderer } from "./main-window";
 import {
   cancelDownload as cancelRegionDownload,
   deleteRegion,
@@ -226,7 +227,7 @@ ipcMain.on("geo:locate-reply", (_event, reply: LocateReply) => {
   }
 });
 
-  export function buildMaposSystemPrompt(vaultRoot: string): string {
+export function buildMaposSystemPrompt(vaultRoot: string): string {
   return `You are the AI agent powering MapOS, a map-first application where the map is the primary interface for a user's personal files, saved places, and spatial data. Help users organize, explore, and reason about their world through their files.
 
 MapOS is a local-first Electron application. Everything runs on the user's machine. Files are the source of truth.
@@ -393,7 +394,6 @@ const directionsEndpointSchema = Type.Object({
 });
 
 export function buildMaposCustomTools(
-  mainWindow: BrowserWindow,
   places: Map<string, PlaceRecord>,
   maposDir: string,
   /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
@@ -724,10 +724,7 @@ export function buildMaposCustomTools(
       // Vault paths ride along on the layer: the renderer resolves them against the
       // places index and draws their markers, since a presented place may lie outside
       // the selected folder and would otherwise have no marker on the map.
-      if (
-        (points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0) &&
-        !mainWindow.isDestroyed()
-      ) {
+      if (points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0) {
         const layer: MapOverlayLayer = {
           id: layerId,
           layerName: args.layer_name ?? "search-results",
@@ -736,7 +733,7 @@ export function buildMaposCustomTools(
           polygons,
           ...(vaultPaths.length > 0 ? { vaultPaths } : {})
         };
-        mainWindow.webContents.send("map:overlay-add", layer);
+        sendToRenderer("map:overlay-add", layer);
       }
 
       return TEXT_RESULT(
@@ -1101,13 +1098,11 @@ export function buildMaposCustomTools(
       zoom: Type.Optional(Type.Number({ description: "Zoom level 0-20, default 14" }))
     }),
     execute: async (_id, args) => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("map:pan-to", {
-          lat: args.lat,
-          lng: args.lng,
-          zoom: args.zoom
-        });
-      }
+      sendToRenderer("map:pan-to", {
+        lat: args.lat,
+        lng: args.lng,
+        zoom: args.zoom
+      });
       return TEXT_RESULT(`Map panning to ${args.lat}, ${args.lng}`);
     }
   });
@@ -1178,9 +1173,7 @@ export function buildMaposCustomTools(
       if (!existsSync(abs)) {
         return TEXT_RESULT(JSON.stringify({ success: false, error: "File not found" }));
       }
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("nav:open-file", { path: abs });
-      }
+      sendToRenderer("nav:open-file", { path: abs });
       return TEXT_RESULT(JSON.stringify({ success: true, path: toVaultRelative(abs) }));
     }
   });
@@ -1199,7 +1192,7 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      if (mainWindow.isDestroyed()) {
+      if (!getMainWindow()) {
         return TEXT_RESULT(JSON.stringify({ location: null, error: "App window not available" }));
       }
       const id = `loc_${++locateSeq}`;
@@ -1216,7 +1209,7 @@ export function buildMaposCustomTools(
           clearTimeout(timer);
           resolve(r);
         });
-        mainWindow.webContents.send("geo:locate-request", { id, reveal });
+        sendToRenderer("geo:locate-request", { id, reveal });
       });
       if (!reply.ok) {
         return TEXT_RESULT(JSON.stringify({ location: null, error: reply.error }));
@@ -1518,9 +1511,7 @@ export function buildMaposCustomTools(
         stops = [origin, destination];
       }
 
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("nav:open-directions", { stops, mode });
-      }
+      sendToRenderer("nav:open-directions", { stops, mode });
       const originLabel = stops[0]?.label ?? "current location";
       const destinationLabel = stops[stops.length - 1]?.label ?? "destination";
       return TEXT_RESULT(
@@ -2586,7 +2577,7 @@ export function buildMaposCustomTools(
       // Fire-and-forget: the download streams progress to the app's Offline tab and can
       // take minutes — blocking the tool call would stall the client. Failures surface
       // there (and are swallowed here to avoid an unhandled rejection).
-      void downloadRegion(mainWindow, appStateDir, args.region, args.version).catch((err) => {
+      void downloadRegion(appStateDir, args.region, args.version).catch((err) => {
         console.error(`[mcp] region download failed for ${args.region}:`, err);
       });
       return TEXT_RESULT(
@@ -2633,7 +2624,7 @@ export function buildMaposCustomTools(
         );
       }
       deleteRegion(appStateDir, args.region);
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:changed");
+      sendToRenderer("regions:changed");
       return TEXT_RESULT(JSON.stringify({ success: true, region: args.region, action: "deleted" }));
     }
   });

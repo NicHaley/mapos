@@ -1,13 +1,10 @@
 import { is } from "@electron-toolkit/utils";
-import { type BrowserWindow, Menu, app, dialog, ipcMain, nativeImage } from "electron";
+import { Menu, app, dialog, ipcMain, nativeImage } from "electron";
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-updater";
 
 const { autoUpdater } = electronUpdater;
 import iconPng from "../../resources/icon.png?asset";
-
-const send = (win: BrowserWindow, channel: string, payload?: unknown): void => {
-  if (!win.isDestroyed()) win.webContents.send(channel, payload);
-};
+import { getMainWindow, sendToRenderer } from "./main-window";
 
 // Menu item id wired up in app-menu.ts. We mutate label + enabled state directly
 // while a manual check is in flight to match the standard macOS pattern (the
@@ -19,7 +16,6 @@ const MENU_ITEM_ID = "check-for-updates";
 // stay silent unless an update is actually available.
 let manualCheckInFlight = false;
 let manualCheckTimeoutId: NodeJS.Timeout | null = null;
-let activeWindow: BrowserWindow | null = null;
 // Set once an update has finished downloading. The quit path force-exits (a graceful
 // app.quit() hangs once native modules are loaded), which skips the `will-quit` hook
 // that `autoInstallOnAppQuit` relies on — so installs are triggered explicitly instead.
@@ -44,8 +40,9 @@ function showResultDialog(opts: {
   message: string;
   detail?: string;
 }): void {
-  if (!activeWindow || activeWindow.isDestroyed()) return;
-  void dialog.showMessageBox(activeWindow, {
+  const win = getMainWindow();
+  if (!win) return;
+  void dialog.showMessageBox(win, {
     type: opts.type ?? "info",
     icon: updateDialogIcon,
     message: opts.message,
@@ -66,7 +63,7 @@ function clearManualCheck(): void {
 }
 
 export function checkForUpdatesManually(): void {
-  if (!activeWindow || activeWindow.isDestroyed()) return;
+  if (!getMainWindow()) return;
   if (manualCheckInFlight) return;
   manualCheckInFlight = true;
   setMenuChecking(true);
@@ -93,8 +90,7 @@ export function checkForUpdatesManually(): void {
   });
 }
 
-export function setupUpdater(mainWindow: BrowserWindow): () => void {
-  activeWindow = mainWindow;
+export function setupUpdater(): () => void {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade = false;
@@ -125,7 +121,7 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
       return;
     }
     // Prod: kick off the in-app download/restart banner.
-    send(mainWindow, "updater:available", {
+    sendToRenderer("updater:available", {
       version: info.version,
       releaseDate: info.releaseDate
     });
@@ -150,14 +146,14 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   });
 
   autoUpdater.on("download-progress", (p: ProgressInfo) =>
-    send(mainWindow, "updater:progress", { percent: p.percent })
+    sendToRenderer("updater:progress", { percent: p.percent })
   );
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
     updateDownloaded = true;
-    send(mainWindow, "updater:downloaded", { version: info.version });
+    sendToRenderer("updater:downloaded", { version: info.version });
   });
   autoUpdater.on("error", (err: Error) => {
-    send(mainWindow, "updater:error", { message: err.message });
+    sendToRenderer("updater:error", { message: err.message });
     if (manualCheckInFlight) {
       showResultDialog({
         type: "warning",
@@ -199,7 +195,7 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
   // returns 404 noise. Devs can still trigger via the menu.
   if (!is.dev) {
     void autoUpdater.checkForUpdates().catch((err: unknown) => {
-      send(mainWindow, "updater:error", {
+      sendToRenderer("updater:error", {
         message: err instanceof Error ? err.message : String(err)
       });
     });
@@ -210,7 +206,6 @@ export function setupUpdater(mainWindow: BrowserWindow): () => void {
     ipcMain.removeHandler("updater:retry");
     ipcMain.removeHandler("updater:check");
     autoUpdater.removeAllListeners();
-    activeWindow = null;
     clearManualCheck();
   };
 }

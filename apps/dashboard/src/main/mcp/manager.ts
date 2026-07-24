@@ -7,7 +7,6 @@ import {
 import type { GeocodeResult } from "@mapos/contracts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { BrowserWindow } from "electron";
 import type { McpActivity, PlaceRecord } from "../../shared/types";
 import {
   type StashedGeometry,
@@ -24,7 +23,6 @@ const SERVER_NAME = "mapos";
 const SERVER_VERSION = "0.1.0";
 
 type ActiveVault = {
-  mainWindow: BrowserWindow;
   vaultRoot: string;
   places: Map<string, PlaceRecord>;
   /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
@@ -37,7 +35,7 @@ type ActiveVault = {
  *
  * The listener is bound once for the app's lifetime (so a client connection survives vault
  * switches), while the *tool set* is vault-scoped: `setActiveVault` rebuilds it against the
- * active vault's window/index/filesystem, `clearActiveVault` empties it. Requests run in
+ * active vault's index/filesystem, `clearActiveVault` empties it. Requests run in
  * stateless mode — a fresh `Server` + transport per request reading the current tool set — so
  * there's no session bookkeeping and a mid-request vault swap can't corrupt state.
  */
@@ -56,6 +54,8 @@ export class McpManager {
   private lastActivity: McpActivity | null = null;
   /** Fired on every authorized request; wired to the renderer + config persistence in index.ts. */
   onActivity: ((activity: McpActivity) => void) | null = null;
+  /** Fired when a tool call starts/ends; wired to the renderer's "working" shimmer in index.ts. */
+  onToolPhase: ((phase: "start" | "end", tool: string) => void) | null = null;
 
   // App-scoped stores, reused across the whole desktop session (there's no per-conversation
   // scope in MCP). Cleared on vault change so handles never leak across vaults.
@@ -125,7 +125,6 @@ export class McpManager {
     this.geocodeStore.clear();
     this.geometryStore.clear();
     this.tools = buildMaposCustomTools(
-      v.mainWindow,
       v.places,
       v.vaultRoot,
       v.appStateDir,
@@ -170,7 +169,11 @@ export class McpManager {
       { name: SERVER_NAME, version: SERVER_VERSION },
       { capabilities: { tools: {} }, instructions: this.instructions }
     );
-    registerMaposTools(server, () => this.tools);
+    registerMaposTools(
+      server,
+      () => this.tools,
+      (phase, tool) => this.onToolPhase?.(phase, tool)
+    );
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableDnsRebindingProtection: true,

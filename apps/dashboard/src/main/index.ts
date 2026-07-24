@@ -10,6 +10,7 @@ import { setupAppMenu } from "./app-menu";
 import { basemapAssetsDir, worldPmtilesPath } from "./asset-paths";
 import { buildCsp, setActiveServicesForCsp } from "./csp";
 import { closeDb } from "./db";
+import { adoptMainWindow, getMainWindow, sendToRenderer } from "./main-window";
 import {
   getOrCreateMcpConfig,
   getPrimaryVaultRoot,
@@ -57,6 +58,7 @@ function createWindow(): BrowserWindow {
       // devTools: false
     }
   });
+  adoptMainWindow(mainWindow);
 
   mainWindow.on("ready-to-show", () => {
     console.log(`[startup] window ready-to-show at ${process.uptime().toFixed(2)}s`);
@@ -156,7 +158,7 @@ app.whenReady().then(() => {
     callback(permission === "geolocation");
   });
 
-  const mainWindow = createWindow();
+  createWindow();
   const appStateDir = app.getPath("userData");
 
   // Serve downloaded region packs (offline tiles/style) to the renderer, and the
@@ -207,19 +209,19 @@ app.whenReady().then(() => {
     bootPromise = (async () => {
       maposConfig = loadOrInitMaposConfig(appStateDir);
       vaultRoot = getPrimaryVaultRoot(maposConfig);
-      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      const watcher = setupPlacesWatcher(vaultRoot, appStateDir);
       stopWatcher = watcher.stop;
-      // Hand the live vault (window/index/filesystem) to the MCP server so its tool set targets
+      // Hand the live vault (index/filesystem) to the MCP server so its tool set targets
       // this vault. The HTTP listener itself is bound once at startup and survives switches.
-      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
+      mcpManager.setActiveVault({ vaultRoot, places: watcher.places, appStateDir });
       vaultActive = true;
     })();
     return bootPromise;
   }
 
   registerServicesIpc();
-  registerRegionPacksIpc(mainWindow, appStateDir);
-  setupUpdater(mainWindow);
+  registerRegionPacksIpc(appStateDir);
+  setupUpdater();
   setupAppMenu();
 
   // Local MCP server: bind the HTTP listener once (vault-independent) so external MCP clients
@@ -232,8 +234,13 @@ app.whenReady().then(() => {
   // launch. Wired here (not in setActiveVault) so it fires even during onboarding, when no
   // vault is active yet.
   mcpManager.onActivity = (activity) => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:activity", activity);
+    sendToRenderer("mcp:activity", activity);
     recordMcpActivityInConfig(appStateDir, activity);
+  };
+  // Push tool start/finish so the renderer can shimmer a "working" indicator while a client has a
+  // call in flight. Purely live/transient — unlike onActivity, nothing is persisted.
+  mcpManager.onToolPhase = (phase, tool) => {
+    sendToRenderer("mcp:tool-phase", { phase, tool });
   };
   if (mcpConfig.enabled) {
     void mcpManager.start(mcpConfig.port, mcpConfig.token).catch((err) => {
@@ -243,14 +250,14 @@ app.whenReady().then(() => {
 
   // Vault management + onboarding IPCs are also vault-independent. They power both the
   // first-launch onboarding flow and the in-app vault switcher.
-  registerMaposIpc(mainWindow, {
+  registerMaposIpc({
     onOnboardingComplete: async () => {
       // Renderer has already created a vault through existing IPCs.
       // If a previous vault is active (e.g. user wiped mapos.json mid-session and is
       // re-onboarding), tear it down first so handler registration doesn't collide.
       await teardownVault();
       await bootVault();
-      mainWindow.webContents.reload();
+      getMainWindow()?.webContents.reload();
     }
   });
 
@@ -271,12 +278,12 @@ app.whenReady().then(() => {
     // Re-initialize with new vault
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    const watcher = setupPlacesWatcher(vaultRoot, appStateDir);
     stopWatcher = watcher.stop;
-    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
+    mcpManager.setActiveVault({ vaultRoot, places: watcher.places, appStateDir });
 
     // Reload the renderer (fast — no process restart)
-    mainWindow.webContents.reload();
+    getMainWindow()?.webContents.reload();
 
     return { ok: true as const };
   });
@@ -308,9 +315,9 @@ app.whenReady().then(() => {
       renameSync(oldPath, newPath);
     } catch (e) {
       // Re-initialize at the original path so the app is not left in a broken state.
-      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      const watcher = setupPlacesWatcher(vaultRoot, appStateDir);
       stopWatcher = watcher.stop;
-      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
+      mcpManager.setActiveVault({ vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: `Rename failed: ${String(e)}` };
     }
 
@@ -322,9 +329,9 @@ app.whenReady().then(() => {
       } catch {
         /* best-effort rollback */
       }
-      const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+      const watcher = setupPlacesWatcher(vaultRoot, appStateDir);
       stopWatcher = watcher.stop;
-      mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
+      mcpManager.setActiveVault({ vaultRoot, places: watcher.places, appStateDir });
       return { ok: false as const, error: updated.error };
     }
 
@@ -339,11 +346,11 @@ app.whenReady().then(() => {
 
     maposConfig = loadOrInitMaposConfig(appStateDir);
     vaultRoot = getPrimaryVaultRoot(maposConfig);
-    const watcher = setupPlacesWatcher(mainWindow, vaultRoot, appStateDir);
+    const watcher = setupPlacesWatcher(vaultRoot, appStateDir);
     stopWatcher = watcher.stop;
-    mcpManager.setActiveVault({ mainWindow, vaultRoot, places: watcher.places, appStateDir });
+    mcpManager.setActiveVault({ vaultRoot, places: watcher.places, appStateDir });
 
-    mainWindow.webContents.reload();
+    getMainWindow()?.webContents.reload();
 
     return { ok: true as const, newPath };
   });
@@ -385,7 +392,7 @@ app.whenReady().then(() => {
       await bootVault();
     }
 
-    mainWindow.webContents.reload();
+    getMainWindow()?.webContents.reload();
 
     return { ok: true as const };
   });

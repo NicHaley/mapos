@@ -11,7 +11,7 @@ import {
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 import chokidar from "chokidar";
-import { type BrowserWindow, ipcMain, shell } from "electron";
+import { ipcMain, shell } from "electron";
 import matter from "gray-matter";
 import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
@@ -31,6 +31,7 @@ import {
   replaceFeaturePropertiesForFile,
   syncFeatureForFile
 } from "./db";
+import { sendToRenderer } from "./main-window";
 import { vaultDotDir as vaultDotDirPath } from "./mapos-config";
 import { isProtectedVaultPath, resolveInVault } from "./vault-path";
 import { parseWkt } from "./wkt";
@@ -272,7 +273,6 @@ export function initVaultOnDisk(vaultRoot: string): void {
 }
 
 export function setupPlacesWatcher(
-  mainWindow: BrowserWindow,
   vaultRoot: string,
   _appStateDir: string
 ): { places: Map<string, PlaceRecord>; stop: () => Promise<void> } {
@@ -352,9 +352,7 @@ export function setupPlacesWatcher(
   // a .geojson the user is viewing). The sidebar tree doesn't care, but the map /
   // PlaceCard needs to re-read the file to reflect the change.
   nonPlaceWatcher.on("change", (filePath) => {
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("fs:file-content-changed", { filePath });
-    }
+    sendToRenderer("fs:file-content-changed", { filePath });
   });
 
   watcher.on("add", async (filePath) => {
@@ -364,8 +362,8 @@ export function setupPlacesWatcher(
     if (place) {
       places.set(filePath, place);
       if (place.geometry) indexFeatures([place]);
-      if (initialScanDone && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("places:updated", { event: "add", place });
+      if (initialScanDone) {
+        sendToRenderer("places:updated", { event: "add", place });
       }
     }
     if (initialScanDone) notifyFsChanged();
@@ -377,12 +375,12 @@ export function setupPlacesWatcher(
     // See the `ipcWriteBarrier` doc comment above for the full rationale.
     if (ipcWriteBarrier.delete(filePath)) {
       const place = places.get(filePath);
-      if (initialScanDone && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(
+      if (initialScanDone) {
+        sendToRenderer(
           "places:updated",
           place ? { event: "change", place } : { event: "unlink", filePath }
         );
-        mainWindow.webContents.send("fs:file-content-changed", { filePath });
+        sendToRenderer("fs:file-content-changed", { filePath });
       }
       return;
     }
@@ -398,12 +396,12 @@ export function setupPlacesWatcher(
       places.delete(filePath);
       removeFeatures([filePath]);
     }
-    if (initialScanDone && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(
+    if (initialScanDone) {
+      sendToRenderer(
         "places:updated",
         place ? { event: "change", place } : { event: "unlink", filePath }
       );
-      mainWindow.webContents.send("fs:file-content-changed", { filePath });
+      sendToRenderer("fs:file-content-changed", { filePath });
     }
   });
 
@@ -415,14 +413,14 @@ export function setupPlacesWatcher(
       pendingRenameOldPaths.delete(filePath);
       return;
     }
-    if (initialScanDone && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("places:updated", { event: "unlink", filePath });
+    if (initialScanDone) {
+      sendToRenderer("places:updated", { event: "unlink", filePath });
       notifyFsChanged();
     }
   });
 
   const notifyFsChanged = () => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("fs:changed");
+    sendToRenderer("fs:changed");
   };
 
   watcher.on("ready", () => {

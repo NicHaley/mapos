@@ -13,6 +13,7 @@ import type {
   MapOverlayLayer,
   McpActivity,
   McpConnectionInfo,
+  McpToolPhase,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -220,6 +221,8 @@ declare global {
         setEnabled: (enabled: boolean) => Promise<McpConnectionInfo>;
         regenerateToken: () => Promise<McpConnectionInfo>;
         onActivity: (cb: (activity: McpActivity) => void) => () => void;
+        onToolPhase: (cb: (event: McpToolPhase) => void) => () => void;
+        onConnectionChanged: (cb: (info: McpConnectionInfo) => void) => () => void;
       };
       properties: {
         listAllKeys: () => Promise<Array<{ key: string; type: PropertyType }>>;

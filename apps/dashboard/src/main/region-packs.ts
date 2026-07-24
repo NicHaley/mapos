@@ -11,13 +11,14 @@ import {
   writeFileSync
 } from "node:fs";
 import { join } from "node:path";
-import { type BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import {
   type InstalledRegionPack,
   type RegionDownloadProgress,
   type RegionManifest,
   regionVersionDigest
 } from "../shared/types";
+import { sendToRenderer } from "./main-window";
 import { invalidateServiceClient } from "./services/client";
 
 // Build-time injected by electron-vite (declared in env.d.ts). Trailing slash
@@ -56,8 +57,8 @@ function regionsDirFor(appStateDir: string): string {
  * offline style (the style URL is stable but its contents — sources/layers — grew
  * or shrank) and any region UI can refresh.
  */
-function broadcastChanged(mainWindow: BrowserWindow): void {
-  if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:changed");
+function broadcastChanged(): void {
+  sendToRenderer("regions:changed");
 }
 
 /**
@@ -169,7 +170,6 @@ async function downloadArtifact(
  * pre-existing installed pack is left untouched until every new artifact verifies.
  */
 export async function downloadRegion(
-  mainWindow: BrowserWindow,
   appStateDir: string,
   region: string,
   version?: string
@@ -198,7 +198,7 @@ export async function downloadRegion(
   const send = (p: RegionDownloadProgress): void => {
     if (p.phase === "done" || p.phase === "error") downloadProgress.delete(region);
     else downloadProgress.set(region, p);
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("regions:download-progress", p);
+    sendToRenderer("regions:download-progress", p);
   };
   const emitDownloading = (): void => {
     const now = Date.now();
@@ -240,7 +240,7 @@ export async function downloadRegion(
     // so the next request resolves against the new pack, and tell the renderer to
     // reload the map style so the new tiles appear without an app restart.
     invalidateServiceClient();
-    broadcastChanged(mainWindow);
+    broadcastChanged();
     send({ region, receivedBytes: totalBytes, totalBytes, phase: "done" });
   } catch (e) {
     cleanupParts(dir);
@@ -282,19 +282,19 @@ export function deleteRegion(appStateDir: string, region: string): void {
  * Register renderer→main region-pack handlers. Vault-independent — registered once
  * for the lifetime of the window, alongside the other service IPCs.
  */
-export function registerRegionPacksIpc(mainWindow: BrowserWindow, appStateDir: string): void {
+export function registerRegionPacksIpc(appStateDir: string): void {
   ipcMain.handle("regions:get-manifest", (_e, force?: boolean) => fetchManifest(!!force));
   ipcMain.handle("regions:list-local", () => listLocal(regionsDirFor(appStateDir)));
   ipcMain.handle(
     "regions:download",
     (_e, { region, version }: { region: string; version?: string }) =>
-      downloadRegion(mainWindow, appStateDir, region, version)
+      downloadRegion(appStateDir, region, version)
   );
   ipcMain.handle("regions:cancel-download", (_e, region: string) => {
     cancelDownload(region);
   });
   ipcMain.handle("regions:delete", (_e, region: string) => {
     deleteRegion(appStateDir, region);
-    broadcastChanged(mainWindow);
+    broadcastChanged();
   });
 }

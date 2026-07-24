@@ -105,6 +105,10 @@ export type MapOverlayPayload = {
  * Marker ids within a layer are namespaced (`<id>:feature-0`) to stay unique
  * across layers.
  */
+/** Overlay-layer id prefix for directions routes — the renderer styles these solid
+ * (nav convention) while other overlays draw dashed. */
+export const DIRECTIONS_OVERLAY_PREFIX = "directions:";
+
 export type MapOverlayLayer = MapOverlayPayload & {
   id: string;
   /**
@@ -243,4 +247,14 @@ export type McpActivity = {
   version?: string;
   /** Epoch ms of the most recent authorized request. */
   at: number;
+};
+
+/**
+ * A tool call crossing the MCP bridge: `"start"` when the server begins handling it, `"end"` when
+ * it settles (success or error). Transient and live-only (never persisted) — it drives the
+ * "MapOS is working" shimmer in the map controls, not the historical "last active" indicator.
+ */
+export type McpToolPhase = {
+  phase: "start" | "end";
+  tool: string;
 };

@@ -13,6 +13,7 @@ import type {
   MapOverlayLayer,
   McpActivity,
   McpConnectionInfo,
+  McpToolPhase,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -268,6 +269,22 @@ const api = {
       ipcRenderer.on("mcp:activity", listener);
       return () => {
         ipcRenderer.off("mcp:activity", listener);
+      };
+    },
+    /** Fires when the server begins/finishes handling a tool call. Returns a cleanup fn. */
+    onToolPhase: (cb: (event: McpToolPhase) => void): (() => void) => {
+      const listener = (_e: unknown, event: McpToolPhase): void => cb(event);
+      ipcRenderer.on("mcp:tool-phase", listener);
+      return () => {
+        ipcRenderer.off("mcp:tool-phase", listener);
+      };
+    },
+    /** Fires when the server is toggled or its token rotates. Returns a cleanup fn. */
+    onConnectionChanged: (cb: (info: McpConnectionInfo) => void): (() => void) => {
+      const listener = (_e: unknown, info: McpConnectionInfo): void => cb(info);
+      ipcRenderer.on("mcp:connection-changed", listener);
+      return () => {
+        ipcRenderer.off("mcp:connection-changed", listener);
       };
     }
   },

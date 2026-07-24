@@ -11,7 +11,13 @@ import type { ToolDefinition } from "../tool-defs";
  * they pass straight through as `inputSchema`, and `ToolResult.content` already matches MCP's
  * `{ type: "text", text }` content shape.
  */
-export function registerMaposTools(server: Server, getTools: () => ToolDefinition[]): void {
+export function registerMaposTools(
+  server: Server,
+  getTools: () => ToolDefinition[],
+  // Fired around each tool dispatch (after the tool is resolved) so the app can surface a
+  // "working" indicator while a call is in flight. Optional — omitting it just skips the signal.
+  onToolPhase?: (phase: "start" | "end", tool: string) => void
+): void {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: getTools().map((t) => ({
       name: t.name,
@@ -29,6 +35,7 @@ export function registerMaposTools(server: Server, getTools: () => ToolDefinitio
     if (!tool) {
       return { content: [{ type: "text" as const, text: `Unknown tool: ${name}` }], isError: true };
     }
+    onToolPhase?.("start", name);
     try {
       // Tools take a call id (some use it as a unique overlay-layer id); a random id per call
       // keeps accumulated layers distinct.
@@ -37,6 +44,8 @@ export function registerMaposTools(server: Server, getTools: () => ToolDefinitio
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: "text" as const, text: message }], isError: true };
+    } finally {
+      onToolPhase?.("end", name);
     }
   });
 }

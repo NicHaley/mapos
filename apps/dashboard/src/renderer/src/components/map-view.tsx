@@ -1529,7 +1529,7 @@ const MapView = forwardRef<
                       ? routeLinePaint(overlayColor, lineOpacity)
                       : overlayLinePaint(overlayColor, lineOpacity)
                   }
-                  layout={isRoute ? ROUND_LINE_LAYOUT : undefined}
+                  layout={isRoute ? ROUND_LINE_LAYOUT : {}}
                 />
                 {/* Overlay points as a symbol layer with the rasterized poker-chip icon (not
                     HTML markers) so a large result set stays cheap — one WebGL layer draws

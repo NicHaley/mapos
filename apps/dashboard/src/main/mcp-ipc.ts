@@ -1,5 +1,6 @@
-import { type BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import type { McpConnectionInfo } from "../shared/types";
+import { sendToRenderer } from "./main-window";
 import {
   getOrCreateMcpConfig,
   regenerateMcpTokenInConfig,
@@ -23,11 +24,11 @@ function connectionInfo(appStateDir: string): McpConnectionInfo {
  * IPC for the MCP Connections settings panel: read connection info, toggle the server, and
  * rotate the token. All app-level (not per-vault) — the config lives in `userData/mapos.json`.
  */
-export function registerMcpIpc(mainWindow: BrowserWindow, appStateDir: string): void {
+export function registerMcpIpc(appStateDir: string): void {
   // Push the new state to the renderer so live indicators (e.g. the map-controls status dot)
   // update the moment the server is toggled or its token rotates — not just on next fetch.
   const broadcast = (info: McpConnectionInfo): void => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:connection-changed", info);
+    sendToRenderer("mcp:connection-changed", info);
   };
 
   ipcMain.handle("mcp:get-connection-info", () => connectionInfo(appStateDir));

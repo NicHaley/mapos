@@ -7,7 +7,6 @@ import {
 import type { GeocodeResult } from "@mapos/contracts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { BrowserWindow } from "electron";
 import type { McpActivity, PlaceRecord } from "../../shared/types";
 import {
   type StashedGeometry,
@@ -24,7 +23,6 @@ const SERVER_NAME = "mapos";
 const SERVER_VERSION = "0.1.0";
 
 type ActiveVault = {
-  mainWindow: BrowserWindow;
   vaultRoot: string;
   places: Map<string, PlaceRecord>;
   /** Electron userData dir — where region packs live (app-scoped, not vault-scoped). */
@@ -37,7 +35,7 @@ type ActiveVault = {
  *
  * The listener is bound once for the app's lifetime (so a client connection survives vault
  * switches), while the *tool set* is vault-scoped: `setActiveVault` rebuilds it against the
- * active vault's window/index/filesystem, `clearActiveVault` empties it. Requests run in
+ * active vault's index/filesystem, `clearActiveVault` empties it. Requests run in
  * stateless mode — a fresh `Server` + transport per request reading the current tool set — so
  * there's no session bookkeeping and a mid-request vault swap can't corrupt state.
  */
@@ -127,7 +125,6 @@ export class McpManager {
     this.geocodeStore.clear();
     this.geometryStore.clear();
     this.tools = buildMaposCustomTools(
-      v.mainWindow,
       v.places,
       v.vaultRoot,
       v.appStateDir,

@@ -21,6 +21,12 @@ import { cn } from "@mapos/ui/lib/utils";
 import type { McpConnectionInfo } from "@shared/types";
 import { CheckIcon, ChevronRightIcon, CopyIcon, KeyRoundIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import {
+  activityClientName,
+  formatTimeAgo,
+  isRecentActivity,
+  useNow
+} from "../../lib/mcp-activity";
 
 // Ready-to-paste config for each MCP client, with the live URL + token baked in. `hint` names
 // where the snippet goes. Clients that speak Streamable HTTP take the URL directly; stdio-only
@@ -82,27 +88,43 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// Live "did it work?" indicator: green once any client has completed the MCP handshake.
-function ConnectionStatus({ lastClient }: { lastClient: McpConnectionInfo["lastClient"] }) {
-  if (lastClient) {
+// "Did it work?" indicator built on witnessed requests, the only signal a stateless MCP server
+// has: green while activity is recent, a factual "last active …" once it goes quiet (an idle
+// client is indistinguishable from a removed one), dashed while nothing has ever connected.
+function ConnectionStatus({ lastActivity }: { lastActivity: McpConnectionInfo["lastActivity"] }) {
+  const now = useNow();
+  if (!lastActivity) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-md border border-dashed border-input px-3.5 py-3 text-sm text-muted-foreground">
+        <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
+        Waiting for a client to connect…
+      </div>
+    );
+  }
+  const name = activityClientName(lastActivity);
+  const ago = formatTimeAgo(now, lastActivity.at);
+  if (isRecentActivity(lastActivity, now)) {
     return (
       <div className="flex items-center gap-2.5 rounded-md border border-emerald-600/20 bg-emerald-500/10 px-3.5 py-3 text-sm">
         <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-emerald-600">
           <CheckIcon className="size-3 text-white" strokeWidth={3.5} />
         </span>
         <span className="text-emerald-800 dark:text-emerald-200">
-          Connected — <span className="font-medium">{lastClient.name}</span>{" "}
+          Connected — <span className="font-medium">{name}</span>{" "}
           <span className="text-emerald-700/70 dark:text-emerald-300/70">
-            v{lastClient.version}
+            {lastActivity.version ? `v${lastActivity.version} · ` : ""}
+            active {ago}
           </span>
         </span>
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2.5 rounded-md border border-dashed border-input px-3.5 py-3 text-sm text-muted-foreground">
+    <div className="flex items-center gap-2.5 rounded-md border border-input px-3.5 py-3 text-sm text-muted-foreground">
       <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
-      Waiting for a client to connect…
+      <span>
+        <span className="font-medium text-foreground">{name}</span> — last active {ago}
+      </span>
     </div>
   );
 }
@@ -123,8 +145,8 @@ export function McpConnect() {
   }, []);
 
   useEffect(() => {
-    return window.api.mcp.onClientConnected((c) => {
-      setInfo((prev) => (prev ? { ...prev, lastClient: c } : prev));
+    return window.api.mcp.onActivity((activity) => {
+      setInfo((prev) => (prev ? { ...prev, lastActivity: activity } : prev));
     });
   }, []);
 
@@ -164,7 +186,7 @@ export function McpConnect() {
 
       {info.enabled && (
         <>
-          <ConnectionStatus lastClient={info.lastClient} />
+          <ConnectionStatus lastActivity={info.lastActivity} />
 
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-0.5">

@@ -19,6 +19,12 @@ import type { McpConnectionInfo } from "@shared/types";
 import { ArrowLeftIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { setAccent, useAccent } from "../../lib/accent";
+import {
+  activityClientName,
+  formatTimeAgo,
+  isRecentActivity,
+  useNow
+} from "../../lib/mcp-activity";
 import { setTheme, useTheme } from "../../lib/theme";
 import { useCmdEnter } from "../../lib/use-cmd-enter";
 import { AccentPicker } from "../accent-picker";
@@ -47,7 +53,8 @@ export function SetupStep({
   const [offlineOpen, setOfflineOpen] = useState(false);
 
   const [installedCount, setInstalledCount] = useState(0);
-  const [lastClient, setLastClient] = useState<McpConnectionInfo["lastClient"] | null>(null);
+  const [lastActivity, setLastActivity] = useState<McpConnectionInfo["lastActivity"]>(null);
+  const now = useNow();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +72,10 @@ export function SetupStep({
     return window.api.regions.onChanged(load);
   }, []);
 
-  // Live "a client connected" signal for the AI-client row.
+  // Live client-activity signal for the AI-client row.
   useEffect(() => {
-    void window.api.mcp.getConnectionInfo().then((info) => setLastClient(info.lastClient));
-    return window.api.mcp.onClientConnected((c) => setLastClient(c));
+    void window.api.mcp.getConnectionInfo().then((info) => setLastActivity(info.lastActivity));
+    return window.api.mcp.onActivity((a) => setLastActivity(a));
   }, []);
 
   async function handleFinish(): Promise<void> {
@@ -144,17 +151,24 @@ export function SetupStep({
             <Item className="px-0">
               <ItemContent>
                 <ItemTitle>Connect an AI client</ItemTitle>
-                {lastClient ? (
-                  <ItemDescription className="text-emerald-700 dark:text-emerald-400">
-                    Connected — {lastClient.name}
-                  </ItemDescription>
+                {lastActivity ? (
+                  isRecentActivity(lastActivity, now) ? (
+                    <ItemDescription className="text-emerald-700 dark:text-emerald-400">
+                      Connected — {activityClientName(lastActivity)}
+                    </ItemDescription>
+                  ) : (
+                    <ItemDescription>
+                      {activityClientName(lastActivity)} · last active{" "}
+                      {formatTimeAgo(now, lastActivity.at)}
+                    </ItemDescription>
+                  )
                 ) : (
                   <ItemDescription>Drive MapOS from Claude Code, Cursor, and more.</ItemDescription>
                 )}
               </ItemContent>
               <ItemActions>
                 <Button variant="outline" onClick={() => setConnectOpen(true)}>
-                  {lastClient ? "Manage" : "Set up"}
+                  {lastActivity ? "Manage" : "Set up"}
                 </Button>
               </ItemActions>
             </Item>
@@ -232,11 +246,12 @@ export function SetupStep({
         open={connectOpen}
         onOpenChange={(open) => {
           setConnectOpen(open);
-          // The nested sheet can disable the server or rotate the token — both clear the
-          // connected latch on the main process. Refetch on close so the row doesn't keep
-          // showing a stale "Connected".
+          // Rotating the token inside the nested sheet clears the activity record on the main
+          // process. Refetch on close so the row doesn't keep showing a stale "Connected".
           if (!open) {
-            void window.api.mcp.getConnectionInfo().then((info) => setLastClient(info.lastClient));
+            void window.api.mcp
+              .getConnectionInfo()
+              .then((info) => setLastActivity(info.lastActivity));
           }
         }}
       >

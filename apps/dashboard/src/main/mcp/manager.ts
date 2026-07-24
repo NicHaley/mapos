@@ -8,7 +8,7 @@ import type { GeocodeResult } from "@mapos/contracts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { BrowserWindow } from "electron";
-import type { McpClientInfo, PlaceRecord } from "../../shared/types";
+import type { McpActivity, PlaceRecord } from "../../shared/types";
 import {
   type StashedGeometry,
   type VaultOperation,
@@ -48,12 +48,14 @@ export class McpManager {
   private tools: ToolDefinition[] = [];
   private instructions: string | undefined;
 
-  // Most recent client to complete an `initialize` handshake, latched in-memory for the app
-  // session (a live signal, not persisted config — untouched by token regeneration). Backs the
-  // "Connected ✓" indicator in the renderer.
-  private lastClient: McpClientInfo | null = null;
-  /** Fired whenever a client completes `initialize`; wired to the renderer in index.ts. */
-  onClientConnect: ((client: McpClientInfo) => void) | null = null;
+  // Most recent authorized request, timestamped on every hit. Identity (name/version) comes
+  // from the most recent `initialize` handshake and is carried forward across plain tool calls,
+  // which don't identify themselves in stateless mode. Backs the "Connected / last active"
+  // indicator in the renderer; seeded from config at startup so a restart doesn't read as
+  // "waiting" while a configured client is still talking.
+  private lastActivity: McpActivity | null = null;
+  /** Fired on every authorized request; wired to the renderer + config persistence in index.ts. */
+  onActivity: ((activity: McpActivity) => void) | null = null;
 
   // App-scoped stores, reused across the whole desktop session (there's no per-conversation
   // scope in MCP). Cleared on vault change so handles never leak across vaults.
@@ -64,9 +66,14 @@ export class McpManager {
     return this.http !== null;
   }
 
-  /** The most recent client to connect this session, or null if none has. */
-  getLastClient(): McpClientInfo | null {
-    return this.lastClient;
+  /** The most recent authorized request (live or seeded from config), or null if none. */
+  getLastActivity(): McpActivity | null {
+    return this.lastActivity;
+  }
+
+  /** Adopt activity persisted in config at startup. Live activity always wins over the seed. */
+  seedActivity(activity: McpActivity | null): void {
+    if (!this.lastActivity) this.lastActivity = activity;
   }
 
   /** Start the HTTP listener on 127.0.0.1:port. No-op if already running. */
@@ -92,8 +99,8 @@ export class McpManager {
   async stop(): Promise<void> {
     const http = this.http;
     this.http = null;
-    // Stopping the server severs any live connection, so the "connected" latch is stale now.
-    this.lastClient = null;
+    // `lastActivity` survives stop/start on purpose: it's a historical fact ("last active 2h
+    // ago"), not a live-connection claim, so disabling the server doesn't invalidate it.
     if (!http) return;
     // http.close() only resolves once every connection has drained; a connected MCP client's
     // keep-alive socket (or an idle keep-alive socket from a prior request) would otherwise
@@ -107,9 +114,9 @@ export class McpManager {
   /** Rotate the accepted token (existing clients must re-connect with the new one). */
   setToken(token: string): void {
     this.token = token;
-    // Rotating the token revokes the prior client's access until it adopts the new value, so
-    // the "connected" latch is stale now — same reasoning as stop().
-    this.lastClient = null;
+    // Rotating the token orphans previously-connected clients, so their past activity no longer
+    // proves a working setup — back to "waiting" until one connects with the new value.
+    this.lastActivity = null;
   }
 
   /** (Re)build the tool set for the active vault. Called from bootVault once it's ready. */
@@ -177,13 +184,15 @@ export class McpManager {
     try {
       await server.connect(transport);
       await transport.handleRequest(req, res);
-      // Stateless mode gives each request a fresh Server, so only the request that carried the
-      // `initialize` handshake has a non-null client version — that's our per-connection latch.
+      // Any authorized request proves a configured client is talking. Only the request carrying
+      // the `initialize` handshake knows who (stateless mode: fresh Server per request), so
+      // other requests inherit the last known identity and refresh the timestamp.
       const version = server.getClientVersion();
-      if (version) {
-        this.lastClient = { name: version.name, version: version.version, at: Date.now() };
-        this.onClientConnect?.(this.lastClient);
-      }
+      const identity = version
+        ? { name: version.name, version: version.version }
+        : { name: this.lastActivity?.name, version: this.lastActivity?.version };
+      this.lastActivity = { ...identity, at: Date.now() };
+      this.onActivity?.(this.lastActivity);
     } catch {
       if (!res.headersSent) {
         res.writeHead(500, { "content-type": "application/json" });

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import type { McpActivity } from "../shared/types";
 
 export const MAPOS_CONFIG_FILENAME = "mapos.json";
 
@@ -23,7 +24,15 @@ export const DEFAULT_MCP_PORT = 51737;
 const McpConfigSchema = z.object({
   enabled: z.boolean(),
   port: z.number().int().min(1).max(65535),
-  token: z.string().min(1)
+  token: z.string().min(1),
+  /** Last witnessed client activity — lets the Connections badge survive app restarts. */
+  lastClient: z
+    .object({
+      name: z.string().optional(),
+      version: z.string().optional(),
+      at: z.number()
+    })
+    .optional()
 });
 
 export type McpConfig = z.infer<typeof McpConfigSchema>;
@@ -367,6 +376,21 @@ export function setMcpEnabledInConfig(appStateDir: string, enabled: boolean): Mc
 
 /** Mint a new token (invalidates existing client connections); returns the updated config. */
 export function regenerateMcpTokenInConfig(appStateDir: string): McpConfig {
-  const current = getOrCreateMcpConfig(appStateDir);
+  // A new token orphans previously-connected clients, so their recorded activity no longer
+  // proves a working setup — drop it alongside the mint.
+  const { lastClient: _stale, ...current } = getOrCreateMcpConfig(appStateDir);
   return writeMcpConfig(appStateDir, { ...current, token: mintMcpToken() });
+}
+
+/**
+ * Record witnessed MCP client activity, throttled: an identity change always persists;
+ * timestamp-only refreshes write at most every 5 minutes ("last active" only needs to be
+ * roughly right across restarts, and this fires on every request the server handles).
+ */
+export function recordMcpActivityInConfig(appStateDir: string, activity: McpActivity): void {
+  const current = getOrCreateMcpConfig(appStateDir);
+  const prev = current.lastClient;
+  const sameIdentity = prev?.name === activity.name && prev?.version === activity.version;
+  if (prev && sameIdentity && activity.at - prev.at < 5 * 60_000) return;
+  writeMcpConfig(appStateDir, { ...current, lastClient: activity });
 }

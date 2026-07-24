@@ -276,7 +276,7 @@ Where the user is looking is not where they are. For the map viewport (the visib
 
 ## Map services (search, routing, reachability)
 
-For external spatial queries, use these tools — they are backed by OpenStreetMap data (Photon + Valhalla):
+For external spatial queries, use these tools — they run offline from your downloaded region packs (see Offline region packs below):
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
@@ -313,7 +313,7 @@ After showing results on the map, do not explain how to interact with the UI (e.
 
 ## Offline region packs
 
-The map services above can run offline from downloaded **region packs** (per-area bundles of geocoding, routing, and map-tile data). Manage them when the user asks what maps they have offline, or to add/remove offline coverage for an area:
+The map services above are powered by downloaded **region packs** (per-area bundles of geocoding, routing, and map-tile data). Manage them when the user asks what maps they have offline, or to add/remove offline coverage for an area:
 
 - \`list_region_packs\` — what's installed, what's downloading (with percent), and — with a \`query\` — matching packs available to download and their size. The catalog is large, so always pass a \`query\` to browse it.
 - \`download_region_pack\` — downloads can be LARGE (tens to hundreds of MB). Always look up the size with \`list_region_packs\` first, tell the user the size, and get their OK before downloading. You must pass \`acknowledge_size_mb\` (the size you told them) and it must match the real size, or the call is rejected. The download runs in the background — progress shows in the app's Offline tab; call \`list_region_packs\` again to see when it's installed.
@@ -1265,7 +1265,7 @@ export function buildMaposCustomTools(
     name: "geocode_search",
     label: "Geocode search",
     description:
-      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') via Photon/OpenStreetMap or offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. For \"POIs within an isochrone/area\", pass `within_id` (an isochrone_id or a geo_compute polygon geometry_id): results are kept only if they fall INSIDE that polygon — a plain `bbox` is just a rectangular ranking bias and lets in POIs outside the shape. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
+      "Forward geocode a free-text query (place name, address, or category words like 'restaurants') using downloaded offline region packs. Returns up to `limit` points, each with a stable `id`. Good for turning 'kinka izakaya toronto' into lat/lng, or for offline POI search — pass `categories` (with or without `query`) to filter, e.g. all cafes in the viewport bbox. For \"POIs within an isochrone/area\", pass `within_id` (an isochrone_id or a geo_compute polygon geometry_id): results are kept only if they fall INSIDE that polygon — a plain `bbox` is just a rectangular ranking bias and lets in POIs outside the shape. To show any of these results to the user, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address; the app fills those from the result.",
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
@@ -1376,7 +1376,7 @@ export function buildMaposCustomTools(
     name: "reverse_geocode",
     label: "Reverse geocode",
     description:
-      "Reverse geocode a point (lat/lng) via Photon/OpenStreetMap or offline region packs. Returns nearby named feature(s), each with a stable `id`. Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only). To show a result, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address.",
+      "Reverse geocode a point (lat/lng) using downloaded offline region packs. Returns nearby named feature(s), each with a stable `id`. Pass `categories` to ask 'what restaurants/cafes are near here' (offline packs only). To show a result, pass its `id` to present_features as `result_id` — do NOT re-type its name, category, or address.",
     parameters: Type.Object({
       lat: Type.Number(),
       lng: Type.Number(),

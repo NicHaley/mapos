@@ -228,14 +228,19 @@ export type McpConnectionInfo = {
   port: number;
   token: string;
   url: string;
-  /** Most recent client to connect this session, or null if none has yet. */
-  lastClient: McpClientInfo | null;
+  /** Most recent authorized request seen (survives restarts), or null if none since setup. */
+  lastActivity: McpActivity | null;
 };
 
-/** A client that completed the MCP `initialize` handshake (name/version from its clientInfo). */
-export type McpClientInfo = {
-  name: string;
-  version: string;
-  /** Epoch ms of the connection. */
+/**
+ * Evidence that a client is (or was) talking to the local MCP server: the timestamp of the most
+ * recent authorized request, plus the client's identity from its most recent `initialize`
+ * handshake. Identity can be absent — e.g. activity resumed after an app restart, before the
+ * client's next handshake.
+ */
+export type McpActivity = {
+  name?: string;
+  version?: string;
+  /** Epoch ms of the most recent authorized request. */
   at: number;
 };

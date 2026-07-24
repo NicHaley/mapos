@@ -11,7 +11,7 @@ import type {
   FileNode,
   InstalledRegionPack,
   MapOverlayLayer,
-  McpClientInfo,
+  McpActivity,
   McpConnectionInfo,
   OverlayLine,
   OverlayPoint,
@@ -219,7 +219,7 @@ declare global {
         getConnectionInfo: () => Promise<McpConnectionInfo>;
         setEnabled: (enabled: boolean) => Promise<McpConnectionInfo>;
         regenerateToken: () => Promise<McpConnectionInfo>;
-        onClientConnected: (cb: (client: McpClientInfo) => void) => () => void;
+        onActivity: (cb: (activity: McpActivity) => void) => () => void;
       };
       properties: {
         listAllKeys: () => Promise<Array<{ key: string; type: PropertyType }>>;

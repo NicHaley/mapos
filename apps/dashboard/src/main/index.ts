@@ -15,6 +15,7 @@ import {
   getPrimaryVaultRoot,
   isOnboardingPending,
   loadOrInitMaposConfig,
+  recordMcpActivityInConfig,
   removeVaultFromConfig,
   renameVaultInConfig,
   setActiveVaultInConfig
@@ -224,12 +225,16 @@ app.whenReady().then(() => {
   // Local MCP server: bind the HTTP listener once (vault-independent) so external MCP clients
   // can connect. The tool set is (re)targeted per vault by bootVault/teardownVault above.
   registerMcpIpc(appStateDir);
-  // Push a live "client connected" signal to the renderer's Connections UI. Wired here (not in
-  // setActiveVault) so it fires even during onboarding, when no vault is active yet.
-  mcpManager.onClientConnect = (client) => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:client-connected", client);
-  };
   const mcpConfig = getOrCreateMcpConfig(appStateDir);
+  // Adopt the last-seen client from config so a restart shows "last active …", not "waiting".
+  mcpManager.seedActivity(mcpConfig.lastClient ?? null);
+  // Push live activity to the renderer's Connections UI and persist it (throttled) for the next
+  // launch. Wired here (not in setActiveVault) so it fires even during onboarding, when no
+  // vault is active yet.
+  mcpManager.onActivity = (activity) => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:activity", activity);
+    recordMcpActivityInConfig(appStateDir, activity);
+  };
   if (mcpConfig.enabled) {
     void mcpManager.start(mcpConfig.port, mcpConfig.token).catch((err) => {
       console.error("[mcp] failed to start local server:", err);

@@ -33,7 +33,12 @@ import {
 } from "@mapos/ui/components/popover";
 import { ScrollArea } from "@mapos/ui/components/scroll-area";
 import { Surface, surfaceVariants } from "@mapos/ui/components/surface";
-import { ErrorTooltip } from "@mapos/ui/components/tooltip";
+import {
+  ErrorTooltip,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import {
   VaultImage,
@@ -821,128 +826,170 @@ export const PlaceCard = memo(function PlaceCard({
   // Mini mode keeps the actions pinned over the content (old compact styling);
   // full mode puts them in the ChatPane-style top bar.
   const miniActionCount =
-    1 +
-    Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) +
-    Number(Boolean(onExpand));
+    1 + // close (always shown)
+    Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) + // save
+    Number(Boolean(onGetDirections) && Boolean(place.geometry)) + // directions
+    Number(Boolean(onExpand)); // expand
+  // Mini keeps a slightly smaller cluster since it floats over content; the
+  // title's reserved padding below is `miniActionCount * MINI_ACTION_PX`.
+  const actionSize = mode === "mini" ? "icon-sm" : "icon";
 
   const actionButtons = (
     <>
       {place.previewMarkdown !== undefined && onSaveSearchToVault && (
-        <FolderPickerPopover
-          open={saveToVaultOpen}
-          onOpenChange={setSaveToVaultOpen}
-          defaultParentFolderPath={defaultParentFolderPath}
-          title="Save place to folder"
-          side="bottom"
-          align="end"
-          onSelect={(folderPath) => {
-            void (async () => {
-              setSavingSearch(true);
-              try {
-                await onSaveSearchToVault(folderPath);
-              } finally {
-                setSavingSearch(false);
+        <Tooltip>
+          <FolderPickerPopover
+            open={saveToVaultOpen}
+            onOpenChange={setSaveToVaultOpen}
+            defaultParentFolderPath={defaultParentFolderPath}
+            title="Save place to folder"
+            side="bottom"
+            align="end"
+            onSelect={(folderPath) => {
+              void (async () => {
+                setSavingSearch(true);
+                try {
+                  await onSaveSearchToVault(folderPath);
+                } finally {
+                  setSavingSearch(false);
+                }
+              })();
+            }}
+            trigger={
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size={actionSize}
+                    disabled={savingSearch}
+                    aria-label="Save place to vault"
+                  >
+                    <PlusIcon />
+                  </Button>
+                }
+              />
+            }
+          />
+          <TooltipContent side="bottom">Save to folder</TooltipContent>
+        </Tooltip>
+      )}
+      {mode === "full" && place.previewMarkdown === undefined && (
+        <Tooltip>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <TooltipTrigger
+                  render={<Button variant="ghost" size={actionSize} aria-label="More actions" />}
+                />
               }
-            })();
-          }}
-          trigger={
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={savingSearch}
-              aria-label="Save place to vault"
-              title="Save to folder"
             >
-              <PlusIcon />
+              <EllipsisIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              finalFocus={() => {
+                if (renameRequestedRef.current) {
+                  renameRequestedRef.current = false;
+                  // Focus + select all once the menu has finished closing, so
+                  // the whole title is highlighted ready to overtype.
+                  requestAnimationFrame(() => {
+                    titleInputRef.current?.focus({ preventScroll: true });
+                    titleInputRef.current?.select();
+                  });
+                  return false; // we manage focus ourselves for rename
+                }
+                return true;
+              }}
+            >
+              <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+                <PlusIcon />
+                Open in New Tab
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
+                <FolderOpenIcon />
+                Reveal in Finder
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  renameRequestedRef.current = true;
+                }}
+              >
+                <PencilIcon />
+                Rename
+              </DropdownMenuItem>
+              {doc.kind === "vault" && (
+                <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
+                  <ImageIcon />
+                  {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+                </DropdownMenuItem>
+              )}
+              {doc.kind === "vault" && coverPath && (
+                <DropdownMenuItem onClick={() => void applyCover(null)}>
+                  <ImageOffIcon />
+                  Remove Cover Photo
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteOpen(true);
+                }}
+              >
+                <Trash2Icon />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <TooltipContent side="bottom">More actions</TooltipContent>
+        </Tooltip>
+      )}
+      {onGetDirections && place.geometry && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size={actionSize}
+                onClick={() => onGetDirections(place)}
+                aria-label="Get directions"
+              >
+                <RouteIcon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">Get directions</TooltipContent>
+        </Tooltip>
+      )}
+      {mode === "mini" && onExpand && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size={actionSize}
+                onClick={onExpand}
+                aria-label="Open full view"
+              >
+                <Maximize2Icon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">Open full view</TooltipContent>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button variant="ghost" size={actionSize} onClick={onClose} aria-label="Close">
+              <XIcon />
             </Button>
           }
         />
-      )}
-      {onGetDirections && place.geometry && (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onGetDirections(place)}
-          aria-label="Get directions"
-          title="Get directions"
-        >
-          <RouteIcon />
-        </Button>
-      )}
-      {mode === "mini" && onExpand && (
-        <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open full view">
-          <Maximize2Icon />
-        </Button>
-      )}
-      {mode === "full" && place.previewMarkdown === undefined && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="icon" aria-label="More actions" />}
-          >
-            <EllipsisIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="end"
-            finalFocus={() => {
-              if (renameRequestedRef.current) {
-                renameRequestedRef.current = false;
-                // Focus + select all once the menu has finished closing, so
-                // the whole title is highlighted ready to overtype.
-                requestAnimationFrame(() => {
-                  titleInputRef.current?.focus({ preventScroll: true });
-                  titleInputRef.current?.select();
-                });
-                return false; // we manage focus ourselves for rename
-              }
-              return true;
-            }}
-          >
-            <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
-              <PlusIcon />
-              Open in New Tab
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
-              <FolderOpenIcon />
-              Reveal in Finder
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                renameRequestedRef.current = true;
-              }}
-            >
-              <PencilIcon />
-              Rename
-            </DropdownMenuItem>
-            {doc.kind === "vault" && (
-              <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
-                <ImageIcon />
-                {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
-              </DropdownMenuItem>
-            )}
-            {doc.kind === "vault" && coverPath && (
-              <DropdownMenuItem onClick={() => void applyCover(null)}>
-                <ImageOffIcon />
-                Remove Cover Photo
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => {
-                setDeleteError(null);
-                setDeleteOpen(true);
-              }}
-            >
-              <Trash2Icon />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-      <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-        <XIcon />
-      </Button>
+        <TooltipContent side="bottom">Close</TooltipContent>
+      </Tooltip>
     </>
   );
 
@@ -1032,10 +1079,10 @@ export const PlaceCard = memo(function PlaceCard({
               <div
                 className="flex-1 min-w-0 pt-1"
                 // In mini mode the pinned actions overlay the title row unless a
-                // cover pushes it down — reserve their width.
+                // cover pushes it down — reserve their width (icon-sm = 28px each).
                 style={
                   mode === "mini" && !coverVisible
-                    ? { paddingRight: miniActionCount * 36 }
+                    ? { paddingRight: miniActionCount * 28 }
                     : undefined
                 }
               >

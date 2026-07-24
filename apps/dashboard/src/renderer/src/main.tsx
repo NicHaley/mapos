@@ -46,7 +46,7 @@ function Root(): React.JSX.Element | null {
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(
-  <TooltipProvider delay={300}>
+  <TooltipProvider delay={500}>
     <Root />
   </TooltipProvider>
 );

@@ -1,31 +1,37 @@
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger
+  CollapsibleTrigger,
 } from "@mapos/ui/components/collapsible";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  InputGroupInput
+  InputGroupInput,
 } from "@mapos/ui/components/input-group";
 import {
   Item,
   ItemActions,
   ItemContent,
   ItemDescription,
-  ItemTitle
+  ItemTitle,
 } from "@mapos/ui/components/item";
 import { Switch } from "@mapos/ui/components/switch";
 import { cn } from "@mapos/ui/lib/utils";
 import type { McpConnectionInfo } from "@shared/types";
-import { CheckIcon, ChevronRightIcon, CopyIcon, KeyRoundIcon, RefreshCwIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  KeyRoundIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   activityClientName,
   formatTimeAgo,
   isRecentActivity,
-  useNow
+  useNow,
 } from "../../lib/mcp-activity";
 
 // Ready-to-paste config for each MCP client, with the live URL + token baked in. `hint` names
@@ -33,40 +39,51 @@ import {
 // clients (Claude Desktop) go through the community `mcp-remote` shim.
 function clientSnippets(
   url: string,
-  token: string
+  token: string,
 ): { label: string; hint: string; code: string }[] {
   const auth = `Authorization: Bearer ${token}`;
   return [
     {
       label: "Claude Code",
       hint: "Run in your terminal",
-      code: `claude mcp add mapos --transport http ${url} --header "${auth}" --scope user`
+      code: `claude mcp add mapos --transport http ${url} --header "${auth}" --scope user`,
     },
     {
       label: "Claude Desktop",
       hint: "claude_desktop_config.json",
       code: JSON.stringify(
-        { mcpServers: { mapos: { command: "npx", args: ["mcp-remote", url, "--header", auth] } } },
+        {
+          mcpServers: {
+            mapos: {
+              command: "npx",
+              args: ["mcp-remote", url, "--header", auth],
+            },
+          },
+        },
         null,
-        2
-      )
+        2,
+      ),
     },
     {
       label: "Cursor",
       hint: "~/.cursor/mcp.json",
       code: JSON.stringify(
-        { mcpServers: { mapos: { url, headers: { Authorization: `Bearer ${token}` } } } },
+        {
+          mcpServers: {
+            mapos: { url, headers: { Authorization: `Bearer ${token}` } },
+          },
+        },
         null,
-        2
-      )
+        2,
+      ),
     },
     {
       label: "Codex",
       hint: "~/.codex/config.toml",
       // `url` selects the Streamable HTTP transport; custom headers (our bearer token) go under
       // the nested http_headers table.
-      code: `[mcp_servers.mapos]\nurl = "${url}"\n\n[mcp_servers.mapos.http_headers]\nAuthorization = "Bearer ${token}"`
-    }
+      code: `[mcp_servers.mapos]\nurl = "${url}"\n\n[mcp_servers.mapos.http_headers]\nAuthorization = "Bearer ${token}"`,
+    },
   ];
 }
 
@@ -91,7 +108,11 @@ function CopyButton({ text }: { text: string }) {
 // "Did it work?" indicator built on witnessed requests, the only signal a stateless MCP server
 // has: green while activity is recent, a factual "last active …" once it goes quiet (an idle
 // client is indistinguishable from a removed one), dashed while nothing has ever connected.
-function ConnectionStatus({ lastActivity }: { lastActivity: McpConnectionInfo["lastActivity"] }) {
+function ConnectionStatus({
+  lastActivity,
+}: {
+  lastActivity: McpConnectionInfo["lastActivity"];
+}) {
   const now = useNow();
   if (!lastActivity) {
     return (
@@ -123,7 +144,8 @@ function ConnectionStatus({ lastActivity }: { lastActivity: McpConnectionInfo["l
     <div className="flex items-center gap-2.5 rounded-md border border-input px-3.5 py-3 text-sm text-muted-foreground">
       <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
       <span>
-        <span className="font-medium text-foreground">{name}</span> — last active {ago}
+        <span className="font-medium text-foreground">{name}</span> — last
+        active {ago}
       </span>
     </div>
   );
@@ -171,95 +193,116 @@ export function McpConnect() {
   const active = snippets[client] ?? snippets[0];
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-7">
+    <div className="flex w-full min-w-0 flex-col gap-2">
       <Item className="px-0">
         <ItemContent>
           <ItemTitle>MCP server</ItemTitle>
           <ItemDescription>
-            Let an AI client drive MapOS. Runs locally, reachable only with your token.
+            Let an AI client drive MapOS. Runs locally, reachable only with your
+            token.
           </ItemDescription>
         </ItemContent>
         <ItemActions>
-          <Switch checked={info.enabled} disabled={busy} onCheckedChange={(c) => void toggle(c)} />
+          <Switch
+            checked={info.enabled}
+            disabled={busy}
+            onCheckedChange={(c) => void toggle(c)}
+          />
         </ItemActions>
       </Item>
 
-      {info.enabled && (
-        <>
-          <ConnectionStatus lastActivity={info.lastActivity} />
+      <div className="flex w-full min-w-0 flex-col gap-7">
+        {info.enabled && (
+          <>
+            <ConnectionStatus lastActivity={info.lastActivity} />
 
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Connect a client</span>
-              <span className="text-sm text-muted-foreground">
-                Pick your client and paste the snippet. The token is already included.
-              </span>
-            </div>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Connect a client</span>
+                <span className="text-sm text-muted-foreground">
+                  Pick your client and paste the snippet. The token is already
+                  included.
+                </span>
+              </div>
 
-            {/* w-fit hugs the tabs when they fit, max-w-full caps them at the (narrow onboarding)
+              {/* w-fit hugs the tabs when they fit, max-w-full caps them at the (narrow onboarding)
                 column and scrolls internally rather than pushing the page wider. */}
-            <div className="flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {snippets.map((s, i) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => setClient(i)}
+              <div className="flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {snippets.map((s, i) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setClient(i)}
+                    className={cn(
+                      "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      i === client
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background">
+                <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+                  <span className="text-xs font-medium text-foreground">
+                    {active.hint}
+                  </span>
+                  <CopyButton text={active.code} />
+                </div>
+                <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed text-foreground">
+                  <code>{active.code}</code>
+                </pre>
+              </div>
+            </div>
+
+            <Collapsible
+              open={tokenOpen}
+              onOpenChange={setTokenOpen}
+              className="flex flex-col gap-3"
+            >
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <ChevronRightIcon
                   className={cn(
-                    "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    i === client
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                    "size-4 transition-transform",
+                    tokenOpen && "rotate-90",
                   )}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background">
-              <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
-                <span className="text-xs font-medium text-foreground">{active.hint}</span>
-                <CopyButton text={active.code} />
-              </div>
-              <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed text-foreground">
-                <code>{active.code}</code>
-              </pre>
-            </div>
-          </div>
-
-          <Collapsible open={tokenOpen} onOpenChange={setTokenOpen} className="flex flex-col gap-3">
-            <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-              <ChevronRightIcon
-                className={cn("size-4 transition-transform", tokenOpen && "rotate-90")}
-              />
-              <KeyRoundIcon className="size-3.5" />
-              Access token
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="flex flex-col gap-2">
-                <InputGroup className="bg-background">
-                  <InputGroupInput readOnly value={info.token} className="font-mono text-xs" />
-                  <InputGroupAddon align="inline-end">
-                    <CopyButton text={info.token} />
-                    <InputGroupButton
-                      disabled={busy}
-                      onClick={() => void regenerate()}
-                      className="gap-1.5"
-                    >
-                      <RefreshCwIcon />
-                      Regenerate
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                </InputGroup>
-                <p className="text-xs text-muted-foreground">
-                  Regenerating revokes access from clients you've connected before — they'll need
-                  the new value.
-                </p>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </>
-      )}
+                />
+                <KeyRoundIcon className="size-3.5" />
+                Access token
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="flex flex-col gap-2">
+                  <InputGroup className="bg-background">
+                    <InputGroupInput
+                      readOnly
+                      value={info.token}
+                      className="font-mono text-xs"
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <CopyButton text={info.token} />
+                      <InputGroupButton
+                        disabled={busy}
+                        onClick={() => void regenerate()}
+                        className="gap-1.5"
+                      >
+                        <RefreshCwIcon />
+                        Regenerate
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  </InputGroup>
+                  <p className="text-xs text-muted-foreground">
+                    Regenerating revokes access from clients you've connected
+                    before — they'll need the new value.
+                  </p>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </>
+        )}
+      </div>
     </div>
   );
 }

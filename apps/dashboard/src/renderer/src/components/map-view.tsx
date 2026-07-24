@@ -16,7 +16,8 @@ import MapGL, {
   type MapLayerMouseEvent,
   type MapRef,
   Marker,
-  Source
+  Source,
+  useMap
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 // Side-effect import: registers the pmtiles:// protocol for offline tiles.
@@ -34,12 +35,18 @@ import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { useMapColor } from "@renderer/lib/map-color";
 import {
+  OVERLAY_CHIP_IMAGE_ID,
+  OVERLAY_CHIP_PIXEL_RATIO,
   ROUND_LINE_LAYOUT,
   SELECTED_OUTLINE_PAINT,
+  drawOverlayChip,
   featureCirclePaint,
   featureFillOutlinePaint,
   featureFillPaint,
   featureLinePaint,
+  overlayFillPaint,
+  overlayLinePaint,
+  routeLinePaint,
   selectedCirclePaint,
   selectedFillOutlinePaint,
   selectedFillPaint,
@@ -48,6 +55,7 @@ import {
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
+import { DIRECTIONS_OVERLAY_PREFIX } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
 import { type UserLocation, UserLocationLayer } from "./map/user-location-layer";
@@ -400,6 +408,33 @@ function SelectionMarker({
   );
 }
 
+/**
+ * Registers (and keeps registered) the poker-chip icon the overlay point layers reference.
+ * Re-rasterized when the accent/theme colours change; the `styleimagemissing` listener
+ * covers style reloads, which drop runtime-added images.
+ */
+function OverlayChipImage({ fill, border }: { fill: string; border: string }): null {
+  const { current: mapRef } = useMap();
+  useEffect(() => {
+    const map = mapRef?.getMap();
+    if (!map) return;
+    const add = (): void => {
+      const image = drawOverlayChip(fill, border);
+      if (map.hasImage(OVERLAY_CHIP_IMAGE_ID)) map.updateImage(OVERLAY_CHIP_IMAGE_ID, image);
+      else map.addImage(OVERLAY_CHIP_IMAGE_ID, image, { pixelRatio: OVERLAY_CHIP_PIXEL_RATIO });
+    };
+    add();
+    const onMissing = (e: { id: string }): void => {
+      if (e.id === OVERLAY_CHIP_IMAGE_ID) add();
+    };
+    map.on("styleimagemissing", onMissing);
+    return () => {
+      map.off("styleimagemissing", onMissing);
+    };
+  }, [mapRef, fill, border]);
+  return null;
+}
+
 const MapView = forwardRef<
   MapViewHandle,
   {
@@ -474,6 +509,9 @@ const MapView = forwardRef<
   // Accent hue for selection + chat overlays; falls back to the theme foreground when monochrome.
   const accentColor = accentHex(accent);
   const overlayColor = accentColor ?? foregroundColor;
+  // Poker-chip rim for ephemeral points (symbol-layer icon + HTML selection chip): white
+  // dashes on the accent disk; monochrome dark mode flips to near-black for contrast.
+  const chipBorderColor = accentColor ? "#ffffff" : isDark ? "#111111" : "#ffffff";
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
@@ -1260,6 +1298,7 @@ const MapView = forwardRef<
         interactiveLayerIds={interactiveLayerIdsProp}
         onClick={handleLayerClick}
       >
+        <OverlayChipImage fill={overlayColor} border={chipBorderColor} />
         {folderGeoJSON && (
           <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
             <Layer
@@ -1453,9 +1492,10 @@ const MapView = forwardRef<
           </Source>
         ))}
         {showOverlay &&
-          overlayLayerSources.map(({ sourceId, data }) => {
+          overlayLayerSources.map(({ layerId, sourceId, data }) => {
             const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
             const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
+            const isRoute = layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX);
             return (
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
                 <Layer
@@ -1463,19 +1503,14 @@ const MapView = forwardRef<
                   type="fill"
                   // @ts-expect-error - MapLibre filter expression; types are strict
                   filter={POLYGON_FILTER}
-                  paint={{ "fill-color": overlayColor, "fill-opacity": fillOpacity }}
+                  paint={overlayFillPaint(overlayColor, fillOpacity)}
                 />
                 <Layer
                   id={`${sourceId}-polygon-outline`}
                   type="line"
                   // @ts-expect-error - MapLibre filter expression
                   filter={POLYGON_FILTER}
-                  paint={{
-                    "line-color": overlayColor,
-                    "line-width": 2,
-                    "line-opacity": lineOpacity,
-                    "line-dasharray": [2, 1]
-                  }}
+                  paint={overlayLinePaint(overlayColor, lineOpacity)}
                 />
                 <Layer
                   id={`${sourceId}-lines-hit`}
@@ -1489,28 +1524,27 @@ const MapView = forwardRef<
                   type="line"
                   // @ts-expect-error - MapLibre filter expression
                   filter={LINESTRING_FILTER}
-                  paint={{
-                    "line-color": overlayColor,
-                    "line-width": 2,
-                    "line-opacity": lineOpacity,
-                    "line-dasharray": [2, 1]
-                  }}
+                  paint={
+                    isRoute
+                      ? routeLinePaint(overlayColor, lineOpacity)
+                      : overlayLinePaint(overlayColor, lineOpacity)
+                  }
+                  layout={isRoute ? ROUND_LINE_LAYOUT : undefined}
                 />
-                {/* Overlay points as a GeoJSON circle layer (not HTML markers) so a large
-                    result set stays cheap — MapLibre draws thousands of points as one layer. */}
+                {/* Overlay points as a symbol layer with the rasterized poker-chip icon (not
+                    HTML markers) so a large result set stays cheap — one WebGL layer draws
+                    thousands. The icon is registered by OverlayChipImage above. */}
                 <Layer
                   id={`${sourceId}-points`}
-                  type="circle"
+                  type="symbol"
                   // @ts-expect-error - MapLibre filter expression
                   filter={POINT_FILTER}
-                  paint={{
-                    "circle-radius": 6,
-                    "circle-color": accentColor ?? foregroundColor,
-                    "circle-opacity": lineOpacity,
-                    "circle-stroke-width": 2,
-                    "circle-stroke-color": accentColor ? "#ffffff" : isDark ? "#111111" : "#ffffff",
-                    "circle-stroke-opacity": lineOpacity
+                  layout={{
+                    "icon-image": OVERLAY_CHIP_IMAGE_ID,
+                    "icon-allow-overlap": true,
+                    "icon-ignore-placement": true
                   }}
+                  paint={{ "icon-opacity": lineOpacity }}
                 />
               </Source>
             );
@@ -1518,7 +1552,7 @@ const MapView = forwardRef<
         {directionsHighlightGeoJSON && (
           <Source id="directions-highlight" type="geojson" data={directionsHighlightGeoJSON}>
             {/* White casing under the accent line so the emphasized step pops off the
-                same-colored dashed route beneath it. */}
+                same-colored route beneath it. */}
             <Layer
               id="directions-highlight-casing"
               type="line"
@@ -1543,10 +1577,7 @@ const MapView = forwardRef<
             color={featureColor}
             chip={
               selectedPlace?.filePath.startsWith(MAP_OVERLAY_PREFIX)
-                ? {
-                    fill: accentColor ?? foregroundColor,
-                    borderColor: accentColor ? "white" : isDark ? "#111111" : "#ffffff"
-                  }
+                ? { fill: overlayColor, borderColor: chipBorderColor }
                 : undefined
             }
           />

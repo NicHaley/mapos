@@ -34,13 +34,19 @@ import {
   useNow,
 } from "../../lib/mcp-activity";
 
-// Ready-to-paste config for each MCP client, with the live URL + token baked in. `hint` names
-// where the snippet goes. Clients that speak Streamable HTTP take the URL directly; stdio-only
-// clients (Claude Desktop) go through the community `mcp-remote` shim.
-function clientSnippets(
-  url: string,
-  token: string,
-): { label: string; hint: string; code: string }[] {
+// One entry per client tab: either a ready-to-paste snippet (`code`, with `hint` naming where it
+// goes) or, for clients we don't ship a snippet for, the raw connection `fields`.
+type ClientConfig = {
+  label: string;
+  hint?: string;
+  code?: string;
+  fields?: { label: string; value: string }[];
+};
+
+// Config for each MCP client, with the live URL + token baked in. Clients that speak Streamable
+// HTTP take the URL directly; stdio-only clients (Claude Desktop) go through the community
+// `mcp-remote` shim.
+function clientSnippets(url: string, token: string): ClientConfig[] {
   const auth = `Authorization: Bearer ${token}`;
   return [
     {
@@ -83,6 +89,13 @@ function clientSnippets(
       // `url` selects the Streamable HTTP transport; custom headers (our bearer token) go under
       // the nested http_headers table.
       code: `[mcp_servers.mapos]\nurl = "${url}"\n\n[mcp_servers.mapos.http_headers]\nAuthorization = "Bearer ${token}"`,
+    },
+    {
+      label: "Other",
+      fields: [
+        { label: "URL", value: url },
+        { label: "Header", value: auth },
+      ],
     },
   ];
 }
@@ -245,17 +258,41 @@ export function McpConnect() {
                 ))}
               </div>
 
-              <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background">
-                <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
-                  <span className="text-xs font-medium text-foreground">
-                    {active.hint}
-                  </span>
-                  <CopyButton text={active.code} />
+              {active.fields ? (
+                <div className="flex flex-col gap-3">
+                  {active.fields.map((f) => (
+                    <div key={f.label} className="flex flex-col gap-1.5">
+                      <span className="text-xs font-medium">{f.label}</span>
+                      <InputGroup className="bg-background">
+                        <InputGroupInput
+                          readOnly
+                          value={f.value}
+                          className="font-mono text-xs"
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <CopyButton text={f.value} />
+                        </InputGroupAddon>
+                      </InputGroup>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    Any client that speaks Streamable HTTP needs only these. For
+                    a stdio-only client, use the Claude Desktop snippet.
+                  </p>
                 </div>
-                <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed text-foreground">
-                  <code>{active.code}</code>
-                </pre>
-              </div>
+              ) : (
+                <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background">
+                  <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+                    <span className="text-xs font-medium text-foreground">
+                      {active.hint}
+                    </span>
+                    <CopyButton text={active.code ?? ""} />
+                  </div>
+                  <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed text-foreground">
+                    <code>{active.code}</code>
+                  </pre>
+                </div>
+              )}
             </div>
 
             <Collapsible

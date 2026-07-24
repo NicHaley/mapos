@@ -6,6 +6,7 @@ import { LoaderCircleIcon, MinusIcon, NavigationIcon, PlusIcon, XIcon } from "lu
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
+import { type McpStatus, useMcpStatus } from "../../hooks/use-mcp-status";
 import type { UserLocation } from "./user-location-layer";
 
 // Icons sit on the control pill's surface, so they match the plain ghost icons
@@ -74,6 +75,44 @@ function ControlButton({
   );
 }
 
+const AGENT_TOOLTIP: Record<McpStatus, string> = {
+  active: "MapOS is working…",
+  connected: "AI client connected",
+  disconnected: "No AI client connected"
+};
+
+/**
+ * MCP status control in the cluster — a real button like its neighbours. The dot reads the link
+ * at a glance: grey when nothing's connected, green when a client is connected (recent activity),
+ * and the accent shimmer while an agent is actively driving MapOS. Clicking opens
+ * Settings › Connections. Occupies a full control-button footprint (size-8) so the cluster never
+ * reflows as the state changes.
+ */
+function AgentActivity({ status }: { status: McpStatus }): React.JSX.Element {
+  return (
+    <ControlButton
+      label="MCP connection status"
+      tooltip={AGENT_TOOLTIP[status]}
+      onClick={() =>
+        window.dispatchEvent(
+          new CustomEvent("mapos:open-settings", { detail: { section: "connections" } })
+        )
+      }
+    >
+      <span
+        className={cn(
+          "rounded-full transition-all duration-500 ease-out",
+          status === "active"
+            ? "size-3 animate-mcp-shimmer"
+            : status === "connected"
+              ? "size-2 bg-emerald-500"
+              : "size-2 bg-muted-foreground/40"
+        )}
+      />
+    </ControlButton>
+  );
+}
+
 /**
  * Map controls that live in the top bar (right side): a compass that appears
  * only when the map is rotated and snaps it back to north, zoom in/out, a locate
@@ -98,6 +137,10 @@ export function MapControls({
   // stay until the next attempt, so the recovery action stays reachable.
   const [locateError, setLocateError] = useState<string | null>(null);
   const isMac = window.electron.process.platform === "darwin";
+  // Grey (disconnected) / green (connected) / accent (actively working) — drives the status
+  // control's dot and, while active, the cluster's accent tint + pulsing contour.
+  const mcpStatus = useMcpStatus();
+  const mcpBusy = mcpStatus === "active";
 
   useEffect(() => {
     const map = mapRef?.getMap();
@@ -180,7 +223,24 @@ export function MapControls({
         </div>
       )}
       {/* Floating cluster mirroring the left-side controls and the mini place-card actions. */}
-      <Surface variant="cluster">
+      <Surface variant="cluster" className="relative isolate">
+        {/* Accent wash over the frosted glass while an agent is working. `-z-1` inside the
+            isolated stacking context keeps it above the glass fill but below the buttons. */}
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 -z-1 rounded-[inherit] bg-primary/15 opacity-0 transition-opacity duration-500",
+            mcpBusy && "opacity-100"
+          )}
+        />
+        {/* Luminous accent contour that travels around the cluster while an agent works. */}
+        {mcpBusy && (
+          <span
+            aria-hidden
+            className="mcp-pulsing-border pointer-events-none absolute inset-0 rounded-[inherit]"
+          />
+        )}
+        <AgentActivity status={mcpStatus} />
         <ControlButton label={`Reset north (${heading}°)`} onClick={() => map?.resetNorth()}>
           <CompassRose bearing={camera.bearing} />
         </ControlButton>

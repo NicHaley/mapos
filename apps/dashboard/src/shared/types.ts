@@ -244,3 +244,13 @@ export type McpActivity = {
   /** Epoch ms of the most recent authorized request. */
   at: number;
 };
+
+/**
+ * A tool call crossing the MCP bridge: `"start"` when the server begins handling it, `"end"` when
+ * it settles (success or error). Transient and live-only (never persisted) — it drives the
+ * "MapOS is working" shimmer in the map controls, not the historical "last active" indicator.
+ */
+export type McpToolPhase = {
+  phase: "start" | "end";
+  tool: string;
+};

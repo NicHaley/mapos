@@ -224,7 +224,7 @@ app.whenReady().then(() => {
 
   // Local MCP server: bind the HTTP listener once (vault-independent) so external MCP clients
   // can connect. The tool set is (re)targeted per vault by bootVault/teardownVault above.
-  registerMcpIpc(appStateDir);
+  registerMcpIpc(mainWindow, appStateDir);
   const mcpConfig = getOrCreateMcpConfig(appStateDir);
   // Adopt the last-seen client from config so a restart shows "last active …", not "waiting".
   mcpManager.seedActivity(mcpConfig.lastClient ?? null);
@@ -234,6 +234,11 @@ app.whenReady().then(() => {
   mcpManager.onActivity = (activity) => {
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:activity", activity);
     recordMcpActivityInConfig(appStateDir, activity);
+  };
+  // Push tool start/finish so the renderer can shimmer a "working" indicator while a client has a
+  // call in flight. Purely live/transient — unlike onActivity, nothing is persisted.
+  mcpManager.onToolPhase = (phase, tool) => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:tool-phase", { phase, tool });
   };
   if (mcpConfig.enabled) {
     void mcpManager.start(mcpConfig.port, mcpConfig.token).catch((err) => {

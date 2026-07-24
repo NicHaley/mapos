@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { type BrowserWindow, ipcMain } from "electron";
 import type { McpConnectionInfo } from "../shared/types";
 import {
   getOrCreateMcpConfig,
@@ -23,7 +23,13 @@ function connectionInfo(appStateDir: string): McpConnectionInfo {
  * IPC for the MCP Connections settings panel: read connection info, toggle the server, and
  * rotate the token. All app-level (not per-vault) — the config lives in `userData/mapos.json`.
  */
-export function registerMcpIpc(appStateDir: string): void {
+export function registerMcpIpc(mainWindow: BrowserWindow, appStateDir: string): void {
+  // Push the new state to the renderer so live indicators (e.g. the map-controls status dot)
+  // update the moment the server is toggled or its token rotates — not just on next fetch.
+  const broadcast = (info: McpConnectionInfo): void => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send("mcp:connection-changed", info);
+  };
+
   ipcMain.handle("mcp:get-connection-info", () => connectionInfo(appStateDir));
 
   ipcMain.handle("mcp:set-enabled", async (_e, enabled: boolean) => {
@@ -31,12 +37,16 @@ export function registerMcpIpc(appStateDir: string): void {
     const cfg = getOrCreateMcpConfig(appStateDir);
     if (enabled) await mcpManager.start(cfg.port, cfg.token);
     else await mcpManager.stop();
-    return connectionInfo(appStateDir);
+    const info = connectionInfo(appStateDir);
+    broadcast(info);
+    return info;
   });
 
   ipcMain.handle("mcp:regenerate-token", async () => {
     const cfg = regenerateMcpTokenInConfig(appStateDir);
     mcpManager.setToken(cfg.token);
-    return connectionInfo(appStateDir);
+    const info = connectionInfo(appStateDir);
+    broadcast(info);
+    return info;
   });
 }

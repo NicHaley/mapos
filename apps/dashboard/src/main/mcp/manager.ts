@@ -56,6 +56,8 @@ export class McpManager {
   private lastActivity: McpActivity | null = null;
   /** Fired on every authorized request; wired to the renderer + config persistence in index.ts. */
   onActivity: ((activity: McpActivity) => void) | null = null;
+  /** Fired when a tool call starts/ends; wired to the renderer's "working" shimmer in index.ts. */
+  onToolPhase: ((phase: "start" | "end", tool: string) => void) | null = null;
 
   // App-scoped stores, reused across the whole desktop session (there's no per-conversation
   // scope in MCP). Cleared on vault change so handles never leak across vaults.
@@ -170,7 +172,11 @@ export class McpManager {
       { name: SERVER_NAME, version: SERVER_VERSION },
       { capabilities: { tools: {} }, instructions: this.instructions }
     );
-    registerMaposTools(server, () => this.tools);
+    registerMaposTools(
+      server,
+      () => this.tools,
+      (phase, tool) => this.onToolPhase?.(phase, tool)
+    );
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableDnsRebindingProtection: true,

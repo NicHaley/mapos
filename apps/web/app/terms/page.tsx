@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" lastUpdated="July 6, 2026">
+    <LegalPage title="Terms of Service" lastUpdated="July 23, 2026">
       <p>
         These terms are a plain-language agreement between you and Nicholas Haley (&ldquo;we&rdquo;,
         &ldquo;us&rdquo;), the individual who makes MapOS (&ldquo;the app&rdquo;). By downloading or
@@ -39,18 +39,18 @@ export default function TermsPage() {
 
       <h2>AI features</h2>
       <p>
-        MapOS includes an AI agent that can read, create, modify, and delete files in your vault on
-        your behalf. AI output can be inaccurate or unexpected, and the file changes it makes may
-        not be what you intended. Use these features at your own risk, review changes, and keep
-        backups. You are responsible for how you use the agent and for the content you create with
-        it.
+        MapOS includes a local server (using MCP) that lets AI clients you connect read, create,
+        modify, and delete files in your vault on your behalf. AI output can be inaccurate or
+        unexpected, and the file changes it makes may not be what you intended. Use these features
+        at your own risk, review changes, and keep backups. You are responsible for the clients you
+        connect, how you use them, and the content you create with them.
       </p>
 
       <h2>Third-party services</h2>
       <p>
-        When you use the AI agent, your requests are handled by the third-party AI provider you
-        configure. Your use of the agent is also subject to that provider&apos;s terms and privacy
-        policy, and we are not responsible for third-party services.
+        When you connect an AI client to MapOS, your requests are handled by that client and its
+        AI provider. Your use of those tools is also subject to their terms and privacy policies,
+        and we are not responsible for third-party services.
       </p>
 
       <h2>Disclaimer of warranties</h2>
@@ -66,7 +66,8 @@ export default function TermsPage() {
         MapOS is provided free of charge. To the fullest extent permitted by law, we will not be
         liable for any damages of any kind arising out of or related to your use of MapOS. This
         includes direct, indirect, incidental, special, consequential, and punitive damages, and any
-        loss of data, profits, or goodwill, whether caused by the AI agent, by the app itself, or
+        loss of data, profits, or goodwill, whether caused by an AI client connected to the app, by
+        the app itself, or
         otherwise, even if we have been advised of the possibility of such damages.
       </p>
 

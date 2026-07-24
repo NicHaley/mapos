@@ -34,12 +34,12 @@ const FAQ_ITEMS = [
   {
     question: "Does MapOS collect any data?",
     answer:
-      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode or your own AI provider."
+      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode."
   },
   {
-    question: "How does the AI agent work?",
+    question: "How does AI work in MapOS?",
     answer:
-      "You connect your own AI provider: sign in with an existing subscription or paste an API key. Keys are encrypted in your Mac's keychain, and requests go straight from your machine to the provider — never through a MapOS server."
+      "MapOS hosts a local MCP server, so you connect the AI app you already use — Claude Desktop, Claude Code, or any MCP-capable client — and it can search your places, draw routes, and edit your vault. The connection stays on your machine, and AI requests are handled by your client and its provider, never by a MapOS server."
   },
   {
     question: "Can I use it with Obsidian?",
@@ -65,8 +65,8 @@ const FEATURES = [
   },
   {
     icon: LuSparkles,
-    title: "An AI agent for your map",
-    body: "Ask it to find places, draw routes, build overlays, and annotate. It reads and writes files in your vault directly."
+    title: "An MCP server for your map",
+    body: "Connect any MCP client, like Claude Code. Ask it to find places, draw routes, build overlays, and annotate your vault."
   },
   {
     icon: LuWifiOff,

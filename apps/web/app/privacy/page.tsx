@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" lastUpdated="July 6, 2026">
+    <LegalPage title="Privacy Policy" lastUpdated="July 23, 2026">
       <p>
         MapOS is a local-first Mac app. Your saved places and notes are ordinary files stored on
         your own computer, and by default they are never sent to us or to anyone else. This policy
@@ -19,8 +19,8 @@ export default function PrivacyPage() {
       <h2>What stays on your device</h2>
       <p>
         Everything you create in MapOS lives in a folder on your Mac (by default{" "}
-        <code>~/MapOS/</code>). That includes your places, notes, map data, app configuration, and
-        your chat history with the AI agent. These files are the source of truth. We have no servers
+        <code>~/MapOS/</code>). That includes your places, notes, map data, and app configuration.
+        These files are the source of truth. We have no servers
         that store them, no account system, and no way to see them. You can back them up, move them,
         or delete them like any other files.
       </p>
@@ -29,11 +29,12 @@ export default function PrivacyPage() {
       <p>Data leaves your device only in these cases:</p>
       <ul>
         <li>
-          <strong>AI chat. </strong>When you use the AI agent, your messages — and the contents of
-          any files the agent reads to answer you — are sent to the AI provider you have configured
-          (for example, Anthropic). That data is handled under that provider&apos;s own privacy
-          policy and terms. We don&apos;t keep a copy on any server; your conversation history is
-          stored only in your local vault.
+          <strong>AI clients you connect. </strong>MapOS hosts a local server (using MCP) so AI
+          apps you choose — for example, Claude Desktop — can read and edit your vault. That
+          connection stays on your machine, but your AI client sends your messages, and the
+          contents of any files it reads to answer you, to its AI provider. That data is handled
+          under your client&apos;s and provider&apos;s own privacy policies and terms. MapOS itself
+          never sends your files to an AI provider, and we don&apos;t keep a copy on any server.
         </li>
         <li>
           <strong>Downloads and map tiles.</strong> Downloading MapOS, its updates, region packs,

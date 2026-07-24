@@ -34,7 +34,7 @@ type DemoSlide = {
 const SLIDES: DemoSlide[] = [
   {
     id: "agent",
-    tag: "AI agent",
+    tag: "MCP",
     title: "Chat with your map. Your own GIS expert.",
     video: chatDemo
   },
@@ -42,7 +42,7 @@ const SLIDES: DemoSlide[] = [
   {
     id: "offline",
     tag: "Offline",
-    title: "Maps, routing, AI. No internet required.",
+    title: "Maps, search, routing. No internet required.",
     video: downloadDemo
   },
   {

@@ -48,9 +48,9 @@ export default function TermsPage() {
 
       <h2>Third-party services</h2>
       <p>
-        When you connect an AI client to MapOS, your requests are handled by that client and its
-        AI provider. Your use of those tools is also subject to their terms and privacy policies,
-        and we are not responsible for third-party services.
+        When you connect an AI client to MapOS, your requests are handled by that client and its AI
+        provider. Your use of those tools is also subject to their terms and privacy policies, and
+        we are not responsible for third-party services.
       </p>
 
       <h2>Disclaimer of warranties</h2>
@@ -67,8 +67,8 @@ export default function TermsPage() {
         liable for any damages of any kind arising out of or related to your use of MapOS. This
         includes direct, indirect, incidental, special, consequential, and punitive damages, and any
         loss of data, profits, or goodwill, whether caused by an AI client connected to the app, by
-        the app itself, or
-        otherwise, even if we have been advised of the possibility of such damages.
+        the app itself, or otherwise, even if we have been advised of the possibility of such
+        damages.
       </p>
 
       <h2>Governing law</h2>

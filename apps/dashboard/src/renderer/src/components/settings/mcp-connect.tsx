@@ -1,37 +1,31 @@
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
+  CollapsibleTrigger
 } from "@mapos/ui/components/collapsible";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  InputGroupInput,
+  InputGroupInput
 } from "@mapos/ui/components/input-group";
 import {
   Item,
   ItemActions,
   ItemContent,
   ItemDescription,
-  ItemTitle,
+  ItemTitle
 } from "@mapos/ui/components/item";
 import { Switch } from "@mapos/ui/components/switch";
 import { cn } from "@mapos/ui/lib/utils";
 import type { McpConnectionInfo } from "@shared/types";
-import {
-  CheckIcon,
-  ChevronRightIcon,
-  CopyIcon,
-  KeyRoundIcon,
-  RefreshCwIcon,
-} from "lucide-react";
+import { CheckIcon, ChevronRightIcon, CopyIcon, KeyRoundIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   activityClientName,
   formatTimeAgo,
   isRecentActivity,
-  useNow,
+  useNow
 } from "../../lib/mcp-activity";
 
 // One entry per client tab: either a ready-to-paste snippet (`code`, with `hint` naming where it
@@ -43,60 +37,70 @@ type ClientConfig = {
   fields?: { label: string; value: string }[];
 };
 
-// Config for each MCP client, with the live URL + token baked in. Clients that speak Streamable
-// HTTP take the URL directly; stdio-only clients (Claude Desktop) go through the community
-// `mcp-remote` shim.
-function clientSnippets(url: string, token: string): ClientConfig[] {
-  const auth = `Authorization: Bearer ${token}`;
+type StdioLauncher = McpConnectionInfo["stdio"];
+
+// Quote for a POSIX shell only where needed, so the common (space-free) path stays readable.
+function shellQuote(value: string): string {
+  return /^[\w./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function mcpServersJson(stdio: StdioLauncher): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        mapos: { command: stdio.command, args: stdio.args, env: stdio.env }
+      }
+    },
+    null,
+    2
+  );
+}
+
+// Config for each MCP client. Everything routes through the bundled stdio bridge rather than the
+// HTTP URL directly: the bridge is spawned by the client, so it can start MapOS when it isn't
+// running, and it reads the token from disk instead of carrying a copy in the client's config.
+// The raw HTTP details stay available under "Other" for anything that only speaks Streamable HTTP.
+function clientSnippets(url: string, token: string, stdio: StdioLauncher): ClientConfig[] {
+  const command = [stdio.command, ...stdio.args].map(shellQuote).join(" ");
+  const envEntries = Object.entries(stdio.env);
+  const envFlags = envEntries.map(([k, v]) => `-e ${k}=${v}`).join(" ");
+  const envPrefix = envEntries.map(([k, v]) => `${k}=${v}`).join(" ");
   return [
     {
       label: "Claude Code",
       hint: "Run in your terminal",
-      code: `claude mcp add mapos --transport http ${url} --header "${auth}" --scope user`,
+      code: `claude mcp add mapos --scope user ${envFlags} -- ${command}`
     },
     {
       label: "Claude Desktop",
       hint: "claude_desktop_config.json",
-      code: JSON.stringify(
-        {
-          mcpServers: {
-            mapos: {
-              command: "npx",
-              args: ["mcp-remote", url, "--header", auth],
-            },
-          },
-        },
-        null,
-        2,
-      ),
+      code: mcpServersJson(stdio)
     },
     {
       label: "Cursor",
       hint: "~/.cursor/mcp.json",
-      code: JSON.stringify(
-        {
-          mcpServers: {
-            mapos: { url, headers: { Authorization: `Bearer ${token}` } },
-          },
-        },
-        null,
-        2,
-      ),
+      code: mcpServersJson(stdio)
     },
     {
       label: "Codex",
       hint: "~/.codex/config.toml",
-      // `url` selects the Streamable HTTP transport; custom headers (our bearer token) go under
-      // the nested http_headers table.
-      code: `[mcp_servers.mapos]\nurl = "${url}"\n\n[mcp_servers.mapos.http_headers]\nAuthorization = "Bearer ${token}"`,
+      code: [
+        "[mcp_servers.mapos]",
+        `command = ${JSON.stringify(stdio.command)}`,
+        `args = [${stdio.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+        "",
+        "[mcp_servers.mapos.env]",
+        ...envEntries.map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+      ].join("\n")
     },
     {
       label: "Other",
       fields: [
-        { label: "URL", value: url },
-        { label: "Header", value: auth },
-      ],
-    },
+        { label: "Command (stdio)", value: `${envPrefix} ${command}`.trim() },
+        { label: "URL (Streamable HTTP)", value: url },
+        { label: "Header", value: `Authorization: Bearer ${token}` }
+      ]
+    }
   ];
 }
 
@@ -122,7 +126,7 @@ function CopyButton({ text }: { text: string }) {
 // has: green while activity is recent, a factual "last active …" once it goes quiet (an idle
 // client is indistinguishable from a removed one), dashed while nothing has ever connected.
 function ConnectionStatus({
-  lastActivity,
+  lastActivity
 }: {
   lastActivity: McpConnectionInfo["lastActivity"];
 }) {
@@ -157,8 +161,7 @@ function ConnectionStatus({
     <div className="flex items-center gap-2.5 rounded-md border border-input px-3.5 py-3 text-sm text-muted-foreground">
       <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
       <span>
-        <span className="font-medium text-foreground">{name}</span> — last
-        active {ago}
+        <span className="font-medium text-foreground">{name}</span> — last active {ago}
       </span>
     </div>
   );
@@ -202,7 +205,7 @@ export function McpConnect() {
 
   if (!info) return null;
 
-  const snippets = clientSnippets(info.url, info.token);
+  const snippets = clientSnippets(info.url, info.token, info.stdio);
   const active = snippets[client] ?? snippets[0];
 
   return (
@@ -211,16 +214,11 @@ export function McpConnect() {
         <ItemContent>
           <ItemTitle>MCP server</ItemTitle>
           <ItemDescription>
-            Let an AI client drive MapOS. Runs locally, reachable only with your
-            token.
+            Let an AI client drive MapOS. Runs locally, reachable only with your token.
           </ItemDescription>
         </ItemContent>
         <ItemActions>
-          <Switch
-            checked={info.enabled}
-            disabled={busy}
-            onCheckedChange={(c) => void toggle(c)}
-          />
+          <Switch checked={info.enabled} disabled={busy} onCheckedChange={(c) => void toggle(c)} />
         </ItemActions>
       </Item>
 
@@ -233,8 +231,8 @@ export function McpConnect() {
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">Connect a client</span>
                 <span className="text-sm text-muted-foreground">
-                  Pick your client and paste the snippet. The token is already
-                  included.
+                  Pick your client and paste the snippet. If MapOS is closed when your client
+                  connects, it starts automatically.
                 </span>
               </div>
 
@@ -250,7 +248,7 @@ export function McpConnect() {
                       "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                       i === client
                         ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
+                        : "text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {s.label}
@@ -264,11 +262,7 @@ export function McpConnect() {
                     <div key={f.label} className="flex flex-col gap-1.5">
                       <span className="text-xs font-medium">{f.label}</span>
                       <InputGroup className="bg-background">
-                        <InputGroupInput
-                          readOnly
-                          value={f.value}
-                          className="font-mono text-xs"
-                        />
+                        <InputGroupInput readOnly value={f.value} className="font-mono text-xs" />
                         <InputGroupAddon align="inline-end">
                           <CopyButton text={f.value} />
                         </InputGroupAddon>
@@ -276,16 +270,15 @@ export function McpConnect() {
                     </div>
                   ))}
                   <p className="text-xs text-muted-foreground">
-                    Any client that speaks Streamable HTTP needs only these. For
-                    a stdio-only client, use the Claude Desktop snippet.
+                    The command works in any client that spawns a stdio server, and starts MapOS if
+                    it's closed. The URL and header are for clients that only speak Streamable HTTP
+                    — those need MapOS already open.
                   </p>
                 </div>
               ) : (
                 <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background">
                   <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
-                    <span className="text-xs font-medium text-foreground">
-                      {active.hint}
-                    </span>
+                    <span className="text-xs font-medium text-foreground">{active.hint}</span>
                     <CopyButton text={active.code ?? ""} />
                   </div>
                   <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed text-foreground">
@@ -302,10 +295,7 @@ export function McpConnect() {
             >
               <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
                 <ChevronRightIcon
-                  className={cn(
-                    "size-4 transition-transform",
-                    tokenOpen && "rotate-90",
-                  )}
+                  className={cn("size-4 transition-transform", tokenOpen && "rotate-90")}
                 />
                 <KeyRoundIcon className="size-3.5" />
                 Access token
@@ -313,11 +303,7 @@ export function McpConnect() {
               <CollapsibleContent>
                 <div className="flex flex-col gap-2">
                   <InputGroup className="bg-background">
-                    <InputGroupInput
-                      readOnly
-                      value={info.token}
-                      className="font-mono text-xs"
-                    />
+                    <InputGroupInput readOnly value={info.token} className="font-mono text-xs" />
                     <InputGroupAddon align="inline-end">
                       <CopyButton text={info.token} />
                       <InputGroupButton
@@ -331,8 +317,9 @@ export function McpConnect() {
                     </InputGroupAddon>
                   </InputGroup>
                   <p className="text-xs text-muted-foreground">
-                    Regenerating revokes access from clients you've connected
-                    before — they'll need the new value.
+                    Clients set up with the snippets above read the token from disk and pick up a
+                    new one on their next connection. Any client you configured with the URL and
+                    header directly needs the new value pasted in.
                   </p>
                 </div>
               </CollapsibleContent>

@@ -232,6 +232,12 @@ export type McpConnectionInfo = {
   port: number;
   token: string;
   url: string;
+  /**
+   * How to reach the server over stdio instead of HTTP: the bundled bridge, spawned with the app
+   * binary running as plain Node. Preferred in client configs because the bridge exists even when
+   * MapOS doesn't — it starts the app on demand, where a bare HTTP URL just gets refused.
+   */
+  stdio: { command: string; args: string[]; env: Record<string, string> };
   /** Most recent authorized request seen (survives restarts), or null if none since setup. */
   lastActivity: McpActivity | null;
 };

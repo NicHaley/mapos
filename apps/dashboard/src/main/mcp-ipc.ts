@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import type { McpConnectionInfo } from "../shared/types";
+import { mcpBridgePath } from "./asset-paths";
 import { sendToRenderer } from "./main-window";
 import {
   getOrCreateMcpConfig,
@@ -7,6 +8,20 @@ import {
   setMcpEnabledInConfig
 } from "./mapos-config";
 import { mcpManager } from "./mcp/manager";
+
+/**
+ * The spawn recipe for the stdio bridge. `process.execPath` is the MapOS binary itself, run as
+ * plain Node — no separate runtime to ship and nothing for the user to install. The bridge is
+ * handed `--state-dir` rather than the port and token so that rotating the token in Settings
+ * doesn't invalidate a config the user has already pasted into their client.
+ */
+function stdioLauncher(appStateDir: string): McpConnectionInfo["stdio"] {
+  return {
+    command: process.execPath,
+    args: [mcpBridgePath(), "--state-dir", appStateDir],
+    env: { ELECTRON_RUN_AS_NODE: "1" }
+  };
+}
 
 function connectionInfo(appStateDir: string): McpConnectionInfo {
   const cfg = getOrCreateMcpConfig(appStateDir);
@@ -16,6 +31,7 @@ function connectionInfo(appStateDir: string): McpConnectionInfo {
     port: cfg.port,
     token: cfg.token,
     url: `http://127.0.0.1:${cfg.port}/mcp`,
+    stdio: stdioLauncher(appStateDir),
     lastActivity: mcpManager.getLastActivity()
   };
 }

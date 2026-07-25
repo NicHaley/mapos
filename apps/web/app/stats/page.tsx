@@ -116,7 +116,7 @@ export default async function StatsPage({
               <th className="py-1.5 text-right font-normal">Total</th>
             </tr>
           </thead>
-          <tbody className="font-[family-name:var(--font-jetbrains-mono)] text-[13px]">
+          <tbody className="font-[family-name:var(--font-server-mono)] text-[13px]">
             {days
               .slice(-TABLE_DAYS)
               .reverse()
@@ -140,10 +140,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-5 py-14">
       <header className="mb-2">
-        <h1 className="m-0 font-[family-name:var(--font-instrument-serif)] text-3xl font-normal text-neutral-50">
+        <h1 className="m-0 font-[family-name:var(--font-handjet)] text-3xl font-normal text-neutral-50">
           Download stats
         </h1>
-        <p className="m-0 mt-1 font-[family-name:var(--font-jetbrains-mono)] text-xs text-neutral-500">
+        <p className="m-0 mt-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-500">
           mapos.app/download · counted server-side, nothing identifying stored
         </p>
       </header>
@@ -161,7 +161,7 @@ function StatTile({
     <div className="rounded-xl border border-white/10 bg-[#161616] p-4">
       <div className="text-xs text-neutral-500">{label}</div>
       <div
-        className={`mt-1 font-[family-name:var(--font-jetbrains-mono)] text-2xl ${muted ? "text-neutral-500" : "text-neutral-50"}`}
+        className={`mt-1 font-[family-name:var(--font-server-mono)] text-2xl ${muted ? "text-neutral-500" : "text-neutral-50"}`}
       >
         {value.toLocaleString("en-US")}
       </div>

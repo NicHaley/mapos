@@ -14,6 +14,8 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   # Bundled separately via extraResources (served over mapos-asset://); keep out of the asar.
   - '!resources/basemap-assets/**'
+  # Ditto — the MCP stdio bridge is spawned as a script path, so it must be a plain file on disk.
+  - '!resources/mcp-stdio.mjs'
 asarUnpack:
   - resources/**
   # The Valhalla native addon (valhalla_node.node) dlopens sibling .dylibs by
@@ -23,6 +25,10 @@ asarUnpack:
 extraResources:
   - from: resources/basemap-assets
     to: basemap-assets
+  # MCP clients spawn this by absolute path (see asset-paths.ts `mcpBridgePath`), so it has to
+  # land on disk unbundled at <app>/Resources/mcp-stdio.mjs.
+  - from: resources/mcp-stdio.mjs
+    to: mcp-stdio.mjs
 win:
   executableName: MapOS
 nsis:

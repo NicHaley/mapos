@@ -134,11 +134,11 @@ export function AsciiSun({ speed = 1, ramp = "classic", scene }: AsciiSunProps) 
 
   return (
     <div
-      className={`relative flex h-full w-full items-start justify-center overflow-hidden font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
+      className={`relative flex h-full w-full items-start justify-center overflow-hidden font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
       ref={wrapRef}
     >
       <pre
-        className="m-0 p-0 whitespace-pre font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
+        className="m-0 p-0 whitespace-pre font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
         aria-hidden="true"
       >
         {colored.map((runs, i) => (

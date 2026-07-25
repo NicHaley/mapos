@@ -23,3 +23,14 @@ export function worldPmtilesPath(): string {
 export function worldGeocodePath(): string {
   return join(basemapAssetsDir(), "basemap", "world.sqlite");
 }
+
+/**
+ * The stdio↔HTTP MCP bridge an external client spawns to reach the app, starting it first if it
+ * isn't running. Shipped via `extraResources` (never bundled), so it sits beside the basemap
+ * assets in the packaged app rather than inside the asar.
+ */
+export function mcpBridgePath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "mcp-stdio.mjs")
+    : join(__dirname, "../../resources/mcp-stdio.mjs");
+}

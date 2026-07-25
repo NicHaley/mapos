@@ -20,21 +20,21 @@ export default function PrivacyPage() {
       <p>
         Everything you create in MapOS lives in a folder on your Mac (by default{" "}
         <code>~/MapOS/</code>). That includes your places, notes, map data, and app configuration.
-        These files are the source of truth. We have no servers
-        that store them, no account system, and no way to see them. You can back them up, move them,
-        or delete them like any other files.
+        These files are the source of truth. We have no servers that store them, no account system,
+        and no way to see them. You can back them up, move them, or delete them like any other
+        files.
       </p>
 
       <h2>When data leaves your device</h2>
       <p>Data leaves your device only in these cases:</p>
       <ul>
         <li>
-          <strong>AI clients you connect. </strong>MapOS hosts a local server (using MCP) so AI
-          apps you choose — for example, Claude Desktop — can read and edit your vault. That
-          connection stays on your machine, but your AI client sends your messages, and the
-          contents of any files it reads to answer you, to its AI provider. That data is handled
-          under your client&apos;s and provider&apos;s own privacy policies and terms. MapOS itself
-          never sends your files to an AI provider, and we don&apos;t keep a copy on any server.
+          <strong>AI clients you connect. </strong>MapOS hosts a local server (using MCP) so AI apps
+          you choose — for example, Claude Desktop — can read and edit your vault. That connection
+          stays on your machine, but your AI client sends your messages, and the contents of any
+          files it reads to answer you, to its AI provider. That data is handled under your
+          client&apos;s and provider&apos;s own privacy policies and terms. MapOS itself never sends
+          your files to an AI provider, and we don&apos;t keep a copy on any server.
         </li>
         <li>
           <strong>Downloads and map tiles.</strong> Downloading MapOS, its updates, region packs,

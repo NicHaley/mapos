@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Geist, Handjet } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -8,38 +9,43 @@ const geistSans = Geist({
   subsets: ["latin"]
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  weight: ["400", "500"],
-  subsets: ["latin"]
+const serverMono = localFont({
+  src: "./fonts/ServerMono-Regular.woff2",
+  variable: "--font-server-mono",
+  weight: "400"
 });
 
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  weight: "400",
-  style: ["normal", "italic"],
+const handjet = Handjet({
+  variable: "--font-handjet",
   subsets: ["latin"]
 });
 
 const SITE_URL = "https://mapos.app";
 const OG_DESCRIPTION =
-  "Build local-first maps with Markdown notes, location data, and AI that runs on your Mac.";
+  "Your places, notes, and AI on one map. Plain files on your Mac, no accounts, works offline.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "MapOS — Markdown maps for AI",
+  title: "MapOS — The connected map for you and your agents",
   description: "A plaintext map format your agents can actually read, write, and reason about.",
   openGraph: {
     type: "website",
     url: SITE_URL,
     siteName: "MapOS",
-    title: "MapOS — Maps, Meet Markdown",
+    title: "MapOS — The connected map for you and your agents",
     description: OG_DESCRIPTION,
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "MapOS — Maps, Meet Markdown" }]
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "MapOS — The connected map for you and your agents"
+      }
+    ]
   },
   twitter: {
     card: "summary_large_image",
-    title: "MapOS — Maps, Meet Markdown",
+    title: "MapOS — The connected map for you and your agents",
     description: OG_DESCRIPTION,
     images: ["/og.png"]
   }
@@ -54,7 +60,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="dark"
-      className={`dark ${geistSans.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
+      className={`dark ${geistSans.variable} ${serverMono.variable} ${handjet.variable}`}
     >
       <body className="min-h-screen bg-neutral-950 text-neutral-50 antialiased font-[family-name:var(--font-geist-sans)] overflow-x-hidden">
         {children}

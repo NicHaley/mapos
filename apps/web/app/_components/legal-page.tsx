@@ -20,10 +20,10 @@ export function LegalPage({ title, lastUpdated, children }: LegalPageProps) {
       </header>
 
       <main className="mx-auto w-full max-w-[720px] flex-1 py-16">
-        <h1 className="m-0 font-[family-name:var(--font-instrument-serif)] text-[clamp(32px,4.6vw,48px)] font-normal text-neutral-50">
+        <h1 className="m-0 font-[family-name:var(--font-handjet)] text-[clamp(32px,4.6vw,48px)] font-normal text-neutral-50">
           {title}
         </h1>
-        <p className="mt-2 font-[family-name:var(--font-jetbrains-mono)] text-[11.5px] tracking-[0.01em] text-neutral-500">
+        <p className="mt-2 font-[family-name:var(--font-server-mono)] text-[11.5px] tracking-[0.01em] text-neutral-500">
           Last updated: {lastUpdated}
         </p>
         <article className="prose prose-invert prose-neutral mt-10 max-w-none prose-headings:font-normal prose-headings:text-neutral-50 prose-a:font-normal prose-a:text-neutral-50 prose-code:rounded prose-code:bg-neutral-800/60 prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-code:before:content-none prose-code:after:content-none">
@@ -31,7 +31,7 @@ export function LegalPage({ title, lastUpdated, children }: LegalPageProps) {
         </article>
       </main>
 
-      <footer className="mx-auto flex w-full max-w-[720px] items-center justify-center gap-4 py-10 font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
+      <footer className="mx-auto flex w-full max-w-[720px] items-center justify-center gap-4 py-10 font-[family-name:var(--font-server-mono)] text-xs tracking-[0.01em] text-neutral-500">
         <span>© 2026 MapOS</span>
         <Link className={footerLink} href="/privacy">
           Privacy

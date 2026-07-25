@@ -231,13 +231,9 @@
     transparent 275deg,
     transparent 360deg
   );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
   filter: drop-shadow(0 0 3px color-mix(in oklch, var(--primary) 55%, transparent));
   animation: mcp-border-spin 4s linear infinite;

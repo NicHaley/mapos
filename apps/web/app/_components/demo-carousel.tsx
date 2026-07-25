@@ -182,7 +182,7 @@ export function DemoCarousel() {
                             <path d="M4 2.5v11l9-5.5z" />
                           </svg>
                         </div>
-                        <span className="font-[family-name:var(--font-jetbrains-mono)] text-xs tracking-[0.01em] text-neutral-500">
+                        <span className="font-[family-name:var(--font-server-mono)] text-xs tracking-[0.01em] text-neutral-500">
                           Demo video coming soon
                         </span>
                       </div>
@@ -190,7 +190,7 @@ export function DemoCarousel() {
                   )}
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/60 to-transparent" />
                   <div className="absolute inset-x-0 top-0 flex flex-col items-start gap-1 p-5 text-left">
-                    <span className="inline-flex rounded-md bg-blue-500 px-2 py-0.5 text-xs font-medium text-white">
+                    <span className="inline-flex rounded bg-[#2B5BFF] px-2 py-0.5 font-[family-name:var(--font-server-mono)] text-xs uppercase tracking-[0.04em] text-white">
                       {slide.tag}
                     </span>
                     <span className="text-lg font-medium text-neutral-50">{slide.title}</span>

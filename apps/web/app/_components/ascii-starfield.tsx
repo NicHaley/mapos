@@ -105,12 +105,12 @@ export function AsciiStarfield({ density = 0.009 }: AsciiStarfieldProps) {
 
   return (
     <div
-      className={`h-full w-full font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
+      className={`h-full w-full font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
       ref={wrapRef}
       aria-hidden="true"
     >
       <pre
-        className="m-0 h-full w-full whitespace-pre font-[family-name:var(--font-jetbrains-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
+        className="m-0 h-full w-full whitespace-pre font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] tracking-normal pointer-events-none select-none sm:text-[11px]"
         style={{ color: "#525252", padding: 0 }}
       >
         {text}

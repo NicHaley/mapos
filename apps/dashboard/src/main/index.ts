@@ -41,6 +41,25 @@ import { registerWikiIpc } from "./wiki-ipc";
 // module load. The handlers themselves are attached inside whenReady.
 registerLocalSchemes();
 
+// A second launch must focus the running instance, not start a rival one: two instances fight
+// over the MCP port (the loser's listener never binds) and over the same vault index. Matters now
+// that the MCP stdio bridge launches the app on demand — on macOS `open -a` already reuses the
+// running instance, but spawning the executable on Windows/Linux does not. Only enforced when
+// packaged, so `pnpm dev` still runs alongside an installed MapOS.
+if (app.isPackaged && !app.requestSingleInstanceLock()) {
+  app.exit(0);
+} else {
+  app.on("second-instance", () => {
+    const win = getMainWindow();
+    if (!win) {
+      createWindow();
+      return;
+    }
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+}
+
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 900,

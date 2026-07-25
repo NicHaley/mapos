@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { LuFileText, LuSparkles, LuWifiOff } from "react-icons/lu";
 import { SiApple } from "react-icons/si";
+import { AgentDemo } from "./agent-demo";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { DemoCarousel } from "./demo-carousel";
@@ -170,12 +171,12 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             style={{ transform: `translateY(${-scroll.y * TITLE_PARALLAX}px)` }}
           >
             <section className="mx-auto flex max-w-[640px] flex-col items-center gap-3.5">
-              <div className="flex flex-col items-center gap-4">
-                <div className="flex flex-col items-center gap-2.5">
+              <div className="flex flex-col items-center gap-5">
+                <div className="flex flex-col items-center">
                   <span className="font-[family-name:var(--font-handjet)] text-[34px] leading-none text-neutral-50 sm:text-[44px]">
                     map anything
                   </span>
-                  <h1 className="m-0 text-balance font-[family-name:var(--font-server-mono)] text-[14px] font-normal uppercase leading-relaxed tracking-[0.08em] text-neutral-400 sm:text-[17px]">
+                  <h1 className="m-0 text-balance font-[family-name:var(--font-handjet)] text-[34px] font-normal leading-none text-neutral-400 sm:text-[44px] max-w-[340px]">
                     the connected map for you and your agents
                   </h1>
                 </div>
@@ -200,6 +201,15 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             </section>
           </main>
         </div>
+
+        <section
+          className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-16"
+          id="demo"
+        >
+          <div className="mx-auto w-full max-w-[960px]">
+            <AgentDemo />
+          </div>
+        </section>
 
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20">
           <div className="mx-auto flex w-full max-w-[960px] flex-col gap-14">

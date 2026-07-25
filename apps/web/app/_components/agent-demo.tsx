@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { LuChevronDown, LuFile, LuFolder } from "react-icons/lu";
+import { LuChevronDown, LuChevronRight, LuFile, LuFolder } from "react-icons/lu";
 import windowShot from "./mapos-window.png";
 
 // A scripted reconstruction of an MCP session: the real app window as a
@@ -64,6 +64,10 @@ const STEPS: Step[] = [
   },
   { delay: 900, line: { kind: "done", text: "4 places saved to your map" } },
 ];
+
+// Static rows drawn in the capture's empty sidebar so the vault doesn't
+// look brand new; the Pizza folder appears below them as the agent writes.
+const SIDEBAR_FOLDERS = ["attachments", "Collections", "Friends", "Trips"];
 
 const TYPE_MS = 30;
 const HOLD_MS = 5000;
@@ -143,12 +147,31 @@ export function AgentDemo() {
           src={windowShot}
         />
 
-        {/* New vault entries appearing in the (real) sidebar's empty space. */}
-        {shownPins.length > 0 ? (
-          <div
-            className="pointer-events-none absolute hidden flex-col text-neutral-300 md:flex"
-            style={{ left: "1.3%", top: "15.3%", fontSize: "0.87cqw" }}
-          >
+        {/* Vault entries drawn in the (real) sidebar's empty space. */}
+        <div
+          className="pointer-events-none absolute hidden flex-col text-neutral-300 md:flex"
+          style={{ left: "1.3%", top: "15.3%", fontSize: "0.87cqw" }}
+        >
+          {SIDEBAR_FOLDERS.map((folder) => (
+            <div
+              className="flex items-center"
+              key={folder}
+              style={{ gap: "0.55cqw", height: "2.1cqw" }}
+            >
+              <LuChevronRight
+                aria-hidden="true"
+                className="text-neutral-500"
+                style={{ width: "0.9cqw", height: "0.9cqw" }}
+              />
+              <LuFolder
+                aria-hidden="true"
+                className="text-neutral-400"
+                style={{ width: "0.95cqw", height: "0.95cqw" }}
+              />
+              {folder}
+            </div>
+          ))}
+          {shownPins.length > 0 ? (
             <div
               className="flex items-center animate-[file-in_0.3s_ease-out]"
               style={{ gap: "0.55cqw", height: "2.1cqw" }}
@@ -165,7 +188,8 @@ export function AgentDemo() {
               />
               Pizza
             </div>
-            {shownPins.map((i) => {
+          ) : null}
+          {shownPins.map((i) => {
               const place = PLACES[i];
               if (!place) return null;
               return (
@@ -186,9 +210,8 @@ export function AgentDemo() {
                   {place.name}
                 </div>
               );
-            })}
-          </div>
-        ) : null}
+          })}
+        </div>
 
         {/* Pins dropped on the map as the agent writes each file. */}
         {shownPins.map((i) => {

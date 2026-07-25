@@ -3,6 +3,11 @@
 import Image from "next/image";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LuChevronDown, LuChevronRight, LuFile, LuFolder } from "react-icons/lu";
+import dockClaude from "./dock-claude.png";
+import dockFinder from "./dock-finder.png";
+import dockGhostty from "./dock-ghostty.png";
+import dockObsidian from "./dock-obsidian.png";
+import maposDockIcon from "./mapos-dock-icon.png";
 import windowShot from "./mapos-window.png";
 
 // A scripted reconstruction of an MCP session: the real app window as a
@@ -18,6 +23,7 @@ const PLACES = [
   { name: "Una Pizza Napoletana", x: 56, y: 76.5 },
   { name: "L'Industrie", x: 62.4, y: 79.5 },
   { name: "Mama's Too", x: 61.5, y: 24.1 },
+  { name: "Roberta's", x: 69.8, y: 83.3 },
 ];
 
 type TermLine = {
@@ -36,9 +42,14 @@ type Step = {
 const STEPS: Step[] = [
   {
     delay: 700,
+    line: { kind: "tool", text: 'web_search "best pizza nyc"' },
+  },
+  { delay: 1300, line: { kind: "result", text: "Una Pizza Napoletana ranked #1" } },
+  {
+    delay: 800,
     line: { kind: "tool", text: 'geocode_search "pizza, new york"' },
   },
-  { delay: 1100, line: { kind: "result", text: "28 results" } },
+  { delay: 1000, line: { kind: "result", text: "28 results" } },
   {
     delay: 900,
     line: { kind: "tool", text: 'write_vault_file "Pizza/Joe\'s Pizza.md"' },
@@ -62,12 +73,25 @@ const STEPS: Step[] = [
     line: { kind: "tool", text: 'write_vault_file "Pizza/Mama\'s Too.md"' },
     pin: 3,
   },
-  { delay: 900, line: { kind: "done", text: "4 places saved to your map" } },
+  {
+    delay: 750,
+    line: { kind: "tool", text: 'write_vault_file "Pizza/Roberta\'s.md"' },
+    pin: 4,
+  },
+  { delay: 900, line: { kind: "done", text: "5 places saved to your map" } },
 ];
 
 // Static rows drawn in the capture's empty sidebar so the vault doesn't
 // look brand new; the Pizza folder appears below them as the agent writes.
 const SIDEBAR_FOLDERS = ["attachments", "Collections", "Friends", "Trips"];
+
+const DOCK_APPS = [
+  { name: "Finder", icon: dockFinder, running: true },
+  { name: "Ghostty", icon: dockGhostty, running: true },
+  { name: "MapOS", icon: maposDockIcon, running: true },
+  { name: "Claude", icon: dockClaude, running: false },
+  { name: "Obsidian", icon: dockObsidian, running: false },
+];
 
 const TYPE_MS = 30;
 const HOLD_MS = 5000;
@@ -224,24 +248,32 @@ export function AgentDemo() {
               style={{
                 left: `${place.x}%`,
                 top: `${place.y}%`,
-                transform: "translate(-50%, -100%)",
+                // The dot (18px) is the anchor: its centre sits on the
+                // coordinate, with the label stacked above.
+                transform: "translate(-50%, calc(-100% + 9px))",
               }}
             >
               <span className="hidden rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-200 backdrop-blur sm:block">
                 {place.name}
               </span>
-              <svg
-                aria-hidden="true"
-                fill="#2B5BFF"
-                height="24"
-                viewBox="0 0 24 24"
-                width="24"
-              >
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
-              </svg>
+              <span className="size-[18px] rounded-full border-2 border-white bg-[#2B5BFF]" />
             </div>
           );
         })}
+
+        {/* Mock dock. Real app icons (each 256px canvas with the standard
+            macOS margin baked in); dots mark running apps, matching the
+            story (Ghostty hosts the agent, MapOS is the window). */}
+        <div className="pointer-events-none absolute bottom-[1.4%] left-1/2 flex -translate-x-1/2 items-end gap-[0.15cqw] rounded-[1cqw] border border-white/10 bg-neutral-400/15 px-[0.2cqw] pt-[0.1cqw] backdrop-blur-md">
+          {DOCK_APPS.map((app) => (
+            <div className="flex flex-col items-center" key={app.name}>
+              <Image alt="" className="size-[4.5cqw]" src={app.icon} />
+              <span
+                className={`mb-[0.16cqw] size-[0.3cqw] rounded-full ${app.running ? "bg-white/60" : "bg-transparent"}`}
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* The MCP client. Overlaid on the map on larger screens, stacked

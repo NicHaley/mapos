@@ -13,11 +13,11 @@ body {
 @keyframes pin-drop {
   from {
     opacity: 0;
-    transform: translate(-50%, calc(-100% - 14px));
+    transform: translate(-50%, calc(-100% - 5px));
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -100%);
+    transform: translate(-50%, calc(-100% + 9px));
   }
 }
 

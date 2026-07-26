@@ -8,6 +8,28 @@ body {
   overflow-y: auto;
 }
 
+/* Hero reveal (landing.tsx). Kept in CSS rather than JS so the stagger is
+   already running at first paint instead of waiting on hydration; the
+   per-element delays are inline. */
+@keyframes hero-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hero-in {
+  animation: hero-in 1500ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-in {
+    animation: none;
+  }
+}
+
 /* Agent demo overlays (agent-demo.tsx). Both end states must match the
    elements' inline transforms. */
 @keyframes pin-drop {

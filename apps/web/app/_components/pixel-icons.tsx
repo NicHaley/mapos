@@ -43,20 +43,20 @@ export function PixelFileText(props: IconProps) {
   );
 }
 
-/** pixelarticons/server */
-export function PixelServer(props: IconProps) {
+/** pixelarticons/folder */
+export function PixelFolder(props: IconProps) {
   return (
     <PixelIcon {...props}>
-      <path d="M6 7h4v2H6zm0 8h4v2H6zM2 5h2v14H2zm18 0h2v14h-2zM4 19h16v2H4zM4 3h16v2H4zm0 8h16v2H4z" />
+      <path d="M4 4h6v2H4zm0 14h16v2H4zM20 8h2v10h-2zM2 6h2v12H2zm8 0h10v2H10z" />
     </PixelIcon>
   );
 }
 
-/** pixelarticons/cellular-signal-0 — no bars, i.e. works with nothing connected */
-export function PixelSignalOff(props: IconProps) {
+/** pixelarticons/database */
+export function PixelDatabase(props: IconProps) {
   return (
     <PixelIcon {...props}>
-      <path d="M4 14h2v2H4zm7-4h2v2h-2zm7-6h2v2h-2zM2 16h2v2H2zm7-4h2v6H9zm7-6h2v12h-2zM6 14h2v4H6zm7-4h2v8h-2zm7-6h2v14h-2zM2 18h6v2H2zm7 0h6v2H9zm7 0h6v2h-6z" />
+      <path d="M2 6h2v4H2zm0 4h2v4H2zm0 4h2v4H2zm18-8h2v4h-2zm0 4h2v4h-2zm0 4h2v4h-2zM4 4h4v2H4zm0 8h4v-2H4zm0 4h4v-2H4zm0 4h4v-2H4zM16 4h4v2h-4zm0 8h4v-2h-4zm0 4h4v-2h-4zm0 4h4v-2h-4zM8 2h8v2H8zm0 12h8v-2H8zm0 4h8v-2H8zm0 4h8v-2H8z" />
     </PixelIcon>
   );
 }
@@ -75,15 +75,6 @@ export function PixelCopy(props: IconProps) {
   return (
     <PixelIcon {...props}>
       <path d="M8 6h12v2H8zM4 2h12v2H4zm2 6h2v12H6zM2 4h2v12H2zm6 16h12v2H8zM20 8h2v12h-2zm-4-4h2v2h-2zM4 16h2v2H4z" />
-    </PixelIcon>
-  );
-}
-
-/** pixelarticons/play */
-export function PixelPlay(props: IconProps) {
-  return (
-    <PixelIcon {...props}>
-      <path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z" />
     </PixelIcon>
   );
 }

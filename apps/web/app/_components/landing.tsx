@@ -8,14 +8,15 @@ import {
 } from "@mapos/ui/components/accordion";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { SiApple } from "react-icons/si";
+import { SiApple, SiDropbox, SiGit, SiObsidian } from "react-icons/si";
 import { AgentDemo } from "./agent-demo";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { InteractiveGrid } from "./interactive-grid";
 import { MapOSLogo } from "./mapos-logo";
 import { MeetupDemo } from "./meetup-demo";
-import { PixelFileText, PixelPlay, PixelServer, PixelSignalOff } from "./pixel-icons";
+import { OfflineLog } from "./offline-log";
+import { PixelDatabase, PixelFileText, PixelFolder } from "./pixel-icons";
 import { SkillsSection } from "./skills-section";
 import { ToolBelt } from "./tool-belt";
 
@@ -37,12 +38,12 @@ const FAQ_ITEMS = [
   {
     question: "Does MapOS collect any data?",
     answer:
-      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode."
+      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates and download region packs."
   },
   {
     question: "How does AI work in MapOS?",
     answer:
-      "MapOS hosts a local MCP server, so you connect the AI app you already use — Claude Desktop, Claude Code, or any MCP-capable client — and it can search your places, draw routes, and edit your vault. The connection stays on your machine, and AI requests are handled by your client and its provider, never by a MapOS server."
+      "MapOS hosts a local MCP server, so you connect the AI app you already use, whether that's Claude Desktop, Claude Code, or any MCP-capable client, and it can search your places, draw routes, and edit your vault. The connection stays on your machine, and AI requests are handled by your client and its provider, never by a MapOS server."
   },
   {
     question: "Can I use it with Obsidian?",
@@ -52,7 +53,7 @@ const FAQ_ITEMS = [
   {
     question: "Does it work offline?",
     answer:
-      "Yes. Download region packs to get maps, search, and routing that run entirely on your machine, or switch to cloud services when you prefer."
+      "Yes. Download a region pack and maps, search, and routing all run entirely on your machine."
   },
   {
     question: "What platforms are supported?",
@@ -64,18 +65,26 @@ const FEATURES = [
   {
     icon: PixelFileText,
     title: "places as markdown",
-    body: "Every place is a Markdown file with its location in the frontmatter. Edit it in MapOS, in Obsidian, or in any text editor."
+    body: "The location lives in the frontmatter, your notes in the body. Edit it in MapOS or any text editor, it's the same file."
   },
   {
-    icon: PixelServer,
-    title: "an MCP server for your map",
-    body: "Connect any MCP client, like Claude Code. Ask it to find places, draw routes, build overlays, and annotate your vault."
+    icon: PixelFolder,
+    title: "a folder, not a database",
+    body: "Your vault is a directory on your Mac. Move it, back it up, put it in git. There's no export, because there's nothing to export."
   },
   {
-    icon: PixelSignalOff,
-    title: "maps that work offline",
-    body: "Download region packs for search, routing, and map tiles with no connection. Switch to cloud services whenever you want."
+    icon: PixelDatabase,
+    title: "the index is disposable",
+    body: "MapOS keeps a spatial index so queries are fast. It's a cache over your files, never the record. Delete it and it rebuilds."
   }
+];
+
+// Everything a folder of Markdown already works with. Deliberately things the
+// reader owns rather than integrations MapOS has to maintain.
+const WORKS_WITH = [
+  { icon: SiObsidian, label: "Obsidian" },
+  { icon: SiGit, label: "Git" },
+  { icon: SiDropbox, label: "Dropbox" }
 ];
 
 type LandingProps = {
@@ -95,6 +104,14 @@ const TITLE_PARALLAX = 0.22;
 // Scroll progress (viewports) at which the sun/earth/stars scene is fully
 // faded out.
 const SCENE_FADE_END = 0.8;
+
+// Reading order of the hero reveal (see `.hero-in` in globals.css).
+const HERO_DELAYS_MS = {
+  eyebrow: 0,
+  headline: 380,
+  subhead: 780,
+  cta: 1180
+};
 
 export function Landing({ version, sizeLabel }: LandingProps) {
   // "[ Apple Silicon · v1.0.0-alpha.2 · 44.0 MB ]", dropping any unknown parts.
@@ -174,20 +191,32 @@ export function Landing({ version, sizeLabel }: LandingProps) {
             <section className="mx-auto flex max-w-[640px] flex-col items-center gap-3.5">
               <div className="flex flex-col items-center gap-5">
                 <div className="flex flex-col items-center">
-                  <span className="font-[family-name:var(--font-handjet)] text-[34px] leading-none text-neutral-50 sm:text-[44px]">
+                  <span
+                    className="hero-in font-[family-name:var(--font-handjet)] text-[34px] leading-none text-neutral-50 sm:text-[44px]"
+                    style={{ animationDelay: `${HERO_DELAYS_MS.eyebrow}ms` }}
+                  >
                     map anything
                   </span>
-                  <h1 className="m-0 text-balance font-[family-name:var(--font-handjet)] text-[34px] font-normal leading-none text-neutral-400 sm:text-[44px] max-w-[340px]">
+                  <h1
+                    className="hero-in m-0 text-balance font-[family-name:var(--font-handjet)] text-[34px] font-normal leading-none text-neutral-400 sm:text-[44px] max-w-[340px]"
+                    style={{ animationDelay: `${HERO_DELAYS_MS.headline}ms` }}
+                  >
                     the connected map for you and your agents
                   </h1>
                 </div>
-                <p className="m-0 text-center text-lg text-neutral-300">
+                <p
+                  className="hero-in m-0 text-center text-lg text-neutral-300"
+                  style={{ animationDelay: `${HERO_DELAYS_MS.subhead}ms` }}
+                >
                   Your places, notes, and AI on one map.
                   <br className="hidden sm:block" />
                   Plain files on your Mac, no accounts, works offline.
                 </p>
               </div>
-              <div className="flex flex-wrap flex-col items-center justify-center gap-3.5">
+              <div
+                className="hero-in flex flex-wrap flex-col items-center justify-center gap-3.5"
+                style={{ animationDelay: `${HERO_DELAYS_MS.cta}ms` }}
+              >
                 <a
                   className="my-2 inline-flex items-center gap-2 rounded-xs bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"
                   href="/download"
@@ -292,6 +321,27 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                   );
                 })}
               </div>
+
+              {/* Not a fourth card: one row, so it reads as a footnote proving
+                  the claim above it rather than another feature. */}
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-xs border border-neutral-800 bg-neutral-900/30 px-6 py-4">
+                <span className="font-[family-name:var(--font-server-mono)] text-[11px] uppercase tracking-[0.28em] text-neutral-500">
+                  works with
+                </span>
+                {WORKS_WITH.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <span
+                      className="flex items-center gap-2 text-sm text-neutral-400"
+                      key={item.label}
+                    >
+                      <Icon aria-hidden="true" className="text-neutral-500" size={15} />
+                      {item.label}
+                    </span>
+                  );
+                })}
+                <span className="text-sm text-neutral-400">any text editor</span>
+              </div>
             </div>
           </div>
         </section>
@@ -300,11 +350,12 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           <div className="mx-auto flex w-full max-w-[960px] flex-col gap-12">
             <div className="flex flex-col items-center gap-3.5 text-center">
               <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-                it composes tools you'd have to chain by hand
+                questions a map can't usually answer
               </h2>
               <p className="m-0 max-w-[600px] text-lg text-neutral-400">
-                Two walk-time areas, the overlap, a search inside it, results on the map. Four
-                tools, one sentence.
+                Where should two people meet for brunch if neither walks more than 20 minutes? Two
+                walk-time areas, their overlap, a search inside it, results on the map. Four tools,
+                one sentence.
               </p>
             </div>
             <MeetupDemo />
@@ -320,22 +371,17 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         <SkillsSection />
 
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20 pb-24">
-          <div className="mx-auto flex w-full max-w-[960px] flex-col items-center gap-7">
-            <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              see it in action
-            </h2>
-            {/* Placeholder for the recorded walkthrough (next-video asset once
-                it exists — drop the MP4 in apps/web/videos and sync). */}
-            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xs border border-neutral-800 bg-neutral-900/50">
-              <div className="flex flex-col items-center gap-3.5">
-                <div className="flex size-14 items-center justify-center rounded-xs border border-neutral-700 bg-neutral-950/60">
-                  <PixelPlay aria-hidden="true" className="text-neutral-300" size={22} />
-                </div>
-                <span className="font-[family-name:var(--font-server-mono)] text-xs tracking-[0.01em] text-neutral-500">
-                  Demo video coming soon
-                </span>
-              </div>
+          <div className="mx-auto flex w-full max-w-[960px] flex-col items-center gap-12">
+            <div className="flex flex-col items-center gap-3.5 text-center">
+              <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
+                offline is the default
+              </h2>
+              <p className="m-0 max-w-[600px] text-lg text-neutral-400">
+                Download a region pack and the whole map runs on your machine. Pan, route, and
+                search all answer from your own disk.
+              </p>
             </div>
+            <OfflineLog />
           </div>
         </section>
 
@@ -366,7 +412,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pb-28">
           <div className="mx-auto flex max-w-[640px] flex-col items-center gap-4 rounded-xs border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950 px-8 py-14 text-center">
             <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              free. no account required.
+              free. no accounts.
             </h2>
             <div className="flex flex-col items-center gap-5">
               <a

@@ -23,7 +23,7 @@ const MAP_TOOLS = [
   "get_viewport",
   "get_active_file",
   "get_open_tabs",
-  "get_current_location"
+  "get_current_location",
 ];
 
 const VAULT_TOOLS = [
@@ -43,7 +43,7 @@ const VAULT_TOOLS = [
   "cancel_region_download",
   "delete_region_pack",
   "index_file",
-  "rebuild_index"
+  "rebuild_index",
 ];
 
 // One accent per belt, so the eye has something to catch without the row
@@ -74,7 +74,9 @@ function Belt({ tools, animation }: BeltProps) {
           lands copy 2 where copy 1 started. shrink-0 is load-bearing: as a flex
           item the track would otherwise be shrunk to the clip's width, making
           -50% shorter than a copy and jumping on every loop. */}
-      <div className={`flex w-max shrink-0 ${animation} motion-reduce:animate-none`}>
+      <div
+        className={`flex w-max shrink-0 ${animation} motion-reduce:animate-none`}
+      >
         {[0, 1].map((copy) => (
           <div
             aria-hidden={copy === 1}
@@ -103,13 +105,19 @@ function Belt({ tools, animation }: BeltProps) {
 export function ToolBelt() {
   return (
     <div className="flex flex-col items-center gap-5.5 py-3">
-      <Belt animation="animate-[belt-left_112s_linear_infinite]" tools={MAP_TOOLS} />
+      <Belt
+        animation="animate-[belt-left_112s_linear_infinite]"
+        tools={MAP_TOOLS}
+      />
       {/* The belts are full-bleed; the caption is not, so it keeps the page's
           gutters and wraps rather than running off the edge on narrow screens. */}
       <span className="max-w-full px-[clamp(20px,4vw,56px)] text-center font-[family-name:var(--font-server-mono)] text-[11px] leading-4.5 tracking-[0.28em] text-neutral-500">
-        {TOOL_COUNT} TOOLS · ONE LOCAL MCP SERVER · YOUR CHOICE OF AGENT
+        {TOOL_COUNT} TOOLS · LOCAL MCP SEVER • BYO AGENT
       </span>
-      <Belt animation="animate-[belt-right_123s_linear_infinite]" tools={VAULT_TOOLS} />
+      <Belt
+        animation="animate-[belt-right_123s_linear_infinite]"
+        tools={VAULT_TOOLS}
+      />
     </div>
   );
 }

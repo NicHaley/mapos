@@ -42,6 +42,26 @@ body {
   }
 }
 
+/* Tool belts (tool-belt.tsx). The track holds two identical copies, so a -50%
+   translate is exactly one copy wide and the loop is seamless. */
+@keyframes belt-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes belt-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 /* Centered pins (no stacked label), so unlike pin-drop the translate stays at
    -50%/-50% and only the scale animates. */
 @keyframes pin-pop {

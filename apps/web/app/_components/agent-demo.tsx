@@ -156,7 +156,7 @@ export function AgentDemo() {
 
   return (
     <div className="relative w-full" ref={containerRef} style={{ containerType: "inline-size" }}>
-      <div className="relative overflow-hidden rounded-xl border border-neutral-800 shadow-2xl shadow-black/50">
+      <div className="relative overflow-hidden rounded-xs border border-neutral-800 shadow-2xl shadow-black/50">
         <Image
           alt="The MapOS app showing a map of New York while an agent saves new places to the vault"
           className="block h-auto w-full"
@@ -272,7 +272,7 @@ export function AgentDemo() {
 
       {/* The MCP client. Overlaid on the map on larger screens, stacked
           below the window on mobile so the text stays readable. */}
-      <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur sm:absolute sm:top-[6%] sm:left-[21%] sm:mt-0 sm:w-[36%] sm:max-w-[430px]">
+      <div className="mt-3 overflow-hidden rounded-xs border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur sm:absolute sm:top-[6%] sm:left-[21%] sm:mt-0 sm:w-[36%] sm:max-w-[430px]">
         <div className="flex items-center gap-1.5 border-b border-neutral-800/80 px-3 py-2">
           <span className="size-2 rounded-full bg-neutral-700" />
           <span className="size-2 rounded-full bg-neutral-700" />

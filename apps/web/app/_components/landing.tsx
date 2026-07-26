@@ -8,7 +8,6 @@ import {
 } from "@mapos/ui/components/accordion";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { LuFileText, LuSparkles, LuWifiOff } from "react-icons/lu";
 import { SiApple } from "react-icons/si";
 import { AgentDemo } from "./agent-demo";
 import { AsciiStarfield } from "./ascii-starfield";
@@ -16,7 +15,9 @@ import { AsciiSun } from "./ascii-sun";
 import { InteractiveGrid } from "./interactive-grid";
 import { MapOSLogo } from "./mapos-logo";
 import { MeetupDemo } from "./meetup-demo";
+import { PixelFileText, PixelPlay, PixelServer, PixelSignalOff } from "./pixel-icons";
 import { SkillsSection } from "./skills-section";
+import { ToolBelt } from "./tool-belt";
 
 const FAQ_ITEMS = [
   {
@@ -61,18 +62,18 @@ const FAQ_ITEMS = [
 
 const FEATURES = [
   {
-    icon: LuFileText,
-    title: "Places as Markdown",
+    icon: PixelFileText,
+    title: "places as markdown",
     body: "Every place is a Markdown file with its location in the frontmatter. Edit it in MapOS, in Obsidian, or in any text editor."
   },
   {
-    icon: LuSparkles,
-    title: "An MCP server for your map",
+    icon: PixelServer,
+    title: "an MCP server for your map",
     body: "Connect any MCP client, like Claude Code. Ask it to find places, draw routes, build overlays, and annotate your vault."
   },
   {
-    icon: LuWifiOff,
-    title: "Maps that work offline",
+    icon: PixelSignalOff,
+    title: "maps that work offline",
     body: "Download region packs for search, routing, and map tiles with no connection. Switch to cloud services whenever you want."
   }
 ];
@@ -188,7 +189,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
               </div>
               <div className="flex flex-wrap flex-col items-center justify-center gap-3.5">
                 <a
-                  className="my-2 inline-flex items-center gap-2 rounded bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"
+                  className="my-2 inline-flex items-center gap-2 rounded-xs bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"
                   href="/download"
                 >
                   <SiApple size={14} aria-hidden="true" />
@@ -212,7 +213,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           <div className="mx-auto flex w-full max-w-[960px] flex-col gap-14">
             <div className="flex flex-col items-center gap-3.5 text-center">
               <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-                Your places are just files
+                your places are just files
               </h2>
               <p className="m-0 max-w-[560px] text-lg text-neutral-400">
                 Every place in MapOS is a plain Markdown file with its location in the frontmatter.
@@ -221,72 +222,76 @@ export function Landing({ version, sizeLabel }: LandingProps) {
               </p>
             </div>
 
-            <div className="grid items-stretch gap-4 md:grid-cols-2">
-              <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
-                <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-3">
-                  <span className="size-3 rounded-full bg-neutral-700" />
-                  <span className="size-3 rounded-full bg-neutral-700" />
-                  <span className="size-3 rounded-full bg-neutral-700" />
-                  <span className="ml-2 font-[family-name:var(--font-server-mono)] text-xs text-neutral-500">
-                    Blue Bottle Coffee.md
-                  </span>
+            {/* Both card rows are one block: tight between them, and the
+                section's gap-14 still separates them from the heading. */}
+            <div className="flex flex-col gap-4">
+              <div className="grid items-stretch gap-4 md:grid-cols-2">
+                <div className="overflow-hidden rounded-xs border border-neutral-800 bg-neutral-900/50">
+                  <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-3">
+                    <span className="size-3 rounded-full bg-neutral-700" />
+                    <span className="size-3 rounded-full bg-neutral-700" />
+                    <span className="size-3 rounded-full bg-neutral-700" />
+                    <span className="ml-2 font-[family-name:var(--font-server-mono)] text-xs text-neutral-500">
+                      Blue Bottle Coffee.md
+                    </span>
+                  </div>
+                  <pre className="overflow-x-auto p-5 font-[family-name:var(--font-server-mono)] text-[13px] leading-relaxed">
+                    <code>
+                      <span className="text-neutral-600">---</span>
+                      {"\n"}
+                      <span className="text-neutral-500">geometry:</span>{" "}
+                      <span className="text-neutral-200">&quot;POINT(-122.423 37.765)&quot;</span>
+                      {"\n"}
+                      <span className="text-neutral-500">color:</span>{" "}
+                      <span className="text-[#7A97FF]">&quot;#2B5BFF&quot;</span>
+                      {"\n"}
+                      <span className="text-neutral-500">tags:</span>{" "}
+                      <span className="text-neutral-200">[coffee, favorites]</span>
+                      {"\n"}
+                      <span className="text-neutral-600">---</span>
+                      {"\n\n"}
+                      <span className="text-neutral-400">Great cortado. Sit by the window.</span>
+                    </code>
+                  </pre>
                 </div>
-                <pre className="overflow-x-auto p-5 font-[family-name:var(--font-server-mono)] text-[13px] leading-relaxed">
-                  <code>
-                    <span className="text-neutral-600">---</span>
-                    {"\n"}
-                    <span className="text-neutral-500">geometry:</span>{" "}
-                    <span className="text-neutral-200">&quot;POINT(-122.423 37.765)&quot;</span>
-                    {"\n"}
-                    <span className="text-neutral-500">color:</span>{" "}
-                    <span className="text-[#7A97FF]">&quot;#2B5BFF&quot;</span>
-                    {"\n"}
-                    <span className="text-neutral-500">tags:</span>{" "}
-                    <span className="text-neutral-200">[coffee, favorites]</span>
-                    {"\n"}
-                    <span className="text-neutral-600">---</span>
-                    {"\n\n"}
-                    <span className="text-neutral-400">Great cortado. Sit by the window.</span>
-                  </code>
-                </pre>
+
+                <InteractiveGrid>
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-200 backdrop-blur">
+                        Blue Bottle Coffee
+                      </span>
+                      <svg
+                        aria-hidden="true"
+                        fill="#2B5BFF"
+                        height="30"
+                        viewBox="0 0 24 24"
+                        width="30"
+                      >
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
+                      </svg>
+                    </div>
+                  </div>
+                </InteractiveGrid>
               </div>
 
-              <InteractiveGrid>
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <span className="rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-200 backdrop-blur">
-                      Blue Bottle Coffee
-                    </span>
-                    <svg
-                      aria-hidden="true"
-                      fill="#2B5BFF"
-                      height="30"
-                      viewBox="0 0 24 24"
-                      width="30"
+              <div className="grid gap-4 sm:grid-cols-3">
+                {FEATURES.map((feature) => {
+                  const Icon = feature.icon;
+                  return (
+                    <div
+                      className="flex flex-col gap-3 rounded-xs border border-neutral-800 bg-neutral-900/30 p-6"
+                      key={feature.title}
                     >
-                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
-                    </svg>
-                  </div>
-                </div>
-              </InteractiveGrid>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {FEATURES.map((feature) => {
-                const Icon = feature.icon;
-                return (
-                  <div
-                    className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/30 p-6"
-                    key={feature.title}
-                  >
-                    <div className="flex size-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-[#7A97FF]">
-                      <Icon aria-hidden="true" size={18} />
+                      <div className="flex size-10 items-center justify-center rounded-xs border border-neutral-800 bg-neutral-950 text-neutral-400">
+                        <Icon aria-hidden="true" size={18} />
+                      </div>
+                      <h3 className="m-0 text-base font-medium text-neutral-50">{feature.title}</h3>
+                      <p className="m-0 text-sm leading-relaxed text-neutral-400">{feature.body}</p>
                     </div>
-                    <h3 className="m-0 text-base font-medium text-neutral-50">{feature.title}</h3>
-                    <p className="m-0 text-sm leading-relaxed text-neutral-400">{feature.body}</p>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </section>
@@ -295,39 +300,36 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           <div className="mx-auto flex w-full max-w-[960px] flex-col gap-12">
             <div className="flex flex-col items-center gap-3.5 text-center">
               <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-                It composes tools you'd have to chain by hand
+                it composes tools you'd have to chain by hand
               </h2>
               <p className="m-0 max-w-[600px] text-lg text-neutral-400">
-                Two walk-time areas, the overlap, a search inside it, results on the map. Four tools,
-                one sentence.
+                Two walk-time areas, the overlap, a search inside it, results on the map. Four
+                tools, one sentence.
               </p>
             </div>
             <MeetupDemo />
           </div>
         </section>
 
+        {/* Outside the section's padding so the belts run edge to edge and the
+            demo's four tools land against the whole surface. */}
+        <div className="bg-neutral-950 pt-14">
+          <ToolBelt />
+        </div>
+
         <SkillsSection />
 
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20 pb-24">
           <div className="mx-auto flex w-full max-w-[960px] flex-col items-center gap-7">
             <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              See it in action
+              see it in action
             </h2>
             {/* Placeholder for the recorded walkthrough (next-video asset once
                 it exists — drop the MP4 in apps/web/videos and sync). */}
-            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
+            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xs border border-neutral-800 bg-neutral-900/50">
               <div className="flex flex-col items-center gap-3.5">
-                <div className="flex size-14 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/60">
-                  <svg
-                    aria-hidden="true"
-                    className="ml-0.5 text-neutral-300"
-                    fill="currentColor"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    width="16"
-                  >
-                    <path d="M4 2.5v11l9-5.5z" />
-                  </svg>
+                <div className="flex size-14 items-center justify-center rounded-xs border border-neutral-700 bg-neutral-950/60">
+                  <PixelPlay aria-hidden="true" className="text-neutral-300" size={22} />
                 </div>
                 <span className="font-[family-name:var(--font-server-mono)] text-xs tracking-[0.01em] text-neutral-500">
                   Demo video coming soon
@@ -340,7 +342,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pb-24">
           <div className="mx-auto flex w-full max-w-[640px] flex-col gap-7">
             <h2 className="m-0 text-center font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              Frequently asked questions
+              frequently asked questions
             </h2>
             <Accordion className="border-y border-neutral-800" multiple={false}>
               {FAQ_ITEMS.map((item) => (
@@ -362,13 +364,13 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         </section>
 
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pb-28">
-          <div className="mx-auto flex max-w-[640px] flex-col items-center gap-4 rounded-2xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950 px-8 py-14 text-center">
+          <div className="mx-auto flex max-w-[640px] flex-col items-center gap-4 rounded-xs border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950 px-8 py-14 text-center">
             <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
-              Free. No account required.
+              free. no account required.
             </h2>
             <div className="flex flex-col items-center gap-5">
               <a
-                className="inline-flex items-center gap-2 rounded bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"
+                className="inline-flex items-center gap-2 rounded-xs bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"
                 href="/download"
               >
                 <SiApple size={14} aria-hidden="true" />

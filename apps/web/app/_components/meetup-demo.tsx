@@ -254,7 +254,7 @@ export function MeetupDemo() {
 
   return (
     <div className="relative w-full" ref={containerRef} style={{ containerType: "inline-size" }}>
-      <div className="relative overflow-hidden rounded-xl border border-neutral-800 shadow-2xl shadow-black/50">
+      <div className="relative overflow-hidden rounded-xs border border-neutral-800 shadow-2xl shadow-black/50">
         <Image
           alt="The MapOS app showing the walkable overlap between two starting points in Montréal, with brunch spots found inside it"
           className="block h-auto w-full"
@@ -445,7 +445,7 @@ export function MeetupDemo() {
       {/* The MCP client. Overlaid on the empty north-east of the map once the
           window is wide enough that the transcript stays a fraction of it;
           below that it stacks under the window rather than burying the map. */}
-      <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur lg:absolute lg:top-[4%] lg:right-[2.5%] lg:mt-0 lg:w-[52%] lg:max-w-[500px]">
+      <div className="mt-3 overflow-hidden rounded-xs border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur lg:absolute lg:top-[4%] lg:right-[2.5%] lg:mt-0 lg:w-[52%] lg:max-w-[500px]">
         <div className="flex items-center gap-1.5 border-b border-neutral-800/80 px-3 py-2">
           <span className="size-2 rounded-full bg-neutral-700" />
           <span className="size-2 rounded-full bg-neutral-700" />

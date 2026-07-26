@@ -39,7 +39,7 @@ export function InteractiveGrid({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="group relative min-h-[220px] overflow-hidden rounded-xl border border-neutral-800"
+      className="group relative min-h-[220px] overflow-hidden rounded-xs border border-neutral-800"
       onMouseMove={handleMove}
       ref={ref}
       style={{

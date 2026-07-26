@@ -9,6 +9,7 @@ import dockGhostty from "./dock-ghostty.png";
 import dockObsidian from "./dock-obsidian.png";
 import maposDockIcon from "./mapos-dock-icon.png";
 import windowShot from "./mapos-window-plateau.png";
+import { McpTranscript, type TermLine } from "./mcp-transcript";
 
 // Second scripted MCP session, composing four tools: two walk isochrones, their
 // intersection, a search inside it, results on the map. Same technique as
@@ -153,8 +154,6 @@ const PANEL_ROW_H = "2.99cqw";
 const PANEL_TEXT_W = "15.2cqw";
 const PANEL_HEADER_TOP = 6.67;
 
-type TermLine = { kind: "tool" | "result" | "done"; text: string };
-
 type Step = {
   /** ms after the previous step before this one fires. */
   delay: number;
@@ -192,6 +191,7 @@ const STEPS: Step[] = [
   }
 ];
 
+const LINES = STEPS.map((s) => s.line);
 const TYPE_MS = 26;
 const HOLD_MS = 5200;
 
@@ -445,47 +445,14 @@ export function MeetupDemo() {
       {/* The MCP client. Overlaid on the empty north-east of the map once the
           window is wide enough that the transcript stays a fraction of it;
           below that it stacks under the window rather than burying the map. */}
-      <div className="mt-3 overflow-hidden rounded-xs border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur lg:absolute lg:top-[4%] lg:right-[2.5%] lg:mt-0 lg:w-[52%] lg:max-w-[500px]">
-        <div className="flex items-center gap-1.5 border-b border-neutral-800/80 px-3 py-2">
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="ml-1.5 font-[family-name:var(--font-server-mono)] text-[10px] text-neutral-500 uppercase tracking-[0.04em]">
-            claude code · mapos
-          </span>
-        </div>
-        <div className="flex flex-col gap-1 px-3.5 py-3 font-[family-name:var(--font-server-mono)] text-[11.5px] leading-relaxed">
-          <div className="text-neutral-50">
-            <span className="text-neutral-500">&gt; </span>
-            {PROMPT.slice(0, shownTyped)}
-            {shownTyped < PROMPT.length ? (
-              <span className="animate-pulse text-neutral-400">▍</span>
-            ) : null}
-          </div>
-          {STEPS.slice(0, shownStep).map(({ line }) => {
-            if (line.kind === "tool") {
-              return (
-                <div className="text-neutral-300" key={line.text}>
-                  <span className="text-[#7A97FF]">● </span>
-                  {line.text}
-                </div>
-              );
-            }
-            if (line.kind === "result") {
-              return (
-                <div className="pl-4 text-neutral-500" key={line.text}>
-                  ⎿ {line.text}
-                </div>
-              );
-            }
-            return (
-              <div className="text-neutral-50" key={line.text}>
-                ✓ {line.text}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <McpTranscript
+        className="mt-3 lg:absolute lg:top-[4%] lg:right-[2.5%] lg:mt-0 lg:w-[52%] lg:max-w-[500px]"
+        floatAt="lg"
+        lines={LINES}
+        prompt={PROMPT}
+        shown={shownStep}
+        typed={shownTyped}
+      />
     </div>
   );
 }

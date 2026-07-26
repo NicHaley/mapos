@@ -9,6 +9,7 @@ import dockGhostty from "./dock-ghostty.png";
 import dockObsidian from "./dock-obsidian.png";
 import maposDockIcon from "./mapos-dock-icon.png";
 import windowShot from "./mapos-window.png";
+import { McpTranscript, type TermLine } from "./mcp-transcript";
 
 // A scripted reconstruction of an MCP session: the real app window as a
 // static capture, with the terminal, dropped pins, and sidebar files
@@ -25,11 +26,6 @@ const PLACES = [
   { name: "Mama's Too", x: 61.5, y: 24.1 },
   { name: "Roberta's", x: 69.8, y: 83.3 }
 ];
-
-type TermLine = {
-  kind: "tool" | "result" | "done";
-  text: string;
-};
 
 type Step = {
   /** ms after the previous step before this one fires. */
@@ -80,6 +76,8 @@ const STEPS: Step[] = [
   },
   { delay: 900, line: { kind: "done", text: "5 places saved to your map" } }
 ];
+
+const LINES = STEPS.map((s) => s.line);
 
 // Static rows drawn in the capture's empty sidebar so the vault doesn't
 // look brand new; the Pizza folder appears below them as the agent writes.
@@ -272,47 +270,14 @@ export function AgentDemo() {
 
       {/* The MCP client. Overlaid on the map on larger screens, stacked
           below the window on mobile so the text stays readable. */}
-      <div className="mt-3 overflow-hidden rounded-xs border border-neutral-800 bg-neutral-950/90 shadow-black/40 shadow-xl backdrop-blur sm:absolute sm:top-[6%] sm:left-[21%] sm:mt-0 sm:w-[36%] sm:max-w-[430px]">
-        <div className="flex items-center gap-1.5 border-b border-neutral-800/80 px-3 py-2">
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="size-2 rounded-full bg-neutral-700" />
-          <span className="ml-1.5 font-[family-name:var(--font-server-mono)] text-[10px] text-neutral-500 uppercase tracking-[0.04em]">
-            claude code · mapos
-          </span>
-        </div>
-        <div className="flex flex-col gap-1 px-3.5 py-3 font-[family-name:var(--font-server-mono)] text-[11.5px] leading-relaxed">
-          <div className="text-neutral-50">
-            <span className="text-neutral-500">&gt; </span>
-            {PROMPT.slice(0, shownTyped)}
-            {shownTyped < PROMPT.length ? (
-              <span className="animate-pulse text-neutral-400">▍</span>
-            ) : null}
-          </div>
-          {STEPS.slice(0, shownStep).map(({ line }) => {
-            if (line.kind === "tool") {
-              return (
-                <div className="text-neutral-300" key={line.text}>
-                  <span className="text-[#7A97FF]">● </span>
-                  {line.text}
-                </div>
-              );
-            }
-            if (line.kind === "result") {
-              return (
-                <div className="pl-4 text-neutral-500" key={line.text}>
-                  ⎿ {line.text}
-                </div>
-              );
-            }
-            return (
-              <div className="text-neutral-50" key={line.text}>
-                ✓ {line.text}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <McpTranscript
+        className="mt-3 sm:absolute sm:top-[6%] sm:left-[21%] sm:mt-0 sm:w-[36%] sm:max-w-[430px]"
+        floatAt="sm"
+        lines={LINES}
+        prompt={PROMPT}
+        shown={shownStep}
+        typed={shownTyped}
+      />
     </div>
   );
 }

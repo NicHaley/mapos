@@ -205,13 +205,15 @@
   animation: mcp-shimmer 1.3s ease-in-out infinite;
 }
 
-/* MCP "pulsing border": luminous accent arcs travel around the control cluster's contour while
-   the agent works — a CSS take on paper.design's pulsing-border shader. A conic gradient of
-   accent arcs (from an animated --mcp-angle) is masked to a thin ring; drop-shadow adds the
-   bloom. Accent is `--primary`, so it tracks the user's accent + theme. */
+/* MCP "pulsing border": a soft accent glow drifts around the control cluster's contour while the
+   agent works. Two layers share one slowly rotating conic gradient (--mcp-angle): ::before is
+   masked to a hairline ring on the cluster's edge, ::after is the same gradient blurred and bled
+   outwards for the bloom. The arcs stay inside the accent's own spectrum — the hue drifts either
+   side of `--primary` rather than cycling — so it reads as one colour breathing, and it tracks
+   the user's accent + theme. Monochrome accents (chroma 0) just get lightness variation. */
 @property --mcp-angle {
   syntax: "<angle>";
-  inherits: false;
+  inherits: true;
   initial-value: 0deg;
 }
 @keyframes mcp-border-spin {
@@ -219,24 +221,45 @@
     --mcp-angle: 360deg;
   }
 }
+@keyframes mcp-border-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
 .mcp-pulsing-border {
-  padding: 1.5px;
-  background: conic-gradient(
-    from var(--mcp-angle),
-    transparent 0deg,
-    var(--primary) 35deg,
-    transparent 95deg,
-    transparent 180deg,
-    var(--primary) 215deg,
-    transparent 275deg,
-    transparent 360deg
-  );
+  --mcp-arcs: transparent 0deg,
+    color-mix(in oklch, oklch(from var(--primary) l c calc(h - 28)) 55%, transparent) 50deg,
+    color-mix(in oklch, var(--primary) 90%, white) 120deg,
+    color-mix(in oklch, oklch(from var(--primary) l c calc(h + 28)) 55%, transparent) 190deg,
+    transparent 250deg, transparent 360deg;
+  animation: mcp-border-spin 7s linear infinite;
+}
+.mcp-pulsing-border::before,
+.mcp-pulsing-border::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  background: conic-gradient(from var(--mcp-angle), var(--mcp-arcs));
+}
+/* The contour itself: one device pixel of accent, masked to the border box. */
+.mcp-pulsing-border::before {
+  inset: 0;
+  padding: 1px;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  filter: drop-shadow(0 0 3px color-mix(in oklch, var(--primary) 55%, transparent));
-  animation: mcp-border-spin 4s linear infinite;
+  opacity: 0.75;
+}
+/* The bloom: same arcs, blurred past the cluster's edge and breathing in and out. */
+.mcp-pulsing-border::after {
+  inset: -3px;
+  filter: blur(7px);
+  animation: mcp-border-breathe 3.2s ease-in-out infinite;
 }
 
 .tiptap {

@@ -140,7 +140,8 @@ export function MapControls({
   // Grey (disconnected) / green (connected) / accent (actively working) — drives the status
   // control's dot and, while active, the cluster's accent tint + pulsing contour.
   const mcpStatus = useMcpStatus();
-  const mcpBusy = mcpStatus === "active";
+  // TEMP: pinned on to eyeball the pulsing border — revert to `mcpStatus === "active"`.
+  const mcpBusy = true;
 
   useEffect(() => {
     const map = mapRef?.getMap();

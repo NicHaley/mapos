@@ -19,7 +19,14 @@ import {
 import { Switch } from "@mapos/ui/components/switch";
 import { cn } from "@mapos/ui/lib/utils";
 import type { McpConnectionInfo } from "@shared/types";
-import { CheckIcon, ChevronRightIcon, CopyIcon, KeyRoundIcon, RefreshCwIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  KeyRoundIcon,
+  RefreshCwIcon,
+  TriangleAlertIcon
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   activityClientName,
@@ -167,6 +174,18 @@ function ConnectionStatus({
   );
 }
 
+// Enabled, but the listener never bound. Takes the place of the status indicator rather than
+// letting it read "waiting for a client to connect…", which would be a lie: nothing is listening,
+// so no snippet below this can work until the conflict is resolved.
+function ServerError({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-md border border-red-600/20 bg-red-500/10 px-3.5 py-3 text-sm">
+      <TriangleAlertIcon className="mt-px size-4 shrink-0 text-red-600 dark:text-red-400" />
+      <span className="text-red-800 dark:text-red-200">{message}</span>
+    </div>
+  );
+}
+
 /**
  * The MCP server setup surface: enable toggle, live connection status, a client picker that
  * shows one ready-to-paste snippet at a time, and the access token behind a disclosure. Shared
@@ -225,7 +244,11 @@ export function McpConnect() {
       <div className="flex w-full min-w-0 flex-col gap-7">
         {info.enabled && (
           <>
-            <ConnectionStatus lastActivity={info.lastActivity} />
+            {info.startError ? (
+              <ServerError message={info.startError} />
+            ) : (
+              <ConnectionStatus lastActivity={info.lastActivity} />
+            )}
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-0.5">

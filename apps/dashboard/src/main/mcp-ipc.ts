@@ -32,6 +32,7 @@ function connectionInfo(appStateDir: string): McpConnectionInfo {
     token: cfg.token,
     url: `http://127.0.0.1:${cfg.port}/mcp`,
     stdio: stdioLauncher(appStateDir),
+    startError: mcpManager.getStartError(),
     lastActivity: mcpManager.getLastActivity()
   };
 }
@@ -52,7 +53,9 @@ export function registerMcpIpc(appStateDir: string): void {
   ipcMain.handle("mcp:set-enabled", async (_e, enabled: boolean) => {
     setMcpEnabledInConfig(appStateDir, enabled);
     const cfg = getOrCreateMcpConfig(appStateDir);
-    if (enabled) await mcpManager.start(cfg.port, cfg.token);
+    // A failed start comes back as `startError` on the returned info rather than a rejected
+    // invoke: the panel has to render the reason, and the switch itself is already persisted.
+    if (enabled) await mcpManager.start(cfg.port, cfg.token).catch(() => {});
     else await mcpManager.stop();
     const info = connectionInfo(appStateDir);
     broadcast(info);

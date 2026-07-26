@@ -67,17 +67,37 @@ function readMcpConfig() {
   }
 }
 
-/** Any HTTP reply (401, 405, …) proves the listener is bound; only a transport error means down. */
-async function isListening(port) {
+/** What holds the MCP port. */
+const DOWN = "down";
+const MAPOS = "mapos";
+const FOREIGN = "foreign";
+
+/**
+ * Who is listening. An unauthenticated GET is rejected with MapOS's own `WWW-Authenticate`
+ * challenge before the MCP transport sees it, so requiring that header tells the app apart from
+ * whatever else may have taken the port while it was closed. Treating *any* reply as proof would
+ * hand our bearer token to a stranger.
+ */
+async function probe(port) {
   try {
-    await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: "GET",
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     });
-    return true;
+    const mapos = (res.headers.get("www-authenticate") ?? "").includes('realm="mapos"');
+    await res.body?.cancel();
+    return mapos ? MAPOS : FOREIGN;
   } catch {
-    return false;
+    return DOWN;
   }
+}
+
+/** Launching the app can't fix this: it would fail to bind the same port. */
+function foreignPortError(port) {
+  return new Error(
+    `Port ${port} is held by another process, so MapOS can't serve MCP there. Quit whatever is ` +
+      `using it, or set a different \`mcp.port\` in ${join(stateDir, "mapos.json")}.`
+  );
 }
 
 /** `/Applications/MapOS.app` from `/Applications/MapOS.app/Contents/MacOS/MapOS`, or null. */
@@ -193,8 +213,9 @@ async function pumpSse(res) {
 }
 
 /**
- * Tool count, or null when it can't be determined. Used only after we launched the app: the
- * listener binds before a vault boots, so an early `tools/list` would otherwise answer "none".
+ * Tool count, or null when it can't be determined (leave those to the real request rather than
+ * guessing at one). Zero is a real state, not just a startup race: an app with no vault open
+ * registers no tools at all.
  */
 async function toolCount(cfg) {
   try {
@@ -215,11 +236,16 @@ let launched = false;
 
 async function bringUp() {
   const existing = readMcpConfig();
-  if (existing && (await isListening(existing.port))) return existing;
-  if (existing && !existing.enabled) {
-    throw new Error(
-      "MapOS's MCP server is turned off. Enable it in MapOS › Settings › Connections."
-    );
+  if (existing) {
+    const owner = await probe(existing.port);
+    if (owner === MAPOS) return existing;
+    if (owner === FOREIGN) throw foreignPortError(existing.port);
+    // Nothing listening. With the server switched off that's expected, and launching won't help.
+    if (!existing.enabled) {
+      throw new Error(
+        "MapOS's MCP server is turned off. Enable it in MapOS › Settings › Connections."
+      );
+    }
   }
   if (process.env.MAPOS_MCP_NO_LAUNCH === "1") {
     throw new Error("MapOS isn't running, and autostart is disabled (MAPOS_MCP_NO_LAUNCH=1).");
@@ -232,10 +258,14 @@ async function bringUp() {
     await sleep(POLL_INTERVAL_MS);
     // Re-read each pass: on a first-ever run the app mints `mcp` in mapos.json as it boots.
     const cfg = readMcpConfig();
-    if (cfg?.enabled && (await isListening(cfg.port))) {
-      launched = true;
-      note("MapOS is up");
-      return cfg;
+    if (cfg) {
+      const owner = await probe(cfg.port);
+      if (owner === MAPOS) {
+        launched = true;
+        note("MapOS is up");
+        return cfg;
+      }
+      if (owner === FOREIGN) throw foreignPortError(cfg.port);
     }
     if (Date.now() > deadline) {
       throw new Error(
@@ -259,19 +289,75 @@ function ensureUp() {
 }
 
 /**
- * Hold `tools/list` until the vault has registered its tools, but only after a launch we did —
- * on the happy path (app already running) this never waits, and `initialize` is never delayed by
- * it, which keeps the client's startup handshake inside its own timeout.
+ * Discard a bring-up that has gone stale (the app quit, or its token was rotated) so the next
+ * `ensureUp` re-reads config and relaunches if it has to. Identity-checked: concurrent messages
+ * all fail against the same attempt, and the second one through must not throw away the newer
+ * attempt the first one has already started.
  */
-async function awaitToolsIfJustLaunched(cfg) {
-  if (!launched) return;
-  const deadline = Date.now() + TOOLS_TIMEOUT_MS;
+function invalidate(stale) {
+  if (coming === stale) coming = null;
+}
+
+/**
+ * Gate `tools/list` on the vault having registered its tools. Two states look alike over HTTP and
+ * have to be separated: straight after a launch the listener is up while the vault is still
+ * booting, which is worth waiting out; an app with no vault open (onboarding unfinished, or the
+ * vault torn down) will never register any, and forwarding that empty list leaves the client
+ * believing for the rest of the session that MapOS has no tools. Wait only for the first, and say
+ * why rather than answering empty. `initialize` is never gated, so the client's opening handshake
+ * stays inside its own timeout.
+ */
+async function requireTools(cfg) {
+  // Only a launch we performed earns the wait; an already-running app is answering for itself.
+  const deadline = launched ? Date.now() + TOOLS_TIMEOUT_MS : 0;
+  launched = false;
   for (;;) {
     const count = await toolCount(cfg);
-    if (count === null || count > 0 || Date.now() > deadline) break;
+    if (count === null || count > 0) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        "MapOS is running but has no vault open, so it has no tools to offer. Open MapOS, finish " +
+          "setting up your vault, then reconnect."
+      );
+    }
     await sleep(POLL_INTERVAL_MS);
   }
-  launched = false;
+}
+
+/**
+ * Send one message, retrying once when the failure is one a retry can actually fix: a transport
+ * error (MapOS quit since our last message) or a 401 (the token was rotated in Settings). Both
+ * invalidate the memoized bring-up, so the retry re-reads port + token from disk and relaunches
+ * the app if it's gone. Nothing has reached stdout yet at that point, so the client sees only the
+ * outcome. Everything else is returned as-is for the caller to relay.
+ */
+async function send(line, isToolsList) {
+  for (let attempt = 0; ; attempt += 1) {
+    const last = attempt === 1;
+    const up = ensureUp();
+    const cfg = await up;
+    if (isToolsList) await requireTools(cfg);
+    let res;
+    try {
+      // No timeout: tool calls legitimately run long (region-pack downloads, index rebuilds).
+      res = await post(cfg, line);
+    } catch (err) {
+      invalidate(up);
+      if (last) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`MapOS stopped answering on port ${cfg.port} (${reason}).`);
+      }
+      note("MapOS stopped answering — reconnecting");
+      continue;
+    }
+    if (res.status === 401 && !last) {
+      await res.body?.cancel();
+      invalidate(up);
+      note("token was rejected — re-reading it from disk");
+      continue;
+    }
+    return res;
+  }
 }
 
 async function forward(line) {
@@ -286,10 +372,7 @@ async function forward(line) {
   // the batch out) rather than fabricating a response to the wrong request.
   const id = Array.isArray(msg) ? null : (msg?.id ?? null);
   try {
-    const cfg = await ensureUp();
-    if (!Array.isArray(msg) && msg?.method === "tools/list") await awaitToolsIfJustLaunched(cfg);
-    // No timeout: tool calls legitimately run long (region-pack downloads, index rebuilds).
-    const res = await post(cfg, line);
+    const res = await send(line, !Array.isArray(msg) && msg?.method === "tools/list");
     if (res.status === 202 || res.status === 204) {
       await res.body?.cancel();
       return;

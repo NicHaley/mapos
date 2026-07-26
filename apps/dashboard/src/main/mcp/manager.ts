@@ -22,6 +22,19 @@ const MCP_PATH = "/mcp";
 const SERVER_NAME = "mapos";
 const SERVER_VERSION = "0.1.0";
 
+/** A reason worth showing in Settings, since a raw errno tells the user nothing actionable. */
+function describeListenError(err: unknown, port: number): string {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === "EADDRINUSE") {
+    return `Port ${port} is already in use, so the MCP server couldn't start. Another copy of MapOS may already be running.`;
+  }
+  if (code === "EACCES") {
+    return `Port ${port} couldn't be opened (permission denied). Set a different \`mcp.port\` in mapos.json.`;
+  }
+  const reason = err instanceof Error ? err.message : String(err);
+  return `The MCP server couldn't start on port ${port}: ${reason}`;
+}
+
 type ActiveVault = {
   vaultRoot: string;
   places: Map<string, PlaceRecord>;
@@ -62,8 +75,18 @@ export class McpManager {
   private readonly geocodeStore = new Map<string, GeocodeResult>();
   private readonly geometryStore = new Map<string, StashedGeometry>();
 
+  // Why the last start attempt failed, or null. Without this the renderer can't tell a server
+  // that's merely idle from one that never bound its port — the failure would otherwise surface
+  // only in the main-process console, leaving Settings showing a healthy-looking switch.
+  private startError: string | null = null;
+
   isRunning(): boolean {
     return this.http !== null;
+  }
+
+  /** Why the listener isn't up, when starting it failed. Null when it started or was never asked. */
+  getStartError(): string | null {
+    return this.startError;
   }
 
   /** The most recent authorized request (live or seeded from config), or null if none. */
@@ -84,14 +107,20 @@ export class McpManager {
     const http = createServer((req, res) => {
       void this.handle(req, res);
     });
-    await new Promise<void>((resolve, reject) => {
-      const onError = (err: Error): void => reject(err);
-      http.once("error", onError);
-      http.listen(port, "127.0.0.1", () => {
-        http.off("error", onError);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: Error): void => reject(err);
+        http.once("error", onError);
+        http.listen(port, "127.0.0.1", () => {
+          http.off("error", onError);
+          resolve();
+        });
       });
-    });
+    } catch (err) {
+      this.startError = describeListenError(err, port);
+      throw err;
+    }
+    this.startError = null;
     this.http = http;
   }
 
@@ -99,6 +128,8 @@ export class McpManager {
   async stop(): Promise<void> {
     const http = this.http;
     this.http = null;
+    // Switching the server off resolves any earlier start failure — it's no longer why it's down.
+    this.startError = null;
     // `lastActivity` survives stop/start on purpose: it's a historical fact ("last active 2h
     // ago"), not a live-connection claim, so disabling the server doesn't invalidate it.
     if (!http) return;

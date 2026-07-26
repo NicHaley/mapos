@@ -238,6 +238,11 @@ export type McpConnectionInfo = {
    * MapOS doesn't — it starts the app on demand, where a bare HTTP URL just gets refused.
    */
   stdio: { command: string; args: string[]; env: Record<string, string> };
+  /**
+   * Why the listener isn't up despite being enabled (a taken port, most likely), or null. Distinct
+   * from `running: false`, which on its own can't say whether that's intentional.
+   */
+  startError: string | null;
   /** Most recent authorized request seen (survives restarts), or null if none since setup. */
   lastActivity: McpActivity | null;
 };

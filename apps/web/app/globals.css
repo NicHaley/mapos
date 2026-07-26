@@ -32,26 +32,7 @@ body {
   }
 }
 
-/* Route demo overlays (route-demo.tsx). The corridor inflates from the route
-   line's own width, so the 2 km buffer reads as growing out of the route. */
-@keyframes route-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes corridor-in {
-  from {
-    stroke-width: 6;
-  }
-  to {
-    stroke-width: 40;
-  }
-}
-
+/* Meetup demo overlays (meetup-demo.tsx). */
 @keyframes pin-fade {
   from {
     opacity: 0;

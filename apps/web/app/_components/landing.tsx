@@ -15,7 +15,7 @@ import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
 import { InteractiveGrid } from "./interactive-grid";
 import { MapOSLogo } from "./mapos-logo";
-import { RouteDemo } from "./route-demo";
+import { MeetupDemo } from "./meetup-demo";
 import { SkillsSection } from "./skills-section";
 
 const FAQ_ITEMS = [
@@ -298,10 +298,11 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                 It composes tools you'd have to chain by hand
               </h2>
               <p className="m-0 max-w-[600px] text-lg text-neutral-400">
-                Route, buffer, search inside the buffer, save the results. Four tools, one sentence.
+                Two walk-time areas, the overlap, a search inside it, results on the map. Four tools,
+                one sentence.
               </p>
             </div>
-            <RouteDemo />
+            <MeetupDemo />
           </div>
         </section>
 

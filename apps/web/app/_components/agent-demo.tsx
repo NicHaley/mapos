@@ -23,7 +23,7 @@ const PLACES = [
   { name: "Una Pizza Napoletana", x: 56, y: 76.5 },
   { name: "L'Industrie", x: 62.4, y: 79.5 },
   { name: "Mama's Too", x: 61.5, y: 24.1 },
-  { name: "Roberta's", x: 69.8, y: 83.3 },
+  { name: "Roberta's", x: 69.8, y: 83.3 }
 ];
 
 type TermLine = {
@@ -42,43 +42,43 @@ type Step = {
 const STEPS: Step[] = [
   {
     delay: 700,
-    line: { kind: "tool", text: 'web_search "best pizza nyc"' },
+    line: { kind: "tool", text: 'web_search "best pizza nyc"' }
   },
   { delay: 1300, line: { kind: "result", text: "Una Pizza Napoletana ranked #1" } },
   {
     delay: 800,
-    line: { kind: "tool", text: 'geocode_search "pizza, new york"' },
+    line: { kind: "tool", text: 'geocode_search "pizza, new york"' }
   },
   { delay: 1000, line: { kind: "result", text: "28 results" } },
   {
     delay: 900,
     line: { kind: "tool", text: 'write_vault_file "Pizza/Joe\'s Pizza.md"' },
-    pin: 0,
+    pin: 0
   },
   {
     delay: 750,
     line: {
       kind: "tool",
-      text: 'write_vault_file "Pizza/Una Pizza Napoletana.md"',
+      text: 'write_vault_file "Pizza/Una Pizza Napoletana.md"'
     },
-    pin: 1,
+    pin: 1
   },
   {
     delay: 750,
     line: { kind: "tool", text: 'write_vault_file "Pizza/L\'Industrie.md"' },
-    pin: 2,
+    pin: 2
   },
   {
     delay: 750,
     line: { kind: "tool", text: 'write_vault_file "Pizza/Mama\'s Too.md"' },
-    pin: 3,
+    pin: 3
   },
   {
     delay: 750,
     line: { kind: "tool", text: 'write_vault_file "Pizza/Roberta\'s.md"' },
-    pin: 4,
+    pin: 4
   },
-  { delay: 900, line: { kind: "done", text: "5 places saved to your map" } },
+  { delay: 900, line: { kind: "done", text: "5 places saved to your map" } }
 ];
 
 // Static rows drawn in the capture's empty sidebar so the vault doesn't
@@ -90,7 +90,7 @@ const DOCK_APPS = [
   { name: "Ghostty", icon: dockGhostty, running: true },
   { name: "MapOS", icon: maposDockIcon, running: true },
   { name: "Claude", icon: dockClaude, running: false },
-  { name: "Obsidian", icon: dockObsidian, running: false },
+  { name: "Obsidian", icon: dockObsidian, running: false }
 ];
 
 const TYPE_MS = 30;
@@ -114,7 +114,7 @@ export function AgentDemo() {
   const reduced = useSyncExternalStore(
     subscribeReducedMotion,
     () => window.matchMedia(REDUCED_MOTION_QUERY).matches,
-    () => false,
+    () => false
   );
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export function AgentDemo() {
       ([entry]) => {
         if (entry?.isIntersecting) setStarted(true);
       },
-      { threshold: 0.35 },
+      { threshold: 0.35 }
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -152,16 +152,10 @@ export function AgentDemo() {
 
   const shownTyped = reduced ? PROMPT.length : typed;
   const shownStep = reduced ? STEPS.length : step;
-  const shownPins = STEPS.slice(0, shownStep).flatMap((s) =>
-    s.pin === undefined ? [] : [s.pin],
-  );
+  const shownPins = STEPS.slice(0, shownStep).flatMap((s) => (s.pin === undefined ? [] : [s.pin]));
 
   return (
-    <div
-      className="relative w-full"
-      ref={containerRef}
-      style={{ containerType: "inline-size" }}
-    >
+    <div className="relative w-full" ref={containerRef} style={{ containerType: "inline-size" }}>
       <div className="relative overflow-hidden rounded-xl border border-neutral-800 shadow-2xl shadow-black/50">
         <Image
           alt="The MapOS app showing a map of New York while an agent saves new places to the vault"
@@ -214,26 +208,26 @@ export function AgentDemo() {
             </div>
           ) : null}
           {shownPins.map((i) => {
-              const place = PLACES[i];
-              if (!place) return null;
-              return (
-                <div
-                  className="flex items-center animate-[file-in_0.3s_ease-out]"
-                  key={place.name}
-                  style={{
-                    gap: "0.55cqw",
-                    height: "2.1cqw",
-                    paddingLeft: "1.45cqw",
-                  }}
-                >
-                  <LuFile
-                    aria-hidden="true"
-                    className="text-neutral-400"
-                    style={{ width: "0.95cqw", height: "0.95cqw" }}
-                  />
-                  {place.name}
-                </div>
-              );
+            const place = PLACES[i];
+            if (!place) return null;
+            return (
+              <div
+                className="flex items-center animate-[file-in_0.3s_ease-out]"
+                key={place.name}
+                style={{
+                  gap: "0.55cqw",
+                  height: "2.1cqw",
+                  paddingLeft: "1.45cqw"
+                }}
+              >
+                <LuFile
+                  aria-hidden="true"
+                  className="text-neutral-400"
+                  style={{ width: "0.95cqw", height: "0.95cqw" }}
+                />
+                {place.name}
+              </div>
+            );
           })}
         </div>
 
@@ -250,7 +244,7 @@ export function AgentDemo() {
                 top: `${place.y}%`,
                 // The dot (18px) is the anchor: its centre sits on the
                 // coordinate, with the label stacked above.
-                transform: "translate(-50%, calc(-100% + 9px))",
+                transform: "translate(-50%, calc(-100% + 9px))"
               }}
             >
               <span className="hidden rounded-md bg-neutral-950/80 px-2 py-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-200 backdrop-blur sm:block">

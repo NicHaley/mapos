@@ -4,7 +4,7 @@ import {
   Accordion,
   AccordionContent,
   AccordionItem,
-  AccordionTrigger,
+  AccordionTrigger
 } from "@mapos/ui/components/accordion";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -13,68 +13,68 @@ import { SiApple } from "react-icons/si";
 import { AgentDemo } from "./agent-demo";
 import { AsciiStarfield } from "./ascii-starfield";
 import { AsciiSun } from "./ascii-sun";
-import { DemoCarousel } from "./demo-carousel";
 import { InteractiveGrid } from "./interactive-grid";
 import { MapOSLogo } from "./mapos-logo";
+import { RouteDemo } from "./route-demo";
+import { SkillsSection } from "./skills-section";
 
 const FAQ_ITEMS = [
   {
     question: "What is MapOS?",
     answer:
-      "MapOS is a local-first map client for your Mac. Your saved places are plain Markdown files with location data in their frontmatter, and the map is the interface to them.",
+      "MapOS is a local-first map client for your Mac. Your saved places are plain Markdown files with location data in their frontmatter, and the map is the interface to them."
   },
   {
     question: "How much does it cost?",
-    answer:
-      "MapOS is free. Download it and use it with no account, subscription, or usage limits.",
+    answer: "MapOS is free. Download it and use it with no account, subscription, or usage limits."
   },
   {
     question: "Where is my data stored?",
     answer:
-      "Everything lives in a folder on your Mac. The files are the source of truth: no accounts, no sync servers, and you can read or edit them with any text editor.",
+      "Everything lives in a folder on your Mac. The files are the source of truth: no accounts, no sync servers, and you can read or edit them with any text editor."
   },
   {
     question: "Does MapOS collect any data?",
     answer:
-      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode.",
+      "No. There's no telemetry, analytics, or crash reporting, and no account to sign in to. The app only touches the network to check for updates, download region packs, and reach services you choose — like cloud mode."
   },
   {
     question: "How does AI work in MapOS?",
     answer:
-      "MapOS hosts a local MCP server, so you connect the AI app you already use — Claude Desktop, Claude Code, or any MCP-capable client — and it can search your places, draw routes, and edit your vault. The connection stays on your machine, and AI requests are handled by your client and its provider, never by a MapOS server.",
+      "MapOS hosts a local MCP server, so you connect the AI app you already use — Claude Desktop, Claude Code, or any MCP-capable client — and it can search your places, draw routes, and edit your vault. The connection stays on your machine, and AI requests are handled by your client and its provider, never by a MapOS server."
   },
   {
     question: "Can I use it with Obsidian?",
     answer:
-      "Yes. A MapOS vault is also a valid Obsidian vault, so you can open the same folder in both apps and your notes stay compatible.",
+      "Yes. A MapOS vault is also a valid Obsidian vault, so you can open the same folder in both apps and your notes stay compatible."
   },
   {
     question: "Does it work offline?",
     answer:
-      "Yes. Download region packs to get maps, search, and routing that run entirely on your machine, or switch to cloud services when you prefer.",
+      "Yes. Download region packs to get maps, search, and routing that run entirely on your machine, or switch to cloud services when you prefer."
   },
   {
     question: "What platforms are supported?",
-    answer: "MapOS is currently available for Apple Silicon Macs.",
-  },
+    answer: "MapOS is currently available for Apple Silicon Macs."
+  }
 ];
 
 const FEATURES = [
   {
     icon: LuFileText,
     title: "Places as Markdown",
-    body: "Every place is a Markdown file with its location in the frontmatter. Edit it in MapOS, in Obsidian, or in any text editor.",
+    body: "Every place is a Markdown file with its location in the frontmatter. Edit it in MapOS, in Obsidian, or in any text editor."
   },
   {
     icon: LuSparkles,
     title: "An MCP server for your map",
-    body: "Connect any MCP client, like Claude Code. Ask it to find places, draw routes, build overlays, and annotate your vault.",
+    body: "Connect any MCP client, like Claude Code. Ask it to find places, draw routes, build overlays, and annotate your vault."
   },
   {
     icon: LuWifiOff,
     title: "Maps that work offline",
-    body: "Download region packs for search, routing, and map tiles with no connection. Switch to cloud services whenever you want.",
-  },
+    body: "Download region packs for search, routing, and map tiles with no connection. Switch to cloud services whenever you want."
+  }
 ];
 
 type LandingProps = {
@@ -107,7 +107,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
     const update = () =>
       setScroll({
         y: window.scrollY,
-        viewportH: Math.max(1, window.innerHeight),
+        viewportH: Math.max(1, window.innerHeight)
       });
     update();
     window.addEventListener("scroll", update, { passive: true });
@@ -131,9 +131,9 @@ export function Landing({ version, sizeLabel }: LandingProps) {
       // desktop land in the same place visually.
       rimFraction: 0.3,
       sunOffsetY: progress * SUN_PARALLAX,
-      planetOffsetY: progress * EARTH_PARALLAX,
+      planetOffsetY: progress * EARTH_PARALLAX
     }),
-    [progress],
+    [progress]
   );
 
   return (
@@ -157,7 +157,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         aria-hidden="true"
         style={{
           background:
-            "linear-gradient(to bottom, transparent 0%, transparent 38%, #0a0a0a 68%, #0a0a0a 100%)",
+            "linear-gradient(to bottom, transparent 0%, transparent 38%, #0a0a0a 68%, #0a0a0a 100%)"
         }}
       />
       <div className="relative z-[3]">
@@ -202,10 +202,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           </main>
         </div>
 
-        <section
-          className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-16"
-          id="demo"
-        >
+        <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-16" id="demo">
           <div className="mx-auto w-full max-w-[960px]">
             <AgentDemo />
           </div>
@@ -218,9 +215,9 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                 Your places are just files
               </h2>
               <p className="m-0 max-w-[560px] text-lg text-neutral-400">
-                Every place in MapOS is a plain Markdown file with its location
-                in the frontmatter. MapOS reads that and puts it on the map. No
-                database and no lock-in; your data is text you own.
+                Every place in MapOS is a plain Markdown file with its location in the frontmatter.
+                MapOS reads that and puts it on the map. No database and no lock-in; your data is
+                text you own.
               </p>
             </div>
 
@@ -239,23 +236,17 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                     <span className="text-neutral-600">---</span>
                     {"\n"}
                     <span className="text-neutral-500">geometry:</span>{" "}
-                    <span className="text-neutral-200">
-                      &quot;POINT(-122.423 37.765)&quot;
-                    </span>
+                    <span className="text-neutral-200">&quot;POINT(-122.423 37.765)&quot;</span>
                     {"\n"}
                     <span className="text-neutral-500">color:</span>{" "}
                     <span className="text-[#7A97FF]">&quot;#2B5BFF&quot;</span>
                     {"\n"}
                     <span className="text-neutral-500">tags:</span>{" "}
-                    <span className="text-neutral-200">
-                      [coffee, favorites]
-                    </span>
+                    <span className="text-neutral-200">[coffee, favorites]</span>
                     {"\n"}
                     <span className="text-neutral-600">---</span>
                     {"\n\n"}
-                    <span className="text-neutral-400">
-                      Great cortado. Sit by the window.
-                    </span>
+                    <span className="text-neutral-400">Great cortado. Sit by the window.</span>
                   </code>
                 </pre>
               </div>
@@ -291,12 +282,8 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                     <div className="flex size-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-[#7A97FF]">
                       <Icon aria-hidden="true" size={18} />
                     </div>
-                    <h3 className="m-0 text-base font-medium text-neutral-50">
-                      {feature.title}
-                    </h3>
-                    <p className="m-0 text-sm leading-relaxed text-neutral-400">
-                      {feature.body}
-                    </p>
+                    <h3 className="m-0 text-base font-medium text-neutral-50">{feature.title}</h3>
+                    <p className="m-0 text-sm leading-relaxed text-neutral-400">{feature.body}</p>
                   </div>
                 );
               })}
@@ -304,12 +291,48 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           </div>
         </section>
 
+        <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20">
+          <div className="mx-auto flex w-full max-w-[960px] flex-col gap-12">
+            <div className="flex flex-col items-center gap-3.5 text-center">
+              <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
+                It composes tools you'd have to chain by hand
+              </h2>
+              <p className="m-0 max-w-[600px] text-lg text-neutral-400">
+                Route, buffer, search inside the buffer, save the results. Four tools, one sentence.
+              </p>
+            </div>
+            <RouteDemo />
+          </div>
+        </section>
+
+        <SkillsSection />
+
         <section className="bg-neutral-950 px-[clamp(20px,4vw,56px)] pt-20 pb-24">
           <div className="mx-auto flex w-full max-w-[960px] flex-col items-center gap-7">
             <h2 className="m-0 font-[family-name:var(--font-handjet)] text-[28px] font-normal text-neutral-50 sm:text-[clamp(28px,3.4vw,40px)]">
               See it in action
             </h2>
-            <DemoCarousel />
+            {/* Placeholder for the recorded walkthrough (next-video asset once
+                it exists — drop the MP4 in apps/web/videos and sync). */}
+            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
+              <div className="flex flex-col items-center gap-3.5">
+                <div className="flex size-14 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/60">
+                  <svg
+                    aria-hidden="true"
+                    className="ml-0.5 text-neutral-300"
+                    fill="currentColor"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    width="16"
+                  >
+                    <path d="M4 2.5v11l9-5.5z" />
+                  </svg>
+                </div>
+                <span className="font-[family-name:var(--font-server-mono)] text-xs tracking-[0.01em] text-neutral-500">
+                  Demo video coming soon
+                </span>
+              </div>
+            </div>
           </div>
         </section>
 

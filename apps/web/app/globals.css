@@ -9,8 +9,8 @@ body {
 }
 
 /* Hero reveal (landing.tsx). Kept in CSS rather than JS so the stagger is
-   already running at first paint instead of waiting on hydration; the
-   per-element delays are inline. */
+   already running at first paint instead of waiting on hydration. Duration and
+   delay are inline, because the sunrise start is derived from them. */
 @keyframes hero-in {
   from {
     opacity: 0;
@@ -21,7 +21,9 @@ body {
 }
 
 .hero-in {
-  animation: hero-in 1500ms ease-out both;
+  animation-name: hero-in;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -7,15 +7,20 @@ interface AsciiSunProps {
   speed?: number;
   ramp?: AsciiRamp;
   scene?: SceneOptions;
+  /** Hold the sun below the horizon for this long, so the rise follows the hero text. */
+  startDelayMs?: number;
 }
 
-const RISE_DURATION_MS = 14000;
+// Wall-clock for the whole rise. It can't be shortened by entering the arc
+// later: startY sits only about one sun-diameter below the rim (see startY and
+// sunSize in ascii-engine), so any head start shows the sun already up.
+const RISE_DURATION_MS = 8000;
 
 function shapeT(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
-function useTimeChannels(speed: number): { riseT: number; ambientT: number } {
+function useTimeChannels(speed: number, startDelayMs: number) {
   const [time, setTime] = useState({ riseT: 0, ambientT: 0 });
   const startRef = useRef<number | null>(null);
 
@@ -25,13 +30,14 @@ function useTimeChannels(speed: number): { riseT: number; ambientT: number } {
     const tick = (now: number) => {
       if (startRef.current == null) startRef.current = now;
       const elapsed = (now - startRef.current) * speed;
-      const raw = Math.min(elapsed / RISE_DURATION_MS, 1);
+      // Only the rise waits out the delay; ambient keeps the pre-dawn frame alive.
+      const raw = Math.min(Math.max(0, elapsed - startDelayMs) / RISE_DURATION_MS, 1);
       setTime({ riseT: shapeT(raw), ambientT: elapsed / 1000 });
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [speed]);
+  }, [speed, startDelayMs]);
 
   return time;
 }
@@ -62,7 +68,7 @@ const BG: Record<CellKind, string | undefined> = {
   "sun-core": "#0a0a0a"
 };
 
-export function AsciiSun({ speed = 1, ramp = "classic", scene }: AsciiSunProps) {
+export function AsciiSun({ speed = 1, ramp = "classic", scene, startDelayMs = 0 }: AsciiSunProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [grid, setGrid] = useState({ cols: 80, rows: 32, aspect: 1.75 });
   // SSR/hydration renders the default grid briefly before the client measures.
@@ -93,7 +99,7 @@ export function AsciiSun({ speed = 1, ramp = "classic", scene }: AsciiSunProps) 
     return () => ro.disconnect();
   }, []);
 
-  const { riseT, ambientT } = useTimeChannels(speed);
+  const { riseT, ambientT } = useTimeChannels(speed, startDelayMs);
 
   const frame = useMemo(
     () =>
@@ -134,7 +140,7 @@ export function AsciiSun({ speed = 1, ramp = "classic", scene }: AsciiSunProps) 
 
   return (
     <div
-      className={`relative flex h-full w-full items-start justify-center overflow-hidden font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] transition-opacity duration-[14000ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
+      className={`relative flex h-full w-full items-start justify-center overflow-hidden font-[family-name:var(--font-server-mono)] text-[9px] leading-[1.05] transition-opacity duration-[2600ms] ease-out sm:text-[11px] ${ready ? "opacity-100" : "opacity-0"}`}
       ref={wrapRef}
     >
       <pre

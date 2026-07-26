@@ -105,13 +105,24 @@ const TITLE_PARALLAX = 0.22;
 // faded out.
 const SCENE_FADE_END = 0.8;
 
-// Reading order of the hero reveal (see `.hero-in` in globals.css).
+// The hero reveal (see `.hero-in` in globals.css): one fade per line, in
+// reading order.
+const HERO_FADE_MS = 1900;
 const HERO_DELAYS_MS = {
   eyebrow: 0,
-  headline: 380,
-  subhead: 780,
-  cta: 1180
+  headline: 480,
+  subhead: 980,
+  cta: 1480
 };
+
+// The sun's cue is the headline landing, not the whole hero finishing —
+// waiting for the CTA put most of the time-to-risen into dead air.
+const SUNRISE_START_MS = HERO_DELAYS_MS.headline + HERO_FADE_MS;
+
+const heroReveal = (delayMs: number) => ({
+  animationDuration: `${HERO_FADE_MS}ms`,
+  animationDelay: `${delayMs}ms`
+});
 
 export function Landing({ version, sizeLabel }: LandingProps) {
   // "[ Apple Silicon · v1.0.0-alpha.2 · 44.0 MB ]", dropping any unknown parts.
@@ -168,7 +179,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
         aria-hidden="true"
         style={{ opacity: sceneOpacity }}
       >
-        <AsciiSun scene={sunScene} />
+        <AsciiSun scene={sunScene} startDelayMs={SUNRISE_START_MS} />
       </div>
       <div
         className="fixed inset-0 z-[2] pointer-events-none"
@@ -193,20 +204,20 @@ export function Landing({ version, sizeLabel }: LandingProps) {
                 <div className="flex flex-col items-center">
                   <span
                     className="hero-in font-[family-name:var(--font-handjet)] text-[34px] leading-none text-neutral-50 sm:text-[44px]"
-                    style={{ animationDelay: `${HERO_DELAYS_MS.eyebrow}ms` }}
+                    style={heroReveal(HERO_DELAYS_MS.eyebrow)}
                   >
                     map anything
                   </span>
                   <h1
                     className="hero-in m-0 text-balance font-[family-name:var(--font-handjet)] text-[34px] font-normal leading-none text-neutral-400 sm:text-[44px] max-w-[340px]"
-                    style={{ animationDelay: `${HERO_DELAYS_MS.headline}ms` }}
+                    style={heroReveal(HERO_DELAYS_MS.headline)}
                   >
                     the connected map for you and your agents
                   </h1>
                 </div>
                 <p
                   className="hero-in m-0 text-center text-lg text-neutral-300"
-                  style={{ animationDelay: `${HERO_DELAYS_MS.subhead}ms` }}
+                  style={heroReveal(HERO_DELAYS_MS.subhead)}
                 >
                   Your places, notes, and AI on one map.
                   <br className="hidden sm:block" />
@@ -215,7 +226,7 @@ export function Landing({ version, sizeLabel }: LandingProps) {
               </div>
               <div
                 className="hero-in flex flex-wrap flex-col items-center justify-center gap-3.5"
-                style={{ animationDelay: `${HERO_DELAYS_MS.cta}ms` }}
+                style={heroReveal(HERO_DELAYS_MS.cta)}
               >
                 <a
                   className="my-2 inline-flex items-center gap-2 rounded-xs bg-[#2B5BFF] px-4 py-2.5 font-[family-name:var(--font-server-mono)] text-[13px] uppercase tracking-[0.04em] text-white no-underline transition-[background-color,transform] duration-150 hover:bg-[#2149E8] active:translate-y-px [&_svg]:-mt-px"

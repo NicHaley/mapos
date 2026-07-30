@@ -1,5 +1,7 @@
 # The real gate. Turbo caches per-package results, so this is near-instant when
 # nothing relevant changed and only pays full cost when it needs to.
 #
-# There is no test runner in this repo — lint + typecheck is the whole gate.
+# Test coverage is deliberately narrow (pure main-process logic: vault-path, wkt,
+# bbox) rather than broad, so this stays fast enough to run on every push.
 pnpm typecheck
+pnpm test

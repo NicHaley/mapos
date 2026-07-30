@@ -79,6 +79,7 @@ pnpm dev            # run the dashboard (electron-vite dev)
 pnpm dev:web        # run the web app
 pnpm build          # turbo build all
 pnpm typecheck      # tsc --noEmit across the workspace
+pnpm test           # vitest (dashboard main-process logic only — see below)
 pnpm lint           # biome lint
 pnpm check          # biome check --write (lint + format fix)
 pnpm release        # cut a release (bump + changelog + publish + tag) — see apps/dashboard/RELEASING.md
@@ -87,7 +88,8 @@ pnpm changelog:preview   # what the next release's CHANGELOG.md section would sa
 
 - **After any code change, run `pnpm typecheck` and `pnpm lint`** before considering it done.
 - **Git hooks** (husky, wired up by the root `prepare` script on install): `pre-commit` runs biome over staged files via lint-staged, `commit-msg` enforces Conventional Commits (`commitlint.config.mjs`), `pre-push` runs `pnpm typecheck`. Bypass a single commit with `--no-verify`.
-- **No test runner is configured** (no vitest/jest). Typecheck + lint is the gate. Don't claim tests pass — there aren't any.
+- **Tests are vitest, and deliberately narrow.** `pnpm test` (turbo) or `pnpm --filter @mapos/dashboard test:watch`. Coverage is pure main-process logic only: `vault-path.ts` (the write-safety boundary for every agent tool), `wkt.ts`, `bbox.ts`. There is no renderer, IPC, or end-to-end coverage, so **passing tests are a floor, not proof a change works** — verify UI and main/renderer changes in the running app.
+- **A test may not import Electron or `better-sqlite3`.** The native binding is compiled for Electron's ABI and won't load in plain Node, so any main-process module that reaches the database (e.g. `geo-compute.ts`, which imports `./db`) needs that seam mocked before it can be tested.
 - Native modules: `better-sqlite3` is rebuilt for Electron via the dashboard `postinstall` (`electron-rebuild`). The pnpm build-script allowlist lives in `pnpm-workspace.yaml` (`onlyBuiltDependencies`).
 - Packaging: `electron-vite build` then `electron-builder` (`build:mac` / `build:win` / `build:linux`).
 

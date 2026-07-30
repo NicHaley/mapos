@@ -137,12 +137,15 @@ if (( ! ASSUME_YES )); then
 fi
 
 # ── gates ─────────────────────────────────────────────────────────────────────
-# No test runner is configured in this repo; lint + typecheck are the gate.
+# Test coverage is narrow (pure main-process logic), so this is a floor rather
+# than a guarantee — the manual smoke test at the end still matters.
 echo
 echo "▸ lint"
 pnpm lint
 echo "▸ typecheck"
 pnpm typecheck
+echo "▸ test"
+pnpm test
 
 # ── changelog ─────────────────────────────────────────────────────────────────
 echo

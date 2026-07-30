@@ -5,11 +5,7 @@ import { PixelCheck, PixelCopy } from "./pixel-icons";
 
 const INSTALL_COMMAND = "npx skills add NicHaley/mapos-skills";
 
-const SKILLS = [
-  "mapos-trip-planner",
-  "mapos-curate-collection",
-  "mapos-spatial-analysis",
-];
+const SKILLS = ["mapos-trip-planner", "mapos-curate-collection", "mapos-spatial-analysis"];
 
 export function SkillsSection() {
   const [copied, setCopied] = useState(false);
@@ -71,9 +67,7 @@ export function SkillsSection() {
                 installed {skill}
               </div>
             ))}
-            <div className="text-neutral-500">
-              {SKILLS.length} skills ready in Claude Code
-            </div>
+            <div className="text-neutral-500">{SKILLS.length} skills ready in Claude Code</div>
           </div>
         </div>
       </div>

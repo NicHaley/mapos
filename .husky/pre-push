@@ -1,0 +1,5 @@
+# The real gate. Turbo caches per-package results, so this is near-instant when
+# nothing relevant changed and only pays full cost when it needs to.
+#
+# There is no test runner in this repo — lint + typecheck is the whole gate.
+pnpm typecheck

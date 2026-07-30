@@ -86,6 +86,7 @@ pnpm changelog:preview   # what the next release's CHANGELOG.md section would sa
 ```
 
 - **After any code change, run `pnpm typecheck` and `pnpm lint`** before considering it done.
+- **Git hooks** (husky, wired up by the root `prepare` script on install): `pre-commit` runs biome over staged files via lint-staged, `commit-msg` enforces Conventional Commits (`commitlint.config.mjs`), `pre-push` runs `pnpm typecheck`. Bypass a single commit with `--no-verify`.
 - **No test runner is configured** (no vitest/jest). Typecheck + lint is the gate. Don't claim tests pass — there aren't any.
 - Native modules: `better-sqlite3` is rebuilt for Electron via the dashboard `postinstall` (`electron-rebuild`). The pnpm build-script allowlist lives in `pnpm-workspace.yaml` (`onlyBuiltDependencies`).
 - Packaging: `electron-vite build` then `electron-builder` (`build:mac` / `build:win` / `build:linux`).
@@ -99,6 +100,8 @@ pnpm changelog:preview   # what the next release's CHANGELOG.md section would sa
 - **All vault mutations go through the file-write path** so the index stays in sync — the agent tools use `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
 - **Persisted state follows the Obsidian model — three tiers.** See [`.mapos/` layout](#mapos-layout) below.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
+- **Commits are Conventional Commits** (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, plus `wip:` for partial work and `release:` for the release script). The type decides whether a commit appears in `CHANGELOG.md` — see `cliff.toml`. Subjects are sentence-case, which is why `subject-case` is disabled in `commitlint.config.mjs`.
+- **Scopes mark the exceptions, not the norm.** `mcp`, `web`, `pipeline`. **An unscoped commit means the desktop app** — most commits are dashboard work, so scoping it would add a prefix to nearly every changelog line and tell the reader nothing. Scope by intent, not by which files changed: an MCP commit usually also touches renderer/preload, and it's still `mcp`. Unlisted scopes warn rather than fail, so the list can grow.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
 - Code style: match the surrounding file. Comments are sparse and reserved for non-obvious logic.
 

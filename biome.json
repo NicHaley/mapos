@@ -23,6 +23,7 @@
     "ignore": [
       "dist/**",
       "out/**",
+      "**/.turbo/**",
       ".next/**",
       ".open-next/**",
       ".wrangler/**",

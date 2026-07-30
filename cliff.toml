@@ -26,7 +26,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group }}
 {% for commit in commits %}
-- {% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/NicHaley/mapos/commit/{{ commit.id }}))
+- {% if commit.breaking %}**Breaking:** {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/NicHaley/mapos/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
 """
@@ -38,9 +38,10 @@ trim = false
 
 [git]
 conventional_commits = true
-# Keep non-conventional commits rather than dropping them silently — they land in
-# "Other" until conventional commits are fully adopted. Revisit once commitlint
-# is enforcing the format on every commit.
+# Kept false deliberately, even though the commit-msg hook now enforces the
+# conventional format: the only way an unparseable message lands is `git commit
+# --no-verify`, and those should show up under "Other" rather than vanish from the
+# changelog without a trace.
 filter_unconventional = false
 filter_commits = false
 protect_breaking_commits = true

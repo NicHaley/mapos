@@ -81,6 +81,8 @@ pnpm build          # turbo build all
 pnpm typecheck      # tsc --noEmit across the workspace
 pnpm lint           # biome lint
 pnpm check          # biome check --write (lint + format fix)
+pnpm release        # cut a release (bump + changelog + publish + tag) — see apps/dashboard/RELEASING.md
+pnpm changelog:preview   # what the next release's CHANGELOG.md section would say
 ```
 
 - **After any code change, run `pnpm typecheck` and `pnpm lint`** before considering it done.

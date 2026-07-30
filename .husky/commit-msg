@@ -1,0 +1,6 @@
+# Enforce Conventional Commits (see commitlint.config.mjs). This is what keeps
+# CHANGELOG.md generation honest: cliff.toml groups commits by type, so an
+# unparseable message means a release note that can't be categorised.
+#
+# To bypass for a single commit: git commit --no-verify
+commitlint --edit "$1"

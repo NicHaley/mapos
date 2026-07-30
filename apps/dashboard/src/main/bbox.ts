@@ -18,20 +18,3 @@ export function computeBbox(points: LatLng[]): BBox | null {
   const [west, south, east, north] = bbox(fc);
   return { west, south, east, north };
 }
-
-/**
- * Expand a bounding box outward by a fraction of its own size in each
- * direction. `padFraction: 0.1` adds 10% padding on each side.
- */
-export function expandBbox(b: BBox, padFraction: number): BBox {
-  const latSpan = b.north - b.south;
-  const lngSpan = b.east - b.west;
-  const padLat = latSpan * padFraction;
-  const padLng = lngSpan * padFraction;
-  return {
-    north: Math.min(90, b.north + padLat),
-    south: Math.max(-90, b.south - padLat),
-    east: b.east + padLng,
-    west: b.west - padLng
-  };
-}

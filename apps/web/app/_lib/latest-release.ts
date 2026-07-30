@@ -1,7 +1,14 @@
 // Reads the latest macOS release straight from the electron-updater manifest on
-// R2 (updates.mapos.md/latest-mac.yml) — the same file every `release` publishes,
-// so the site never needs its own release-flow step. Server-only; results are
-// cached and revalidated hourly via the fetch data cache.
+// R2 (updates.mapos.md/latest-mac.yml) — the same file every `release` publishes.
+// Server-only.
+//
+// The `revalidate` below does NOT make this self-updating in production:
+// open-next.config.ts configures no incrementalCache, so ISR revalidation has
+// nowhere to persist and `/` is served as build-time static output. The version
+// on the landing page is therefore fixed at deploy time, which is why
+// scripts/release.sh redeploys the site after publishing to R2. `/download` is a
+// route handler (never prerendered), so downloads always resolve live even when
+// the page label is behind.
 
 const UPDATES_BASE = "https://updates.mapos.md";
 const REVALIDATE_SECONDS = 3600;

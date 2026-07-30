@@ -1,0 +1,4 @@
+# Format + lint-fix only the staged files, then restage them (lint-staged does the
+# restaging). Deliberately biome-only: `tsc -b` spans 6 workspaces and is far too
+# slow to run per commit, so typechecking lives in pre-push instead.
+lint-staged

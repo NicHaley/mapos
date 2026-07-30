@@ -1,0 +1,72 @@
+# git-cliff configuration — generates CHANGELOG.md sections from commit history.
+#
+# Used by scripts/release.sh in prepend mode: only the new version's section is
+# generated and inserted at the top of CHANGELOG.md, so the 600+ commits of
+# pre-v1.0.0-beta.12 history are never regenerated into it.
+#
+# Run manually to preview what the next release's section would look like:
+#   pnpm dlx git-cliff@2.13.1 --unreleased
+
+[changelog]
+header = """
+# Changelog
+
+Notable changes to MapOS. Generated from commit history by [git-cliff](https://git-cliff.org).
+History before `v1.0.0-beta.12` is not covered here — see `git log`.
+
+"""
+
+# One section per release. `version` is set from --tag at release time.
+body = """
+{% if version -%}
+## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{%- else -%}
+## Unreleased
+{%- endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}
+- {% if commit.breaking %}**Breaking:** {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/NicHaley/mapos/commit/{{ commit.id }}))
+{%- endfor %}
+{% endfor %}
+"""
+
+footer = ""
+# false so the trailing newline survives — with trim on, a prepended section butts
+# straight up against the previous release's heading.
+trim = false
+
+[git]
+conventional_commits = true
+# Kept false deliberately, even though the commit-msg hook now enforces the
+# conventional format: the only way an unparseable message lands is `git commit
+# --no-verify`, and those should show up under "Other" rather than vanish from the
+# changelog without a trace.
+filter_unconventional = false
+filter_commits = false
+protect_breaking_commits = true
+split_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"
+
+commit_preprocessors = [
+  # Collapse "wip - foo" / "wip: foo" to a single token so the skip parser below
+  # catches every spelling of it.
+  { pattern = '^[Ww][Ii][Pp]\s*[-:]?\s*', replace = "wip " },
+]
+
+# First match wins.
+commit_parsers = [
+  { message = "^wip", skip = true },
+  { message = "^[Mm]erge ", skip = true },
+  { message = "^release:", skip = true },
+  { message = "^[Bb]ump (package )?version", skip = true },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^(chore|ci|build|style|test)", skip = true },
+  { message = ".*", group = "Other" },
+]

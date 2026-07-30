@@ -79,12 +79,19 @@ pnpm dev            # run the dashboard (electron-vite dev)
 pnpm dev:web        # run the web app
 pnpm build          # turbo build all
 pnpm typecheck      # tsc --noEmit across the workspace
+pnpm test           # vitest (dashboard main-process logic only — see below)
 pnpm lint           # biome lint
 pnpm check          # biome check --write (lint + format fix)
+pnpm release        # cut a release (bump + changelog + publish + tag) — see apps/dashboard/RELEASING.md
+pnpm changelog:preview   # what the next release's CHANGELOG.md section would say
 ```
 
 - **After any code change, run `pnpm typecheck` and `pnpm lint`** before considering it done.
-- **No test runner is configured** (no vitest/jest). Typecheck + lint is the gate. Don't claim tests pass — there aren't any.
+- **Fresh clone needs one extra step before `pnpm typecheck` will pass.** `apps/web` depends on two gitignored generated files. Run `cp apps/web/.dev.vars.example apps/web/.dev.vars` (then fill in real values) and `pnpm --filter=@mapos/web cf-typegen`. The `next-env.d.ts` half is already handled by the committed `apps/web/types/next-ambient.d.ts`.
+- **CI** (`.github/workflows/ci.yml`) runs `biome ci`, typecheck, and test on Linux for pushes to `main` and all PRs. It never builds the app: the signed + notarized macOS build bills at a 10x minute multiplier, so releases stay local via `pnpm release`.
+- **Git hooks** (husky, wired up by the root `prepare` script on install): `pre-commit` runs biome over staged files via lint-staged, `commit-msg` enforces Conventional Commits (`commitlint.config.mjs`), `pre-push` runs `pnpm typecheck`. Bypass a single commit with `--no-verify`.
+- **Tests are vitest, and deliberately narrow.** `pnpm test` (turbo) or `pnpm --filter @mapos/dashboard test:watch`. Coverage is pure main-process logic only: `vault-path.ts` (the write-safety boundary for every agent tool), `wkt.ts`, `bbox.ts`. There is no renderer, IPC, or end-to-end coverage, so **passing tests are a floor, not proof a change works** — verify UI and main/renderer changes in the running app.
+- **A test may not import Electron or `better-sqlite3`.** The native binding is compiled for Electron's ABI and won't load in plain Node, so any main-process module that reaches the database (e.g. `geo-compute.ts`, which imports `./db`) needs that seam mocked before it can be tested.
 - Native modules: `better-sqlite3` is rebuilt for Electron via the dashboard `postinstall` (`electron-rebuild`). The pnpm build-script allowlist lives in `pnpm-workspace.yaml` (`onlyBuiltDependencies`).
 - Packaging: `electron-vite build` then `electron-builder` (`build:mac` / `build:win` / `build:linux`).
 
@@ -97,6 +104,8 @@ pnpm check          # biome check --write (lint + format fix)
 - **All vault mutations go through the file-write path** so the index stays in sync — the agent tools use `write_vault_file` / `delete_vault_file` / `rename_vault_file`, never raw writes.
 - **Persisted state follows the Obsidian model — three tiers.** See [`.mapos/` layout](#mapos-layout) below.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
+- **Commits are Conventional Commits** (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, plus `wip:` for partial work and `release:` for the release script). The type decides whether a commit appears in `CHANGELOG.md` — see `cliff.toml`. Subjects are sentence-case, which is why `subject-case` is disabled in `commitlint.config.mjs`.
+- **Scopes mark the exceptions, not the norm.** `mcp`, `web`, `pipeline`. **An unscoped commit means the desktop app** — most commits are dashboard work, so scoping it would add a prefix to nearly every changelog line and tell the reader nothing. Scope by intent, not by which files changed: an MCP commit usually also touches renderer/preload, and it's still `mcp`. Unlisted scopes warn rather than fail, so the list can grow.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
 - Code style: match the surrounding file. Comments are sparse and reserved for non-obvious logic.
 

@@ -25,9 +25,9 @@ export function worldGeocodePath(): string {
 }
 
 /**
- * The stdio↔HTTP MCP bridge an external client spawns to reach the app, starting it first if it
- * isn't running. Shipped via `extraResources` (never bundled), so it sits beside the basemap
- * assets in the packaged app rather than inside the asar.
+ * The stdio↔HTTP MCP bridge an external client spawns to reach the running app. Shipped via
+ * `extraResources` (never bundled), so it sits beside the basemap assets in the packaged app
+ * rather than inside the asar.
  */
 export function mcpBridgePath(): string {
   return app.isPackaged

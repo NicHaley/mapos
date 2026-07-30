@@ -254,8 +254,8 @@ export function McpConnect() {
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">Connect a client</span>
                 <span className="text-sm text-muted-foreground">
-                  Pick your client and paste the snippet. If MapOS is closed when your client
-                  connects, it starts automatically.
+                  Pick your client and paste the snippet. Keep MapOS open while your client is
+                  connected.
                 </span>
               </div>
 

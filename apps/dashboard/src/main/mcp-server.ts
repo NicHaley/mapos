@@ -329,7 +329,11 @@ Reference each feature by handle, never by transcribed content — the exact fie
 
 The rendered list IS the user's view of the results. Once you've called present_features, do NOT re-list the places in your reply in any form (numbered, bulleted, table, one-per-line), and don't explain the map UI (clicking markers, saving, "Add all") — those are visible in the app. Reply with a one-or-two-sentence synthesis, naming at most a standout or two.
 
-For directions the user will read step-by-step or re-route, use \`present_directions\` instead — it opens an interactive Directions tab and computes the route itself, so you needn't call get_directions first.`;
+For directions the user will read step-by-step or re-route, use \`present_directions\` instead — it opens an interactive Directions tab and computes the route itself, so you needn't call get_directions first.
+
+## Staying connected
+
+These tools are served by the MapOS desktop app, and nothing launches it for you. If calls start failing because the connection dropped, the app was likely closed: reopen it (on macOS, \`open -a MapOS\`), then retry.`;
 }
 
 /** Representative point for a place's GeoJSON-geometry-JSON string (as stored on

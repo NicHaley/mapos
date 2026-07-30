@@ -87,6 +87,8 @@ pnpm changelog:preview   # what the next release's CHANGELOG.md section would sa
 ```
 
 - **After any code change, run `pnpm typecheck` and `pnpm lint`** before considering it done.
+- **Fresh clone needs one extra step before `pnpm typecheck` will pass.** `apps/web` depends on two gitignored generated files. Run `cp apps/web/.dev.vars.example apps/web/.dev.vars` (then fill in real values) and `pnpm --filter=@mapos/web cf-typegen`. The `next-env.d.ts` half is already handled by the committed `apps/web/types/next-ambient.d.ts`.
+- **CI** (`.github/workflows/ci.yml`) runs `biome ci`, typecheck, and test on Linux for pushes to `main` and all PRs. It never builds the app: the signed + notarized macOS build bills at a 10x minute multiplier, so releases stay local via `pnpm release`.
 - **Git hooks** (husky, wired up by the root `prepare` script on install): `pre-commit` runs biome over staged files via lint-staged, `commit-msg` enforces Conventional Commits (`commitlint.config.mjs`), `pre-push` runs `pnpm typecheck`. Bypass a single commit with `--no-verify`.
 - **Tests are vitest, and deliberately narrow.** `pnpm test` (turbo) or `pnpm --filter @mapos/dashboard test:watch`. Coverage is pure main-process logic only: `vault-path.ts` (the write-safety boundary for every agent tool), `wkt.ts`, `bbox.ts`. There is no renderer, IPC, or end-to-end coverage, so **passing tests are a floor, not proof a change works** — verify UI and main/renderer changes in the running app.
 - **A test may not import Electron or `better-sqlite3`.** The native binding is compiled for Electron's ABI and won't load in plain Node, so any main-process module that reaches the database (e.g. `geo-compute.ts`, which imports `./db`) needs that seam mocked before it can be tested.

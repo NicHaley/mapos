@@ -1,0 +1,12 @@
+# Template for .dev.vars (gitignored). Copy to .dev.vars and fill in real values.
+#
+# This file also has a second job: `wrangler types` (pnpm cf-typegen) discovers
+# secret names by reading .dev.vars, and secrets are not declared in
+# wrangler.jsonc. Without it, STATS_KEY is missing from CloudflareEnv and
+# apps/web fails to typecheck — which is why CI copies this file before running
+# cf-typegen.
+#
+# Add every new secret here. Forgetting to means typecheck passes locally (where
+# your real .dev.vars has it) and fails in CI.
+NEXTJS_ENV=development
+STATS_KEY=dummy-value-for-typegen

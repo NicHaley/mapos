@@ -1,0 +1,66 @@
+name: CI
+
+# Linux only, and no build step. The macOS build is signed and notarized, which
+# runs at a 10x minute multiplier on GitHub-hosted macOS runners (~150 minutes of
+# quota per release), so it stays local via `pnpm release`. These checks are ~1x
+# and cost a couple of minutes a run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One run per ref: pushing again cancels the in-flight run instead of paying for
+# both.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint / typecheck / test
+    runs-on: ubuntu-latest
+    # Backstop so a hung run can't quietly drain the monthly quota.
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Must precede setup-node so that `cache: pnpm` can find pnpm. Version
+      # comes from the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --ignore-scripts skips the dashboard's electron-rebuild postinstall and
+      # Electron's binary download. Neither is needed: better-sqlite3 is compiled
+      # for Electron's ABI and nothing in these checks loads it (see the test
+      # constraints in CLAUDE.md). It also skips husky's prepare, which is
+      # correct in CI.
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # apps/web's typecheck depends on two generated files that are gitignored:
+      #   - next-env.d.ts   -> replaced by the committed apps/web/types/next-ambient.d.ts
+      #   - cloudflare-env.d.ts -> generated below by wrangler (offline, no auth needed)
+      # wrangler reads .dev.vars to discover secret names, so the template has to
+      # be in place first or CloudflareEnv comes out missing STATS_KEY.
+      - name: Generate Cloudflare types
+        run: |
+          cp apps/web/.dev.vars.example apps/web/.dev.vars
+          pnpm --filter=@mapos/web cf-typegen
+
+      # biome ci checks lint AND formatting without writing, so it catches drift
+      # that slipped past the pre-commit hook via --no-verify.
+      - name: Lint and format
+        run: pnpm exec biome ci .
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test

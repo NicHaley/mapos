@@ -12,6 +12,7 @@ import type {
   InstalledRegionPack,
   MapOverlayLayer,
   McpActivity,
+  McpClientId,
   McpConnectionInfo,
   McpToolPhase,
   OverlayLine,
@@ -220,6 +221,9 @@ declare global {
         getConnectionInfo: () => Promise<McpConnectionInfo>;
         setEnabled: (enabled: boolean) => Promise<McpConnectionInfo>;
         regenerateToken: () => Promise<McpConnectionInfo>;
+        installClient: (
+          id: McpClientId
+        ) => Promise<{ ok: true; info: McpConnectionInfo } | { ok: false; error: string }>;
         onActivity: (cb: (activity: McpActivity) => void) => () => void;
         onToolPhase: (cb: (event: McpToolPhase) => void) => () => void;
         onConnectionChanged: (cb: (info: McpConnectionInfo) => void) => () => void;

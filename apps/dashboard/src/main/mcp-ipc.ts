@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { McpConnectionInfo } from "../shared/types";
+import type { McpClientId, McpConnectionInfo, McpStdioLauncher } from "../shared/types";
 import { mcpBridgePath } from "./asset-paths";
 import { sendToRenderer } from "./main-window";
 import {
@@ -7,6 +7,7 @@ import {
   regenerateMcpTokenInConfig,
   setMcpEnabledInConfig
 } from "./mapos-config";
+import { installMcpClient, listMcpClients, stdioShellCommand } from "./mcp/clients";
 import { mcpManager } from "./mcp/manager";
 
 /**
@@ -15,7 +16,7 @@ import { mcpManager } from "./mcp/manager";
  * handed `--state-dir` rather than the port and token so that rotating the token in Settings
  * doesn't invalidate a config the user has already pasted into their client.
  */
-function stdioLauncher(appStateDir: string): McpConnectionInfo["stdio"] {
+function stdioLauncher(appStateDir: string): McpStdioLauncher {
   return {
     command: process.execPath,
     args: [mcpBridgePath(), "--state-dir", appStateDir],
@@ -25,13 +26,16 @@ function stdioLauncher(appStateDir: string): McpConnectionInfo["stdio"] {
 
 function connectionInfo(appStateDir: string): McpConnectionInfo {
   const cfg = getOrCreateMcpConfig(appStateDir);
+  const stdio = stdioLauncher(appStateDir);
   return {
     enabled: cfg.enabled,
     running: mcpManager.isRunning(),
     port: cfg.port,
     token: cfg.token,
     url: `http://127.0.0.1:${cfg.port}/mcp`,
-    stdio: stdioLauncher(appStateDir),
+    stdio,
+    stdioCommand: stdioShellCommand(stdio),
+    clients: listMcpClients(stdio),
     startError: mcpManager.getStartError(),
     lastActivity: mcpManager.getLastActivity()
   };
@@ -60,6 +64,16 @@ export function registerMcpIpc(appStateDir: string): void {
     const info = connectionInfo(appStateDir);
     broadcast(info);
     return info;
+  });
+
+  // One-click install: write the `mapos` entry into a known client's config. The refreshed info
+  // rides along on success so the panel's "Installed" state updates without a second round trip.
+  ipcMain.handle("mcp:install-client", (_e, id: McpClientId) => {
+    const result = installMcpClient(id, stdioLauncher(appStateDir));
+    if (!result.ok) return result;
+    const info = connectionInfo(appStateDir);
+    broadcast(info);
+    return { ok: true as const, info };
   });
 
   ipcMain.handle("mcp:regenerate-token", async () => {

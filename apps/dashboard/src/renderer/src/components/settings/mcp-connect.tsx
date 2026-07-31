@@ -19,6 +19,7 @@ import {
   ItemTitle
 } from "@mapos/ui/components/item";
 import { Switch } from "@mapos/ui/components/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import type { McpClientId, McpClientTarget, McpConnectionInfo } from "@shared/types";
 import {
@@ -221,7 +222,9 @@ function ClientPanel({
         <ItemMedia className={cn("size-10 self-center rounded-md border", tile)}>
           <Icon className="size-[18px]" />
         </ItemMedia>
-        <ItemContent>
+        {/* min-w-0 so the config path can't set a floor on this column's width: `Item` wraps, and
+          Claude Desktop's path is long enough to push the button onto its own line without it. */}
+        <ItemContent className="min-w-0">
           <ItemTitle>Add to {client.label}</ItemTitle>
           {/* Only the config path is monospace; prose about it isn't. */}
           {state.error ? (
@@ -229,10 +232,26 @@ function ClientPanel({
           ) : state.installed ? (
             <ItemDescription>Restart {client.label} to pick it up</ItemDescription>
           ) : (
-            <ItemDescription className="font-mono text-xs">{client.configLabel}</ItemDescription>
+            // One line, ellipsised, full path on hover — a tail it takes a hover to read beats
+            // two wrapped lines of path in every row. `break-all` is what makes it fill the line:
+            // the clamp breaks on words otherwise, and `Application Support/Claude/…` is one
+            // unbreakable token that doesn't fit, so it would ellipsise mid-line with the rest of
+            // the width left empty.
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <ItemDescription className="line-clamp-1 break-all font-mono text-xs">
+                    {client.configLabel}
+                  </ItemDescription>
+                }
+              />
+              <TooltipContent className="max-w-sm font-mono break-words">
+                {client.configLabel}
+              </TooltipContent>
+            </Tooltip>
           )}
         </ItemContent>
-        <ItemActions>
+        <ItemActions className="shrink-0">
           {client.configured ? (
             <span className="flex items-center gap-1.5 pr-1 text-sm text-muted-foreground">
               <CheckIcon className="size-4 text-emerald-600 dark:text-emerald-400" />

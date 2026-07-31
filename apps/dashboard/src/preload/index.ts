@@ -12,6 +12,7 @@ import type {
   InstalledRegionPack,
   MapOverlayLayer,
   McpActivity,
+  McpClientId,
   McpConnectionInfo,
   McpToolPhase,
   PropertyType,
@@ -263,6 +264,11 @@ const api = {
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke("mcp:set-enabled", enabled) as Promise<McpConnectionInfo>,
     regenerateToken: () => ipcRenderer.invoke("mcp:regenerate-token") as Promise<McpConnectionInfo>,
+    /** Add the `mapos` server to a known client's config file. */
+    installClient: (id: McpClientId) =>
+      ipcRenderer.invoke("mcp:install-client", id) as Promise<
+        { ok: true; info: McpConnectionInfo } | { ok: false; error: string }
+      >,
     /** Fires on every authorized MCP request the server handles. Returns a cleanup fn. */
     onActivity: (cb: (activity: McpActivity) => void): (() => void) => {
       const listener = (_e: unknown, activity: McpActivity): void => cb(activity);

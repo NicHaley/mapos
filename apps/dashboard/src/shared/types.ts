@@ -237,7 +237,11 @@ export type McpConnectionInfo = {
    * binary running as plain Node. Preferred in client configs because the bridge exists even when
    * MapOS doesn't — it starts the app on demand, where a bare HTTP URL just gets refused.
    */
-  stdio: { command: string; args: string[]; env: Record<string, string> };
+  stdio: McpStdioLauncher;
+  /** `stdio` as one shell command, for a client that takes a command line rather than a config. */
+  stdioCommand: string;
+  /** The clients MapOS can add itself to, in the order they should be offered. */
+  clients: McpClientTarget[];
   /**
    * Why the listener isn't up despite being enabled (a taken port, most likely), or null. Distinct
    * from `running: false`, which on its own can't say whether that's intentional.
@@ -245,6 +249,25 @@ export type McpConnectionInfo = {
   startError: string | null;
   /** Most recent authorized request seen (survives restarts), or null if none since setup. */
   lastActivity: McpActivity | null;
+};
+
+export type McpStdioLauncher = { command: string; args: string[]; env: Record<string, string> };
+
+/** MCP clients with a config file MapOS knows how to write. */
+export type McpClientId = "claude-code" | "claude-desktop" | "cursor" | "codex";
+
+/** One installable client, as offered by the Connections panel. */
+export type McpClientTarget = {
+  id: McpClientId;
+  label: string;
+  /** Absolute path of the config file a one-click install writes. */
+  configPath: string;
+  /** Same path with the home directory shortened to `~`, for display. */
+  configLabel: string;
+  /** That config already points a `mapos` server at this build's bridge. */
+  configured: boolean;
+  /** Paste-it-yourself equivalent, generated from the same launcher the install writes. */
+  manual: { hint: string; code: string };
 };
 
 /**

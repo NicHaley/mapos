@@ -255,12 +255,34 @@ function displayPath(path: string): string {
   return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
+/**
+ * Contents, or `""` when there is genuinely no file there. Anything other than ENOENT — a
+ * permissions denial, a directory in the way — is rethrown rather than reported as absent: a
+ * config we can't read is one we mustn't overwrite, and treating it as empty would hand the
+ * caller a from-scratch patch that drops every server already in it.
+ */
 function readIfExists(path: string): string {
   try {
     return readFileSync(path, "utf-8");
-  } catch {
-    return "";
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw e;
   }
+}
+
+/**
+ * Whether the client's config already points `mapos` at this launcher. A config that can't be
+ * read or parsed counts as not configured — the panel offers the button, and the install is where
+ * the unreadable file gets reported, since that's the point at which it blocks something.
+ */
+function isConfigured(spec: ClientSpec, configPath: string, stdio: McpStdioLauncher): boolean {
+  let contents: string;
+  try {
+    contents = readIfExists(configPath);
+  } catch {
+    return false;
+  }
+  return contents ? spec.isConfigured(contents, stdio) : false;
 }
 
 /**
@@ -278,13 +300,12 @@ export function listMcpClients(stdio: McpStdioLauncher): McpClientTarget[] {
     const configPath = spec.configPath();
     if (!configPath) continue;
     const configLabel = displayPath(configPath);
-    const contents = readIfExists(configPath);
     targets.push({
       id: spec.id,
       label: spec.label,
       configPath,
       configLabel,
-      configured: contents ? spec.isConfigured(contents, stdio) : false,
+      configured: isConfigured(spec, configPath, stdio),
       manual: spec.manual?.(stdio) ?? { hint: spec.hint(configLabel), code: spec.render(stdio) }
     });
   }
@@ -310,8 +331,9 @@ export function installMcpClient(
   try {
     next = patchClientConfig(id, readIfExists(configPath), stdio);
   } catch {
-    // Only a malformed existing file lands here. Bailing out beats replacing it wholesale: the
-    // user's own edits are in there, and the manual snippet still gets them connected.
+    // An existing file we can't read or can't parse. Bailing out beats replacing it wholesale:
+    // the user's own edits and other servers are in there, and the manual snippet still gets
+    // them connected.
     return {
       ok: false,
       error: `Couldn't read ${displayPath(configPath)}. Fix or remove it, or use manual setup.`

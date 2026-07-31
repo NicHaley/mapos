@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -127,6 +127,28 @@ describe("installMcpClient", () => {
     const result = installMcpClient("cursor", STDIO);
     expect(result.ok).toBe(false);
     expect(readFileSync(path, "utf-8")).toBe("{ broken");
+  });
+
+  // A config that exists but can't be read must not be mistaken for one that isn't there: the
+  // patch would be built from scratch and `rename` needs only the directory, so the user's other
+  // servers would be gone with the install still reporting success.
+  it("leaves an unreadable config untouched rather than replacing it", () => {
+    const path = join(home, ".cursor", "mcp.json");
+    const original = JSON.stringify({ mcpServers: { other: { command: "other-bin" } } });
+    installMcpClient("cursor", STDIO);
+    writeFileSync(path, original, "utf-8");
+    chmodSync(path, 0o000);
+    try {
+      const result = installMcpClient("cursor", STDIO);
+      expect(result).toEqual({
+        ok: false,
+        error: "Couldn't read ~/.cursor/mcp.json. Fix or remove it, or use manual setup."
+      });
+      expect(listMcpClients(STDIO).find((c) => c.id === "cursor")?.configured).toBe(false);
+    } finally {
+      chmodSync(path, 0o600);
+    }
+    expect(readFileSync(path, "utf-8")).toBe(original);
   });
 
   it("offers no untouched client as configured", () => {

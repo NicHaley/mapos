@@ -18,6 +18,25 @@ export function polygonWkt(rings: [number, number][][]): string {
   return `POLYGON(${parts.join(", ")})`;
 }
 
+export function pointWkt(lng: number, lat: number): string {
+  return `POINT(${fmtCoord(lng)} ${fmtCoord(lat)})`;
+}
+
+/**
+ * Convert a GeoJSON geometry JSON string into the WKT string that goes in a place
+ * file's `geometry` frontmatter. Returns null for unparseable, unsupported, or
+ * degenerate geometry (too few coordinates to form a line/ring).
+ */
+export function geometryJsonToWkt(geometryJson: string): string | null {
+  const args = geometryJsonToCreateArgs(geometryJson);
+  if (!args) return null;
+  if (args.geometryWkt) return args.geometryWkt;
+  if (typeof args.lng === "number" && typeof args.lat === "number") {
+    return pointWkt(args.lng, args.lat);
+  }
+  return null;
+}
+
 /**
  * Convert a GeoJSON geometry JSON string into createNoteFile args that preserve its type:
  * points become `lat`/`lng`, lines and polygons become a `geometryWkt`. Returns null for

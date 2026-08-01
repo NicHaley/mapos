@@ -49,6 +49,7 @@ import {
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
+import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
 import { type Editor, Extension } from "@tiptap/core";
@@ -57,18 +58,26 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  CircleIcon,
   EllipsisIcon,
   FolderOpenIcon,
   ImageIcon,
   ImageOffIcon,
+  LassoSelectIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
+  MapPinOffIcon,
   MapPinPlus,
   Maximize2Icon,
   PencilIcon,
+  PencilRulerIcon,
+  PentagonIcon,
   PlusIcon,
   RouteIcon,
+  SearchIcon,
+  SplineIcon,
+  SquareIcon,
   Trash2Icon,
   XIcon
 } from "lucide-react";
@@ -95,7 +104,9 @@ const GJ_EXCLUDED = new Set(["name", "description"]);
 /** Stable empty list — PropertiesPanel is memoized, so props must keep identity. */
 const EMPTY_KEY_TYPES: Array<{ key: string; type: PropertyType }> = [];
 
-function formatPointLocationShort(geometryJson: string | undefined): string {
+/** The trigger's label once the place has geometry: coordinates for a point, the
+ *  shape's name otherwise (there is nothing that short and useful to say about a ring). */
+function formatGeometrySummary(geometryJson: string | undefined): string {
   if (!geometryJson) return "";
   try {
     const geo = JSON.parse(geometryJson) as {
@@ -106,11 +117,23 @@ function formatPointLocationShort(geometryJson: string | undefined): string {
       const [lng, lat] = geo.coordinates;
       return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     }
+    if (geo.type === "LineString") return "Line";
+    if (geo.type === "Polygon") return "Area";
   } catch {
     /* ignore */
   }
   return "Location";
 }
+
+/** The dropdown's draw options, in menu order. */
+const DRAW_OPTIONS: Array<{ shape: DrawShape; icon: typeof MapPinPlus }> = [
+  { shape: "point", icon: MapPinPlus },
+  { shape: "linestring", icon: SplineIcon },
+  { shape: "polygon", icon: PentagonIcon },
+  { shape: "rectangle", icon: SquareIcon },
+  { shape: "circle", icon: CircleIcon },
+  { shape: "freehand", icon: LassoSelectIcon }
+];
 
 type LoadedDoc =
   | { kind: "loading" }
@@ -448,6 +471,9 @@ export const PlaceCard = memo(function PlaceCard({
   defaultParentFolderPath = null,
   onCommitPointLocation,
   onClearPointLocation,
+  onStartDrawing,
+  onEditGeometry,
+  activeDrawMode = null,
   onRename,
   onDelete,
   onOpenFolder
@@ -470,6 +496,12 @@ export const PlaceCard = memo(function PlaceCard({
   onCommitPointLocation?: (filePath: string, lat: number, lng: number) => Promise<boolean>;
   /** Remove `geometry` from the vault file. */
   onClearPointLocation?: (filePath: string) => Promise<boolean>;
+  /** Start drawing this file's geometry on the map. */
+  onStartDrawing?: (filePath: string, shape: DrawShape) => void;
+  /** Edit the file's existing geometry on the map. Receives its GeoJSON JSON string. */
+  onEditGeometry?: (filePath: string, geometry: string) => void;
+  /** The mode of the draw session running against this file, if any. */
+  activeDrawMode?: DrawMode | null;
   /** Called after a successful file rename with the old and new paths. */
   onRename?: (oldPath: string, newPath: string) => void;
   /** Called after the place file has been deleted on disk. */
@@ -494,10 +526,14 @@ export const PlaceCard = memo(function PlaceCard({
   const [saveToVaultOpen, setSaveToVaultOpen] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [addLocationOpen, setAddLocationOpen] = useState(false);
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const editorRef = useRef<Editor | null>(null);
+  // The search popover anchors to an inert overlay of the location row, so the row's
+  // button is free to be the dropdown's trigger. Focus returns here on close.
+  const locationTriggerRef = useRef<HTMLButtonElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   // Set when "Rename" is chosen so the menu returns focus to the title input
   // (instead of its trigger) once it closes.
@@ -744,6 +780,20 @@ export const PlaceCard = memo(function PlaceCard({
     const ok = await onClearPointLocation(currentFilePath);
     if (ok) setAddLocationOpen(false);
   }, [currentFilePath, onClearPointLocation]);
+
+  const handleStartDrawing = useCallback(
+    (shape: DrawShape) => {
+      setLocationMenuOpen(false);
+      onStartDrawing?.(currentFilePath, shape);
+    },
+    [currentFilePath, onStartDrawing]
+  );
+
+  const handleEditGeometry = useCallback(() => {
+    if (!place.geometry) return;
+    setLocationMenuOpen(false);
+    onEditGeometry?.(currentFilePath, place.geometry);
+  }, [currentFilePath, place.geometry, onEditGeometry]);
 
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
@@ -1116,32 +1166,27 @@ export const PlaceCard = memo(function PlaceCard({
             {place.previewMarkdown === undefined &&
               place.type !== "GeoJsonLayer" &&
               onCommitPointLocation && (
-                <div className="px-2 pb-4 shrink-0">
+                <div className="relative px-2 pb-4 shrink-0">
+                  {/* The geocode search lives in a popover anchored to an inert copy
+                      of the row's box, leaving the visible button free to be the
+                      dropdown trigger. Base UI allows one trigger per overlay. */}
                   <Popover
                     open={addLocationOpen}
                     onOpenChange={handleAddLocationOpenChange}
                     modal={false}
                   >
                     <PopoverTrigger
-                      render={
-                        <button
-                          type="button"
-                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
-                        >
-                          {place.geometry ? (
-                            <MapPinIcon className="size-4 shrink-0" />
-                          ) : (
-                            <MapPinPlus className="size-4 shrink-0" />
-                          )}
-                          <span className="truncate">
-                            {place.geometry
-                              ? formatPointLocationShort(place.geometry)
-                              : "Add a location"}
-                          </span>
-                        </button>
-                      }
+                      aria-hidden
+                      tabIndex={-1}
+                      className="pointer-events-none absolute inset-x-2 top-0 h-8"
                     />
-                    <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                    <PopoverContent
+                      className="w-96 p-0"
+                      align="start"
+                      side="bottom"
+                      sideOffset={6}
+                      finalFocus={locationTriggerRef}
+                    >
                       <PopoverTitle className="sr-only">
                         {place.geometry ? "Change location" : "Add a location"}
                       </PopoverTitle>
@@ -1163,6 +1208,76 @@ export const PlaceCard = memo(function PlaceCard({
                       />
                     </PopoverContent>
                   </Popover>
+                  <DropdownMenu open={locationMenuOpen} onOpenChange={setLocationMenuOpen}>
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          ref={locationTriggerRef}
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                        >
+                          {place.geometry ? (
+                            <MapPinIcon className="size-4 shrink-0" />
+                          ) : (
+                            <MapPinPlus className="size-4 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {activeDrawMode === "select"
+                              ? "Editing on the map…"
+                              : activeDrawMode
+                                ? "Drawing on the map…"
+                                : place.geometry
+                                  ? formatGeometrySummary(place.geometry)
+                                  : "Add a feature"}
+                          </span>
+                        </button>
+                      }
+                    />
+                    <DropdownMenuContent align="start" side="bottom" sideOffset={6}>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setLocationMenuOpen(false);
+                          setAddLocationOpen(true);
+                        }}
+                      >
+                        <SearchIcon />
+                        Search for a location
+                      </DropdownMenuItem>
+                      {onStartDrawing && (
+                        <>
+                          <DropdownMenuSeparator />
+                          {/* Routes join this list once a route can be persisted in a file. */}
+                          {DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
+                            <DropdownMenuItem key={shape} onClick={() => handleStartDrawing(shape)}>
+                              <Icon />
+                              {DRAW_SHAPE_LABELS[shape]}
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                      {place.geometry && (onEditGeometry || onClearPointLocation) && (
+                        <DropdownMenuSeparator />
+                      )}
+                      {place.geometry && onEditGeometry && (
+                        <DropdownMenuItem onClick={handleEditGeometry}>
+                          <PencilRulerIcon />
+                          Edit shape
+                        </DropdownMenuItem>
+                      )}
+                      {place.geometry && onClearPointLocation && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => {
+                            setLocationMenuOpen(false);
+                            void handleClearLocation();
+                          }}
+                        >
+                          <MapPinOffIcon />
+                          Remove location
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
 

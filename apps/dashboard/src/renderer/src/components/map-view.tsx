@@ -33,6 +33,7 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent";
+import type { DrawSession } from "@renderer/lib/draw";
 import { useMapColor } from "@renderer/lib/map-color";
 import {
   OVERLAY_CHIP_IMAGE_ID,
@@ -53,10 +54,12 @@ import {
   selectedLinePaint
 } from "@renderer/lib/map-styles";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
+import type { Geometry } from "geojson";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import { DIRECTIONS_OVERLAY_PREFIX } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
+import { DrawLayer } from "./map/draw-layer";
 import { RegionCoverageIndicator } from "./map/region-coverage-indicator";
 import { type UserLocation, UserLocationLayer } from "./map/user-location-layer";
 
@@ -472,6 +475,12 @@ const MapView = forwardRef<
     /** Coordinates of the directions step currently hovered/selected, drawn as an emphasized
      *  segment on top of the route. Null = nothing highlighted. */
     directionsHighlight?: [number, number][] | null;
+    /** Active map-drawing session. While set, the map draws instead of selecting. */
+    drawSession?: DrawSession | null;
+    /** A draw-mode shape was completed. */
+    onDrawFinish?: (geometry: Geometry) => void;
+    /** Select-mode geometry changed; App holds it until the user saves. */
+    onDrawEditChange?: (geometry: Geometry) => void;
   }
 >(function MapView(
   {
@@ -491,7 +500,10 @@ const MapView = forwardRef<
     presentedPlaces = [],
     openPlace = null,
     userLocation = null,
-    directionsHighlight = null
+    directionsHighlight = null,
+    drawSession = null,
+    onDrawFinish,
+    onDrawEditChange
   },
   ref
 ) {
@@ -515,6 +527,20 @@ const MapView = forwardRef<
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
+
+  // Terra Draw consumes the pointer events it cares about, but MapLibre still
+  // dispatches click/contextmenu to our handlers. Read through a ref so the
+  // guard costs nothing in the (memoized) handlers' dependency lists.
+  const drawingRef = useRef(false);
+  drawingRef.current = drawSession !== null;
+
+  /** The file whose geometry the session is about to replace. Its normal rendering is
+   *  suppressed for the duration: in a "select" session Terra Draw owns an editable copy
+   *  and the user would otherwise drag one shape while a twin sat under it, and in a draw
+   *  session the shape being drawn *is* the replacement, so leaving the old one up reads
+   *  as adding a second geometry to a place that can only hold one. Cancelling clears the
+   *  session, which brings the original straight back. */
+  const editingFilePath = drawSession?.filePath ?? null;
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -852,6 +878,7 @@ const MapView = forwardRef<
 
   const handleContextMenu = useCallback((e: MapLayerMouseEvent) => {
     e.preventDefault();
+    if (drawingRef.current) return;
     setContextMenu({
       x: e.point.x,
       y: e.point.y,
@@ -1039,6 +1066,7 @@ const MapView = forwardRef<
   const selectedGeoJSON = useMemo(() => {
     const places = [selectedPlace, openPlace]
       .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p?.geometry))
+      .filter((p) => p.filePath !== editingFilePath)
       .filter((p, i, arr) => arr.findIndex((q) => q.filePath === p.filePath) === i);
     if (places.length === 0) return null;
     try {
@@ -1046,11 +1074,12 @@ const MapView = forwardRef<
     } catch {
       return null;
     }
-  }, [selectedPlace, openPlace, toFeature]);
+  }, [selectedPlace, openPlace, editingFilePath, toFeature]);
 
   /** Anchor position: Points use geometry; lines/polygons anchor where the user clicked. */
   const selectionAnchorGeoJSON = useMemo((): SelectionAnchorGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
+    if (selectedPlace.filePath === editingFilePath) return null;
     try {
       const geo = parseGeometry(selectedPlace.geometry);
       let lng: number;
@@ -1079,7 +1108,7 @@ const MapView = forwardRef<
     } catch {
       return null;
     }
-  }, [selectedPlace, selectionPulseAnchor]);
+  }, [selectedPlace, selectionPulseAnchor, editingFilePath]);
 
   const augmentedGeoJsonLayers = useMemo(
     () =>
@@ -1107,6 +1136,8 @@ const MapView = forwardRef<
 
   const handleLayerClick = useCallback(
     (e: MapLayerMouseEvent) => {
+      // While drawing, a map click is a vertex — never a selection.
+      if (drawingRef.current) return;
       mapClickSeqRef.current += 1;
       const feats = e.features ?? [];
       const clickMeta: MapSelectPlaceMeta = {
@@ -1584,6 +1615,17 @@ const MapView = forwardRef<
         )}
         <RegionCoverageIndicator />
         {userLocation && <UserLocationLayer location={userLocation} />}
+        {drawSession && (
+          // Keyed on the session so switching shape or target file rebuilds Terra
+          // Draw from scratch rather than mutating a half-finished drawing.
+          <DrawLayer
+            key={`${drawSession.filePath}:${drawSession.mode}`}
+            session={drawSession}
+            color={featureColor}
+            onFinish={(geometry) => onDrawFinish?.(geometry)}
+            onEditChange={(geometry) => onDrawEditChange?.(geometry)}
+          />
+        )}
       </MapGL>
       <DropdownMenu
         modal

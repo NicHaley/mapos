@@ -8,6 +8,7 @@ import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
+import type { Geometry } from "geojson";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import MapView, {
   type PlaceRecord,
   type SelectionPulseAnchor
 } from "./components/map-view";
+import { DrawToolbar } from "./components/map/draw-toolbar";
 import { MapControls } from "./components/map/map-controls";
 import type { UserLocation } from "./components/map/user-location-layer";
 import { NavTabs } from "./components/nav-tabs";
@@ -41,8 +43,9 @@ import { usePlacesWatcher } from "./hooks/use-places-watcher";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import { useVaultRoot } from "./hooks/use-vault-root";
+import type { DrawSession, DrawShape } from "./lib/draw";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
-import { geometryJsonToCreateArgs } from "./lib/geometry-wkt";
+import { geometryJsonToCreateArgs, geometryJsonToWkt } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
 import { waypointFromPlace } from "./lib/place-waypoint";
 import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./lib/wikilinks";
@@ -1122,18 +1125,24 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson, handleSelectPlaceFromSidebar]
   );
 
-  const commitVaultPointLocation = useCallback(
-    async (filePath: string, lat: number, lng: number): Promise<boolean> => {
-      const wkt = `POINT(${lng} ${lat})`;
+  /** Persist any supported geometry to a place file's `geometry` frontmatter.
+   *  `fit` recenters the map on the result — wanted when the geometry came from a
+   *  search result, not when the user just drew it and is already looking at it. */
+  const commitVaultGeometry = useCallback(
+    async (filePath: string, geometryJson: string, opts?: { fit?: boolean }): Promise<boolean> => {
+      const wkt = geometryJsonToWkt(geometryJson);
+      if (!wkt) {
+        console.error("[commit geometry] unsupported geometry", geometryJson.slice(0, 120));
+        return false;
+      }
       const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", wkt);
       if (!write.success) {
-        console.error("[commit location]", write.error);
+        console.error("[commit geometry]", write.error);
         return false;
       }
       // `places.getByPath` reads the in-memory index updated by the file watcher, which uses
       // awaitWriteFinish — so it is often still stale immediately after a write. Merge the
       // geometry we know we just persisted instead of trusting getByPath alone.
-      const geometryJson = JSON.stringify({ type: "Point", coordinates: [lng, lat] });
       const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
       const updated: PlaceRecord = {
         ...(fromIndex ?? {
@@ -1147,10 +1156,21 @@ function App(): React.JSX.Element {
       setSelectionPulseAnchor(null);
       setSelectedPlace(updated);
       dispatchNav({ type: "update-entry", filePath: updated.filePath, place: updated });
-      mapRef.current?.fitToPlace(updated, getMapPadding(placeMode === "full"));
+      if (opts?.fit !== false) {
+        mapRef.current?.fitToPlace(updated, getMapPadding(placeMode === "full"));
+      } else {
+        // No camera move, but the folder layer still holds the pre-write geometry.
+        mapRef.current?.invalidateFolderPlace(filePath);
+      }
       return true;
     },
     [getMapPadding, placeMode, dispatchNav]
+  );
+
+  const commitVaultPointLocation = useCallback(
+    (filePath: string, lat: number, lng: number): Promise<boolean> =>
+      commitVaultGeometry(filePath, JSON.stringify({ type: "Point", coordinates: [lng, lat] })),
+    [commitVaultGeometry]
   );
 
   const clearVaultPointLocation = useCallback(
@@ -1178,6 +1198,67 @@ function App(): React.JSX.Element {
     },
     [dispatchNav]
   );
+
+  // Map drawing. The session names the file it will write to; `editedGeometry` is
+  // the unsaved result of a "select" session, which (unlike drawing) has no moment
+  // the user's intent is complete, so it is held here until they press Save.
+  const [drawSession, setDrawSession] = useState<DrawSession | null>(null);
+  const [editedGeometry, setEditedGeometry] = useState<string | null>(null);
+
+  const startDrawing = useCallback((filePath: string, shape: DrawShape) => {
+    setEditedGeometry(null);
+    setDrawSession({ filePath, mode: shape });
+  }, []);
+
+  const startEditingGeometry = useCallback((filePath: string, geometry: string) => {
+    setEditedGeometry(null);
+    setDrawSession({ filePath, mode: "select", initialGeometry: geometry });
+  }, []);
+
+  const cancelDrawing = useCallback(() => {
+    setDrawSession(null);
+    setEditedGeometry(null);
+  }, []);
+
+  const handleDrawFinish = useCallback(
+    (geometry: Geometry) => {
+      const target = drawSession?.filePath;
+      if (!target) return;
+      setDrawSession(null);
+      setEditedGeometry(null);
+      // fit: false — the shape was just drawn in view; moving the camera under the
+      // user at the moment they finish reads as the app losing their work.
+      void commitVaultGeometry(target, JSON.stringify(geometry), { fit: false });
+    },
+    [drawSession, commitVaultGeometry]
+  );
+
+  const saveEditedGeometry = useCallback(() => {
+    const target = drawSession?.filePath;
+    if (!target || !editedGeometry) return;
+    setDrawSession(null);
+    setEditedGeometry(null);
+    void commitVaultGeometry(target, editedGeometry, { fit: false });
+  }, [drawSession, editedGeometry, commitVaultGeometry]);
+
+  // Escape is the universal way out. Capture phase so it wins over the place card's
+  // own Escape handler (which would close the card and strand the session).
+  useEffect(() => {
+    if (!drawSession) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      cancelDrawing();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [drawSession, cancelDrawing]);
+
+  // Navigating away from the file being drawn on abandons the session — otherwise
+  // the next shape would land in a file the user is no longer looking at.
+  useEffect(() => {
+    if (drawSession && selectedPlace?.filePath !== drawSession.filePath) cancelDrawing();
+  }, [drawSession, selectedPlace, cancelDrawing]);
 
   /** Write a preview place (search result / overlay feature) to the vault as a new file,
    *  returning the resulting PlaceRecord. Pure file-creation: no selection or nav side
@@ -1445,8 +1526,32 @@ function App(): React.JSX.Element {
           openPlace={mapPeekPlace ? selectedPlace : null}
           userLocation={userLocation}
           directionsHighlight={activeDirectionsEntry ? directionsHighlight : null}
+          drawSession={drawSession}
+          onDrawFinish={handleDrawFinish}
+          onDrawEditChange={(geometry) => setEditedGeometry(JSON.stringify(geometry))}
         />
       </div>
+
+      {/* Draw session banner — below the top bar, centred over the map area so the
+          open panes don't cover it. */}
+      {drawSession && (
+        <div
+          className="pointer-events-none fixed z-30 flex justify-center"
+          style={{
+            top: TOP_BAR_HEIGHT + 8,
+            left:
+              (projectSidebarOpen ? projectSidebarWidth : 0) + (mainPaneOpen ? mainPaneWidth : 0),
+            right: 0
+          }}
+        >
+          <DrawToolbar
+            session={drawSession}
+            canSave={editedGeometry !== null}
+            onSave={saveEditedGeometry}
+            onCancel={cancelDrawing}
+          />
+        </div>
+      )}
 
       {/* Top bar */}
       <motion.div
@@ -1627,6 +1732,11 @@ function App(): React.JSX.Element {
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
+              onStartDrawing={startDrawing}
+              onEditGeometry={startEditingGeometry}
+              activeDrawMode={
+                drawSession?.filePath === selectedPlace.filePath ? drawSession.mode : null
+              }
               onDelete={handleDeletePlaceFile}
               onOpenFolder={handleSelectFolder}
             />
@@ -1728,6 +1838,11 @@ function App(): React.JSX.Element {
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
+              onStartDrawing={startDrawing}
+              onEditGeometry={startEditingGeometry}
+              activeDrawMode={
+                drawSession?.filePath === selectedPlace.filePath ? drawSession.mode : null
+              }
               onSaveSearchToVault={
                 selectedPlace.previewMarkdown !== undefined ? handleSaveSearchToVault : undefined
               }
@@ -1762,6 +1877,11 @@ function App(): React.JSX.Element {
               onRename={handlePlaceRename}
               onCommitPointLocation={commitVaultPointLocation}
               onClearPointLocation={clearVaultPointLocation}
+              onStartDrawing={startDrawing}
+              onEditGeometry={startEditingGeometry}
+              activeDrawMode={
+                drawSession?.filePath === mapPeekPlace.filePath ? drawSession.mode : null
+              }
               onSaveSearchToVault={
                 mapPeekPlace.previewMarkdown !== undefined ? handleSavePeekToVault : undefined
               }

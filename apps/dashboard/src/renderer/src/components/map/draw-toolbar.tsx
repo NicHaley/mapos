@@ -37,12 +37,12 @@ export function DrawToolbar({
         <span className="text-xs text-sidebar-foreground/60">{DRAW_MODE_HINTS[session.mode]}</span>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button variant="ghost" onClick={onCancel}>
           Cancel
           <Kbd>Esc</Kbd>
         </Button>
         {isEditing && (
-          <Button size="sm" disabled={!canSave} onClick={onSave}>
+          <Button disabled={!canSave} onClick={onSave}>
             Save
           </Button>
         )}

@@ -7,7 +7,7 @@
  */
 
 /** The shapes a place's geometry can be drawn with. */
-export type DrawShape = "point" | "linestring" | "polygon" | "rectangle" | "circle" | "freehand";
+export type DrawShape = "point" | "linestring" | "polygon" | "rectangle" | "circle";
 
 /** `"select"` edits existing geometry in place; every other value draws a new shape. */
 export type DrawMode = DrawShape | "select";
@@ -21,12 +21,11 @@ export type DrawSession = {
 };
 
 export const DRAW_SHAPE_LABELS: Record<DrawShape, string> = {
-  point: "Drop a point",
+  point: "Drop a pin",
   linestring: "Draw a line",
   polygon: "Draw an area",
   rectangle: "Draw a rectangle",
-  circle: "Draw a circle",
-  freehand: "Draw freehand"
+  circle: "Draw a circle"
 };
 
 /** What the map toolbar tells the user to do while a session is active. */
@@ -36,7 +35,6 @@ export const DRAW_MODE_HINTS: Record<DrawMode, string> = {
   polygon: "Click to add corners, double-click or press Enter to close the area",
   rectangle: "Click and drag to size the rectangle",
   circle: "Click the centre, then drag out the radius",
-  freehand: "Hold and drag to trace the outline",
   select: "Drag the shape or its handles, then save"
 };
 

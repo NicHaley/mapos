@@ -6,7 +6,6 @@ import {
   type HexColor,
   TerraDraw,
   TerraDrawCircleMode,
-  TerraDrawFreehandMode,
   TerraDrawLineStringMode,
   TerraDrawPointMode,
   TerraDrawPolygonMode,
@@ -103,15 +102,14 @@ export function DrawLayer({
         new TerraDrawPointMode({ styles: pointStyles }),
         new TerraDrawLineStringMode({ styles: lineStyles, showCoordinatePoints: true }),
         new TerraDrawPolygonMode({ styles: areaStyles, showCoordinatePoints: true }),
-        // These three default to "click-move" (click, move the cursor, click to
-        // finish). Press-and-drag is the more expected gesture — freehand in
-        // particular reads as tracing — so accept both.
+        // Both default to "click-move" (click, move the cursor, click to finish).
+        // Press-and-drag is the more expected gesture for a box or a radius, so
+        // accept either.
         new TerraDrawRectangleMode({
           styles: areaStyles,
           drawInteraction: "click-move-or-drag"
         }),
         new TerraDrawCircleMode({ styles: areaStyles, drawInteraction: "click-move-or-drag" }),
-        new TerraDrawFreehandMode({ styles: areaStyles, drawInteraction: "click-move-or-drag" }),
         new TerraDrawSelectMode({
           flags: SELECT_FLAGS,
           styles: {

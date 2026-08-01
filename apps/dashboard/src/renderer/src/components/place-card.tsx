@@ -63,7 +63,6 @@ import {
   FolderOpenIcon,
   ImageIcon,
   ImageOffIcon,
-  LassoSelectIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
@@ -131,8 +130,7 @@ const DRAW_OPTIONS: Array<{ shape: DrawShape; icon: typeof MapPinPlus }> = [
   { shape: "linestring", icon: SplineIcon },
   { shape: "polygon", icon: PentagonIcon },
   { shape: "rectangle", icon: SquareIcon },
-  { shape: "circle", icon: CircleIcon },
-  { shape: "freehand", icon: LassoSelectIcon }
+  { shape: "circle", icon: CircleIcon }
 ];
 
 type LoadedDoc =
@@ -1228,7 +1226,7 @@ export const PlaceCard = memo(function PlaceCard({
                                 ? "Drawing on the map…"
                                 : place.geometry
                                   ? formatGeometrySummary(place.geometry)
-                                  : "Add a feature"}
+                                  : "Add a place, line, or area"}
                           </span>
                         </button>
                       }

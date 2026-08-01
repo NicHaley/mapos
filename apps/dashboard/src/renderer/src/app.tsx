@@ -1204,6 +1204,8 @@ function App(): React.JSX.Element {
   // the user's intent is complete, so it is held here until they press Save.
   const [drawSession, setDrawSession] = useState<DrawSession | null>(null);
   const [editedGeometry, setEditedGeometry] = useState<string | null>(null);
+  /** True from a finished shape until its write lands. See `commitSessionGeometry`. */
+  const committingRef = useRef(false);
 
   const startDrawing = useCallback((filePath: string, shape: DrawShape) => {
     setEditedGeometry(null);
@@ -1216,30 +1218,56 @@ function App(): React.JSX.Element {
   }, []);
 
   const cancelDrawing = useCallback(() => {
+    // The commit owns the teardown; Escape or a navigation landing mid-write must
+    // not clear the session out from under it and re-expose the old geometry.
+    if (committingRef.current) return;
     setDrawSession(null);
     setEditedGeometry(null);
   }, []);
+
+  /**
+   * Persist a finished session's geometry, then end the session — in that order.
+   *
+   * Ending it first would drop the suppression that hides the file's previous
+   * geometry (see MapView's `editingFilePath`) while the write is still two IPC
+   * round-trips from returning, so the old shape snaps back for ~80ms before the
+   * new one replaces it. Holding the session open until the write lands keeps
+   * Terra Draw's copy of the new shape on screen across the handover instead.
+   *
+   * `committingRef` covers the same window against a second `finish` — the map is
+   * still live and in draw mode until the session actually clears.
+   */
+  const commitSessionGeometry = useCallback(
+    async (target: string, geometryJson: string) => {
+      if (committingRef.current) return;
+      committingRef.current = true;
+      try {
+        // fit: false — the shape was just drawn in view; moving the camera under the
+        // user at the moment they finish reads as the app losing their work.
+        await commitVaultGeometry(target, geometryJson, { fit: false });
+      } finally {
+        committingRef.current = false;
+        setDrawSession(null);
+        setEditedGeometry(null);
+      }
+    },
+    [commitVaultGeometry]
+  );
 
   const handleDrawFinish = useCallback(
     (geometry: Geometry) => {
       const target = drawSession?.filePath;
       if (!target) return;
-      setDrawSession(null);
-      setEditedGeometry(null);
-      // fit: false — the shape was just drawn in view; moving the camera under the
-      // user at the moment they finish reads as the app losing their work.
-      void commitVaultGeometry(target, JSON.stringify(geometry), { fit: false });
+      void commitSessionGeometry(target, JSON.stringify(geometry));
     },
-    [drawSession, commitVaultGeometry]
+    [drawSession, commitSessionGeometry]
   );
 
   const saveEditedGeometry = useCallback(() => {
     const target = drawSession?.filePath;
     if (!target || !editedGeometry) return;
-    setDrawSession(null);
-    setEditedGeometry(null);
-    void commitVaultGeometry(target, editedGeometry, { fit: false });
-  }, [drawSession, editedGeometry, commitVaultGeometry]);
+    void commitSessionGeometry(target, editedGeometry);
+  }, [drawSession, editedGeometry, commitSessionGeometry]);
 
   // Escape is the universal way out. Capture phase so it wins over the place card's
   // own Escape handler (which would close the card and strand the session).

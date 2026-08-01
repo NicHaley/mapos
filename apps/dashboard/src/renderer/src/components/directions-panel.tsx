@@ -24,6 +24,7 @@ import {
   bboxUsable,
   rejectForeignContinents
 } from "@renderer/lib/region-coverage";
+import { type RouteFrontmatter, routeIsDirty } from "@shared/route";
 import { DIRECTIONS_OVERLAY_PREFIX, type MapOverlayLayer, type PlaceRecord } from "@shared/types";
 import {
   ArrowUpDownIcon,
@@ -60,6 +61,23 @@ export type DirectionsPanelProps = {
   onRouteChange: (layer: MapOverlayLayer | null) => void;
   /** Emphasize a step's segment on the map (and, when `focus`, ease the camera to it). Null clears. */
   onHighlightSegment: (coordinates: [number, number][] | null, focus: boolean) => void;
+  /** The vault file this route saves into; null when unbound (saving creates a new place). */
+  targetFilePath?: string | null;
+  /** Title of the bound file. Null once the index has loaded means the file is gone. */
+  targetTitle?: string | null;
+  /** Whether the places index has finished loading, so a null `targetTitle` can be trusted. */
+  indexLoaded?: boolean;
+  /** The route already stored in the bound file — drives the save copy and the dirty state. */
+  savedRoute?: RouteFrontmatter | null;
+  /** Persist the route. The panel supplies the shape it is displaying; the app owns the
+   *  file writes and what happens to the tab afterwards. */
+  onSaveRoute?: (payload: {
+    stops: DirectionsWaypoint[];
+    mode: TravelMode;
+    coordinates: [number, number][];
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Which stop a map click should fill, or null when the map should select normally. */
+  onArmedStopChange?: (index: number | null) => void;
   onClose: () => void;
 };
 
@@ -142,6 +160,14 @@ type RouteState =
   | { status: "loading" }
   | {
       status: "done";
+      /**
+       * The `${stopsKey}|${mode}` this shape was computed for. The routing effect flips to
+       * `loading` in an effect — i.e. after commit — so there is a window where the stops
+       * prop is already new while these coordinates are still the previous route's. Saving
+       * in that window would write a LINESTRING that disagrees with its own `route.stops`,
+       * and both halves would look plausible forever. Save is gated on this matching.
+       */
+      key: string;
       distanceMeters: number;
       durationSeconds: number;
       maneuvers: Maneuver[];
@@ -166,6 +192,12 @@ export function DirectionsPanel({
   onChange,
   onRouteChange,
   onHighlightSegment,
+  targetFilePath = null,
+  targetTitle = null,
+  indexLoaded = true,
+  savedRoute = null,
+  onSaveRoute,
+  onArmedStopChange,
   onClose
 }: DirectionsPanelProps): React.JSX.Element {
   const packs = useRegionPacks(true);
@@ -261,6 +293,7 @@ export function DirectionsPanel({
         if (cancelled) return;
         setRoute({
           status: "done",
+          key: `${stopsKey}|${mode}`,
           distanceMeters: r.distanceMeters,
           durationSeconds: r.durationSeconds,
           maneuvers: r.maneuvers,
@@ -359,6 +392,74 @@ export function DirectionsPanel({
     setRowKeys([...rowKeys].reverse());
   };
 
+  /**
+   * The stop a map click will fill: the blank input the user focused most recently.
+   *
+   * Deliberately sticky across blur — clicking the map canvas blurs the input first, so
+   * disarming on blur would make the feature impossible. The effect below is the sole judge
+   * of whether an armed stop is really empty; it disarms when the stop has a value, whether
+   * because a pick filled it or because the focused input was never blank. Focusing another
+   * input re-targets, and unmounting clears.
+   */
+  const [armedIndex, setArmedIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (armedIndex !== null && stops[armedIndex] != null) setArmedIndex(null);
+  }, [armedIndex, stops]);
+  const onArmedStopChangeRef = useRef(onArmedStopChange);
+  onArmedStopChangeRef.current = onArmedStopChange;
+  useEffect(() => {
+    onArmedStopChangeRef.current?.(armedIndex);
+  }, [armedIndex]);
+  // Leaving the panel must not leave the map hijacking clicks for a stop that's gone.
+  useEffect(() => () => onArmedStopChangeRef.current?.(null), []);
+  /**
+   * Arm unconditionally and let the effect above decide whether the stop is actually empty.
+   *
+   * It must not read `stops[i]` here: the clear button dispatches `onSelect(null)` and then
+   * focuses the input in the same handler, so this runs a render before the cleared stop is
+   * visible in props. Checking emptiness at that moment would see the *old* value and disarm
+   * the row the user just emptied. Focusing a genuinely filled stop still disarms — it arms
+   * for one commit, then the effect clears it.
+   */
+  const armStop = (i: number): void => {
+    setArmedIndex(i);
+  };
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // A route that was saved and then edited is stale on disk. Derived rather than stored:
+  // it self-heals after an external edit and survives the remount the panel takes on every
+  // tab switch. No auto-save — the route recomputes on every stop pick, so writing on each
+  // one would spam the watcher and make an experiment impossible to abandon.
+  const dirty = routeIsDirty(savedRoute, routableStops, mode);
+  // The binding is only actionable once the index has loaded; until then a null title just
+  // means the initial scan hasn't reached the file yet, not that it's gone.
+  const targetMissing = targetFilePath != null && indexLoaded && targetTitle == null;
+  const canSave =
+    !!onSaveRoute &&
+    !saving &&
+    routableStops.length >= 2 &&
+    route.status === "done" &&
+    route.key === `${stopsKey}|${mode}` &&
+    (dirty || targetFilePath == null);
+
+  const handleSave = async (): Promise<void> => {
+    if (!onSaveRoute || route.status !== "done" || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await onSaveRoute({
+      stops: routableStops,
+      mode,
+      coordinates: route.coordinates
+    });
+    // On success the tab navigates away and this panel unmounts, so only the failure
+    // path needs to restore the button.
+    if (!result.ok) {
+      setSaveError(result.error);
+      setSaving(false);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -390,13 +491,17 @@ export function DirectionsPanel({
                   icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
                   allowCurrentLocation
+                  armed={armedIndex === 0}
+                  onFocus={() => armStop(0)}
                 />
                 <LocationInput
                   value={stops[1]}
                   onSelect={(wp) => updateStop(1, wp)}
-                  placeholder="Choose destination, or click on the map"
+                  placeholder="Choose destination"
                   icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
+                  armed={armedIndex === 1}
+                  onFocus={() => armStop(1)}
                 />
               </div>
               <Button
@@ -427,6 +532,8 @@ export function DirectionsPanel({
                   isLast={i === stops.length - 1}
                   canRemove={stops.length > 2}
                   files={files}
+                  armed={armedIndex === i}
+                  onFocus={() => armStop(i)}
                   onSelect={(wp) => updateStop(i, wp)}
                   onRemove={() => removeStop(i)}
                 />
@@ -470,8 +577,48 @@ export function DirectionsPanel({
           onStepClick={handleStepClick}
         />
       </div>
+
+      {onSaveRoute && (
+        <div className="flex shrink-0 flex-col gap-1.5 border-sidebar-border border-t p-3">
+          {saveError ? (
+            <p className="text-destructive text-xs">{saveError}</p>
+          ) : targetMissing ? (
+            <p className="text-muted-foreground text-xs">
+              The file this route was saved to is gone. Saving makes a new place.
+            </p>
+          ) : targetTitle ? (
+            <p className="truncate text-muted-foreground text-xs">
+              {savedRoute && !dirty ? `Saved to ${targetTitle}` : `Saving to ${targetTitle}`}
+            </p>
+          ) : null}
+          <Button className="h-9" disabled={!canSave} onClick={() => void handleSave()}>
+            {saving ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <RouteIcon className="size-4" />
+            )}
+            {saveLabel({ bound: targetFilePath != null && !targetMissing, savedRoute, dirty })}
+          </Button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Copy for the save button. An unbound tab creates a place; a bound one writes into the
+ *  file it is tied to, and says so once there is already a route there to replace. */
+function saveLabel({
+  bound,
+  savedRoute,
+  dirty
+}: {
+  bound: boolean;
+  savedRoute: RouteFrontmatter | null;
+  dirty: boolean;
+}): string {
+  if (!bound) return "Save as a new place";
+  if (!savedRoute) return "Save route";
+  return dirty ? "Update route" : "Route saved";
 }
 
 /** One reorderable stop row: a drag handle, a full-width location input, and a remove button. */
@@ -482,6 +629,8 @@ function StopRow({
   isLast,
   canRemove,
   files,
+  armed,
+  onFocus,
   onSelect,
   onRemove
 }: {
@@ -491,6 +640,8 @@ function StopRow({
   isLast: boolean;
   canRemove: boolean;
   files?: PlaceRecord[];
+  armed?: boolean;
+  onFocus?: () => void;
   onSelect: (wp: DirectionsWaypoint | null) => void;
   onRemove: () => void;
 }): React.JSX.Element {
@@ -528,6 +679,8 @@ function StopRow({
           icon={icon}
           files={files}
           allowCurrentLocation={isFirst}
+          armed={armed}
+          onFocus={onFocus}
         />
       </div>
       <Button
@@ -725,7 +878,9 @@ function LocationInput({
   placeholder,
   icon,
   files,
-  allowCurrentLocation
+  allowCurrentLocation,
+  armed,
+  onFocus
 }: {
   value: DirectionsWaypoint | null;
   onSelect: (wp: DirectionsWaypoint | null) => void;
@@ -733,11 +888,15 @@ function LocationInput({
   icon: React.ReactNode;
   files?: PlaceRecord[];
   allowCurrentLocation?: boolean;
+  /** This stop is the one a map click will fill — ringed so the target is unambiguous. */
+  armed?: boolean;
+  onFocus?: () => void;
 }): React.JSX.Element {
   const [query, setQuery] = useState(value?.label ?? "");
   const [results, setResults] = useState<GeocodeSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const debounced = useDebounce(query, 300);
   const { getViewportBBox } = useMapViewport();
   const vaultRoot = useVaultRoot();
@@ -835,7 +994,13 @@ function LocationInput({
         <span className="pointer-events-none absolute top-1/2 left-2.5 z-10 -translate-y-1/2 text-muted-foreground">
           {icon}
         </span>
-        <ComboboxInput placeholder={placeholder} autoComplete="off" className="px-8" />
+        <ComboboxInput
+          ref={inputRef}
+          placeholder={placeholder}
+          autoComplete="off"
+          className={cn("px-8", armed && "ring-2 ring-ring")}
+          onFocus={onFocus}
+        />
         <div className="absolute top-1/2 right-1 -translate-y-1/2">
           {locating ? (
             <Loader2Icon className="size-4 shrink-0 animate-spin opacity-60" />
@@ -847,6 +1012,9 @@ function LocationInput({
               onClick={() => {
                 setQuery("");
                 onSelect(null);
+                // Clearing is a step towards re-picking, so leave the caret where the user
+                // will type next — and the focus re-arms the row for a map click.
+                inputRef.current?.focus();
               }}
             >
               <XIcon className="size-3.5" />

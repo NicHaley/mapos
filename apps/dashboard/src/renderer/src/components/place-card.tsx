@@ -52,6 +52,7 @@ import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
+import type { RouteFrontmatter } from "@shared/route";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -105,8 +106,15 @@ const EMPTY_KEY_TYPES: Array<{ key: string; type: PropertyType }> = [];
 
 /** The trigger's label once the place has geometry: coordinates for a point, the
  *  shape's name otherwise (there is nothing that short and useful to say about a ring). */
-function formatGeometrySummary(geometryJson: string | undefined): string {
+function formatGeometrySummary(
+  geometryJson: string | undefined,
+  savedRoute: RouteFrontmatter | null
+): string {
   if (!geometryJson) return "";
+  // A route's shape is a LineString, so without this it would read as a plain "Line".
+  if (savedRoute) {
+    return `Route · ${savedRoute.stops.length} stops`;
+  }
   try {
     const geo = JSON.parse(geometryJson) as {
       type: string;
@@ -471,6 +479,8 @@ export const PlaceCard = memo(function PlaceCard({
   onClearPointLocation,
   onStartDrawing,
   onEditGeometry,
+  onPlanRoute,
+  savedRoute = null,
   activeDrawMode = null,
   onRename,
   onDelete,
@@ -498,6 +508,11 @@ export const PlaceCard = memo(function PlaceCard({
   onStartDrawing?: (filePath: string, shape: DrawShape) => void;
   /** Edit the file's existing geometry on the map. Receives its GeoJSON JSON string. */
   onEditGeometry?: (filePath: string, geometry: string) => void;
+  /** Open a directions tab bound to this file, so its route saves back here. */
+  onPlanRoute?: (filePath: string) => void;
+  /** This file's saved route. Resolve it from the places index, not from `place` — records
+   *  built by a map click come from SQLite rows and never carry one. */
+  savedRoute?: RouteFrontmatter | null;
   /** The mode of the draw session running against this file, if any. */
   activeDrawMode?: DrawMode | null;
   /** Called after a successful file rename with the old and new paths. */
@@ -792,6 +807,11 @@ export const PlaceCard = memo(function PlaceCard({
     setLocationMenuOpen(false);
     onEditGeometry?.(currentFilePath, place.geometry);
   }, [currentFilePath, place.geometry, onEditGeometry]);
+
+  const handlePlanRoute = useCallback(() => {
+    setLocationMenuOpen(false);
+    onPlanRoute?.(currentFilePath);
+  }, [currentFilePath, onPlanRoute]);
 
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
@@ -1225,7 +1245,7 @@ export const PlaceCard = memo(function PlaceCard({
                               : activeDrawMode
                                 ? "Drawing on the map…"
                                 : place.geometry
-                                  ? formatGeometrySummary(place.geometry)
+                                  ? formatGeometrySummary(place.geometry, savedRoute)
                                   : "Add a place, line, or area"}
                           </span>
                         </button>
@@ -1241,17 +1261,19 @@ export const PlaceCard = memo(function PlaceCard({
                         <SearchIcon />
                         Search for a location
                       </DropdownMenuItem>
-                      {onStartDrawing && (
-                        <>
-                          <DropdownMenuSeparator />
-                          {/* Routes join this list once a route can be persisted in a file. */}
-                          {DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
-                            <DropdownMenuItem key={shape} onClick={() => handleStartDrawing(shape)}>
-                              <Icon />
-                              {DRAW_SHAPE_LABELS[shape]}
-                            </DropdownMenuItem>
-                          ))}
-                        </>
+                      {(onStartDrawing || onPlanRoute) && <DropdownMenuSeparator />}
+                      {onStartDrawing &&
+                        DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
+                          <DropdownMenuItem key={shape} onClick={() => handleStartDrawing(shape)}>
+                            <Icon />
+                            {DRAW_SHAPE_LABELS[shape]}
+                          </DropdownMenuItem>
+                        ))}
+                      {onPlanRoute && (
+                        <DropdownMenuItem onClick={handlePlanRoute}>
+                          <RouteIcon />
+                          {savedRoute ? "Edit route" : "Plan a route"}
+                        </DropdownMenuItem>
                       )}
                       {place.geometry && (onEditGeometry || onClearPointLocation) && (
                         <DropdownMenuSeparator />

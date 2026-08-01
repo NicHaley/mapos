@@ -48,12 +48,14 @@ import {
   overlayFillPaint,
   overlayLinePaint,
   routeLinePaint,
+  routeStopPaint,
   selectedCirclePaint,
   selectedFillOutlinePaint,
   selectedFillPaint,
   selectedLinePaint
 } from "@renderer/lib/map-styles";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
+import type { RouteStop } from "@shared/route";
 import type { Geometry } from "geojson";
 import { SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
@@ -119,6 +121,8 @@ function parseGeometry(geometryJson: string): GeoJSONGeometry {
 }
 
 const EMPTY_LAYERS: MapOverlayLayer[] = [];
+/** Stable identity so the default doesn't retrigger the stops memo every render. */
+const EMPTY_ROUTE_STOPS: RouteStop[] = [];
 
 /** Features other than the focused one (the hovered chat row) dim to this. */
 const UNFOCUSED_OPACITY = 0.3;
@@ -470,6 +474,10 @@ const MapView = forwardRef<
     presentedPlaces?: PlaceRecord[];
     /** The still-open file while a map peek is active: rendered in the selected style, but without the pulse. */
     openPlace?: PlaceRecord | null;
+    /** Stops of the selected/open place's saved route, drawn along its line. Resolved by the
+     *  parent through the places index — a PlaceRecord from a map click is built from a
+     *  SQLite row and never carries its route. */
+    routeStops?: RouteStop[];
     /** The user's current position (from the top-bar locate control); drawn as a dot + accuracy ring. */
     userLocation?: UserLocation | null;
     /** Coordinates of the directions step currently hovered/selected, drawn as an emphasized
@@ -499,6 +507,7 @@ const MapView = forwardRef<
     linkedPlaces = [],
     presentedPlaces = [],
     openPlace = null,
+    routeStops = EMPTY_ROUTE_STOPS,
     userLocation = null,
     directionsHighlight = null,
     drawSession = null,
@@ -1076,6 +1085,22 @@ const MapView = forwardRef<
     }
   }, [selectedPlace, openPlace, editingFilePath, toFeature]);
 
+  /** The selected route's stops. Suppressed with the rest of the file's rendering while a
+   *  draw session is about to replace its geometry — otherwise the line disappears for the
+   *  session but its stops stay behind, reading as a second, stranded feature. */
+  const routeStopsGeoJSON = useMemo(() => {
+    if (routeStops.length === 0) return null;
+    if (selectedPlace?.filePath === editingFilePath) return null;
+    return {
+      type: "FeatureCollection" as const,
+      features: routeStops.map((s) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
+        properties: {}
+      }))
+    };
+  }, [routeStops, selectedPlace?.filePath, editingFilePath]);
+
   /** Anchor position: Points use geometry; lines/polygons anchor where the user clicked. */
   const selectionAnchorGeoJSON = useMemo((): SelectionAnchorGeoJSON | null => {
     if (!selectedPlace?.geometry) return null;
@@ -1486,6 +1511,12 @@ const MapView = forwardRef<
               }
               paint={selectedCirclePaint(featureColor)}
             />
+          </Source>
+        )}
+        {/* After the selected source so the stops sit on top of their own route line. */}
+        {routeStopsGeoJSON && (
+          <Source id="route-stops-geojson" type="geojson" data={routeStopsGeoJSON}>
+            <Layer id="route-stops" type="circle" paint={routeStopPaint(featureColor)} />
           </Source>
         )}
         {augmentedGeoJsonLayers.map(({ sourceId, data }) => (

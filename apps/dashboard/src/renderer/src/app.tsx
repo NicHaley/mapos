@@ -5,6 +5,7 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
+import { type RouteFrontmatter, defaultRouteTitle } from "@shared/route";
 import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
@@ -44,6 +45,7 @@ import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import { useVaultRoot } from "./hooks/use-vault-root";
 import type { DrawSession, DrawShape } from "./lib/draw";
+import { formatLatLng } from "./lib/format";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs, geometryJsonToWkt } from "./lib/geometry-wkt";
 import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
@@ -406,7 +408,11 @@ function App(): React.JSX.Element {
 
   const isFullscreen = useFullscreen();
 
-  const placesByPath = usePlacesIndex();
+  const { byPath: placesByPath, loaded: placesIndexLoaded } = usePlacesIndex();
+  // Read inside callbacks that must not churn identity when the index updates — the Map
+  // is replaced on every file change, and these callbacks are passed deep into the tree.
+  const placesByPathRef = useRef(placesByPath);
+  placesByPathRef.current = placesByPath;
 
   /** A new overlay layer arrived (agent present_features, or a user search). It always
    *  becomes a list ("working set") tab whose layer rides in the nav entry — drawn only
@@ -447,6 +453,9 @@ function App(): React.JSX.Element {
 
   /** The active directions tab entry (null unless one is active) — drives the panel. */
   const activeDirectionsEntry = activeNavEntry?.kind === "directions" ? activeNavEntry : null;
+  // Read by the map-pick handlers, which must not churn identity when stops change.
+  const activeDirectionsEntryRef = useRef(activeDirectionsEntry);
+  activeDirectionsEntryRef.current = activeDirectionsEntry;
 
   /** The computed route overlay, only while a directions tab is active. */
   const activeDirectionsRoute = activeDirectionsEntry ? directionsRouteLayer : null;
@@ -525,16 +534,22 @@ function App(): React.JSX.Element {
    *  destination). When the first stop is null, default it to the user's current location
    *  (left blank if unavailable) — the app's Get-directions behavior. */
   const openDirectionsTab = useCallback(
-    (stops: (DirectionsWaypoint | null)[], mode: TravelMode) => {
+    (
+      stops: (DirectionsWaypoint | null)[],
+      mode: TravelMode,
+      opts?: { targetFilePath?: string; label?: string }
+    ) => {
+      const id = crypto.randomUUID();
       const open = (resolvedStops: (DirectionsWaypoint | null)[]): void => {
         dispatchNav({
           type: "navigate",
           entry: {
             kind: "directions",
-            id: crypto.randomUUID(),
-            label: "Directions",
+            id,
+            label: opts?.label ?? "Directions",
             stops: resolvedStops,
-            mode
+            mode,
+            targetFilePath: opts?.targetFilePath
           },
           newTab: true,
           activate: true
@@ -562,17 +577,23 @@ function App(): React.JSX.Element {
           );
         }
       };
-      if (stops[0]) {
-        open(stops);
-        return;
-      }
+      open(stops);
+      // Fill a blank origin with the current location, but never block the tab on it:
+      // getCurrentPosition can take its full 10s timeout, and a menu item that does
+      // nothing for ten seconds reads as broken. The stops update in place when it lands.
+      if (stops[0]) return;
       navigator.geolocation.getCurrentPosition(
         (pos) =>
-          open([
-            { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" },
-            ...stops.slice(1)
-          ]),
-        () => open(stops),
+          dispatchNav({
+            type: "update-directions",
+            id,
+            stops: [
+              { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" },
+              ...stops.slice(1)
+            ],
+            mode
+          }),
+        () => {},
         { enableHighAccuracy: true, timeout: 10000 }
       );
     },
@@ -586,6 +607,170 @@ function App(): React.JSX.Element {
       if (destination) openDirectionsTab([null, destination], "auto");
     },
     [openDirectionsTab]
+  );
+
+  /** The directions stop a map click should fill: `{ tab id, stop index }`, or null when the
+   *  map selects normally. Lifted from DirectionsPanel, which arms a stop when its blank
+   *  input is focused. */
+  const [armedStop, setArmedStop] = useState<{ id: string; index: number } | null>(null);
+  const armedStopRef = useRef(armedStop);
+  armedStopRef.current = armedStop;
+
+  /**
+   * Route a map pick into the armed directions stop. Returns true when it consumed the
+   * click, so the caller skips its normal selection behaviour — the same shape as the
+   * draw session's guard in MapView.
+   */
+  const fillArmedStop = useCallback(
+    (waypoint: DirectionsWaypoint): boolean => {
+      const armed = armedStopRef.current;
+      const entry = activeDirectionsEntryRef.current;
+      if (!armed || !entry || entry.id !== armed.id) return false;
+      if (armed.index >= entry.stops.length) return false;
+      dispatchNav({
+        type: "update-directions",
+        id: entry.id,
+        stops: entry.stops.map((s, i) => (i === armed.index ? waypoint : s)),
+        mode: entry.mode
+      });
+      setArmedStop(null);
+      return true;
+    },
+    [dispatchNav]
+  );
+
+  /** "Plan a route" / "Edit route" on a place card: open a directions tab that saves back
+   *  into this file, pre-filled from its saved route when it has one. */
+  const handlePlanRoute = useCallback(
+    (filePath: string) => {
+      // One editor per file. Two tabs bound to the same path is trivially reachable
+      // (open the file, Edit route, back, Edit route) and the second would silently
+      // overwrite whatever the first saved.
+      const existing = nav.tabs.findIndex((tab) => {
+        const entry = tab.history[tab.cursor];
+        return entry.kind === "directions" && entry.targetFilePath === filePath;
+      });
+      if (existing >= 0) {
+        handleNavTabActivate(existing);
+        return;
+      }
+      const place = placesByPath.get(filePath);
+      const saved = place?.route ?? null;
+      // A blank plan starts empty rather than seeded with this file's own point — that
+      // would ask the user to route to their destination from their destination, and the
+      // point is about to be replaced by the route's line anyway.
+      const stops: (DirectionsWaypoint | null)[] = saved
+        ? saved.stops.map((s) => ({ lat: s.lat, lng: s.lng, label: s.label }))
+        : [null, null];
+      openDirectionsTab(stops, saved?.mode ?? "auto", {
+        targetFilePath: filePath,
+        label: place?.title ?? (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, "")
+      });
+    },
+    [nav.tabs, placesByPath, handleNavTabActivate, openDirectionsTab]
+  );
+
+  /** True from a save until the write lands — the unbound branch is three IPC round-trips,
+   *  so an unguarded double-click would create two near-identically named files. */
+  const savingRouteRef = useRef(false);
+
+  /** Persist a directions tab's route. Bound tabs write into their file; unbound ones
+   *  create a place and then bind to it, so saving again updates instead of duplicating. */
+  const handleSaveRoute = useCallback(
+    async (
+      entry: Extract<NavEntry, { kind: "directions" }>,
+      payload: {
+        stops: DirectionsWaypoint[];
+        mode: TravelMode;
+        coordinates: [number, number][];
+      }
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (savingRouteRef.current) return { ok: false, error: "Already saving" };
+      const geometryJson = JSON.stringify({
+        type: "LineString",
+        coordinates: payload.coordinates
+      });
+      const wkt = geometryJsonToWkt(geometryJson);
+      if (!wkt) return { ok: false, error: "This route can’t be saved as a shape" };
+      const route: RouteFrontmatter = {
+        mode: payload.mode,
+        stops: payload.stops.map((s) => ({ label: s.label, lat: s.lat, lng: s.lng }))
+      };
+      // The binding is trusted as-is; the write is what actually proves the file is there.
+      // A getByPath pre-check would also report null for a `type: collection` note, which
+      // exists perfectly well.
+      const target = entry.targetFilePath ?? null;
+
+      savingRouteRef.current = true;
+      try {
+        let filePath: string;
+        if (target) {
+          // One call, not two: a second write would re-read the file and can race the
+          // first's awaitWriteFinish debounce.
+          const write = await window.api.fs.writeFrontmatterProperties(target, {
+            geometry: wkt,
+            route
+          });
+          if (!write.success) {
+            return { ok: false, error: write.error ?? "Couldn’t save to that file" };
+          }
+          filePath = target;
+        } else {
+          const create = await window.api.fs.createNoteFile({
+            parentFolderPath: parentFolderForNewFiles,
+            geometryWkt: wkt,
+            includePlaceFrontmatterDefaults: false
+          });
+          if (!create.success)
+            return { ok: false, error: create.error ?? "Couldn’t create a file" };
+          const renamed = await renameCreatedPlaceToSlug(
+            create.filePath,
+            filenameBaseFromPlaceTitle(defaultRouteTitle(route.stops))
+          );
+          if (!renamed.ok) return { ok: false, error: renamed.error ?? "Couldn’t name the file" };
+          const write = await window.api.fs.writeFrontmatterProperties(renamed.filePath, { route });
+          if (!write.success) return { ok: false, error: write.error ?? "Couldn’t save the stops" };
+          filePath = renamed.filePath;
+        }
+
+        // Same staleness dance as commitVaultGeometry: the watcher debounces, so merge in
+        // what we know we just wrote rather than trusting getByPath alone.
+        const fromIndex = (await window.api.places.getByPath(filePath)) ?? null;
+        const saved: PlaceRecord = {
+          ...(fromIndex ?? {
+            filePath,
+            title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
+            type: "place"
+          }),
+          geometry: geometryJson,
+          route
+        };
+        if (!target) {
+          dispatchNav({
+            type: "bind-directions",
+            id: entry.id,
+            targetFilePath: filePath,
+            label: saved.title
+          });
+        }
+        dispatchNav({ type: "update-entry", filePath, place: saved });
+        mapRef.current?.invalidateFolderPlace(filePath);
+        // Navigate in place rather than closing the tab: the directions entry stays behind
+        // in history, so Back returns to the editor with the stops intact.
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+        setSelectedFolder(null);
+        setFeatureScreenPos(null);
+        setSelectedPlace(saved);
+        setPlaceMode("full");
+        dispatchNav({ type: "navigate", entry: { kind: "place", place: saved }, newTab: false });
+        mapRef.current?.fitToPlace(saved, getMapPadding(true));
+        return { ok: true };
+      } finally {
+        savingRouteRef.current = false;
+      }
+    },
+    [dispatchNav, getMapPadding, parentFolderForNewFiles]
   );
 
   /** Click a list row: for a point, open the mini place card over its marker (same as
@@ -652,6 +837,14 @@ function App(): React.JSX.Element {
   /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
    * live index. They may lie outside the selected folder, so the map draws them
    * alongside the overlay layers they arrived with. */
+  /** Stops of the selected place's saved route, for the map. Resolved through the index
+   *  because `selectedPlace` may have come from a map click, and those records are built
+   *  from SQLite rows that never carry a route. */
+  const selectedRouteStops = useMemo(
+    () => (selectedPlace ? (placesByPath.get(selectedPlace.filePath)?.route?.stops ?? []) : []),
+    [selectedPlace, placesByPath]
+  );
+
   const presentedPlaces = useMemo(() => {
     const seen = new Set<string>();
     const places: PlaceRecord[] = [];
@@ -836,6 +1029,12 @@ function App(): React.JSX.Element {
   // Map feature click — mini card, or peek mini while full panel stays open
   const handleSelectPlaceFromMap = useCallback(
     (place: PlaceRecord, meta?: MapSelectPlaceMeta) => {
+      // A blank directions stop is waiting for a pick: clicking a feature fills it with
+      // that place rather than opening its card. Falls through for a place with no
+      // derivable point (a geometry-less note), which can't be an endpoint.
+      const asWaypoint = waypointFromPlace(place);
+      if (asWaypoint && fillArmedStop(asWaypoint)) return;
+
       const useClickPulse =
         Boolean(meta?.mapClickLngLat) && geometryUsesMapClickPulseAnchor(place.geometry);
       if (useClickPulse && meta?.mapClickLngLat) {
@@ -864,7 +1063,7 @@ function App(): React.JSX.Element {
       setPlaceMode("mini");
       setFeatureScreenPos(null);
     },
-    [placeMode]
+    [placeMode, fillArmedStop]
   );
 
   // Sidebar file click — navigate within active tab (or background tab on cmd/ctrl+click)
@@ -1125,6 +1324,15 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson, handleSelectPlaceFromSidebar]
   );
 
+  /** Add `route: null` to a frontmatter write when the file has a saved route to drop.
+   *  Conditional on purpose: the key must be absent, not undefined, when there is nothing
+   *  to clear (see fs:write-frontmatter-properties — undefined deletes too). */
+  const withRouteCleared = useCallback(
+    (filePath: string, properties: Record<string, unknown>): Record<string, unknown> =>
+      placesByPathRef.current.get(filePath)?.route ? { ...properties, route: null } : properties,
+    []
+  );
+
   /** Persist any supported geometry to a place file's `geometry` frontmatter.
    *  `fit` recenters the map on the result — wanted when the geometry came from a
    *  search result, not when the user just drew it and is already looking at it. */
@@ -1135,7 +1343,14 @@ function App(): React.JSX.Element {
         console.error("[commit geometry] unsupported geometry", geometryJson.slice(0, 120));
         return false;
       }
-      const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", wkt);
+      const write = await window.api.fs.writeFrontmatterProperties(
+        filePath,
+        // Reshaping the geometry orphans a saved route: its stops would still describe the
+        // old trip. Only include the key when there is one to drop — writeFrontmatterProperties
+        // deletes on `undefined` exactly as it does on `null`, so a bare `route: undefined`
+        // would delete unconditionally.
+        withRouteCleared(filePath, { geometry: wkt })
+      );
       if (!write.success) {
         console.error("[commit geometry]", write.error);
         return false;
@@ -1164,7 +1379,7 @@ function App(): React.JSX.Element {
       }
       return true;
     },
-    [getMapPadding, placeMode, dispatchNav]
+    [getMapPadding, placeMode, dispatchNav, withRouteCleared]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -1175,7 +1390,10 @@ function App(): React.JSX.Element {
 
   const clearVaultPointLocation = useCallback(
     async (filePath: string): Promise<boolean> => {
-      const write = await window.api.fs.writeFrontmatterProperty(filePath, "geometry", null);
+      const write = await window.api.fs.writeFrontmatterProperties(
+        filePath,
+        withRouteCleared(filePath, { geometry: null })
+      );
       if (!write.success) {
         console.error("[clear location]", write.error);
         return false;
@@ -1196,7 +1414,7 @@ function App(): React.JSX.Element {
       mapRef.current?.invalidateFolderPlace(filePath);
       return true;
     },
-    [dispatchNav]
+    [dispatchNav, withRouteCleared]
   );
 
   // Map drawing. The session names the file it will write to; `editedGeometry` is
@@ -1508,16 +1726,23 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson]
   );
 
-  const handleMapClickEmpty = useCallback(() => {
-    if (isMini) {
-      clearPlace();
-      return;
-    }
-    if (mapPeekPlace) {
-      setMapPeekPlace(null);
-      setSelectionPulseAnchor(null);
-    }
-  }, [isMini, mapPeekPlace, clearPlace]);
+  const handleMapClickEmpty = useCallback(
+    (pos: { lng: number; lat: number }) => {
+      // A blank stop is waiting for a map pick — that wins over clearing the selection.
+      if (fillArmedStop({ lat: pos.lat, lng: pos.lng, label: formatLatLng(pos.lat, pos.lng) })) {
+        return;
+      }
+      if (isMini) {
+        clearPlace();
+        return;
+      }
+      if (mapPeekPlace) {
+        setMapPeekPlace(null);
+        setSelectionPulseAnchor(null);
+      }
+    },
+    [isMini, mapPeekPlace, clearPlace, fillArmedStop]
+  );
 
   /** Sidebar tree highlight: follow the active tab's place, not `selectedPlace` (Photon replaces that in mini mode). */
   const selectedFilePathForSidebar = useMemo(() => {
@@ -1538,7 +1763,7 @@ function App(): React.JSX.Element {
           ref={mapRef}
           onSelectPlace={handleSelectPlaceFromMap}
           onCreatePlace={handleCreatePlace}
-          onMapClickEmpty={isMini || mapPeekPlace ? handleMapClickEmpty : undefined}
+          onMapClickEmpty={isMini || mapPeekPlace || armedStop ? handleMapClickEmpty : undefined}
           selectedPlace={placeForMapHighlight}
           selectedFolder={selectedFolder}
           parentFolderForNewFiles={parentFolderForNewFiles}
@@ -1552,6 +1777,7 @@ function App(): React.JSX.Element {
           linkedPlaces={linkedPlaces}
           presentedPlaces={presentedPlaces}
           openPlace={mapPeekPlace ? selectedPlace : null}
+          routeStops={selectedRouteStops}
           userLocation={userLocation}
           directionsHighlight={activeDirectionsEntry ? directionsHighlight : null}
           drawSession={drawSession}
@@ -1762,6 +1988,8 @@ function App(): React.JSX.Element {
               onClearPointLocation={clearVaultPointLocation}
               onStartDrawing={startDrawing}
               onEditGeometry={startEditingGeometry}
+              onPlanRoute={handlePlanRoute}
+              savedRoute={placesByPath.get(selectedPlace.filePath)?.route ?? null}
               activeDrawMode={
                 drawSession?.filePath === selectedPlace.filePath ? drawSession.mode : null
               }
@@ -1833,6 +2061,22 @@ function App(): React.JSX.Element {
               }
               onRouteChange={handleDirectionsRouteChange}
               onHighlightSegment={handleDirectionsHighlight}
+              targetFilePath={activeDirectionsEntry.targetFilePath ?? null}
+              targetTitle={
+                activeDirectionsEntry.targetFilePath
+                  ? (placesByPath.get(activeDirectionsEntry.targetFilePath)?.title ?? null)
+                  : null
+              }
+              indexLoaded={placesIndexLoaded}
+              savedRoute={
+                activeDirectionsEntry.targetFilePath
+                  ? (placesByPath.get(activeDirectionsEntry.targetFilePath)?.route ?? null)
+                  : null
+              }
+              onSaveRoute={(payload) => handleSaveRoute(activeDirectionsEntry, payload)}
+              onArmedStopChange={(index) =>
+                setArmedStop(index === null ? null : { id: activeDirectionsEntry.id, index })
+              }
               onClose={() => handleNavTabClose(activeTabIndex)}
             />
             <ResizeHandle
@@ -1868,6 +2112,8 @@ function App(): React.JSX.Element {
               onClearPointLocation={clearVaultPointLocation}
               onStartDrawing={startDrawing}
               onEditGeometry={startEditingGeometry}
+              onPlanRoute={handlePlanRoute}
+              savedRoute={placesByPath.get(selectedPlace.filePath)?.route ?? null}
               activeDrawMode={
                 drawSession?.filePath === selectedPlace.filePath ? drawSession.mode : null
               }
@@ -1907,6 +2153,8 @@ function App(): React.JSX.Element {
               onClearPointLocation={clearVaultPointLocation}
               onStartDrawing={startDrawing}
               onEditGeometry={startEditingGeometry}
+              onPlanRoute={handlePlanRoute}
+              savedRoute={placesByPath.get(mapPeekPlace.filePath)?.route ?? null}
               activeDrawMode={
                 drawSession?.filePath === mapPeekPlace.filePath ? drawSession.mode : null
               }

@@ -131,6 +131,18 @@ export function routeLinePaint(
   return { "line-color": color, "line-width": 4, "line-opacity": opacity };
 }
 
+/** The stops of a *saved* route, drawn along its selected line so it reads as a trip rather
+ * than a hand-drawn squiggle. Deliberately smaller than a place marker — these are part of
+ * one feature, not places in their own right, and they aren't clickable. */
+export function routeStopPaint(color: string): CircleLayerSpecification["paint"] {
+  return {
+    "circle-radius": 4,
+    "circle-color": "#ffffff",
+    "circle-stroke-color": color,
+    "circle-stroke-width": 2.5
+  };
+}
+
 // --- Ephemeral point: the "poker chip" icon --------------------------------------------------
 //
 // The WebGL twin of the HTML SelectionMarker chip (accent disk, dashed white rim). Rasterized

@@ -13,6 +13,7 @@ import { basename, dirname, extname, join, relative, sep } from "node:path";
 import chokidar from "chokidar";
 import { ipcMain, shell } from "electron";
 import matter from "gray-matter";
+import { parseRouteFrontmatter } from "../shared/route";
 import type { PlaceRecord } from "../shared/types";
 import { RESERVED_PROPERTY_KEYS, SERVABLE_IMAGE_EXTENSIONS } from "../shared/types";
 import { readVaultAppearance, writeVaultAppearance } from "./appearance";
@@ -192,6 +193,9 @@ function placeRecordFromMatterData(
     title,
     color: typeof data.color === "string" ? data.color : undefined,
     type: (data.type as string) ?? "place",
+    // Tolerant by design: a hand-edited `route` that doesn't parse costs the route,
+    // not the place. See parseRouteFrontmatter.
+    route: parseRouteFrontmatter(data.route) ?? undefined,
     filePath
   };
 }

@@ -6,14 +6,21 @@ import type { PlaceRecord } from "../../../shared/types";
  * Subscribes to the initial dump + incremental updates so chat features and other
  * lookups can resolve a path → PlaceRecord synchronously without an IPC round-trip.
  */
-export function usePlacesIndex(): Map<string, PlaceRecord> {
+export function usePlacesIndex(): {
+  byPath: Map<string, PlaceRecord>;
+  /** False until the initial dump lands. Distinguishes "not indexed yet" from "not in the
+   *  vault" — a lookup miss means nothing until this is true. */
+  loaded: boolean;
+} {
   const [byPath, setByPath] = useState<Map<string, PlaceRecord>>(() => new Map());
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     window.api.places.onInitial((places) => {
       const next = new Map<string, PlaceRecord>();
       for (const p of places) next.set(p.filePath, p);
       setByPath(next);
+      setLoaded(true);
     });
     window.api.places.onUpdated((update) => {
       setByPath((prev) => {
@@ -26,5 +33,5 @@ export function usePlacesIndex(): Map<string, PlaceRecord> {
     window.api.places.requestInitial();
   }, []);
 
-  return byPath;
+  return { byPath, loaded };
 }

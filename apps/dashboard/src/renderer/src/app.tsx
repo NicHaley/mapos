@@ -602,10 +602,12 @@ function App(): React.JSX.Element {
     [dispatchNav, getMapPadding]
   );
 
-  /** Get-directions button on a place card: destination = the place, origin = current location. */
+  /** Get-directions button on a place card: destination = the place, origin = current location.
+   *  Index-resolved for the same reason as the armed-stop fill: the card's place may have come
+   *  from a map click, whose record carries no `route` for waypointFromPlace to reject. */
   const handleGetDirections = useCallback(
     (place: PlaceRecord) => {
-      const destination = waypointFromPlace(place);
+      const destination = waypointFromPlace(placesByPathRef.current.get(place.filePath) ?? place);
       if (destination) openDirectionsTab([null, destination], "auto");
     },
     [openDirectionsTab]
@@ -1078,8 +1080,10 @@ function App(): React.JSX.Element {
     (place: PlaceRecord, meta?: MapSelectPlaceMeta) => {
       // A blank directions stop is waiting for a pick: clicking a feature fills it with
       // that place rather than opening its card. Falls through for a place with no
-      // derivable point (a geometry-less note), which can't be an endpoint.
-      const asWaypoint = waypointFromPlace(place);
+      // derivable point (a geometry-less note, or a saved route), which can't be an
+      // endpoint. Resolved through the index first because a map click builds its record
+      // from a SQLite row, and those never carry the `route` the guard tests.
+      const asWaypoint = waypointFromPlace(placesByPathRef.current.get(place.filePath) ?? place);
       if (asWaypoint && fillArmedStop(asWaypoint)) return;
 
       const useClickPulse =
@@ -1371,15 +1375,6 @@ function App(): React.JSX.Element {
     [handleSelectGeoJson, handleSelectPlaceFromSidebar]
   );
 
-  /** Add `route: null` to a frontmatter write when the file has a saved route to drop.
-   *  Conditional on purpose: the key must be absent, not undefined, when there is nothing
-   *  to clear (see fs:write-frontmatter-properties — undefined deletes too). */
-  const withRouteCleared = useCallback(
-    (filePath: string, properties: Record<string, unknown>): Record<string, unknown> =>
-      placesByPathRef.current.get(filePath)?.route ? { ...properties, route: null } : properties,
-    []
-  );
-
   /** Persist any supported geometry to a place file's `geometry` frontmatter.
    *  `fit` recenters the map on the result — wanted when the geometry came from a
    *  search result, not when the user just drew it and is already looking at it. */
@@ -1393,10 +1388,10 @@ function App(): React.JSX.Element {
       const write = await window.api.fs.writeFrontmatterProperties(
         filePath,
         // Reshaping the geometry orphans a saved route: its stops would still describe the
-        // old trip. Only include the key when there is one to drop — writeFrontmatterProperties
-        // deletes on `undefined` exactly as it does on `null`, so a bare `route: undefined`
-        // would delete unconditionally.
-        withRouteCleared(filePath, { geometry: wkt })
+        // old trip. Sent unconditionally — deleting a key the file doesn't have is a no-op,
+        // and gating on the renderer's index copy leaves the route behind whenever that copy
+        // hasn't caught up with the file yet.
+        { geometry: wkt, route: null }
       );
       if (!write.success) {
         console.error("[commit geometry]", write.error);
@@ -1426,7 +1421,7 @@ function App(): React.JSX.Element {
       }
       return true;
     },
-    [getMapPadding, placeMode, dispatchNav, withRouteCleared]
+    [getMapPadding, placeMode, dispatchNav]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -1437,10 +1432,13 @@ function App(): React.JSX.Element {
 
   const clearVaultPointLocation = useCallback(
     async (filePath: string): Promise<boolean> => {
-      const write = await window.api.fs.writeFrontmatterProperties(
-        filePath,
-        withRouteCleared(filePath, { geometry: null })
-      );
+      // `route` goes with the geometry: its stops describe a trip the file no longer
+      // holds a shape for, and leaving the key behind keeps the stops on the map and the
+      // menu item reading "Edit route". Unconditional for the reason in commitVaultGeometry.
+      const write = await window.api.fs.writeFrontmatterProperties(filePath, {
+        geometry: null,
+        route: null
+      });
       if (!write.success) {
         console.error("[clear location]", write.error);
         return false;
@@ -1453,7 +1451,7 @@ function App(): React.JSX.Element {
           title: (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, ""),
           type: "note"
         } satisfies PlaceRecord);
-      const cleared = { ...base, geometry: undefined };
+      const cleared = { ...base, geometry: undefined, route: undefined };
       setMapPeekPlace(null);
       setSelectionPulseAnchor(null);
       setSelectedPlace(cleared);
@@ -1461,7 +1459,7 @@ function App(): React.JSX.Element {
       mapRef.current?.invalidateFolderPlace(filePath);
       return true;
     },
-    [dispatchNav, withRouteCleared]
+    [dispatchNav]
   );
 
   // Map drawing. The session names the file it will write to; `editedGeometry` is

@@ -61,7 +61,7 @@ export type DirectionsPanelProps = {
   onRouteChange: (layer: MapOverlayLayer | null) => void;
   /** Emphasize a step's segment on the map (and, when `focus`, ease the camera to it). Null clears. */
   onHighlightSegment: (coordinates: [number, number][] | null, focus: boolean) => void;
-  /** The vault file this route saves into; null when unbound (saving creates a new place). */
+  /** The vault file this route saves into; null when unbound (saving creates a new file). */
   targetFilePath?: string | null;
   /** Title of the bound file. Null once the index has loaded means the file is gone. */
   targetTitle?: string | null;
@@ -584,7 +584,7 @@ export function DirectionsPanel({
             <p className="text-destructive text-xs">{saveError}</p>
           ) : targetMissing ? (
             <p className="text-muted-foreground text-xs">
-              The file this route was saved to is gone. Saving makes a new place.
+              The file this route was saved to is gone. Saving makes a new route.
             </p>
           ) : targetTitle ? (
             <p className="truncate text-muted-foreground text-xs">
@@ -605,7 +605,7 @@ export function DirectionsPanel({
   );
 }
 
-/** Copy for the save button. An unbound tab creates a place; a bound one writes into the
+/** Copy for the save button. An unbound tab creates a file; a bound one writes into the
  *  file it is tied to, and says so once there is already a route there to replace. */
 function saveLabel({
   bound,
@@ -616,7 +616,7 @@ function saveLabel({
   savedRoute: RouteFrontmatter | null;
   dirty: boolean;
 }): string {
-  if (!bound) return "Save as a new place";
+  if (!bound) return "Save as a new route";
   if (!savedRoute) return "Save route";
   return dirty ? "Update route" : "Route saved";
 }
@@ -929,7 +929,8 @@ function LocationInput({
   }, [debounced, value?.label, getViewportBBox]);
 
   // Vault places matched instantly against the (un-debounced) query. Only places with a
-  // derivable point can be a directions endpoint, so geometry-less notes are skipped.
+  // derivable point can be a directions endpoint, so geometry-less notes and saved routes
+  // are both skipped — waypointFromPlace returns null for each.
   const needle = query.trim().toLowerCase();
   const fileOptions = useMemo<LocationOption[]>(() => {
     if (!needle || needle === value?.label?.toLowerCase() || !files) return [];

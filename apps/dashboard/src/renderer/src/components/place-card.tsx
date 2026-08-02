@@ -900,7 +900,7 @@ export const PlaceCard = memo(function PlaceCard({
   const miniActionCount =
     1 + // close (always shown)
     Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) + // save
-    Number(Boolean(onGetDirections) && Boolean(place.geometry)) + // directions
+    Number(Boolean(onGetDirections) && Boolean(place.geometry) && !savedRoute) + // directions
     Number(Boolean(onExpand)); // expand
   // Mini keeps a slightly smaller cluster since it floats over content; the
   // title's reserved padding below is `miniActionCount * MINI_ACTION_PX`.
@@ -1018,7 +1018,9 @@ export const PlaceCard = memo(function PlaceCard({
           <TooltipContent side="bottom">More actions</TooltipContent>
         </Tooltip>
       )}
-      {onGetDirections && place.geometry && (
+      {/* Not for a saved route: "directions to this trip" would route to the midpoint of
+          its own line, and the card already offers "Edit route" for the real action. */}
+      {onGetDirections && place.geometry && !savedRoute && (
         <Tooltip>
           <TooltipTrigger
             render={

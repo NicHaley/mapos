@@ -1,12 +1,22 @@
 import type { DirectionsWaypoint } from "@renderer/hooks/use-nav-tabs";
-import { isVaultFilePath } from "@renderer/lib/place-utils";
 import type { PlaceRecord } from "@shared/types";
+import { isVaultFilePath } from "./place-utils";
 
-/** A representative point for a place, for use as a directions endpoint: a Point's
- *  coordinate, a LineString's midpoint, or a Polygon's first-ring vertex average.
- *  Returns null when the geometry is missing or unparseable. */
+/**
+ * A representative point for a place, for use as a directions endpoint: a Point's
+ * coordinate, a LineString's midpoint, or a Polygon's first-ring vertex average.
+ * Returns null when the geometry is missing or unparseable.
+ *
+ * A saved route is not a destination — it is the trip between two of them, and the
+ * midpoint of its line is an arbitrary coordinate part-way along a road. Routing *to*
+ * one is never what the user meant, so it returns null too, which drops the route from
+ * every endpoint picker for free.
+ *
+ * Callers holding a record built from a SQLite row (map clicks) must resolve it through
+ * the places index first: those rows never carry `route`, so the guard can't see it.
+ */
 export function waypointFromPlace(place: PlaceRecord): DirectionsWaypoint | null {
-  if (!place.geometry) return null;
+  if (!place.geometry || place.route) return null;
   try {
     const geo = JSON.parse(place.geometry) as { type: string; coordinates: unknown };
     const label = place.title || "Selected place";

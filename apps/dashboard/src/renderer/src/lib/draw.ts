@@ -7,7 +7,7 @@
  */
 
 /** The shapes a place's geometry can be drawn with. */
-export type DrawShape = "point" | "linestring" | "polygon" | "rectangle" | "circle";
+export type DrawShape = "point" | "linestring" | "polygon";
 
 /** `"select"` edits existing geometry in place; every other value draws a new shape. */
 export type DrawMode = DrawShape | "select";
@@ -23,9 +23,7 @@ export type DrawSession = {
 export const DRAW_SHAPE_LABELS: Record<DrawShape, string> = {
   point: "Drop a pin",
   linestring: "Draw a line",
-  polygon: "Draw an area",
-  rectangle: "Draw a rectangle",
-  circle: "Draw a circle"
+  polygon: "Draw an area"
 };
 
 /** What the map toolbar tells the user to do while a session is active. */
@@ -33,12 +31,10 @@ export const DRAW_MODE_HINTS: Record<DrawMode, string> = {
   point: "Click the map to place the point",
   linestring: "Click to add points, double-click or press Enter to finish",
   polygon: "Click to add corners, double-click or press Enter to close the area",
-  rectangle: "Click and drag to size the rectangle",
-  circle: "Click the centre, then drag out the radius",
   select: "Drag the shape or its handles, then save"
 };
 
-/** Shapes that Terra Draw completes as a Polygon rather than their own geometry type. */
+/** The GeoJSON geometry type a completed draw session produces. */
 export function drawShapeGeometryType(shape: DrawShape): "Point" | "LineString" | "Polygon" {
   if (shape === "point") return "Point";
   if (shape === "linestring") return "LineString";

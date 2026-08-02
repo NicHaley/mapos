@@ -5,11 +5,9 @@ import { useMap } from "react-map-gl/maplibre";
 import {
   type HexColor,
   TerraDraw,
-  TerraDrawCircleMode,
   TerraDrawLineStringMode,
   TerraDrawPointMode,
   TerraDrawPolygonMode,
-  TerraDrawRectangleMode,
   TerraDrawSelectMode
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
@@ -102,14 +100,6 @@ export function DrawLayer({
         new TerraDrawPointMode({ styles: pointStyles }),
         new TerraDrawLineStringMode({ styles: lineStyles, showCoordinatePoints: true }),
         new TerraDrawPolygonMode({ styles: areaStyles, showCoordinatePoints: true }),
-        // Both default to "click-move" (click, move the cursor, click to finish).
-        // Press-and-drag is the more expected gesture for a box or a radius, so
-        // accept either.
-        new TerraDrawRectangleMode({
-          styles: areaStyles,
-          drawInteraction: "click-move-or-drag"
-        }),
-        new TerraDrawCircleMode({ styles: areaStyles, drawInteraction: "click-move-or-drag" }),
         new TerraDrawSelectMode({
           flags: SELECT_FLAGS,
           styles: {

@@ -59,7 +59,6 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  CircleIcon,
   EllipsisIcon,
   FolderOpenIcon,
   ImageIcon,
@@ -77,7 +76,6 @@ import {
   RouteIcon,
   SearchIcon,
   SplineIcon,
-  SquareIcon,
   Trash2Icon,
   XIcon
 } from "lucide-react";
@@ -136,9 +134,7 @@ function formatGeometrySummary(
 const DRAW_OPTIONS: Array<{ shape: DrawShape; icon: typeof MapPinPlus }> = [
   { shape: "point", icon: MapPinPlus },
   { shape: "linestring", icon: SplineIcon },
-  { shape: "polygon", icon: PentagonIcon },
-  { shape: "rectangle", icon: SquareIcon },
-  { shape: "circle", icon: CircleIcon }
+  { shape: "polygon", icon: PentagonIcon }
 ];
 
 type LoadedDoc =
@@ -680,7 +676,10 @@ export const PlaceCard = memo(function PlaceCard({
     e.target.value = "";
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const result = await window.api.fs.importAttachment({ suggestedName: file.name, bytes });
+    const result = await window.api.fs.importAttachment({
+      suggestedName: file.name,
+      bytes
+    });
     if (result.success) await applyCover(result.relPath);
   }
 
@@ -709,7 +708,12 @@ export const PlaceCard = memo(function PlaceCard({
           )
         ];
         const { type: _t, features: _f, ...properties } = data as Record<string, unknown>;
-        setDoc({ kind: "geojson-layer", properties, featureCount, geometryTypes });
+        setDoc({
+          kind: "geojson-layer",
+          properties,
+          featureCount,
+          geometryTypes
+        });
       });
       return () => {
         cancelled = true;
@@ -1246,7 +1250,7 @@ export const PlaceCard = memo(function PlaceCard({
                                 ? "Drawing on the map…"
                                 : place.geometry
                                   ? formatGeometrySummary(place.geometry, savedRoute)
-                                  : "Add a place, line, or area"}
+                                  : "Add a place, route, or area"}
                           </span>
                         </button>
                       }
@@ -1261,7 +1265,13 @@ export const PlaceCard = memo(function PlaceCard({
                         <SearchIcon />
                         Search for a location
                       </DropdownMenuItem>
-                      {(onStartDrawing || onPlanRoute) && <DropdownMenuSeparator />}
+                      {onPlanRoute && (
+                        <DropdownMenuItem onClick={handlePlanRoute}>
+                          <RouteIcon />
+                          {savedRoute ? "Edit route" : "Plan a route"}
+                        </DropdownMenuItem>
+                      )}
+                      {onStartDrawing && <DropdownMenuSeparator />}
                       {onStartDrawing &&
                         DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
                           <DropdownMenuItem key={shape} onClick={() => handleStartDrawing(shape)}>
@@ -1269,12 +1279,6 @@ export const PlaceCard = memo(function PlaceCard({
                             {DRAW_SHAPE_LABELS[shape]}
                           </DropdownMenuItem>
                         ))}
-                      {onPlanRoute && (
-                        <DropdownMenuItem onClick={handlePlanRoute}>
-                          <RouteIcon />
-                          {savedRoute ? "Edit route" : "Plan a route"}
-                        </DropdownMenuItem>
-                      )}
                       {place.geometry && (onEditGeometry || onClearPointLocation) && (
                         <DropdownMenuSeparator />
                       )}
@@ -1371,7 +1375,10 @@ export const PlaceCard = memo(function PlaceCard({
                   onImageClick={(src) =>
                     // Vault images get their filename as the caption; remote
                     // image URLs carry no meaningful name.
-                    setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
+                    setLightbox({
+                      src,
+                      caption: relPathFromVaultUrl(src)?.split("/").pop()
+                    })
                   }
                 />
               )}

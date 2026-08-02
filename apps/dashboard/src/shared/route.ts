@@ -1,7 +1,20 @@
 import type { RouteCosting } from "@mapos/contracts";
 
 /** One endpoint of a saved route, in the order it is visited. */
-export type RouteStop = { label: string; lat: number; lng: number };
+export type RouteStop = {
+  label: string;
+  lat: number;
+  lng: number;
+  /**
+   * `[[Wikilink]]` to the vault place this stop came from, when it came from one.
+   *
+   * Identity only — the coordinates above stay authoritative. Moving the linked place does
+   * not re-shape a saved route, and a link that stops resolving (the file was renamed or
+   * deleted; nothing in MapOS rewrites wikilinks) costs the marker and the Obsidian graph
+   * edge, never the route itself.
+   */
+  file?: string;
+};
 
 /**
  * The `route` frontmatter key: the minimum needed to reopen a saved route in the
@@ -37,7 +50,8 @@ function parseStop(value: unknown, index: number): RouteStop | null {
   if (!Number.isFinite(lat) || lat < -90 || lat > 90) return null;
   if (!Number.isFinite(lng) || lng < -180 || lng > 180) return null;
   const label = typeof raw.label === "string" ? raw.label.trim() : "";
-  return { label: label || `Stop ${index + 1}`, lat, lng };
+  const file = typeof raw.file === "string" && raw.file.trim() ? raw.file.trim() : undefined;
+  return { label: label || `Stop ${index + 1}`, lat, lng, file };
 }
 
 /**
@@ -64,7 +78,11 @@ export function parseRouteFrontmatter(value: unknown): RouteFrontmatter | null {
   return { mode, stops };
 }
 
-/** Canonical identity of a route, for comparing what's on screen against what's on disk. */
+/**
+ * Canonical identity of a route, for comparing what's on screen against what's on disk.
+ * Coordinates and mode only — labels and links are annotations on the same trip, so a
+ * route whose geometry hasn't moved is not "unsaved".
+ */
 export function routeKey(stops: RouteStop[], mode: string): string {
   const points = stops
     .map((s) => `${s.lat.toFixed(KEY_PRECISION)},${s.lng.toFixed(KEY_PRECISION)}`)

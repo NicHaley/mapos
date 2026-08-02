@@ -5,7 +5,14 @@ import type { PlaceRecord } from "../components/map-view";
 import { useVaultRoot } from "./use-vault-root";
 
 /** A resolved directions endpoint: coordinates plus the label shown in the input. */
-export type DirectionsWaypoint = { lat: number; lng: number; label: string };
+export type DirectionsWaypoint = {
+  lat: number;
+  lng: number;
+  label: string;
+  /** Absolute path of the vault place this stop came from, when it came from one. Saved as a
+   *  `[[wikilink]]` on the route; absent for a geocode result or a bare map pick. */
+  filePath?: string;
+};
 /** Travel mode for a directions request — the routing costing model. */
 export type TravelMode = RouteCosting;
 

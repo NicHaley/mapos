@@ -5,7 +5,7 @@ import { surfaceVariants } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
-import { type RouteFrontmatter, defaultRouteTitle } from "@shared/route";
+import { type RouteFrontmatter, type RouteStop, defaultRouteTitle } from "@shared/route";
 import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
 import { orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
@@ -48,9 +48,19 @@ import type { DrawSession, DrawShape } from "./lib/draw";
 import { formatLatLng } from "./lib/format";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs, geometryJsonToWkt } from "./lib/geometry-wkt";
-import { filenameBaseFromPlaceTitle, renameCreatedPlaceToSlug } from "./lib/place-utils";
+import {
+  filenameBaseFromPlaceTitle,
+  isVaultFilePath,
+  renameCreatedPlaceToSlug
+} from "./lib/place-utils";
 import { waypointFromPlace } from "./lib/place-waypoint";
-import { extractWikilinkTitles, flattenMdFiles, resolveWikilinkTarget } from "./lib/wikilinks";
+import {
+  extractWikilinkTitles,
+  flattenMdFiles,
+  resolveWikilinkPath,
+  resolveWikilinkTarget,
+  wikilinkForFile
+} from "./lib/wikilinks";
 
 const BASE_UNITS = 16;
 
@@ -153,16 +163,6 @@ function parentFolderOfVaultFile(filePath: string): string {
   return filePath.slice(0, n);
 }
 
-/** Path looks like a real vault file (rules out preview/overlay/synthetic identifiers). */
-function isVaultFilePath(fp: string | undefined | null): fp is string {
-  if (!fp) return false;
-  if (fp.startsWith("geocode-search:")) return false;
-  if (fp.startsWith("map-overlay:")) return false;
-  if (fp.startsWith("map-poi:")) return false;
-  if (fp.startsWith("geojson-feature:")) return false;
-  return true;
-}
-
 /** Open file is a real vault .md (not a photon search, map overlay, or GeoJSON layer). */
 function isVaultPlaceFile(place: PlaceRecord | null | undefined): place is PlaceRecord {
   if (!place) return false;
@@ -226,6 +226,8 @@ function App(): React.JSX.Element {
 
   // Pane widths are per-vault workspace state (like tabs and viewport).
   const vaultRoot = useVaultRoot();
+  const vaultRootRef = useRef(vaultRoot);
+  vaultRootRef.current = vaultRoot;
   const { width: projectSidebarWidth, startDrag: startProjectSidebarResize } = useResizableWidth({
     storageKey: vaultRoot ? `mapos.projectSidebarWidth:${vaultRoot}` : null,
     legacyStorageKey: "mapos.projectSidebarWidth",
@@ -660,14 +662,24 @@ function App(): React.JSX.Element {
       // would ask the user to route to their destination from their destination, and the
       // point is about to be replaced by the route's line anyway.
       const stops: (DirectionsWaypoint | null)[] = saved
-        ? saved.stops.map((s) => ({ lat: s.lat, lng: s.lng, label: s.label }))
+        ? saved.stops.map((s) => ({
+            lat: s.lat,
+            lng: s.lng,
+            label: s.label,
+            // A link that no longer resolves (renamed or deleted target) just drops back to
+            // a plain coordinate stop — the trip still routes exactly as saved.
+            filePath:
+              s.file && vaultRoot
+                ? (resolveWikilinkPath(s.file, vaultRoot, placesByPath.keys()) ?? undefined)
+                : undefined
+          }))
         : [null, null];
       openDirectionsTab(stops, saved?.mode ?? "auto", {
         targetFilePath: filePath,
         label: place?.title ?? (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, "")
       });
     },
-    [nav.tabs, placesByPath, handleNavTabActivate, openDirectionsTab]
+    [nav.tabs, placesByPath, vaultRoot, handleNavTabActivate, openDirectionsTab]
   );
 
   /** True from a save until the write lands — the unbound branch is three IPC round-trips,
@@ -692,9 +704,18 @@ function App(): React.JSX.Element {
       });
       const wkt = geometryJsonToWkt(geometryJson);
       if (!wkt) return { ok: false, error: "This route can’t be saved as a shape" };
+      const vaultPaths = placesByPathRef.current.keys();
       const route: RouteFrontmatter = {
         mode: payload.mode,
-        stops: payload.stops.map((s) => ({ label: s.label, lat: s.lat, lng: s.lng }))
+        stops: payload.stops.map((s) => ({
+          label: s.label,
+          lat: s.lat,
+          lng: s.lng,
+          // Identity only — the coordinates above are what the route is routed from.
+          ...(s.filePath && vaultRootRef.current
+            ? { file: wikilinkForFile(s.filePath, vaultRootRef.current, vaultPaths) }
+            : {})
+        }))
       };
       // The binding is trusted as-is; the write is what actually proves the file is there.
       // A getByPath pre-check would also report null for a `type: collection` note, which
@@ -837,13 +858,39 @@ function App(): React.JSX.Element {
   /** Vault places referenced by overlay layers (`vaultPaths`), resolved against the
    * live index. They may lie outside the selected folder, so the map draws them
    * alongside the overlay layers they arrived with. */
-  /** Stops of the selected place's saved route, for the map. Resolved through the index
-   *  because `selectedPlace` may have come from a map click, and those records are built
-   *  from SQLite rows that never carry a route. */
-  const selectedRouteStops = useMemo(
-    () => (selectedPlace ? (placesByPath.get(selectedPlace.filePath)?.route?.stops ?? []) : []),
-    [selectedPlace, placesByPath]
-  );
+  /**
+   * The selected place's saved route stops, split by whether their `[[wikilink]]` resolves.
+   * A linked stop draws as its real place marker — name, colour, clickable card — and only
+   * the rest fall back to anonymous dots.
+   *
+   * Resolved through the index because `selectedPlace` may have come from a map click, and
+   * those records are built from SQLite rows that never carry a route.
+   */
+  const { routeStopPlaces, routeStopDots } = useMemo(() => {
+    const stops = selectedPlace
+      ? (placesByPath.get(selectedPlace.filePath)?.route?.stops ?? [])
+      : [];
+    const places: PlaceRecord[] = [];
+    const dots: RouteStop[] = [];
+    for (const stop of stops) {
+      const path =
+        stop.file && vaultRoot
+          ? resolveWikilinkPath(stop.file, vaultRoot, placesByPath.keys())
+          : null;
+      const place = path ? placesByPath.get(path) : undefined;
+      // Skip the route file itself so it can't be drawn as one of its own stops.
+      if (place?.geometry && place.filePath !== selectedPlace?.filePath) places.push(place);
+      else dots.push(stop);
+    }
+    return { routeStopPlaces: places, routeStopDots: dots };
+  }, [selectedPlace, placesByPath, vaultRoot]);
+
+  /** Body wikilinks plus any route stops that resolved to a place, deduped. */
+  const linkedPlacesForMap = useMemo(() => {
+    if (routeStopPlaces.length === 0) return linkedPlaces;
+    const seen = new Set(linkedPlaces.map((p) => p.filePath));
+    return [...linkedPlaces, ...routeStopPlaces.filter((p) => !seen.has(p.filePath))];
+  }, [linkedPlaces, routeStopPlaces]);
 
   const presentedPlaces = useMemo(() => {
     const seen = new Set<string>();
@@ -1774,10 +1821,10 @@ function App(): React.JSX.Element {
           // @ts-expect-error - activeGeoJsonLayers data shape matches RawFeatureCollection
           geoJsonLayers={activeGeoJsonLayers}
           selectionPulseAnchor={selectionPulseAnchor}
-          linkedPlaces={linkedPlaces}
+          linkedPlaces={linkedPlacesForMap}
           presentedPlaces={presentedPlaces}
           openPlace={mapPeekPlace ? selectedPlace : null}
-          routeStops={selectedRouteStops}
+          routeStops={routeStopDots}
           userLocation={userLocation}
           directionsHighlight={activeDirectionsEntry ? directionsHighlight : null}
           drawSession={drawSession}

@@ -49,6 +49,24 @@ describe("parseRouteFrontmatter", () => {
     expect(parsed?.stops.map((s) => s.label)).toEqual(["Stop 1", "Stop 2"]);
   });
 
+  it("keeps a stop's wikilink", () => {
+    const parsed = parseRouteFrontmatter({
+      stops: [{ ...HOME, file: "[[Home]]" }, WORK]
+    });
+    expect(parsed?.stops[0].file).toBe("[[Home]]");
+    expect(parsed?.stops[1].file).toBeUndefined();
+  });
+
+  it("drops a blank or non-string wikilink rather than failing the route", () => {
+    const parsed = parseRouteFrontmatter({
+      stops: [
+        { ...HOME, file: "  " },
+        { ...WORK, file: 42 }
+      ]
+    });
+    expect(parsed?.stops.map((s) => s.file)).toEqual([undefined, undefined]);
+  });
+
   it("caps a pathologically long stop list", () => {
     const stops = Array.from({ length: 40 }, (_, i) => ({ label: `S${i}`, lat: 45, lng: -73 }));
     expect(parseRouteFrontmatter({ stops })?.stops).toHaveLength(25);
@@ -87,6 +105,14 @@ describe("routeKey", () => {
     expect(routeKey([HOME, WORK], "auto")).not.toBe(routeKey([WORK, HOME], "auto"));
     expect(routeKey([HOME, WORK], "auto")).not.toBe(
       routeKey([{ ...HOME, lat: 45.51 }, WORK], "auto")
+    );
+  });
+
+  // A link is identity, not geometry — gaining or losing one must not make a route
+  // whose trip hasn't changed read as "unsaved".
+  it("ignores wikilinks", () => {
+    expect(routeKey([{ ...HOME, file: "[[Home]]" }, WORK], "auto")).toBe(
+      routeKey([HOME, WORK], "auto")
     );
   });
 

@@ -1,6 +1,16 @@
 import type { DirectionsWaypoint } from "@renderer/hooks/use-nav-tabs";
 import type { PlaceRecord } from "@shared/types";
+import { formatLatLng } from "./format";
 import { isVaultFilePath } from "./place-utils";
+
+/**
+ * A directions stop for a bare map coordinate — a right-click or a click into an armed
+ * stop. No `filePath`: there is no vault place behind it, so a saved route records the
+ * coordinate rather than a `[[wikilink]]`.
+ */
+export function waypointAtPoint(point: { lat: number; lng: number }): DirectionsWaypoint {
+  return { lat: point.lat, lng: point.lng, label: formatLatLng(point.lat, point.lng) };
+}
 
 /**
  * A representative point for a place, for use as a directions endpoint: a Point's

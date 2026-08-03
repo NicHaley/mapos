@@ -45,7 +45,6 @@ import { useResizableWidth } from "./hooks/use-resizable-width";
 import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import { useVaultRoot } from "./hooks/use-vault-root";
 import type { DrawSession, DrawShape } from "./lib/draw";
-import { formatLatLng } from "./lib/format";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import { geometryJsonToCreateArgs, geometryJsonToWkt } from "./lib/geometry-wkt";
 import {
@@ -53,7 +52,7 @@ import {
   isVaultFilePath,
   renameCreatedPlaceToSlug
 } from "./lib/place-utils";
-import { waypointFromPlace } from "./lib/place-waypoint";
+import { waypointAtPoint, waypointFromPlace } from "./lib/place-waypoint";
 import {
   extractWikilinkTitles,
   flattenMdFiles,
@@ -639,6 +638,43 @@ function App(): React.JSX.Element {
       });
       setArmedStop(null);
       return true;
+    },
+    [dispatchNav]
+  );
+
+  /** Map right-click → routing. These open an *unbound* directions tab (no `targetFilePath`),
+   *  so the trip is ephemeral until the user chooses "Save as a new route" in the panel —
+   *  right-clicking the map should never write a file behind their back. */
+  const handleDirectionsFromPoint = useCallback(
+    (point: { lat: number; lng: number }) => {
+      openDirectionsTab([waypointAtPoint(point), null], "auto");
+    },
+    [openDirectionsTab]
+  );
+
+  const handleDirectionsToPoint = useCallback(
+    (point: { lat: number; lng: number }) => {
+      openDirectionsTab([null, waypointAtPoint(point)], "auto");
+    },
+    [openDirectionsTab]
+  );
+
+  /** Right-click → "Add stop" on the open directions tab. */
+  const handleAddStopAtPoint = useCallback(
+    (point: { lat: number; lng: number }) => {
+      const entry = activeDirectionsEntryRef.current;
+      if (!entry) return;
+      const stop = waypointAtPoint(point);
+      const blank = entry.stops.indexOf(null);
+      // A blank row is a stop the user is already trying to fill, so it wins. With every row
+      // filled, a pick is a waypoint *along* the trip and belongs before the destination —
+      // appending would silently re-route them somewhere they never asked to end up.
+      const stops =
+        blank >= 0
+          ? entry.stops.map((s, i) => (i === blank ? stop : s))
+          : [...entry.stops.slice(0, -1), stop, entry.stops[entry.stops.length - 1]];
+      dispatchNav({ type: "update-directions", id: entry.id, stops, mode: entry.mode });
+      setArmedStop(null);
     },
     [dispatchNav]
   );
@@ -1774,7 +1810,7 @@ function App(): React.JSX.Element {
   const handleMapClickEmpty = useCallback(
     (pos: { lng: number; lat: number }) => {
       // A blank stop is waiting for a map pick — that wins over clearing the selection.
-      if (fillArmedStop({ lat: pos.lat, lng: pos.lng, label: formatLatLng(pos.lat, pos.lng) })) {
+      if (fillArmedStop(waypointAtPoint(pos))) {
         return;
       }
       if (isMini) {
@@ -1828,6 +1864,10 @@ function App(): React.JSX.Element {
           drawSession={drawSession}
           onDrawFinish={handleDrawFinish}
           onDrawEditChange={(geometry) => setEditedGeometry(JSON.stringify(geometry))}
+          onDirectionsFromPoint={handleDirectionsFromPoint}
+          onDirectionsToPoint={handleDirectionsToPoint}
+          // Only offered when there's a directions tab open to add the stop to.
+          onAddStopAtPoint={activeDirectionsEntry ? handleAddStopAtPoint : undefined}
         />
       </div>
 

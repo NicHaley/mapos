@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@mapos/ui/components/dropdown-menu";
 import { useMapViewport } from "@renderer/contexts/map-viewport";
@@ -57,7 +58,7 @@ import {
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import type { RouteStop } from "@shared/route";
 import type { Geometry } from "geojson";
-import { SquarePenIcon } from "lucide-react";
+import { FlagIcon, MapPinPlusIcon, NavigationIcon, SquarePenIcon } from "lucide-react";
 import type { MapOverlayLayer, OverlayPoint, PlaceRecord } from "../../../shared/types";
 import { DIRECTIONS_OVERLAY_PREFIX } from "../../../shared/types";
 import { orderDetailProperties } from "../../../shared/types";
@@ -489,6 +490,13 @@ const MapView = forwardRef<
     onDrawFinish?: (geometry: Geometry) => void;
     /** Select-mode geometry changed; App holds it until the user saves. */
     onDrawEditChange?: (geometry: Geometry) => void;
+    /** Context-menu routing actions on a bare coordinate. Each opens (or extends) a
+     *  directions tab; App owns the label and the tab, so these pass raw coordinates
+     *  the same way `onMapClickEmpty` does. An omitted callback hides its menu item —
+     *  that's how "Add stop" stays hidden with no directions tab open. */
+    onDirectionsFromPoint?: (point: { lat: number; lng: number }) => void;
+    onDirectionsToPoint?: (point: { lat: number; lng: number }) => void;
+    onAddStopAtPoint?: (point: { lat: number; lng: number }) => void;
   }
 >(function MapView(
   {
@@ -512,7 +520,10 @@ const MapView = forwardRef<
     directionsHighlight = null,
     drawSession = null,
     onDrawFinish,
-    onDrawEditChange
+    onDrawEditChange,
+    onDirectionsFromPoint,
+    onDirectionsToPoint,
+    onAddStopAtPoint
   },
   ref
 ) {
@@ -895,6 +906,17 @@ const MapView = forwardRef<
       lng: e.lngLat.lng
     });
   }, []);
+
+  /** Close the menu and hand the right-clicked coordinate to a routing action. */
+  const runAtContextPoint = useCallback(
+    (fn: (point: { lat: number; lng: number }) => void) => {
+      if (!contextMenu) return;
+      const { lat, lng } = contextMenu;
+      setContextMenu(null);
+      fn({ lat, lng });
+    },
+    [contextMenu]
+  );
 
   const handleCreatePlaceFile = useCallback(async () => {
     if (!contextMenu) return;
@@ -1686,6 +1708,27 @@ const MapView = forwardRef<
           }}
         />
         <DropdownMenuContent side="bottom" align="start" sideOffset={0}>
+          {onDirectionsFromPoint && (
+            <DropdownMenuItem onClick={() => runAtContextPoint(onDirectionsFromPoint)}>
+              <NavigationIcon />
+              Directions from here
+            </DropdownMenuItem>
+          )}
+          {onDirectionsToPoint && (
+            <DropdownMenuItem onClick={() => runAtContextPoint(onDirectionsToPoint)}>
+              <FlagIcon />
+              Directions to here
+            </DropdownMenuItem>
+          )}
+          {onAddStopAtPoint && (
+            <DropdownMenuItem onClick={() => runAtContextPoint(onAddStopAtPoint)}>
+              <MapPinPlusIcon />
+              Add stop
+            </DropdownMenuItem>
+          )}
+          {(onDirectionsFromPoint || onDirectionsToPoint || onAddStopAtPoint) && (
+            <DropdownMenuSeparator />
+          )}
           <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>
             <SquarePenIcon />
             New Note

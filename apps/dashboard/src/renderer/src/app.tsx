@@ -7,7 +7,7 @@ import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { type RouteFrontmatter, type RouteStop, defaultRouteTitle } from "@shared/route";
 import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
-import { orderDetailProperties } from "@shared/types";
+import { DIRECTIONS_OVERLAY_PREFIX, orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import type { Geometry } from "geojson";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
@@ -1119,16 +1119,23 @@ function App(): React.JSX.Element {
       // derivable point (a geometry-less note, or a saved route), which can't be an
       // endpoint. Resolved through the index first because a map click builds its record
       // from a SQLite row, and those never carry the `route` the guard tests.
-      const asWaypoint = waypointFromPlace(placesByPathRef.current.get(place.filePath) ?? place);
+      const indexed = placesByPathRef.current.get(place.filePath) ?? place;
+      const asWaypoint = waypointFromPlace(indexed);
       if (asWaypoint && fillArmedStop(asWaypoint)) return;
 
       const useClickPulse =
         Boolean(meta?.mapClickLngLat) && geometryUsesMapClickPulseAnchor(place.geometry);
       if (useClickPulse && meta?.mapClickLngLat) {
+        // A route already draws its own stops along its line — a saved one from the index, a
+        // live one as the directions overlay — so the anchor there still positions the card,
+        // but a dot on top of it would read as one more stop.
+        const drawsOwnStops =
+          Boolean(indexed.route) || place.filePath.includes(DIRECTIONS_OVERLAY_PREFIX);
         setSelectionPulseAnchor({
           filePath: place.filePath,
           lng: meta.mapClickLngLat.lng,
-          lat: meta.mapClickLngLat.lat
+          lat: meta.mapClickLngLat.lat,
+          showDot: !drawsOwnStops
         });
       } else {
         setSelectionPulseAnchor(null);

@@ -384,6 +384,11 @@ export function DirectionsPanel({
   }
   const nextKey = (): string => String(Math.max(-1, ...rowKeys.map(Number)) + 1);
 
+  /** The row key that should take focus on mount — the stop "Add stop" just appended, so the
+   *  user can type straight into it. Cleared once it focuses (see armStop) so a later remount
+   *  of that row can't steal focus back. */
+  const [autoFocusKey, setAutoFocusKey] = useState<string | null>(null);
+
   const setStops = (next: (DirectionsWaypoint | null)[], nextMode?: TravelMode): void => {
     onChange({ stops: next, mode: nextMode ?? mode });
   };
@@ -391,8 +396,10 @@ export function DirectionsPanel({
     setStops(stops.map((s, j) => (j === i ? wp : s)));
   };
   const addStop = (): void => {
+    const key = nextKey();
     setStops([...stops, null]);
-    setRowKeys([...rowKeys, nextKey()]);
+    setRowKeys([...rowKeys, key]);
+    setAutoFocusKey(key);
   };
   const removeStop = (i: number): void => {
     if (stops.length <= 2) return;
@@ -442,6 +449,7 @@ export function DirectionsPanel({
    */
   const armStop = (i: number): void => {
     setArmedIndex(i);
+    if (autoFocusKey !== null && rowKeys[i] === autoFocusKey) setAutoFocusKey(null);
   };
 
   const [saving, setSaving] = useState(false);
@@ -552,6 +560,7 @@ export function DirectionsPanel({
                   canRemove={stops.length > 2}
                   files={files}
                   armed={armedIndex === i}
+                  autoFocus={rowKeys[i] === autoFocusKey}
                   onFocus={() => armStop(i)}
                   onSelect={(wp) => updateStop(i, wp)}
                   onRemove={() => removeStop(i)}
@@ -649,6 +658,7 @@ function StopRow({
   canRemove,
   files,
   armed,
+  autoFocus,
   onFocus,
   onSelect,
   onRemove
@@ -660,6 +670,7 @@ function StopRow({
   canRemove: boolean;
   files?: PlaceRecord[];
   armed?: boolean;
+  autoFocus?: boolean;
   onFocus?: () => void;
   onSelect: (wp: DirectionsWaypoint | null) => void;
   onRemove: () => void;
@@ -699,6 +710,7 @@ function StopRow({
           files={files}
           allowCurrentLocation={isFirst}
           armed={armed}
+          autoFocus={autoFocus}
           onFocus={onFocus}
         />
       </div>
@@ -924,6 +936,7 @@ function LocationInput({
   files,
   allowCurrentLocation,
   armed,
+  autoFocus,
   onFocus
 }: {
   value: DirectionsWaypoint | null;
@@ -934,6 +947,8 @@ function LocationInput({
   allowCurrentLocation?: boolean;
   /** This stop is the one a map click will fill — ringed so the target is unambiguous. */
   armed?: boolean;
+  /** Take focus on mount (a stop the user just added). */
+  autoFocus?: boolean;
   onFocus?: () => void;
 }): React.JSX.Element {
   const [query, setQuery] = useState(value?.label ?? "");
@@ -949,6 +964,12 @@ function LocationInput({
   useEffect(() => {
     setQuery(value?.label ?? "");
   }, [value?.label]);
+
+  // A stop the user just added takes focus, so they can type into it right away. The focus
+  // also arms the row for a map click, same as clicking into it would.
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   useEffect(() => {
     const q = debounced.trim();

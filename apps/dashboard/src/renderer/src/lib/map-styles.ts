@@ -36,6 +36,22 @@ export const ROUND_LINE_LAYOUT: LineLayerSpecification["layout"] = {
   "line-join": "round"
 };
 
+const FEATURE_LINE_WIDTH = 3;
+/** A clicked line is drawn inside its white casing, so it gives up a little width to it. */
+const CLICKED_LINE_WIDTH = 2.5;
+
+/**
+ * Feature property marking the one selected feature the user actually *clicked*, as opposed to
+ * a file that is merely open (which renders from the same source). Only the clicked feature
+ * takes the white casing — opening a line file leaves it looking like any other line.
+ */
+export const CLICKED_PROPERTY = "clicked";
+
+/** Matches only the clicked feature — the filter for the casing layer, and the condition the
+ *  selected line's width branches on. Compared to `true` because a bare `["get"]` returns null
+ *  on the other features, which `case` rejects. */
+export const CLICKED_FILTER: ExpressionSpecification = ["==", ["get", CLICKED_PROPERTY], true];
+
 // --- Unselected (vault) feature paint -------------------------------------------------------
 
 export function featureCirclePaint(defaultColor: string): CircleLayerSpecification["paint"] {
@@ -48,7 +64,7 @@ export function featureCirclePaint(defaultColor: string): CircleLayerSpecificati
 }
 
 export function featureLinePaint(defaultColor: string): LineLayerSpecification["paint"] {
-  return { "line-color": withColor(defaultColor), "line-width": 3 };
+  return { "line-color": withColor(defaultColor), "line-width": FEATURE_LINE_WIDTH };
 }
 
 export function featureFillPaint(defaultColor: string): FillLayerSpecification["paint"] {
@@ -62,12 +78,14 @@ export function featureFillOutlinePaint(defaultColor: string): LineLayerSpecific
 // --- Selected feature paint (white outline highlight) ---------------------------------------
 //
 // Selection reads as a white highlight on every geometry: points get a thicker white stroke,
-// lines/polygons get a white outline drawn beneath a slightly-thinner centre. The feature's own
-// colour is kept (same `defaultColor` as unselected) — selection never changes the hue, so
-// monochrome greys stay grey and accents stay accent.
+// polygons get a white outline drawn beneath a slightly-thinner boundary, and a *clicked* line
+// gets the same casing (see CLICKED_PROPERTY). The feature's own colour is kept (same
+// `defaultColor` as unselected) — selection never changes the hue, so monochrome greys stay
+// grey and accents stay accent.
 
-/** White outline drawn beneath a selected line / polygon boundary — the highlight, matching the
- * white stroke on selected point circles. Wider than the centre so white shows on each side. */
+/** White outline drawn beneath a clicked line / a selected polygon's boundary — the highlight,
+ * matching the white stroke on selected point circles. Wider than the centre so white shows on
+ * each side. */
 export const SELECTED_OUTLINE_PAINT: LineLayerSpecification["paint"] = {
   "line-color": "#ffffff",
   "line-width": 5.5
@@ -83,7 +101,12 @@ export function selectedCirclePaint(defaultColor: string): CircleLayerSpecificat
 }
 
 export function selectedLinePaint(defaultColor: string): LineLayerSpecification["paint"] {
-  return { "line-color": withColor(defaultColor), "line-width": 2.5 };
+  return {
+    "line-color": withColor(defaultColor),
+    // Only the clicked line has a casing to make room for; an open (or peeked) file keeps the
+    // plain feature width, so opening a line note doesn't restyle it.
+    "line-width": ["case", CLICKED_FILTER, CLICKED_LINE_WIDTH, FEATURE_LINE_WIDTH]
+  };
 }
 
 export function selectedFillPaint(defaultColor: string): FillLayerSpecification["paint"] {

@@ -628,7 +628,12 @@ export function setupPlacesWatcher(
     const dir = oldPath.split(sep).slice(0, -1).join(sep);
     const isDir = statSync(oldPath).isDirectory();
     const oldExt = oldPath.match(/\.[^./\\]+$/)?.[0] ?? ".md";
-    const finalName = isDir || safeName.includes(".") ? safeName : `${safeName}${oldExt}`;
+    // Keep the source extension unless the new name already ends in one the app recognizes
+    // (renaming to "notes.md" or "shapes.geojson" is deliberate). Any *other* dot is part of
+    // the name — "St. Laurent", a route named after decimal coordinates — and must still get
+    // the extension: without one, both readDirTree and the `**/*.md` watcher skip the file, so
+    // it vanishes from the sidebar, the index, and the map.
+    const finalName = isDir || isVaultTreeListedFile(safeName) ? safeName : `${safeName}${oldExt}`;
     const newPath = uniquePathInDir(dir, finalName, isDir, oldPath);
 
     if (!confineWrite(newPath)) return { success: false, error: "Path outside vault" };

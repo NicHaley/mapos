@@ -37,6 +37,8 @@ import { accentHex, featureDefaultColor, useAccent } from "@renderer/lib/accent"
 import type { DrawSession } from "@renderer/lib/draw";
 import { useMapColor } from "@renderer/lib/map-color";
 import {
+  CLICKED_FILTER,
+  CLICKED_PROPERTY,
   OVERLAY_CHIP_IMAGE_ID,
   OVERLAY_CHIP_PIXEL_RATIO,
   ROUND_LINE_LAYOUT,
@@ -319,7 +321,17 @@ function formatGeoJsonProperties(props: Record<string, unknown>): string {
 export type MapSelectPlaceMeta = { mapClickLngLat: { lng: number; lat: number } };
 
 /** When set and `filePath` matches the highlighted place, non-Point pulses use this click position. */
-export type SelectionPulseAnchor = { filePath: string; lng: number; lat: number };
+export type SelectionPulseAnchor = {
+  filePath: string;
+  lng: number;
+  lat: number;
+  /**
+   * Draw the anchor dot. False for a saved route: its stops are already drawn as circles along
+   * its line, so one more dot there reads as another stop rather than "you clicked here". The
+   * anchor still positions the place card either way.
+   */
+  showDot: boolean;
+};
 
 export type MapViewHandle = {
   flyTo: (lat: number, lng: number, opts?: { zoom?: number; padding?: FitPadding }) => void;
@@ -362,57 +374,71 @@ function getGeometryCenter(geo: GeoJSONGeometry): [number, number] {
   return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 }
 
-type SelectionAnchorGeoJSON = {
-  type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    properties: Record<string, unknown>;
-    geometry: { type: "Point"; coordinates: [number, number] };
-  }>;
+/**
+ * What the animated anchor marker stands for:
+ * - `place` — the selected place's own point, drawn as the place marker.
+ * - `click` — the spot the user clicked on a line/polygon, drawn as a small neutral dot.
+ */
+type SelectionAnchor = {
+  kind: "place" | "click";
+  lng: number;
+  lat: number;
+  /** The place's own `color` frontmatter, when set (points only). */
+  color?: string;
 };
 
 /**
- * The selection anchor marker: a dot that pops in and holds a larger size, marking
- * the selected point — or, for a selected line/polygon, the spot the user clicked.
- * An HTML <Marker> (like the overlay/user-location dots) so it animates via CSS and
- * sidesteps the style-churn dance the old canvas pulse needed. The caller keys it on
- * the anchor coords so a fresh selection remounts and replays the pop.
+ * The selected point's marker: a dot that pops in and holds a larger size. An HTML <Marker>
+ * (like the overlay/user-location dots) so it animates via CSS and sidesteps the style-churn
+ * dance the old canvas pulse needed. The caller keys it on the anchor coords so a fresh
+ * selection remounts and replays the pop.
  */
 function SelectionMarker({
-  data,
+  anchor,
   color,
   chip
 }: {
-  data: SelectionAnchorGeoJSON;
+  anchor: SelectionAnchor;
   color: string;
   // When set, render the search-result "poker chip" look (dashed border) instead of the
   // solid selection dot, so an active search result keeps its overlay styling.
   chip?: { fill: string; borderColor: string };
 }): React.JSX.Element {
+  // Per-feature `color` (custom-coloured place) wins over the accent default.
+  const fill = anchor.color ?? color;
   return (
-    <>
-      {data.features.map((f) => {
-        const [lng, lat] = f.geometry.coordinates;
-        // Per-feature `color` (custom-coloured place) wins over the accent default.
-        const fill = (f.properties.color as string | undefined) ?? color;
-        return (
-          <Marker key={`${lng},${lat}`} longitude={lng} latitude={lat} anchor="center">
-            <div
-              className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
-              style={
-                chip
-                  ? {
-                      backgroundColor: chip.fill,
-                      borderStyle: "dashed",
-                      borderColor: chip.borderColor
-                    }
-                  : { backgroundColor: fill }
-              }
-            />
-          </Marker>
-        );
-      })}
-    </>
+    <Marker longitude={anchor.lng} latitude={anchor.lat} anchor="center">
+      <div
+        className="animate-selection-pop size-[18px] rounded-full border-2 border-white shadow-md"
+        style={
+          chip
+            ? { backgroundColor: chip.fill, borderStyle: "dashed", borderColor: chip.borderColor }
+            : { backgroundColor: fill }
+        }
+      />
+    </Marker>
+  );
+}
+
+/**
+ * Where the user clicked a line or polygon. Deliberately *not* the place-marker look — it marks
+ * a spot on a feature, not a place of its own — so it's a small dot in the theme foreground,
+ * which reads on either basemap.
+ */
+function ClickAnchorMarker({
+  anchor,
+  color
+}: {
+  anchor: SelectionAnchor;
+  color: string;
+}): React.JSX.Element {
+  return (
+    <Marker longitude={anchor.lng} latitude={anchor.lat} anchor="center">
+      <div
+        className="animate-selection-pop size-2.5 rounded-full shadow-sm"
+        style={{ backgroundColor: color }}
+      />
+    </Marker>
   );
 }
 
@@ -1093,19 +1119,33 @@ const MapView = forwardRef<
 
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
-  // gets the animated grow marker (selectionAnchorGeoJSON below).
+  // gets the animated grow marker (selectionAnchor below).
+  //
+  // The feature the user clicked carries CLICKED_PROPERTY, which is what earns a line its white
+  // casing: a file that is merely open renders here too, and shouldn't look clicked.
   const selectedGeoJSON = useMemo(() => {
     const places = [selectedPlace, openPlace]
       .filter((p): p is PlaceRecord & { geometry: string } => Boolean(p?.geometry))
       .filter((p) => p.filePath !== editingFilePath)
       .filter((p, i, arr) => arr.findIndex((q) => q.filePath === p.filePath) === i);
     if (places.length === 0) return null;
+    const clickedPath = selectionPulseAnchor?.filePath;
     try {
-      return { type: "FeatureCollection" as const, features: places.map(toFeature) };
+      return {
+        type: "FeatureCollection" as const,
+        features: places.map((p) => {
+          const feature = toFeature(p);
+          if (p.filePath !== clickedPath) return feature;
+          return {
+            ...feature,
+            properties: { ...feature.properties, [CLICKED_PROPERTY]: true }
+          };
+        })
+      };
     } catch {
       return null;
     }
-  }, [selectedPlace, openPlace, editingFilePath, toFeature]);
+  }, [selectedPlace, openPlace, editingFilePath, selectionPulseAnchor?.filePath, toFeature]);
 
   /** The selected route's stops. Suppressed with the rest of the file's rendering while a
    *  draw session is about to replace its geometry — otherwise the line disappears for the
@@ -1124,34 +1164,23 @@ const MapView = forwardRef<
   }, [routeStops, selectedPlace?.filePath, editingFilePath]);
 
   /** Anchor position: Points use geometry; lines/polygons anchor where the user clicked. */
-  const selectionAnchorGeoJSON = useMemo((): SelectionAnchorGeoJSON | null => {
+  const selectionAnchor = useMemo((): SelectionAnchor | null => {
     if (!selectedPlace?.geometry) return null;
     if (selectedPlace.filePath === editingFilePath) return null;
     try {
       const geo = parseGeometry(selectedPlace.geometry);
-      let lng: number;
-      let lat: number;
       if (isPoint(geo)) {
-        [lng, lat] = geo.coordinates;
-      } else if (selectionPulseAnchor && selectionPulseAnchor.filePath === selectedPlace.filePath) {
-        lng = selectionPulseAnchor.lng;
-        lat = selectionPulseAnchor.lat;
-      } else {
-        // Non-point with no click anchor: rely on the accent-glow selected-line/fill styling
-        // for highlighting. A bbox-center pulse looked like a stray marker.
-        return null;
+        const [lng, lat] = geo.coordinates;
+        // Carry the feature colour so the marker circle matches a custom-coloured place.
+        return { kind: "place", lng, lat, color: selectedPlace.color };
       }
-      return {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            // Carry the feature colour so the marker circle matches a custom-coloured feature.
-            properties: selectedPlace.color ? { color: selectedPlace.color } : {},
-            geometry: { type: "Point", coordinates: [lng, lat] }
-          }
-        ]
-      };
+      if (selectionPulseAnchor && selectionPulseAnchor.filePath === selectedPlace.filePath) {
+        if (!selectionPulseAnchor.showDot) return null;
+        return { kind: "click", lng: selectionPulseAnchor.lng, lat: selectionPulseAnchor.lat };
+      }
+      // Non-point with no click anchor: rely on the selected line/fill styling for
+      // highlighting. A bbox-center pulse looked like a stray marker.
+      return null;
     } catch {
       return null;
     }
@@ -1501,12 +1530,13 @@ const MapView = forwardRef<
               filter={POLYGON_FILTER}
               paint={selectedFillOutlinePaint(featureColor)}
             />
-            {/* White outline beneath the accent line — the line selection highlight. */}
+            {/* White outline beneath the accent line — the highlight for a line the user
+                clicked. A line that is only *open* gets none: opening a file shouldn't
+                restyle its shape. */}
             <Layer
               id="selected-line-highlight"
               type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={LINESTRING_FILTER}
+              filter={["all", LINESTRING_FILTER, CLICKED_FILTER] as unknown as FilterSpecification}
               paint={SELECTED_OUTLINE_PAINT}
               layout={ROUND_LINE_LAYOUT}
             />
@@ -1655,15 +1685,24 @@ const MapView = forwardRef<
             />
           </Source>
         )}
-        {selectionAnchorGeoJSON && (
+        {/* Keyed on the anchor coords so a fresh selection remounts and replays the pop. */}
+        {selectionAnchor?.kind === "place" && (
           <SelectionMarker
-            data={selectionAnchorGeoJSON}
+            key={`${selectionAnchor.lng},${selectionAnchor.lat}`}
+            anchor={selectionAnchor}
             color={featureColor}
             chip={
               selectedPlace?.filePath.startsWith(MAP_OVERLAY_PREFIX)
                 ? { fill: overlayColor, borderColor: chipBorderColor }
                 : undefined
             }
+          />
+        )}
+        {selectionAnchor?.kind === "click" && (
+          <ClickAnchorMarker
+            key={`${selectionAnchor.lng},${selectionAnchor.lat}`}
+            anchor={selectionAnchor}
+            color={foregroundColor}
           />
         )}
         <RegionCoverageIndicator />

@@ -24,6 +24,7 @@ import {
   bboxUsable,
   rejectForeignContinents
 } from "@renderer/lib/region-coverage";
+import { elevationStats, hasElevationData } from "@shared/elevation";
 import { type RouteFrontmatter, routeIsDirty } from "@shared/route";
 import { DIRECTIONS_OVERLAY_PREFIX, type MapOverlayLayer, type PlaceRecord } from "@shared/types";
 import {
@@ -41,10 +42,13 @@ import {
   MapPinIcon,
   PlusIcon,
   RouteIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
   XIcon
 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ElevationProfile } from "./elevation-profile";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
@@ -173,6 +177,14 @@ type RouteState =
       maneuvers: Maneuver[];
       /** Full route shape; maneuvers' shape indices point into this array. */
       coordinates: [number, number][];
+      /**
+       * Elevation profile, present only for the modes that ask for it and only when the
+       * region pack was built with elevation baked into the graph. Screened through
+       * `hasElevationData` on the way in, so a pre-elevation pack lands here as undefined
+       * rather than as a flat line at Valhalla's -500 m floor.
+       */
+      elevation?: number[];
+      elevationIntervalMeters?: number;
     }
   | { status: "error"; message: string }
   | { status: "needs-region" };
@@ -287,17 +299,24 @@ export function DirectionsPanel({
     window.api.services
       .routingDirections({
         locations: routableStops.map((s) => ({ lat: s.lat, lng: s.lng })),
-        costing: mode
+        costing: mode,
+        // Climb is part of the decision on foot or by bike; on a drive the samples are pure
+        // payload, roughly one number per 30 m of route.
+        elevation: mode !== "auto"
       })
       .then((r) => {
         if (cancelled) return;
+        const hasElevation = hasElevationData(r.elevation);
         setRoute({
           status: "done",
           key: `${stopsKey}|${mode}`,
           distanceMeters: r.distanceMeters,
           durationSeconds: r.durationSeconds,
           maneuvers: r.maneuvers,
-          coordinates: r.geometry.coordinates as [number, number][]
+          coordinates: r.geometry.coordinates as [number, number][],
+          ...(hasElevation && r.elevation
+            ? { elevation: r.elevation, elevationIntervalMeters: r.elevationIntervalMeters ?? 30 }
+            : {})
         });
         onRouteChangeRef.current(
           buildRouteLayer(id, routableStops, r.geometry.coordinates as [number, number][])
@@ -792,6 +811,11 @@ function RouteBody({
     return <div className="px-4 py-6 text-destructive text-sm">{state.message}</div>;
   }
 
+  // Cheap enough to redo per render (one pass over the samples), and the early returns above
+  // rule out a hook here anyway.
+  const elevation = state.elevation;
+  const stats = elevation ? elevationStats(elevation) : null;
+
   return (
     <div className="flex flex-col">
       <div className="flex items-baseline gap-2 px-4 py-3">
@@ -801,7 +825,27 @@ function RouteBody({
         <span className="text-muted-foreground text-sm">
           {formatDistance(state.distanceMeters)}
         </span>
+        {stats && (
+          <span className="ml-auto flex items-center gap-2 text-muted-foreground text-sm tabular-nums">
+            <span className="flex items-center gap-0.5" title="Total climb">
+              <TrendingUpIcon className="size-3.5" aria-hidden />
+              {stats.gainMeters} m
+            </span>
+            <span className="flex items-center gap-0.5" title="Total descent">
+              <TrendingDownIcon className="size-3.5" aria-hidden />
+              {stats.lossMeters} m
+            </span>
+          </span>
+        )}
       </div>
+      {stats && elevation && (
+        <div className="px-4 pb-3">
+          <ElevationProfile
+            samples={elevation}
+            intervalMeters={state.elevationIntervalMeters ?? 30}
+          />
+        </div>
+      )}
       <ol className="flex flex-col">
         {state.maneuvers.map((m, i) => {
           const locatable = m.beginShapeIndex !== undefined;

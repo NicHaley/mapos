@@ -18,6 +18,7 @@ import { ipcMain } from "electron";
 import type { Geometry, MultiPolygon, Polygon } from "geojson";
 import matter from "gray-matter";
 import { type TSchema, Type } from "typebox";
+import { elevationStats, hasElevationData } from "../shared/elevation";
 import {
   detailPropertiesFromGeocodeResult,
   sanitizeAdHocProperties
@@ -271,7 +272,7 @@ For spatial queries beyond the user's own files, use these tools (powered by dow
 
 - \`geocode_search\` — forward geocode a query ("kinka izakaya toronto", "shinjuku station") to one or more points.
 - \`reverse_geocode\` — given a lat/lng, return the nearest named feature(s).
-- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, turn-by-turn maneuvers, and a \`route_id\` handle.
+- \`get_directions\` — road/walk/bike route between two or more locations. Returns summary distance/duration, turn-by-turn maneuvers, and a \`route_id\` handle. Walking and cycling routes also carry total climb/descent, so "which of these loops is flattest" is answerable.
 - \`get_isochrone\` — reachable-area polygon(s) from a location for one or more time contours (minutes); each contour returns an \`isochrone_id\` handle.
 - \`get_matrix\` — pairwise travel distance/time between sources and targets. Keep N small (≤ 10 each side; cost grows with the product).
 - \`compute_bbox\` — bounding box for a set of points; useful for framing a viewport.
@@ -1374,7 +1375,7 @@ export function buildMaposCustomTools(
     name: "get_directions",
     label: "Get directions",
     description:
-      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. The route shape is stored server-side; to draw it, pass the `route_id` to `present_features` as a feature with `route_id`; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
+      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. For 'pedestrian' and 'bicycle' it also returns elevationGainMeters, elevationLossMeters, minElevationMeters and maxElevationMeters — total climb and descent, noise-filtered — which is how to compare two loops for how hilly they are. These are omitted when the region pack predates elevation support; say so rather than guessing at climb. The route shape is stored server-side; to draw it, pass the `route_id` to `present_features` as a feature with `route_id`; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
     parameters: Type.Object({
       locations: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
         minItems: 2,
@@ -1388,10 +1389,17 @@ export function buildMaposCustomTools(
     }),
     execute: async (_id, args) => {
       try {
+        const costing = args.costing ?? "pedestrian";
         const route = await getServiceClient().routing.directions({
           locations: args.locations,
-          costing: args.costing ?? "pedestrian"
+          costing,
+          // Climb is part of the answer on foot or by bike, dead weight on a drive. The samples
+          // themselves stay in the main process — only the aggregates below cross the boundary.
+          elevation: costing !== "auto"
         });
+        const elevation = hasElevationData(route.elevation)
+          ? elevationStats(route.elevation ?? [])
+          : null;
         const route_id = stashRoute({
           geometry: route.geometry,
           distanceMeters: route.distanceMeters,
@@ -1408,6 +1416,14 @@ export function buildMaposCustomTools(
           maneuvers: route.maneuvers.slice(0, MANEUVER_CAP),
           ...(route.maneuvers.length > MANEUVER_CAP
             ? { maneuvers_truncated_total: route.maneuvers.length }
+            : {}),
+          ...(elevation
+            ? {
+                elevationGainMeters: elevation.gainMeters,
+                elevationLossMeters: elevation.lossMeters,
+                minElevationMeters: elevation.minMeters,
+                maxElevationMeters: elevation.maxMeters
+              }
             : {})
         };
         return TEXT_RESULT(JSON.stringify(visible));

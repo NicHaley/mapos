@@ -7,7 +7,14 @@ export type RouteCosting = z.infer<typeof RouteCostingSchema>;
 export const RouteDirectionsRequestSchema = z.object({
   /** Ordered list of waypoints; must have at least two. */
   locations: z.array(LatLngSchema).min(2),
-  costing: RouteCostingSchema
+  costing: RouteCostingSchema,
+  /**
+   * Ask for elevation samples along the route. Off by default because the samples cost
+   * roughly one number per 30 m of route — worth it where climb is part of the decision,
+   * pure payload on a long drive. Whether the provider can honour it is a separate
+   * question: see `Route.elevation`.
+   */
+  elevation: z.boolean().optional()
 });
 export type RouteDirectionsRequest = z.infer<typeof RouteDirectionsRequestSchema>;
 
@@ -48,7 +55,18 @@ export const RouteSchema = z.object({
   distanceMeters: z.number(),
   durationSeconds: z.number(),
   geometry: LineStringSchema,
-  maneuvers: z.array(ManeuverSchema)
+  maneuvers: z.array(ManeuverSchema),
+  /**
+   * Elevation in metres, sampled every `elevationIntervalMeters` along the route.
+   *
+   * Absent when the provider has no elevation data — for local packs that means one built
+   * before elevation was baked into the graph. Present-but-meaningless is also possible:
+   * such a pack answers with Valhalla's `kMinElevation` floor rather than nothing at all,
+   * so consumers must screen the values (see `hasElevationData` in the dashboard) instead
+   * of treating presence as proof.
+   */
+  elevation: z.array(z.number()).optional(),
+  elevationIntervalMeters: z.number().optional()
 });
 export type Route = z.infer<typeof RouteSchema>;
 

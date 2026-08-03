@@ -47,7 +47,14 @@ DIST_DIR ?= dist
 
 WORK     := work/$(REGION)
 DIST     := $(DIST_DIR)/$(REGION)/$(VERSION)
-VALHALLA_IMAGE ?= ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+# Official Valhalla image, pinned by digest. The gis-ops wrapper image was more convenient
+# (one container, env-var flags) but ships Valhalla 3.5.1, whose elevation stage leaves
+# EdgeInfo offsets stale: the restrictions pass immediately after it aborts with "EdgeInfo
+# offsets incorrect when reading GraphTile" on anything as large as Quebec, while small
+# extracts get away with it. 3.8.3 builds the same region cleanly. It also closes a version
+# gap that predates elevation — the app's @valhallajs/valhallajs runtime is 3.7.0, so it was
+# being fed tiles from a builder two minor versions *behind* it (3.7.0 reads 3.8.3 tiles).
+VALHALLA_IMAGE ?= ghcr.io/valhalla/valhalla@sha256:4603e28fc00e7fc8d075ce30b825c23a339d34efcc3707865fc41fc79d234583
 # Protomaps daily planet builds — same schema as the app's style, extracted via
 # HTTP range requests.
 PROTOMAPS_BUILD_BASE ?= https://build.protomaps.com
@@ -157,15 +164,56 @@ pmtiles: dist-guard
 # extract yields fewer tiles than threads; below this cutoff, build single-threaded.
 VALHALLA_SINGLE_THREAD_BYTES ?= 10485760
 
+# Thread cap for the tile build. This is a memory limit, not a CPU one: Docker Desktop
+# hands its VM a slice of host RAM (7.75 GiB of 26 GB by default) and the enhance stage
+# segfaults when it runs out — Quebec dies at 12 threads and completes at 4. Raise this
+# together with Docker's memory allocation, never on its own.
+VALHALLA_THREADS ?= 4
+
+# Bake elevation into the graph: elevationbuilder walks every edge and stores 1-byte delta
+# samples every 32 m in EdgeInfo. Measured cost: Bristol 12,134,400 -> 12,236,800 bytes
+# (+0.84%). The DEM is a build input only and never ships — routing reads elevation straight
+# out of the tiles, so packs stay DEM-free and elevation costs ~1% rather than the hundreds
+# of MB a shipped DEM would (Quebec's own DEM is ~2 GB compressed).
+BUILD_ELEVATION ?= yes
+# Shared across regions, not per-region: the DEM is 1x1-degree cells and Geofabrik leaves
+# overlap heavily (a country covers every cell its sub-regions do), so a per-region cache
+# would re-download tens of GB over a full catalog run.
+ELEVATION_CACHE ?= work/_elevation
+# Timezone polygons are global and identical for every region, but valhalla_build_timezones
+# downloads a shapefile each time it runs. Build it once and copy it in.
+TIMEZONE_CACHE ?= work/_timezones/timezones.sqlite
+
+# Every build tool runs in the same container shape: the staging dir as /data, with the
+# shared DEM cache mounted where the generated config expects to find it. Usage is
+# `$(VALHALLA_DOCKER) <tool> $(VALHALLA_IMAGE) <args>`.
+VALHALLA_DOCKER = docker run --rm \
+	  -v "$(PWD)/$(WORK)/valhalla:/data" \
+	  -v "$(PWD)/$(ELEVATION_CACHE):/data/elevation_data" \
+	  --entrypoint
+
 # Staging dir is recreated each run — leftovers from a failed build poison retries.
 # Extracts with zero routable ways (uninhabited islands) crash valhalla_build_tiles,
 # so skip the stage and mark the pack .no-routing instead.
+#
+# Each build tool is driven explicitly rather than through a wrapper image, because the
+# official Valhalla image ships no wrapper. The steps mirror what the gis-ops container did
+# from env vars: config, admin db, timezone db, tiles, DEM, tar.
+#
+# The tile build is split around the elevation stage so the DEM can be fetched with
+# `--from-tiles`, i.e. only the 1-degree cells the finished graph actually touches. Deriving
+# the download from a bounding box instead is badly wasteful: a Geofabrik extract's node
+# bounds are far larger than the region (Quebec's PBF reaches 81.9°N, giving 1092 cells where
+# the graph needs ~150). Splitting is safe because both halves run in the enum's own order —
+# 0..restrictions, then elevation..cleanup. Running the elevation stage against an *already
+# finished* graph is NOT safe: it rewrites EdgeInfo and silently produces a corrupt graph
+# (observed routing 1.92 km between points 2.4 km apart).
 valhalla: dist-guard $(REGION_PBF)
 	rm -rf $(WORK)/valhalla
-	@mkdir -p $(WORK)/valhalla $(DIST)
+	@mkdir -p $(WORK)/valhalla $(DIST) $(ELEVATION_CACHE) $(dir $(TIMEZONE_CACHE))
 	cp $(REGION_PBF) $(WORK)/valhalla/
 	@set -e; \
-	threads=""; \
+	threads=$(VALHALLA_THREADS); \
 	if [ "$$(wc -c < $(REGION_PBF))" -lt $(VALHALLA_SINGLE_THREAD_BYTES) ]; then \
 	  if ! osmium tags-filter $(REGION_PBF) w/highway -f opl -o - | grep -q '^w'; then \
 	    echo "==> $(REGION) has no routable ways — skipping valhalla; pack ships without routing"; \
@@ -173,14 +221,42 @@ valhalla: dist-guard $(REGION_PBF)
 	    exit 0; \
 	  fi; \
 	  echo "==> small extract: building valhalla tiles single-threaded"; \
-	  threads="-e server_threads=1"; \
+	  threads=1; \
 	fi; \
-	docker run --rm \
-	  -v "$(PWD)/$(WORK)/valhalla:/custom_files" \
-	  -e serve_tiles=False -e build_elevation=False \
-	  -e build_admins=True -e build_time_zones=True \
-	  $$threads \
-	  $(VALHALLA_IMAGE); \
+	echo "==> generating valhalla config"; \
+	$(VALHALLA_DOCKER) valhalla_build_config $(VALHALLA_IMAGE) \
+	  --mjolnir-tile-dir /data/valhalla_tiles \
+	  --mjolnir-tile-extract /data/valhalla_tiles.tar \
+	  --mjolnir-admin /data/admin.sqlite \
+	  --mjolnir-timezone /data/timezones.sqlite \
+	  --additional-data-elevation /data/elevation_data \
+	  > $(WORK)/valhalla/valhalla.json; \
+	echo "==> building admin database"; \
+	$(VALHALLA_DOCKER) valhalla_build_admins $(VALHALLA_IMAGE) \
+	  -c /data/valhalla.json /data/$(REGION).osm.pbf; \
+	if [ ! -s $(TIMEZONE_CACHE) ]; then \
+	  echo "==> building timezone database (once, shared across regions)"; \
+	  $(VALHALLA_DOCKER) valhalla_build_timezones $(VALHALLA_IMAGE) > $(TIMEZONE_CACHE); \
+	fi; \
+	cp $(TIMEZONE_CACHE) $(WORK)/valhalla/timezones.sqlite; \
+	if [ "$(BUILD_ELEVATION)" = "yes" ]; then \
+	  echo "==> building valhalla tiles through restrictions ($$threads threads)"; \
+	  $(VALHALLA_DOCKER) valhalla_build_tiles $(VALHALLA_IMAGE) \
+	    -c /data/valhalla.json -j $$threads -e restrictions /data/$(REGION).osm.pbf; \
+	  echo "==> fetching elevation for the cells the graph actually covers"; \
+	  $(VALHALLA_DOCKER) valhalla_build_elevation $(VALHALLA_IMAGE) \
+	    --from-tiles -c /data/valhalla.json -o /data/elevation_data -p $$threads; \
+	  echo "==> baking elevation, then validate + cleanup"; \
+	  $(VALHALLA_DOCKER) valhalla_build_tiles $(VALHALLA_IMAGE) \
+	    -c /data/valhalla.json -j $$threads -s elevation /data/$(REGION).osm.pbf; \
+	else \
+	  echo "==> building valhalla tiles, skipping the elevation stage ($$threads threads)"; \
+	  $(VALHALLA_DOCKER) valhalla_build_tiles $(VALHALLA_IMAGE) \
+	    -c /data/valhalla.json -j $$threads -e restrictions /data/$(REGION).osm.pbf; \
+	  $(VALHALLA_DOCKER) valhalla_build_tiles $(VALHALLA_IMAGE) \
+	    -c /data/valhalla.json -j $$threads -s validate /data/$(REGION).osm.pbf; \
+	fi; \
+	$(VALHALLA_DOCKER) valhalla_build_extract $(VALHALLA_IMAGE) -c /data/valhalla.json; \
 	cp $(WORK)/valhalla/valhalla_tiles.tar $(DIST)/valhalla_tiles.tar
 
 # ------------------------------------------------------------- 3. geocode ----

@@ -31,6 +31,7 @@ import {
   ArrowUpDownIcon,
   BikeIcon,
   CarIcon,
+  CheckIcon,
   CircleDotIcon,
   CircleIcon,
   DownloadIcon,
@@ -49,6 +50,7 @@ import {
 import { Reorder, useDragControls } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ElevationProfile } from "./elevation-profile";
+import { FolderPickerPopover } from "./folder-picker-popover";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
@@ -73,12 +75,16 @@ export type DirectionsPanelProps = {
   indexLoaded?: boolean;
   /** The route already stored in the bound file — drives the save copy and the dirty state. */
   savedRoute?: RouteFrontmatter | null;
+  /** Folder highlighted as the default when an unbound save picks a destination. `null` = vault root. */
+  defaultParentFolderPath?: string | null;
   /** Persist the route. The panel supplies the shape it is displaying; the app owns the
-   *  file writes and what happens to the tab afterwards. */
+   *  file writes and what happens to the tab afterwards. `folderPath` is where a *new* route
+   *  file goes (the user picked it); a bound save ignores it and writes into its own file. */
   onSaveRoute?: (payload: {
     stops: DirectionsWaypoint[];
     mode: TravelMode;
     coordinates: [number, number][];
+    folderPath: string | null;
   }) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Which stop a map click should fill, or null when the map should select normally. */
   onArmedStopChange?: (index: number | null) => void;
@@ -208,6 +214,7 @@ export function DirectionsPanel({
   targetTitle = null,
   indexLoaded = true,
   savedRoute = null,
+  defaultParentFolderPath = null,
   onSaveRoute,
   onArmedStopChange,
   onClose
@@ -454,6 +461,7 @@ export function DirectionsPanel({
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   // A route that was saved and then edited is stale on disk. Derived rather than stored:
   // it self-heals after an external edit and survives the remount the panel takes on every
   // tab switch. No auto-save — the route recomputes on every stop pick, so writing on each
@@ -462,6 +470,10 @@ export function DirectionsPanel({
   // The binding is only actionable once the index has loaded; until then a null title just
   // means the initial scan hasn't reached the file yet, not that it's gone.
   const targetMissing = targetFilePath != null && indexLoaded && targetTitle == null;
+  const bound = targetFilePath != null && !targetMissing;
+  // Bound, saved, and unedited: there is nothing to press. The status line below carries it
+  // instead of a disabled button sitting in the panel's heaviest slot.
+  const upToDate = bound && !!savedRoute && !dirty;
   const canSave =
     !!onSaveRoute &&
     !saving &&
@@ -470,14 +482,15 @@ export function DirectionsPanel({
     route.key === `${stopsKey}|${mode}` &&
     (dirty || targetFilePath == null);
 
-  const handleSave = async (): Promise<void> => {
+  const handleSave = async (folderPath: string | null): Promise<void> => {
     if (!onSaveRoute || route.status !== "done" || saving) return;
     setSaving(true);
     setSaveError(null);
     const result = await onSaveRoute({
       stops: routableStops,
       mode,
-      coordinates: route.coordinates
+      coordinates: route.coordinates,
+      folderPath
     });
     // On success the tab navigates away and this panel unmounts, so only the failure
     // path needs to restore the button.
@@ -486,6 +499,15 @@ export function DirectionsPanel({
       setSaving(false);
     }
   };
+
+  // Shared between the two save buttons below. A bound save commits on click; an unbound one
+  // is a popover trigger instead, so it must not carry an onClick of its own to merge against.
+  const saveButtonContent = (
+    <>
+      {saving ? <Loader2Icon className="size-4 animate-spin" /> : <RouteIcon className="size-4" />}
+      {saveLabel({ bound, savedRoute })}
+    </>
+  );
 
   return (
     <div
@@ -615,18 +637,35 @@ export function DirectionsPanel({
               The file this route was saved to is gone. Saving makes a new route.
             </p>
           ) : targetTitle ? (
-            <p className="truncate text-muted-foreground text-xs">
-              {savedRoute && !dirty ? `Saved to ${targetTitle}` : `Saving to ${targetTitle}`}
+            <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {upToDate && <CheckIcon className="size-3.5 shrink-0" aria-hidden />}
+              <span className="truncate">
+                {upToDate ? `Saved to ${targetTitle}` : `Saving to ${targetTitle}`}
+              </span>
             </p>
           ) : null}
-          <Button className="h-9" disabled={!canSave} onClick={() => void handleSave()}>
-            {saving ? (
-              <Loader2Icon className="size-4 animate-spin" />
-            ) : (
-              <RouteIcon className="size-4" />
-            )}
-            {saveLabel({ bound: targetFilePath != null && !targetMissing, savedRoute, dirty })}
-          </Button>
+          {upToDate ? null : bound ? (
+            <Button className="h-9" disabled={!canSave} onClick={() => void handleSave(null)}>
+              {saveButtonContent}
+            </Button>
+          ) : (
+            // A new route picks its folder the same way every other save in the app does,
+            // rather than silently landing in whichever folder was last touched.
+            <FolderPickerPopover
+              open={folderPickerOpen}
+              onOpenChange={setFolderPickerOpen}
+              defaultParentFolderPath={defaultParentFolderPath}
+              title="Save route to folder"
+              side="top"
+              align="center"
+              onSelect={(folderPath) => void handleSave(folderPath)}
+              trigger={
+                <Button className="h-9" disabled={!canSave}>
+                  {saveButtonContent}
+                </Button>
+              }
+            />
+          )}
         </div>
       )}
     </div>
@@ -634,19 +673,17 @@ export function DirectionsPanel({
 }
 
 /** Copy for the save button. An unbound tab creates a file; a bound one writes into the
- *  file it is tied to, and says so once there is already a route there to replace. */
+ *  file it is tied to, and says so once there is already a route there to replace. The
+ *  saved-and-unedited case has no button at all, so it needs no label here. */
 function saveLabel({
   bound,
-  savedRoute,
-  dirty
+  savedRoute
 }: {
   bound: boolean;
   savedRoute: RouteFrontmatter | null;
-  dirty: boolean;
 }): string {
   if (!bound) return "Save as a new route";
-  if (!savedRoute) return "Save route";
-  return dirty ? "Update route" : "Route saved";
+  return savedRoute ? "Update route" : "Save route";
 }
 
 /** One reorderable stop row: a drag handle, a full-width location input, and a remove button. */

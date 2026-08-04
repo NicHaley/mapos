@@ -874,6 +874,8 @@ function App(): React.JSX.Element {
         stops: DirectionsWaypoint[];
         mode: TravelMode;
         coordinates: [number, number][];
+        /** Destination folder the user picked for a new route; ignored by a bound save. */
+        folderPath: string | null;
       }
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (savingRouteRef.current) return { ok: false, error: "Already saving" };
@@ -917,7 +919,7 @@ function App(): React.JSX.Element {
           filePath = target;
         } else {
           const create = await window.api.fs.createNoteFile({
-            parentFolderPath: parentFolderForNewFiles,
+            parentFolderPath: payload.folderPath,
             geometryWkt: wkt,
             includePlaceFrontmatterDefaults: false
           });
@@ -970,7 +972,7 @@ function App(): React.JSX.Element {
         savingRouteRef.current = false;
       }
     },
-    [dispatchNav, getMapPadding, parentFolderForNewFiles]
+    [dispatchNav, getMapPadding]
   );
 
   /** Click a list row: for a point, open the mini place card over its marker (same as
@@ -2310,6 +2312,7 @@ function App(): React.JSX.Element {
                   ? (placesByPath.get(activeDirectionsEntry.targetFilePath)?.route ?? null)
                   : null
               }
+              defaultParentFolderPath={parentFolderForNewFiles}
               onSaveRoute={(payload) => handleSaveRoute(activeDirectionsEntry, payload)}
               onArmedStopChange={(index) =>
                 setArmedStop(index === null ? null : { id: activeDirectionsEntry.id, index })

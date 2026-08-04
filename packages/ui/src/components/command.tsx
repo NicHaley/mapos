@@ -143,8 +143,13 @@ function CommandItem({
   return (
     <CommandPrimitive.Item
       data-slot="command-item"
+      // Highlighting is driven by `aria-selected` alone — deliberately no `hover:` rule.
+      // cmdk already selects the item under the pointer, so hovering lights the row
+      // through aria-selected anyway; adding a hover rule in the same colour meant that
+      // moving the keyboard selection elsewhere while the cursor rested on a row painted
+      // two rows at once, which reads as two selected items.
       className={cn(
-        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none transition-colors in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-hover aria-selected:bg-hover aria-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 aria-selected:*:[svg]:text-foreground",
+        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none transition-colors in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 aria-selected:bg-hover aria-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 aria-selected:*:[svg]:text-foreground",
         className
       )}
       {...props}

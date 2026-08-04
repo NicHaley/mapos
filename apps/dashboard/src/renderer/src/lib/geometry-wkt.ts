@@ -3,6 +3,23 @@ type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 /** The subset of createNoteFile args that determine a place's `geometry` frontmatter. */
 export type GeometryCreateArgs = Pick<CreateNoteArgs, "lat" | "lng" | "geometryWkt">;
 
+/** How a place reads on the map, for iconography. A saved route is a line. */
+export type GeometryKind = "point" | "line" | "area";
+
+/** Classify a GeoJSON geometry JSON string. Null when absent or unrecognized. */
+export function geometryKindOf(geometryJson: string | undefined): GeometryKind | null {
+  if (!geometryJson) return null;
+  try {
+    const { type } = JSON.parse(geometryJson) as { type?: string };
+    if (type === "Point" || type === "MultiPoint") return "point";
+    if (type === "LineString" || type === "MultiLineString") return "line";
+    if (type === "Polygon" || type === "MultiPolygon") return "area";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function fmtCoord(n: number): string {
   return Number.isFinite(n) ? String(n) : "0";
 }

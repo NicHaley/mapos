@@ -934,7 +934,7 @@ export const PlaceCard = memo(function PlaceCard({
                     variant="ghost"
                     size={actionSize}
                     disabled={savingSearch}
-                    aria-label="Save place to vault"
+                    aria-label="Save to vault"
                   >
                     <PlusIcon />
                   </Button>
@@ -942,7 +942,7 @@ export const PlaceCard = memo(function PlaceCard({
               />
             }
           />
-          <TooltipContent side="bottom">Save to folder</TooltipContent>
+          <TooltipContent side="bottom">Save to vault</TooltipContent>
         </Tooltip>
       )}
       {mode === "full" && place.previewMarkdown === undefined && (
@@ -976,7 +976,7 @@ export const PlaceCard = memo(function PlaceCard({
             >
               <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
                 <PlusIcon />
-                Open in New Tab
+                Open in new tab
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
                 <FolderOpenIcon />
@@ -994,13 +994,13 @@ export const PlaceCard = memo(function PlaceCard({
               {doc.kind === "vault" && (
                 <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
                   <ImageIcon />
-                  {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+                  {coverPath ? "Change cover photo" : "Set cover photo"}
                 </DropdownMenuItem>
               )}
               {doc.kind === "vault" && coverPath && (
                 <DropdownMenuItem onClick={() => void applyCover(null)}>
                   <ImageOffIcon />
-                  Remove Cover Photo
+                  Remove cover photo
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -1066,6 +1066,16 @@ export const PlaceCard = memo(function PlaceCard({
       </Tooltip>
     </>
   );
+
+  /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather
+   *  than with the search — even though it opens the directions panel, not a draw session.
+   *  Declared once here because it slots into the middle of the DRAW_OPTIONS list below. */
+  const routeMenuItem = onPlanRoute ? (
+    <DropdownMenuItem onClick={handlePlanRoute}>
+      <RouteIcon />
+      {savedRoute ? "Edit route" : "Draw a route"}
+    </DropdownMenuItem>
+  ) : null;
 
   return (
     <div
@@ -1252,7 +1262,7 @@ export const PlaceCard = memo(function PlaceCard({
                                 ? "Drawing on the map…"
                                 : place.geometry
                                   ? formatGeometrySummary(place.geometry, savedRoute)
-                                  : "Add a place, route, or area"}
+                                  : "Add a location"}
                           </span>
                         </button>
                       }
@@ -1267,20 +1277,18 @@ export const PlaceCard = memo(function PlaceCard({
                         <SearchIcon />
                         Search for a location
                       </DropdownMenuItem>
-                      {onPlanRoute && (
-                        <DropdownMenuItem onClick={handlePlanRoute}>
-                          <RouteIcon />
-                          {savedRoute ? "Edit route" : "Plan a route"}
-                        </DropdownMenuItem>
-                      )}
-                      {onStartDrawing && <DropdownMenuSeparator />}
-                      {onStartDrawing &&
-                        DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
-                          <DropdownMenuItem key={shape} onClick={() => handleStartDrawing(shape)}>
-                            <Icon />
-                            {DRAW_SHAPE_LABELS[shape]}
-                          </DropdownMenuItem>
-                        ))}
+                      {(onStartDrawing || routeMenuItem) && <DropdownMenuSeparator />}
+                      {onStartDrawing
+                        ? DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
+                            <Fragment key={shape}>
+                              <DropdownMenuItem onClick={() => handleStartDrawing(shape)}>
+                                <Icon />
+                                {DRAW_SHAPE_LABELS[shape]}
+                              </DropdownMenuItem>
+                              {shape === "linestring" && routeMenuItem}
+                            </Fragment>
+                          ))
+                        : routeMenuItem}
                       {place.geometry && (onEditGeometry || onClearPointLocation) && (
                         <DropdownMenuSeparator />
                       )}
@@ -1428,7 +1436,7 @@ export const PlaceCard = memo(function PlaceCard({
                 void confirmDelete();
               }}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

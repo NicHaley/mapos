@@ -37,7 +37,7 @@ export type NavEntry =
       /**
        * The vault file this route saves into. Absent means unbound: saving creates a new
        * place file, and the entry is then bound to it so a second save updates rather than
-       * duplicating. Set up front when opened from a place card's "Plan a route".
+       * duplicating. Set up front when opened from a place card's "Draw a route".
        *
        * This is the one thing that makes a directions tab path-aware, so unlike `list` tabs
        * it participates in renames (see relocateEntry) and deletions (see remove_path).

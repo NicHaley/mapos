@@ -46,7 +46,12 @@ import { modSymbol, useShortcuts } from "./hooks/use-shortcuts";
 import { useVaultRoot } from "./hooks/use-vault-root";
 import type { DrawSession, DrawShape } from "./lib/draw";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
-import { geometryJsonToCreateArgs, geometryJsonToWkt } from "./lib/geometry-wkt";
+import {
+  type GeometryKind,
+  geometryJsonToCreateArgs,
+  geometryJsonToWkt,
+  geometryKindOf
+} from "./lib/geometry-wkt";
 import {
   filenameBaseFromPlaceTitle,
   isVaultFilePath,
@@ -820,7 +825,7 @@ function App(): React.JSX.Element {
     [dispatchNav, handleRouteDrag, nameDraggedStop]
   );
 
-  /** "Plan a route" / "Edit route" on a place card: open a directions tab that saves back
+  /** "Draw a route" / "Edit route" on a place card: open a directions tab that saves back
    *  into this file, pre-filled from its saved route when it has one. */
   const handlePlanRoute = useCallback(
     (filePath: string) => {
@@ -1550,6 +1555,17 @@ function App(): React.JSX.Element {
   // Flattened view of the indexed vault for the search popover's "Files" group.
   const indexedFiles = useMemo(() => Array.from(placesByPath.values()), [placesByPath]);
 
+  /** Path → geometry kind, so the sidebar tree can show which files are on the map. Derived
+   *  once per index change rather than per render, since ProjectSidebar is memoized. */
+  const geometryKinds = useMemo(() => {
+    const kinds = new Map<string, GeometryKind>();
+    for (const place of placesByPath.values()) {
+      const kind = geometryKindOf(place.geometry);
+      if (kind) kinds.set(place.filePath, kind);
+    }
+    return kinds;
+  }, [placesByPath]);
+
   const handleSearchSelectFile = useCallback(
     (file: PlaceRecord) => {
       if (file.type === "GeoJsonLayer") {
@@ -2177,6 +2193,7 @@ function App(): React.JSX.Element {
           onDeletePath={handleDeletedPath}
           onRenamePath={handlePathRelocated}
           onMoved={handlePathRelocated}
+          geometryKinds={geometryKinds}
         />
       </SidebarProvider>
 

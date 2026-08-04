@@ -2124,7 +2124,7 @@ const MapView = forwardRef<
           )}
           <DropdownMenuItem onClick={() => void handleCreatePlaceFile()}>
             <SquarePenIcon />
-            New Note
+            New note
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

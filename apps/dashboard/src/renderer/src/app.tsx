@@ -53,6 +53,7 @@ import {
   renameCreatedPlaceToSlug
 } from "./lib/place-utils";
 import { waypointAtPoint, waypointFromPlace } from "./lib/place-waypoint";
+import { type RouteDragEdit, applyRouteDragEdit } from "./lib/route-drag";
 import {
   extractWikilinkTitles,
   flattenMdFiles,
@@ -85,6 +86,19 @@ function geometryUsesMapClickPulseAnchor(geometryJson: string | undefined): bool
   } catch {
     return false;
   }
+}
+
+/** Whether two stop lists route to the same thing — position-by-position, coordinates only. */
+function sameStopCoordinates(
+  a: (DirectionsWaypoint | null)[],
+  b: (DirectionsWaypoint | null)[]
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((stop, i) => {
+    const other = b[i];
+    if (stop == null || other == null) return stop == null && other == null;
+    return stop.lat === other.lat && stop.lng === other.lng;
+  });
 }
 
 function placeFromGeocodeSearchResult(r: GeocodeSearchResult): PlaceRecord {
@@ -478,13 +492,22 @@ function App(): React.JSX.Element {
     return extra ? [extra] : [];
   }, [activeListLayer, activeDirectionsRoute]);
 
+  /** Set for the one route change a drag edit causes, so the camera stays where the user just
+   *  dropped the stop instead of refitting the whole trip under their cursor. Consumed on the
+   *  next report either way, so a failed re-route can't leave it armed for the change after. */
+  const skipRouteFitRef = useRef(false);
+
   /** Directions panel reports its computed route (or null); frame it on the map. */
   const handleDirectionsRouteChange = useCallback(
     (layer: MapOverlayLayer | null) => {
       setDirectionsRouteLayer(layer);
       // A new (or cleared) route invalidates any step highlight from the previous one.
       setDirectionsHighlight(null);
-      const line = layer?.lines[0];
+      // The committed route has caught up with (or failed to reach) whatever the drag previewed.
+      setRouteDragPreview(null);
+      const skipFit = skipRouteFitRef.current;
+      skipRouteFitRef.current = false;
+      const line = skipFit ? null : layer?.lines[0];
       if (line && line.coordinates.length > 0) {
         mapRef.current?.fitToGeoJson(
           {
@@ -677,6 +700,124 @@ function App(): React.JSX.Element {
       setArmedStop(null);
     },
     [dispatchNav]
+  );
+
+  /**
+   * Live re-routing while the route line is being dragged. The drag is *not* committed until it
+   * ends — routing a candidate here keeps the panel (its itinerary, its loading state, the nav
+   * entry) untouched while the shape follows the cursor.
+   *
+   * Paced by the routing itself rather than a timer: one request in flight, the newest position
+   * queued behind it. A slow provider costs staleness, never a backlog.
+   */
+  const [routeDragPreview, setRouteDragPreview] = useState<[number, number][] | null>(null);
+  const previewSeqRef = useRef(0);
+  const previewInFlightRef = useRef(false);
+  const previewQueuedRef = useRef<RouteDragEdit | null>(null);
+
+  const runRoutePreview = useCallback(async (edit: RouteDragEdit): Promise<void> => {
+    const entry = activeDirectionsEntryRef.current;
+    if (!entry) return;
+    const stops = applyRouteDragEdit(entry.stops, edit, waypointAtPoint).filter(
+      (s): s is DirectionsWaypoint => s != null
+    );
+    if (stops.length < 2) return;
+    const seq = ++previewSeqRef.current;
+    previewInFlightRef.current = true;
+    try {
+      const route = await window.api.services.routingDirections({
+        locations: stops.map((s) => ({ lat: s.lat, lng: s.lng })),
+        costing: entry.mode
+      });
+      // Only the newest request may paint: an earlier one resolving late would rubber-band
+      // the line backwards to a position the cursor has already left.
+      if (seq === previewSeqRef.current) {
+        setRouteDragPreview(route.geometry.coordinates as [number, number][]);
+      }
+    } catch {
+      // Keep the last good shape. A momentary failure (a point off the road network, a
+      // coverage gap mid-drag) shouldn't blank the route the user is steering.
+    } finally {
+      previewInFlightRef.current = false;
+      const queued = previewQueuedRef.current;
+      previewQueuedRef.current = null;
+      if (queued) void runRoutePreview(queued);
+    }
+  }, []);
+
+  const handleRouteDrag = useCallback(
+    (edit: RouteDragEdit | null) => {
+      if (!edit) {
+        previewSeqRef.current++; // orphan anything in flight
+        previewQueuedRef.current = null;
+        setRouteDragPreview(null);
+        return;
+      }
+      if (previewInFlightRef.current) {
+        previewQueuedRef.current = edit;
+        return;
+      }
+      void runRoutePreview(edit);
+    },
+    [runRoutePreview]
+  );
+
+  /**
+   * Name a dragged stop from where it landed, so the panel's input reads like a stop the user
+   * picked rather than a pair of coordinates.
+   *
+   * Deliberately after the fact: the drop commits its coordinates immediately (the route
+   * recomputes without waiting on a geocoder), and this patches the label in when it arrives.
+   * Only the newest drag is named — two patches racing would each rebuild the stop list from a
+   * pre-patch snapshot, and the loser would erase the winner.
+   */
+  const stopLabelSeqRef = useRef(0);
+  const nameDraggedStop = useCallback(
+    async (entryId: string, point: { lat: number; lng: number }): Promise<void> => {
+      const seq = ++stopLabelSeqRef.current;
+      const results = await Promise.race([
+        window.api.services.geocodingReverse({ point, limit: 1 }),
+        // A slow cloud geocoder just leaves the coordinates in place.
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
+      ]).catch(() => null);
+      const label = results?.[0]?.primaryLabel.trim();
+      if (!label || seq !== stopLabelSeqRef.current) return;
+      const entry = activeDirectionsEntryRef.current;
+      if (!entry || entry.id !== entryId) return;
+      // Rename only the stop still sitting on that point — the user may have moved it again.
+      const stops = entry.stops.map((stop) =>
+        stop && stop.lat === point.lat && stop.lng === point.lng ? { ...stop, label } : stop
+      );
+      // `map` keeps the identity of every stop it didn't rewrite, so this is "nothing matched".
+      if (stops.every((stop, i) => stop === entry.stops[i])) return;
+      // No `skipRouteFitRef` here: a label carries no coordinates, so the panel won't re-route
+      // and no route would arrive to consume the flag — it would swallow the next real fit.
+      dispatchNav({ type: "update-directions", id: entry.id, stops, mode: entry.mode });
+    },
+    [dispatchNav]
+  );
+
+  /** The drag was released: apply it to the tab's stops for real. The preview stays up until
+   *  the panel reports the committed route, so the line never snaps back to the old shape. */
+  const handleRouteDragEnd = useCallback(
+    (edit: RouteDragEdit) => {
+      const entry = activeDirectionsEntryRef.current;
+      if (!entry) {
+        handleRouteDrag(null);
+        return;
+      }
+      const stops = applyRouteDragEdit(entry.stops, edit, waypointAtPoint);
+      // Dropping a stop back where it started changes nothing, so no route would be reported
+      // and the preview would never be cleared. Bail out and clear it here instead.
+      if (sameStopCoordinates(stops, entry.stops)) {
+        handleRouteDrag(null);
+        return;
+      }
+      skipRouteFitRef.current = true;
+      dispatchNav({ type: "update-directions", id: entry.id, stops, mode: entry.mode });
+      void nameDraggedStop(entry.id, edit.point);
+    },
+    [dispatchNav, handleRouteDrag, nameDraggedStop]
   );
 
   /** "Plan a route" / "Edit route" on a place card: open a directions tab that saves back
@@ -1875,6 +2016,10 @@ function App(): React.JSX.Element {
           onDirectionsToPoint={handleDirectionsToPoint}
           // Only offered when there's a directions tab open to add the stop to.
           onAddStopAtPoint={activeDirectionsEntry ? handleAddStopAtPoint : undefined}
+          // Drag-to-reshape belongs to the open directions tab, not to a saved route's line.
+          onRouteDrag={activeDirectionsEntry ? handleRouteDrag : undefined}
+          onRouteDragEnd={activeDirectionsEntry ? handleRouteDragEnd : undefined}
+          routeDragPreview={routeDragPreview}
         />
       </div>
 

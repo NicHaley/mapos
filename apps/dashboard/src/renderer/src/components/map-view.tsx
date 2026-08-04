@@ -57,6 +57,13 @@ import {
   selectedFillPaint,
   selectedLinePaint
 } from "@renderer/lib/map-styles";
+import {
+  type LngLat,
+  type RouteDragEdit,
+  insertionIndexForSegment,
+  snapToPolyline,
+  stopVertexIndices
+} from "@renderer/lib/route-drag";
 import { detailPropertiesFromGeocodeResult, normalizeCategoryToken } from "@shared/geocode-detail";
 import type { RouteStop } from "@shared/route";
 import type { Geometry } from "geojson";
@@ -159,6 +166,21 @@ const POI_LAYER_RE = /^(?:[a-z0-9_-]+_)?pois$/i;
 
 /** Symbol hit-boxes are small; pad the click point a few px for comfort. */
 const POI_CLICK_PADDING = 4;
+
+/** How near the route line the pointer has to be for its drag handle to appear. The invisible
+ *  hit line is already 14px wide, so this only softens the edge. */
+const ROUTE_HANDLE_PADDING = 2;
+
+/** Diameter of the invisible grab target over each route stop, and the matching radius within
+ *  which the line stops offering a *new* stop — inside it, the gesture belongs to the stop
+ *  that's already there. Keep the two in step: a gap between them is a dead ring where
+ *  neither the stop nor the line answers the pointer. */
+const ROUTE_STOP_GRAB_SIZE = 20;
+const ROUTE_STOP_GRAB_RADIUS = ROUTE_STOP_GRAB_SIZE / 2;
+
+/** Where the two kinds of route handle overlap, moving the stop that's already there beats
+ *  adding another one beside it. */
+const ROUTE_HANDLE_Z = { newStop: 1, existingStop: 2 };
 
 /** Coordinate slack when matching a tile POI to a geocoder result (~200m; tile
  * geometry is quantized and OSM ways anchor at a computed centroid). */
@@ -443,6 +465,53 @@ function ClickAnchorMarker({
 }
 
 /**
+ * A grab point on a directions route: the spot on a leg the pointer is hovering (dragging it
+ * drops a new stop there) or an existing stop being moved. A MapLibre draggable marker, so it
+ * owns the pointer for the duration and the map doesn't pan out from under the drag.
+ *
+ * `children` carries the look — a visible dot for the point being dragged, an invisible target
+ * over a stop that already draws its own chip.
+ *
+ * `point` MUST follow the drag. The marker is controlled: react-maplibre re-asserts
+ * `setLngLat(point)` during render, so a fixed `point` fights MapLibre's own drag positioning
+ * every time a drag frame re-renders — which tears the gesture down mid-drag and never fires
+ * `dragend`. Feeding the dragged position straight back is the library's contract.
+ */
+function RouteDragHandle({
+  point,
+  zIndex,
+  onDragStart,
+  onDrag,
+  onDrop,
+  children
+}: {
+  point: LngLat;
+  /** Stacking against the other handles. MapLibre appends each marker's element as it is
+   *  *created*, so document order is creation order — a JSX reorder can't decide which handle
+   *  takes a press where two overlap. Only an explicit z-index can. */
+  zIndex: number;
+  onDragStart: () => void;
+  onDrag: (point: LngLat) => void;
+  onDrop: (point: LngLat) => void;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <Marker
+      longitude={point[0]}
+      latitude={point[1]}
+      anchor="center"
+      draggable
+      style={{ zIndex }}
+      onDragStart={onDragStart}
+      onDrag={(e) => onDrag([e.lngLat.lng, e.lngLat.lat])}
+      onDragEnd={(e) => onDrop([e.lngLat.lng, e.lngLat.lat])}
+    >
+      {children}
+    </Marker>
+  );
+}
+
+/**
  * Registers (and keeps registered) the poker-chip icon the overlay point layers reference.
  * Re-rasterized when the accent/theme colours change; the `styleimagemissing` listener
  * covers style reloads, which drop runtime-added images.
@@ -523,6 +592,17 @@ const MapView = forwardRef<
     onDirectionsFromPoint?: (point: { lat: number; lng: number }) => void;
     onDirectionsToPoint?: (point: { lat: number; lng: number }) => void;
     onAddStopAtPoint?: (point: { lat: number; lng: number }) => void;
+    /**
+     * The directions route is being dragged — a new stop onto a leg, or an existing stop to a
+     * new place. Fired on every drag frame so the owner can re-route a preview; null when the
+     * drag is over. Omit (with `onRouteDragEnd`) to leave the route un-draggable.
+     */
+    onRouteDrag?: (edit: RouteDragEdit | null) => void;
+    /** The drag was released: apply the edit for real. */
+    onRouteDragEnd?: (edit: RouteDragEdit) => void;
+    /** Live re-routed shape for the drag in progress, drawn in place of the committed route.
+     *  Held past the drop until the real route lands, so the line never snaps back. */
+    routeDragPreview?: [number, number][] | null;
   }
 >(function MapView(
   {
@@ -549,7 +629,10 @@ const MapView = forwardRef<
     onDrawEditChange,
     onDirectionsFromPoint,
     onDirectionsToPoint,
-    onAddStopAtPoint
+    onAddStopAtPoint,
+    onRouteDrag,
+    onRouteDragEnd,
+    routeDragPreview = null
   },
   ref
 ) {
@@ -1030,6 +1113,195 @@ const MapView = forwardRef<
       .filter((s): s is typeof s & { data: NonNullable<(typeof s)["data"]> } => s.data != null);
   }, [overlayLayers]);
 
+  /**
+   * The directions route as something draggable: its shape, its routed stops, and the id of the
+   * invisible wide "hit" line to test the pointer against. Null unless a caller wants drag edits
+   * — without `onInsertRouteStop` the route is just a drawing.
+   */
+  const draggableRoute = useMemo(() => {
+    if (!onRouteDrag || !onRouteDragEnd || !showOverlay) return null;
+    const layer = overlayLayers.find((l) => l.id.startsWith(DIRECTIONS_OVERLAY_PREFIX));
+    const line = layer?.lines[0];
+    if (!layer || !line || line.coordinates.length < 2 || layer.points.length < 2) return null;
+    const coordinates = line.coordinates as LngLat[];
+    const stops = layer.points.map((p) => ({ point: [p.lng, p.lat] as LngLat, id: p.id }));
+    return {
+      hitLayerId: `${overlaySourceId(layer.id)}-lines-hit`,
+      coordinates,
+      stops,
+      // Where each stop sits along the shape — the lookup that turns a grabbed segment into
+      // the leg it belongs to. Computed once per route, not per pointer move.
+      stopIndices: stopVertexIndices(
+        coordinates,
+        stops.map((s) => s.point)
+      )
+    };
+  }, [overlayLayers, showOverlay, onRouteDrag, onRouteDragEnd]);
+
+  /**
+   * What the pointer has hold of on the route: a spot on a leg (hovering the line, which offers
+   * a new stop) or one of the existing stops (only while actually dragging it). `point` is where
+   * it started; `routeDragTo` is where it is now.
+   */
+  const [routeGrab, setRouteGrab] = useState<
+    ({ point: LngLat } & Pick<RouteDragEdit, "kind" | "index">) | null
+  >(null);
+  /** Where the grab has been dragged to; non-null *is* the "dragging" state. */
+  const [routeDragTo, setRouteDragTo] = useState<LngLat | null>(null);
+  // Read by the pointer-move handler, which must not re-subscribe (or go stale) per drag frame.
+  const routeDraggingRef = useRef(false);
+  routeDraggingRef.current = routeDragTo !== null;
+
+  // A recomputed route makes the old grab's leg index meaningless.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the route is the trigger, not setter identity
+  useEffect(() => {
+    activeGrabRef.current = null;
+    setRouteGrab(null);
+    setRouteDragTo(null);
+  }, [draggableRoute]);
+
+  /** Offer a new stop while the pointer is over the route line, and withdraw it otherwise. */
+  const handleRouteHover = useCallback(
+    (e: MapLayerMouseEvent) => {
+      if (!draggableRoute || drawingRef.current || routeDraggingRef.current) return;
+      const map = mapRef.current?.getMap();
+      // The layer is gone for a frame after a style reload; querying an unknown id throws.
+      if (!map || !map.getLayer(draggableRoute.hitLayerId)) return;
+      const { x, y } = e.point;
+      const hits = map.queryRenderedFeatures(
+        [
+          [x - ROUTE_HANDLE_PADDING, y - ROUTE_HANDLE_PADDING],
+          [x + ROUTE_HANDLE_PADDING, y + ROUTE_HANDLE_PADDING]
+        ],
+        { layers: [draggableRoute.hitLayerId] }
+      );
+      if (hits.length === 0) {
+        // Returning the same value bails out of the render — this fires on every pointer
+        // move over the map, the vast majority of them nowhere near the route.
+        setRouteGrab((prev) => (prev === null ? prev : null));
+        return;
+      }
+      // On top of a stop, the gesture belongs to that stop: its own grab target sits here, and
+      // a new-stop handle over it would take the press and add a duplicate alongside it.
+      const overStop = draggableRoute.stops.some((stop) => {
+        const at = map.project(stop.point);
+        return Math.hypot(at.x - x, at.y - y) <= ROUTE_STOP_GRAB_RADIUS;
+      });
+      if (overStop) {
+        setRouteGrab((prev) => (prev === null ? prev : null));
+        return;
+      }
+      const snapped = snapToPolyline(draggableRoute.coordinates, [e.lngLat.lng, e.lngLat.lat]);
+      if (!snapped) return;
+      const index = insertionIndexForSegment(draggableRoute.stopIndices, snapped.segmentIndex);
+      setRouteGrab((prev) =>
+        prev &&
+        prev.kind === "insert" &&
+        prev.index === index &&
+        prev.point[0] === snapped.point[0] &&
+        prev.point[1] === snapped.point[1]
+          ? prev
+          : { kind: "insert", index, point: snapped.point }
+      );
+    },
+    [draggableRoute]
+  );
+
+  const handleRouteHoverLeave = useCallback(() => {
+    if (routeDraggingRef.current) return;
+    setRouteGrab((prev) => (prev === null ? prev : null));
+  }, []);
+
+  /** The drag as an edit to the stop list, at the position the pointer is at now. */
+  const routeDragEdit = useCallback(
+    (grab: NonNullable<typeof routeGrab>, to: LngLat): RouteDragEdit => ({
+      kind: grab.kind,
+      index: grab.index,
+      point: { lng: to[0], lat: to[1] }
+    }),
+    []
+  );
+
+  /**
+   * The grab the pointer actually owns, so a second handle grabbed while the last drop is still
+   * settling can't commit an edit: its leg indices were measured against a route the stop list
+   * has already moved past. A ref, not state — MapLibre's `dragstart` and first `drag` can land
+   * in the same tick, before a re-render would publish it.
+   */
+  const activeGrabRef = useRef<{ kind: string; index: number } | null>(null);
+  const ownsGrab = useCallback((grab: { kind: string; index: number }): boolean => {
+    const active = activeGrabRef.current;
+    return active !== null && active.kind === grab.kind && active.index === grab.index;
+  }, []);
+
+  const beginRouteDrag = useCallback(
+    (grab: NonNullable<typeof routeGrab>) => {
+      if (activeGrabRef.current) return;
+      activeGrabRef.current = { kind: grab.kind, index: grab.index };
+      setRouteGrab(grab);
+      setRouteDragTo(grab.point);
+      onRouteDrag?.(routeDragEdit(grab, grab.point));
+    },
+    [onRouteDrag, routeDragEdit]
+  );
+
+  const moveRouteDrag = useCallback(
+    (grab: NonNullable<typeof routeGrab>, to: LngLat) => {
+      if (!ownsGrab(grab)) return;
+      setRouteDragTo(to);
+      onRouteDrag?.(routeDragEdit(grab, to));
+    },
+    [onRouteDrag, routeDragEdit, ownsGrab]
+  );
+
+  const endRouteDrag = useCallback(
+    (grab: NonNullable<typeof routeGrab>, to: LngLat) => {
+      if (!ownsGrab(grab)) return;
+      activeGrabRef.current = null;
+      onRouteDragEnd?.(routeDragEdit(grab, to));
+      if (routeDragPreview) {
+        // Hold the handle at the drop point until the committed route replaces the preview:
+        // letting go here would flash a moved stop back to where it came from for a frame.
+        setRouteDragTo(to);
+        return;
+      }
+      setRouteDragTo(null);
+      setRouteGrab(null);
+    },
+    [onRouteDragEnd, routeDragEdit, routeDragPreview, ownsGrab]
+  );
+
+  // The owner dropping its preview ends the drag — either the committed route caught up, or the
+  // drop changed nothing. Paired with the branch above, which holds on rather than resetting.
+  useEffect(() => {
+    if (routeDragPreview === null) {
+      activeGrabRef.current = null;
+      setRouteGrab(null);
+      setRouteDragTo(null);
+    }
+  }, [routeDragPreview]);
+
+  /**
+   * The live re-routed shape, drawn in place of the committed route line.
+   *
+   * Nothing stands in for it before the first re-route lands — the committed route simply stays
+   * up. A straight band to the neighbouring stops filled that gap at first, but it read as the
+   * route briefly snapping back to a straight line from the origin.
+   */
+  const routeDragPreviewGeoJSON = useMemo(() => {
+    if (!routeDragPreview || routeDragPreview.length < 2) return null;
+    return {
+      type: "FeatureCollection" as const,
+      features: [
+        {
+          type: "Feature" as const,
+          geometry: { type: "LineString" as const, coordinates: routeDragPreview },
+          properties: {}
+        }
+      ]
+    };
+  }, [routeDragPreview]);
+
   // The hovered/selected directions step as a single LineString, drawn emphasized on top of
   // the route. Null when nothing is highlighted (so the source/layers unmount).
   const directionsHighlightGeoJSON = useMemo(() => {
@@ -1340,13 +1612,14 @@ const MapView = forwardRef<
     if (selectedGeoJSON) {
       ids.push("selected-circle", "selected-fill", "selected-line");
     }
-    for (const { sourceId } of overlayLayerSources) {
-      ids.push(
-        `${sourceId}-polygons`,
-        `${sourceId}-lines-hit`,
-        `${sourceId}-lines`,
-        `${sourceId}-points`
-      );
+    for (const { layerId, sourceId } of overlayLayerSources) {
+      ids.push(`${sourceId}-polygons`, `${sourceId}-points`);
+      // A directions route is the panel's own drawing, not a feature to select — clicking it
+      // would open a "Map overlay" card for a trip that has no file. Leaving it out lets the
+      // click fall through to the map, so it can still fill an armed stop or clear a selection.
+      if (!layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX)) {
+        ids.push(`${sourceId}-lines-hit`, `${sourceId}-lines`);
+      }
     }
     for (const { sourceId } of augmentedGeoJsonLayers) {
       ids.push(`${sourceId}-circle`, `${sourceId}-fill`, `${sourceId}-line`);
@@ -1404,6 +1677,8 @@ const MapView = forwardRef<
         onContextMenu={handleContextMenu}
         interactiveLayerIds={interactiveLayerIdsProp}
         onClick={handleLayerClick}
+        onMouseMove={handleRouteHover}
+        onMouseOut={handleRouteHoverLeave}
       >
         <OverlayChipImage fill={overlayColor} border={chipBorderColor} />
         {folderGeoJSON && (
@@ -1514,13 +1789,13 @@ const MapView = forwardRef<
               filter={POLYGON_FILTER}
               paint={selectedFillPaint(featureColor)}
             />
-            {/* White outline beneath the accent boundary — the polygon selection highlight. Miter
-                joins (no round layout) to match the accent outline's corners. */}
+            {/* White outline beneath the accent boundary — the highlight for a polygon the user
+                clicked, on the same rule as lines: opening a file doesn't restyle its shape.
+                Miter joins (no round layout) to match the accent outline's corners. */}
             <Layer
               id="selected-fill-highlight"
               type="line"
-              // @ts-expect-error - MapLibre filter expression
-              filter={POLYGON_FILTER}
+              filter={["all", POLYGON_FILTER, CLICKED_FILTER] as unknown as FilterSpecification}
               paint={SELECTED_OUTLINE_PAINT}
             />
             <Layer
@@ -1610,6 +1885,16 @@ const MapView = forwardRef<
             const fillOpacity = overlayFeatureOpacity(focusedFeatureId, 0.25);
             const lineOpacity = overlayFeatureOpacity(focusedFeatureId, 1);
             const isRoute = layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX);
+            // While a live re-route stands in for this route, its own line would draw the
+            // pre-drag shape underneath — two routes at once. The preview outlives the drop,
+            // so this holds until the committed route catches up.
+            const lineHidden = isRoute && routeDragPreviewGeoJSON !== null;
+            // The stop being dragged is drawn by the handle instead, so its chip would
+            // otherwise sit behind as a ghost at the old position.
+            const hiddenStopId =
+              isRoute && routeDragTo && routeGrab?.kind === "move"
+                ? draggableRoute?.stops[routeGrab.index]?.id
+                : undefined;
             return (
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
                 <Layer
@@ -1640,7 +1925,7 @@ const MapView = forwardRef<
                   filter={LINESTRING_FILTER}
                   paint={
                     isRoute
-                      ? routeLinePaint(overlayColor, lineOpacity)
+                      ? routeLinePaint(overlayColor, lineHidden ? 0 : lineOpacity)
                       : overlayLinePaint(overlayColor, lineOpacity)
                   }
                   layout={isRoute ? ROUND_LINE_LAYOUT : {}}
@@ -1651,8 +1936,11 @@ const MapView = forwardRef<
                 <Layer
                   id={`${sourceId}-points`}
                   type="symbol"
-                  // @ts-expect-error - MapLibre filter expression
-                  filter={POINT_FILTER}
+                  filter={
+                    (hiddenStopId
+                      ? ["all", POINT_FILTER, ["!=", ["get", "overlayId"], hiddenStopId]]
+                      : POINT_FILTER) as unknown as FilterSpecification
+                  }
                   layout={{
                     "icon-image": OVERLAY_CHIP_IMAGE_ID,
                     "icon-allow-overlap": true,
@@ -1663,6 +1951,18 @@ const MapView = forwardRef<
               </Source>
             );
           })}
+        {routeDragPreviewGeoJSON && (
+          // The live re-route: drawn exactly like the route it stands in for, since it *is* a
+          // routed shape. The committed line is hidden while this is up (see `-lines` above).
+          <Source id="route-drag-preview" type="geojson" data={routeDragPreviewGeoJSON}>
+            <Layer
+              id="route-drag-preview-line"
+              type="line"
+              paint={routeLinePaint(overlayColor, 1)}
+              layout={ROUND_LINE_LAYOUT}
+            />
+          </Source>
+        )}
         {directionsHighlightGeoJSON && (
           <Source id="directions-highlight" type="geojson" data={directionsHighlightGeoJSON}>
             {/* White casing under the accent line so the emphasized step pops off the
@@ -1685,6 +1985,60 @@ const MapView = forwardRef<
             />
           </Source>
         )}
+        {/* The new-stop handle: only for a spot on a leg. An existing stop being moved is dragged
+            by its own marker below, not by this one — two markers for one gesture would mean one
+            of them has a position that doesn't follow the drag. */}
+        {routeGrab?.kind === "insert" && (
+          <RouteDragHandle
+            point={routeDragTo ?? routeGrab.point}
+            zIndex={ROUTE_HANDLE_Z.newStop}
+            onDragStart={() => beginRouteDrag(routeGrab)}
+            onDrag={(to) => moveRouteDrag(routeGrab, to)}
+            onDrop={(to) => endRouteDrag(routeGrab, to)}
+          >
+            <div
+              title="Drag to change route"
+              className="size-3 cursor-grab rounded-full shadow-sm active:cursor-grabbing"
+              style={{ backgroundColor: foregroundColor }}
+            />
+          </RouteDragHandle>
+        )}
+        {/* Grab targets over the route's own stops. Invisible at rest — the WebGL chip beneath is
+            the visual — and the dot while being dragged, with the chip hidden so it doesn't ghost
+            at the old position. Three things matter here:
+            - `point` follows the drag for the stop being moved (see RouteDragHandle).
+            - Stacked above the new-stop handle, so a press within a stop's radius moves that
+              stop instead of adding one beside it, even while the line handle is showing.
+            - Kept mounted for the whole drag, since unmounting the marker that owns the pointer
+              would strand the gesture with no dragend. */}
+        {draggableRoute?.stops.map((stop, i) => {
+          const dragging = routeGrab?.kind === "move" && routeGrab.index === i ? routeDragTo : null;
+          const grab = { kind: "move" as const, index: i, point: stop.point };
+          return (
+            <RouteDragHandle
+              key={stop.id}
+              point={dragging ?? stop.point}
+              zIndex={ROUTE_HANDLE_Z.existingStop}
+              onDragStart={() => beginRouteDrag(grab)}
+              onDrag={(to) => moveRouteDrag(grab, to)}
+              onDrop={(to) => endRouteDrag(grab, to)}
+            >
+              {dragging ? (
+                <div
+                  title="Drag to move this stop"
+                  className="size-3 cursor-grabbing rounded-full shadow-sm"
+                  style={{ backgroundColor: foregroundColor }}
+                />
+              ) : (
+                <div
+                  title="Drag to move this stop"
+                  className="cursor-grab rounded-full"
+                  style={{ width: ROUTE_STOP_GRAB_SIZE, height: ROUTE_STOP_GRAB_SIZE }}
+                />
+              )}
+            </RouteDragHandle>
+          );
+        })}
         {/* Keyed on the anchor coords so a fresh selection remounts and replays the pop. */}
         {selectionAnchor?.kind === "place" && (
           <SelectionMarker

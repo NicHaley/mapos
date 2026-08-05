@@ -38,6 +38,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { useVaultRoot } from "../hooks/use-vault-root";
+import type { GeometryKind } from "../lib/geometry-wkt";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
@@ -73,7 +74,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onSelectGeoJson,
   onDeletePath,
   onRenamePath,
-  onMoved
+  onMoved,
+  geometryKinds
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -83,6 +85,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onDeletePath?: (path: string, type: FileNode["type"]) => void;
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
+  /** Indexed geometry per place-file path, so files on the map get map icons in the tree. */
+  geometryKinds: Map<string, GeometryKind>;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const vaultRoot = useVaultRoot();
@@ -402,7 +406,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
     if (!parentPath) return;
     const result = await window.api.fs.createFolder({
       parentFolderPath: parentPath,
-      folderName: "New Folder"
+      folderName: "New folder"
     });
     if (result.success) {
       setPendingRenamePath(result.folderPath);
@@ -421,7 +425,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 render={
                   <SidebarMenuItem>
                     <SidebarMenuButton onClick={() => void createNoteIn(vaultRoot)}>
-                      <SquarePenIcon /> New Note
+                      <SquarePenIcon /> New note
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 }
@@ -456,7 +460,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
         <SidebarGroup className="pb-0">
           <div className="group/group-header relative mb-0.5 flex flex-col">
             <CollapsibleGroupLabel
-              label="Files"
+              label="Vault"
               open={filesGroupOpen}
               onToggle={() => setFilesGroupOpen((o) => !o)}
             />
@@ -480,7 +484,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                   }}
                 >
                   <SquarePenIcon />
-                  New Note
+                  New note
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -489,7 +493,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                   }}
                 >
                   <FolderPlusIcon />
-                  New Folder
+                  New folder
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -536,6 +540,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                           onRenameComplete={onRenamePath}
                           onCreateFolderIn={(path) => void createFolderIn(path)}
                           onCreateNoteIn={(path) => void createNoteIn(path)}
+                          geometryKinds={geometryKinds}
                           dnd={dndBridge}
                         />
                       ))}
@@ -561,11 +566,11 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 <ContextMenuContent>
                   <ContextMenuItem onClick={() => void createNoteIn(vaultRoot)}>
                     <SquarePenIcon />
-                    New Note
+                    New note
                   </ContextMenuItem>
                   <ContextMenuItem onClick={() => void createFolderIn(vaultRoot)}>
                     <FolderPlusIcon />
-                    New Folder
+                    New folder
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -626,7 +631,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                 void confirmDelete();
               }}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

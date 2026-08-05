@@ -29,6 +29,14 @@ const POPOVER_RESULT_LIMIT = 5;
 const SEARCH_RESULT_LIMIT = 50;
 /** ⌘1–⌘9 select the Nth visible result; one keyboard row's worth. */
 const MAX_HOTKEYS = 9;
+/**
+ * Stand-in cmdk value meaning "nothing is highlighted". Any value that matches no row
+ * would do; NUL is used because it can never occur in a file path or a result id, so
+ * it cannot collide with a real row.
+ */
+const NO_HIGHLIGHT = "\u0000";
+/** Keys cmdk handles by moving the highlight — see `userMovedSelection`. */
+const MOVE_SELECTION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"]);
 
 function trimQuery(q: string): string {
   return q.trim();
@@ -132,6 +140,21 @@ export function GeocodeSearchPanel({
   // otherwise auto-selects the first item); ArrowDown moves to the first result, and
   // Enter with nothing highlighted runs the default "open all" action (see onKeyDown).
   const [selected, setSelected] = useState("");
+  // cmdk schedules a "highlight the first item" pass every time its internal `search`
+  // state changes — i.e. on every keystroke — and pushes it out through onValueChange.
+  // That fights the empty default above: the highlight appeared on each keystroke and
+  // vanished again when the debounced results landed. So writes are accepted only when
+  // they came from the user actually moving through the list.
+  //
+  // This has to be a ref, not state: cmdk calls onValueChange *synchronously* from its
+  // own keydown handler, in the same event dispatch as the keydown below, so a state
+  // flag set here would still read stale when the decision is made.
+  const userMovedSelection = useRef(false);
+  // Refusing the write above isn't enough on its own: cmdk keeps its own copy of the
+  // highlighted value and only re-reads the controlled prop when that prop *changes*,
+  // so its copy would stay pointing at the first row and keep it lit. Bumping this
+  // hands cmdk a value it hasn't seen, which forces the re-read.
+  const [selectionResets, setSelectionResets] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const { getViewportBBox } = useMapViewport();
   // Vault root, for showing file locations as vault-relative folders.
@@ -150,6 +173,8 @@ export function GeocodeSearchPanel({
       setResults([]);
       setError(null);
       setLoading(false);
+      setSelected("");
+      userMovedSelection.current = false;
     }
   }, [active]);
 
@@ -220,13 +245,6 @@ export function GeocodeSearchPanel({
   }, [files, queryTrim, vaultRoot]);
   const fileMatches = useMemo(() => allFileMatches.slice(0, LOCAL_RESULT_LIMIT), [allFileMatches]);
 
-  // A settled result set clears the highlight (cmdk auto-selects first on search change;
-  // this runs when items actually arrive, so nothing stays highlighted until ArrowDown).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the lists change, not read
-  useEffect(() => {
-    setSelected("");
-  }, [results, fileMatches]);
-
   const pick = useCallback(
     (r: GeocodeSearchResult) => {
       onSelectResult(r);
@@ -276,8 +294,12 @@ export function GeocodeSearchPanel({
     <Command
       shouldFilter={false}
       loop
-      value={selected}
-      onValueChange={setSelected}
+      value={selected || `${NO_HIGHLIGHT}${selectionResets}`}
+      onValueChange={(next) => {
+        // Drop cmdk's unsolicited select-first (see userMovedSelection above).
+        if (userMovedSelection.current) setSelected(next);
+        else setSelectionResets((n) => n + 1);
+      }}
       className={cn("flex flex-col", className)}
     >
       <div className="p-1 pb-0" data-slot="geocode-search-input">
@@ -292,10 +314,19 @@ export function GeocodeSearchPanel({
           <CommandPrimitive.Input
             ref={inputRef}
             value={query}
-            onValueChange={setQuery}
+            onValueChange={(next) => {
+              setQuery(next);
+              // A new query means a new result set: back to nothing highlighted.
+              setSelected("");
+              userMovedSelection.current = false;
+            }}
             placeholder={placeholder}
             autoComplete="off"
             onKeyDown={(e) => {
+              // Runs before cmdk's root handler (this bubbles up to it), so the flag is
+              // set by the time cmdk pushes the resulting selection back through
+              // onValueChange in this same dispatch.
+              if (MOVE_SELECTION_KEYS.has(e.key)) userMovedSelection.current = true;
               // Nothing highlighted + any matches present → Enter opens all as a list
               // (the default action). cmdk always preventDefaults Enter, so intercept here
               // and stop it reaching cmdk's root handler.
@@ -317,7 +348,16 @@ export function GeocodeSearchPanel({
           ) : null}
         </InputGroup>
       </div>
-      <CommandList className="max-h-72">
+      <CommandList
+        className="max-h-72"
+        // cmdk highlights on hover too; that's the user moving through the list, so let
+        // those writes through the gate as well. Capture phase — the row's own
+        // pointer-move handler is what sets the value, and it would otherwise run (and
+        // be rejected) before this one bubbled up.
+        onPointerMoveCapture={() => {
+          userMovedSelection.current = true;
+        }}
+      >
         {!queryTrim && !loading && !error ? (
           <div className="flex flex-col items-center gap-2 border-0 bg-transparent px-4 py-6 text-center md:px-6">
             <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-input/30">

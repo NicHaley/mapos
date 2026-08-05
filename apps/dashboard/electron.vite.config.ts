@@ -6,6 +6,16 @@ import { defineConfig } from "electron-vite";
 export default defineConfig({
   main: {
     build: {
+      // Two entries: the main bundle, plus the offline-geocode worker thread it spawns
+      // at runtime. The worker must be its own file for `new Worker(path)` to load it,
+      // and lands beside index.js in out/main/ (which is how geocoding.ts locates it,
+      // relative to import.meta.url — same layout in dev and inside the asar).
+      rollupOptions: {
+        input: {
+          index: resolve("src/main/index.ts"),
+          "geocode-worker": resolve("src/main/services/offline/geocode-worker.ts")
+        }
+      },
       externalizeDeps: {
         exclude: [
           "chokidar",

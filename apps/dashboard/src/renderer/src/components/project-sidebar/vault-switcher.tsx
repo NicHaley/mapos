@@ -260,7 +260,7 @@ export function VaultSwitcher() {
                     <div className="grid min-w-0 gap-0.5">
                       <span className="font-medium">Create new vault</span>
                       <span className="text-muted-foreground text-xs font-normal">
-                        Pick a name and a parent location. MapOS creates the folder for you.
+                        Pick a name and a parent folder. MapOS creates the vault folder for you.
                       </span>
                     </div>
                   </Button>
@@ -341,7 +341,7 @@ export function VaultSwitcher() {
                       disabled={addVaultBusy || !validateVaultName(vaultNameDraft).ok}
                       onClick={() => void runCreateNewVault(vaultNameDraft)}
                     >
-                      Choose location…
+                      Choose parent folder…
                     </Button>
                   </div>
                 </div>

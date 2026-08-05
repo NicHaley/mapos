@@ -1,5 +1,15 @@
 import { uniqueNameCandidates } from "./unique-name";
 
+/** Path looks like a real vault file (rules out preview/overlay/synthetic identifiers). */
+export function isVaultFilePath(fp: string | undefined | null): fp is string {
+  if (!fp) return false;
+  if (fp.startsWith("geocode-search:")) return false;
+  if (fp.startsWith("map-overlay:")) return false;
+  if (fp.startsWith("map-poi:")) return false;
+  if (fp.startsWith("geojson-feature:")) return false;
+  return true;
+}
+
 export function filenameBaseFromPlaceTitle(title: string): string {
   const s = title
     .trim()

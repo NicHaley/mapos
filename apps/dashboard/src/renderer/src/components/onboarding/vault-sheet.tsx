@@ -183,7 +183,7 @@ export function VaultSheet({
             disabled={busy || (mode === "create" && !name.trim())}
           >
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            {mode === "create" ? "Choose location" : "Pick folder"}
+            {mode === "create" ? "Choose parent folder" : "Pick folder"}
           </Button>
         </SheetFooter>
       </SheetContent>

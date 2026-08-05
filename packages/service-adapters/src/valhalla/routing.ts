@@ -71,7 +71,11 @@ const ValhallaLegSchema = z.object({
     })
     .optional(),
   shape: z.string().optional(),
-  maneuvers: z.array(ValhallaManeuverSchema).optional()
+  maneuvers: z.array(ValhallaManeuverSchema).optional(),
+  // Returned only when the request asked for `elevation_interval` AND the graph was built
+  // with elevation. Values are in `units`; `elevation_interval` echoes the interval used.
+  elevation: z.array(z.number()).optional(),
+  elevation_interval: z.number().optional()
 });
 
 export const ValhallaRouteResponseSchema = z.object({
@@ -91,6 +95,14 @@ export const ValhallaRouteResponseSchema = z.object({
 export type ValhallaRouteResponse = z.infer<typeof ValhallaRouteResponseSchema>;
 
 /**
+ * Elevation sampling interval, in metres. Valhalla stores edge elevation at a 32 m posting
+ * and samples the route at 30 m regardless of how fine the source DEM was, so asking for
+ * less than this buys interpolation, not detail. It is also what Valhalla's own docs
+ * recommend.
+ */
+const ELEVATION_INTERVAL_M = 30;
+
+/**
  * Build the Valhalla `/route` request body. Shared by the HTTP adapter and the
  * in-process (local pack) adapter so both speak identical wire JSON — the only
  * difference between them is transport (`fetch` vs the native actor).
@@ -99,6 +111,7 @@ export function buildRouteRequestBody(req: RouteDirectionsRequest) {
   return {
     locations: req.locations.map((l) => ({ lat: l.lat, lon: l.lng })),
     costing: req.costing,
+    ...(req.elevation ? { elevation_interval: ELEVATION_INTERVAL_M } : {}),
     directions_options: { units: "kilometers" as const }
   };
 }
@@ -112,6 +125,7 @@ export function parseRouteResponse(data: ValhallaRouteResponse): Route {
 
   const allCoords: [number, number][] = [];
   const maneuvers: Maneuver[] = [];
+  const elevation: number[] = [];
   for (const leg of trip.legs) {
     // Global index of this leg's decoded[0]. Legs share a seam point: leg N>0's first shape
     // point equals the previous leg's last, which we don't re-push — so its decoded[k] lands
@@ -125,6 +139,14 @@ export function parseRouteResponse(data: ValhallaRouteResponse): Route {
         const pt = decoded[i];
         if (pt) allCoords.push(pt);
       }
+    }
+    // Legs share a seam sample exactly as their shapes do: leg N>0's first elevation sample
+    // sits at the previous leg's last point, so skipping it keeps the concatenated series
+    // evenly spaced at the interval.
+    for (let i = 0; i < (leg.elevation?.length ?? 0); i++) {
+      if (i === 0 && elevation.length > 0) continue;
+      const v = leg.elevation?.[i];
+      if (v !== undefined) elevation.push(v);
     }
     for (const m of leg.maneuvers ?? []) {
       maneuvers.push({
@@ -147,7 +169,13 @@ export function parseRouteResponse(data: ValhallaRouteResponse): Route {
     distanceMeters,
     durationSeconds,
     geometry: { type: "LineString", coordinates: allCoords },
-    maneuvers
+    maneuvers,
+    ...(elevation.length > 0
+      ? {
+          elevation,
+          elevationIntervalMeters: trip.legs[0]?.elevation_interval ?? ELEVATION_INTERVAL_M
+        }
+      : {})
   };
 }
 

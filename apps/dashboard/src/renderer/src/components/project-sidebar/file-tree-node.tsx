@@ -34,10 +34,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { iconForFilename } from "../../lib/file-icons";
+import type { GeometryKind } from "../../lib/geometry-wkt";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
-function fileIcon(name: string) {
-  const Icon = iconForFilename(name);
+function fileIcon(name: string, geometryKind: GeometryKind | null) {
+  const Icon = iconForFilename(name, geometryKind);
   return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
 }
 
@@ -57,6 +58,7 @@ export function FileTreeNode({
   onRenameComplete,
   onCreateFolderIn,
   onCreateNoteIn,
+  geometryKinds,
   dnd
 }: {
   node: FileNode;
@@ -74,6 +76,8 @@ export function FileTreeNode({
   onRenameComplete?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
+  /** Indexed geometry per place-file path, so a file on the map gets a map icon. */
+  geometryKinds: Map<string, GeometryKind>;
   dnd?: SidebarDndBridge;
 }) {
   const open = node.type === "directory" && openFolders.has(node.path);
@@ -179,7 +183,7 @@ export function FileTreeNode({
       {!isImage && (
         <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
           <PlusIcon />
-          Open in New Tab
+          Open in new tab
         </ContextMenuItem>
       )}
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
@@ -203,7 +207,7 @@ export function FileTreeNode({
       {!isImage && (
         <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
           <PlusIcon />
-          Open in New Tab
+          Open in new tab
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
@@ -226,16 +230,16 @@ export function FileTreeNode({
     <>
       <ContextMenuItem onClick={() => onOpenInNewTab(node)}>
         <PlusIcon />
-        Open in New Tab
+        Open in new tab
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
         <SquarePenIcon />
-        New Note
+        New note
       </ContextMenuItem>
       <ContextMenuItem onClick={() => onCreateFolderIn?.(node.path)}>
         <FolderPlusIcon />
-        New Folder
+        New folder
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
@@ -258,16 +262,16 @@ export function FileTreeNode({
     <>
       <DropdownMenuItem onClick={() => onOpenInNewTab(node)}>
         <PlusIcon />
-        Open in New Tab
+        Open in new tab
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => onCreateNoteIn?.(node.path)}>
         <SquarePenIcon />
-        New Note
+        New note
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => onCreateFolderIn?.(node.path)}>
         <FolderPlusIcon />
-        New Folder
+        New folder
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(node.path)}>
@@ -418,6 +422,7 @@ export function FileTreeNode({
                 onRenameComplete={onRenameComplete}
                 onCreateFolderIn={onCreateFolderIn}
                 onCreateNoteIn={onCreateNoteIn}
+                geometryKinds={geometryKinds}
                 dnd={dnd}
               />
             ))}
@@ -465,7 +470,7 @@ export function FileTreeNode({
             />
           }
         >
-          {fileIcon(node.name)}
+          {fileIcon(node.name, geometryKinds.get(node.path) ?? null)}
           {isRenaming ? (
             renameInput
           ) : (

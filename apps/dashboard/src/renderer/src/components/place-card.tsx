@@ -49,8 +49,10 @@ import {
 import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikilink-extension";
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
+import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
+import type { RouteFrontmatter } from "@shared/route";
 import { type Editor, Extension } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -64,11 +66,16 @@ import {
   Link2Icon,
   Link2OffIcon,
   MapPinIcon,
+  MapPinOffIcon,
   MapPinPlus,
   Maximize2Icon,
   PencilIcon,
+  PencilRulerIcon,
+  PentagonIcon,
   PlusIcon,
   RouteIcon,
+  SearchIcon,
+  SplineIcon,
   Trash2Icon,
   XIcon
 } from "lucide-react";
@@ -95,8 +102,17 @@ const GJ_EXCLUDED = new Set(["name", "description"]);
 /** Stable empty list — PropertiesPanel is memoized, so props must keep identity. */
 const EMPTY_KEY_TYPES: Array<{ key: string; type: PropertyType }> = [];
 
-function formatPointLocationShort(geometryJson: string | undefined): string {
+/** The trigger's label once the place has geometry: coordinates for a point, the
+ *  shape's name otherwise (there is nothing that short and useful to say about a ring). */
+function formatGeometrySummary(
+  geometryJson: string | undefined,
+  savedRoute: RouteFrontmatter | null
+): string {
   if (!geometryJson) return "";
+  // A route's shape is a LineString, so without this it would read as a plain "Line".
+  if (savedRoute) {
+    return `Route · ${savedRoute.stops.length} stops`;
+  }
   try {
     const geo = JSON.parse(geometryJson) as {
       type: string;
@@ -106,11 +122,20 @@ function formatPointLocationShort(geometryJson: string | undefined): string {
       const [lng, lat] = geo.coordinates;
       return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     }
+    if (geo.type === "LineString") return "Line";
+    if (geo.type === "Polygon") return "Area";
   } catch {
     /* ignore */
   }
   return "Location";
 }
+
+/** The dropdown's draw options, in menu order. */
+const DRAW_OPTIONS: Array<{ shape: DrawShape; icon: typeof MapPinPlus }> = [
+  { shape: "point", icon: MapPinPlus },
+  { shape: "linestring", icon: SplineIcon },
+  { shape: "polygon", icon: PentagonIcon }
+];
 
 type LoadedDoc =
   | { kind: "loading" }
@@ -448,6 +473,11 @@ export const PlaceCard = memo(function PlaceCard({
   defaultParentFolderPath = null,
   onCommitPointLocation,
   onClearPointLocation,
+  onStartDrawing,
+  onEditGeometry,
+  onPlanRoute,
+  savedRoute = null,
+  activeDrawMode = null,
   onRename,
   onDelete,
   onOpenFolder
@@ -470,6 +500,18 @@ export const PlaceCard = memo(function PlaceCard({
   onCommitPointLocation?: (filePath: string, lat: number, lng: number) => Promise<boolean>;
   /** Remove `geometry` from the vault file. */
   onClearPointLocation?: (filePath: string) => Promise<boolean>;
+  /** Start drawing this file's geometry on the map. */
+  onStartDrawing?: (filePath: string, shape: DrawShape) => void;
+  /** Edit the file's existing geometry on the map. Receives its GeoJSON JSON string. */
+  onEditGeometry?: (filePath: string, geometry: string) => void;
+  /** Open a directions tab bound to this file, so its route saves back here. */
+  /** `fresh` asks for a blank route rather than this file's saved one — see "Draw a route". */
+  onPlanRoute?: (filePath: string, opts?: { fresh?: boolean }) => void;
+  /** This file's saved route. Resolve it from the places index, not from `place` — records
+   *  built by a map click come from SQLite rows and never carry one. */
+  savedRoute?: RouteFrontmatter | null;
+  /** The mode of the draw session running against this file, if any. */
+  activeDrawMode?: DrawMode | null;
   /** Called after a successful file rename with the old and new paths. */
   onRename?: (oldPath: string, newPath: string) => void;
   /** Called after the place file has been deleted on disk. */
@@ -494,10 +536,14 @@ export const PlaceCard = memo(function PlaceCard({
   const [saveToVaultOpen, setSaveToVaultOpen] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [addLocationOpen, setAddLocationOpen] = useState(false);
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const editorRef = useRef<Editor | null>(null);
+  // The search popover anchors to an inert overlay of the location row, so the row's
+  // button is free to be the dropdown's trigger. Focus returns here on close.
+  const locationTriggerRef = useRef<HTMLButtonElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   // Set when "Rename" is chosen so the menu returns focus to the title input
   // (instead of its trigger) once it closes.
@@ -631,7 +677,10 @@ export const PlaceCard = memo(function PlaceCard({
     e.target.value = "";
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const result = await window.api.fs.importAttachment({ suggestedName: file.name, bytes });
+    const result = await window.api.fs.importAttachment({
+      suggestedName: file.name,
+      bytes
+    });
     if (result.success) await applyCover(result.relPath);
   }
 
@@ -660,7 +709,12 @@ export const PlaceCard = memo(function PlaceCard({
           )
         ];
         const { type: _t, features: _f, ...properties } = data as Record<string, unknown>;
-        setDoc({ kind: "geojson-layer", properties, featureCount, geometryTypes });
+        setDoc({
+          kind: "geojson-layer",
+          properties,
+          featureCount,
+          geometryTypes
+        });
       });
       return () => {
         cancelled = true;
@@ -745,6 +799,32 @@ export const PlaceCard = memo(function PlaceCard({
     if (ok) setAddLocationOpen(false);
   }, [currentFilePath, onClearPointLocation]);
 
+  const handleStartDrawing = useCallback(
+    (shape: DrawShape) => {
+      setLocationMenuOpen(false);
+      onStartDrawing?.(currentFilePath, shape);
+    },
+    [currentFilePath, onStartDrawing]
+  );
+
+  const handleEditGeometry = useCallback(() => {
+    if (!place.geometry) return;
+    setLocationMenuOpen(false);
+    onEditGeometry?.(currentFilePath, place.geometry);
+  }, [currentFilePath, place.geometry, onEditGeometry]);
+
+  const handlePlanRoute = useCallback(() => {
+    setLocationMenuOpen(false);
+    onPlanRoute?.(currentFilePath);
+  }, [currentFilePath, onPlanRoute]);
+
+  /** "Draw a route" — always starts over, even when the file already has a route, so it reads
+   *  as a sibling of "Draw a line" / "Draw an area" rather than a second way to edit. */
+  const handleDrawRoute = useCallback(() => {
+    setLocationMenuOpen(false);
+    onPlanRoute?.(currentFilePath, { fresh: true });
+  }, [currentFilePath, onPlanRoute]);
+
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
     if (/[/\\]/.test(name)) return "Name cannot contain slashes";
@@ -828,7 +908,7 @@ export const PlaceCard = memo(function PlaceCard({
   const miniActionCount =
     1 + // close (always shown)
     Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) + // save
-    Number(Boolean(onGetDirections) && Boolean(place.geometry)) + // directions
+    Number(Boolean(onGetDirections) && Boolean(place.geometry) && !savedRoute) + // directions
     Number(Boolean(onExpand)); // expand
   // Mini keeps a slightly smaller cluster since it floats over content; the
   // title's reserved padding below is `miniActionCount * MINI_ACTION_PX`.
@@ -862,7 +942,7 @@ export const PlaceCard = memo(function PlaceCard({
                     variant="ghost"
                     size={actionSize}
                     disabled={savingSearch}
-                    aria-label="Save place to vault"
+                    aria-label="Save to vault"
                   >
                     <PlusIcon />
                   </Button>
@@ -870,7 +950,7 @@ export const PlaceCard = memo(function PlaceCard({
               />
             }
           />
-          <TooltipContent side="bottom">Save to folder</TooltipContent>
+          <TooltipContent side="bottom">Save to vault</TooltipContent>
         </Tooltip>
       )}
       {mode === "full" && place.previewMarkdown === undefined && (
@@ -904,7 +984,7 @@ export const PlaceCard = memo(function PlaceCard({
             >
               <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
                 <PlusIcon />
-                Open in New Tab
+                Open in new tab
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
                 <FolderOpenIcon />
@@ -922,13 +1002,13 @@ export const PlaceCard = memo(function PlaceCard({
               {doc.kind === "vault" && (
                 <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
                   <ImageIcon />
-                  {coverPath ? "Change Cover Photo" : "Set Cover Photo"}
+                  {coverPath ? "Change cover photo" : "Set cover photo"}
                 </DropdownMenuItem>
               )}
               {doc.kind === "vault" && coverPath && (
                 <DropdownMenuItem onClick={() => void applyCover(null)}>
                   <ImageOffIcon />
-                  Remove Cover Photo
+                  Remove cover photo
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -946,7 +1026,9 @@ export const PlaceCard = memo(function PlaceCard({
           <TooltipContent side="bottom">More actions</TooltipContent>
         </Tooltip>
       )}
-      {onGetDirections && place.geometry && (
+      {/* Not for a saved route: "directions to this trip" would route to the midpoint of
+          its own line, and the card already offers "Edit route" for the real action. */}
+      {onGetDirections && place.geometry && !savedRoute && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -992,6 +1074,30 @@ export const PlaceCard = memo(function PlaceCard({
       </Tooltip>
     </>
   );
+
+  /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather than
+   *  with the search — even though it opens the directions panel, not a draw session. Shown
+   *  whatever the file already holds, exactly like the other draw options: each one starts a
+   *  new shape that replaces the old on save. Declared once here because it slots into the
+   *  middle of the DRAW_OPTIONS list below. */
+  const drawRouteMenuItem = onPlanRoute ? (
+    <DropdownMenuItem onClick={handleDrawRoute}>
+      <RouteIcon />
+      Draw a route
+    </DropdownMenuItem>
+  ) : null;
+
+  /** Editing an existing route replaces "Edit shape", which would open a draw session on the
+   *  route's line. That line is *derived* from the stops, and committing a hand-edit writes
+   *  `route: null` (see commitVaultGeometry) — so the shape editor silently downgrades a route
+   *  to a plain line. The directions panel is the only coherent way to change one. */
+  const editRouteMenuItem =
+    onPlanRoute && savedRoute ? (
+      <DropdownMenuItem onClick={handlePlanRoute}>
+        <RouteIcon />
+        Edit route
+      </DropdownMenuItem>
+    ) : null;
 
   return (
     <div
@@ -1116,32 +1222,27 @@ export const PlaceCard = memo(function PlaceCard({
             {place.previewMarkdown === undefined &&
               place.type !== "GeoJsonLayer" &&
               onCommitPointLocation && (
-                <div className="px-2 pb-4 shrink-0">
+                <div className="relative px-2 pb-4 shrink-0">
+                  {/* The geocode search lives in a popover anchored to an inert copy
+                      of the row's box, leaving the visible button free to be the
+                      dropdown trigger. Base UI allows one trigger per overlay. */}
                   <Popover
                     open={addLocationOpen}
                     onOpenChange={handleAddLocationOpenChange}
                     modal={false}
                   >
                     <PopoverTrigger
-                      render={
-                        <button
-                          type="button"
-                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
-                        >
-                          {place.geometry ? (
-                            <MapPinIcon className="size-4 shrink-0" />
-                          ) : (
-                            <MapPinPlus className="size-4 shrink-0" />
-                          )}
-                          <span className="truncate">
-                            {place.geometry
-                              ? formatPointLocationShort(place.geometry)
-                              : "Add a location"}
-                          </span>
-                        </button>
-                      }
+                      aria-hidden
+                      tabIndex={-1}
+                      className="pointer-events-none absolute inset-x-2 top-0 h-8"
                     />
-                    <PopoverContent className="w-96 p-0" align="start" side="bottom" sideOffset={6}>
+                    <PopoverContent
+                      className="w-96 p-0"
+                      align="start"
+                      side="bottom"
+                      sideOffset={6}
+                      finalFocus={locationTriggerRef}
+                    >
                       <PopoverTitle className="sr-only">
                         {place.geometry ? "Change location" : "Add a location"}
                       </PopoverTitle>
@@ -1163,6 +1264,78 @@ export const PlaceCard = memo(function PlaceCard({
                       />
                     </PopoverContent>
                   </Popover>
+                  <DropdownMenu open={locationMenuOpen} onOpenChange={setLocationMenuOpen}>
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          ref={locationTriggerRef}
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
+                        >
+                          {place.geometry ? (
+                            <MapPinIcon className="size-4 shrink-0" />
+                          ) : (
+                            <MapPinPlus className="size-4 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {activeDrawMode === "select"
+                              ? "Editing on the map…"
+                              : activeDrawMode
+                                ? "Drawing on the map…"
+                                : place.geometry
+                                  ? formatGeometrySummary(place.geometry, savedRoute)
+                                  : "Add a location"}
+                          </span>
+                        </button>
+                      }
+                    />
+                    <DropdownMenuContent align="start" side="bottom" sideOffset={6}>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setLocationMenuOpen(false);
+                          setAddLocationOpen(true);
+                        }}
+                      >
+                        <SearchIcon />
+                        Search for a location
+                      </DropdownMenuItem>
+                      {(onStartDrawing || drawRouteMenuItem) && <DropdownMenuSeparator />}
+                      {onStartDrawing
+                        ? DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
+                            <Fragment key={shape}>
+                              <DropdownMenuItem onClick={() => handleStartDrawing(shape)}>
+                                <Icon />
+                                {DRAW_SHAPE_LABELS[shape]}
+                              </DropdownMenuItem>
+                              {shape === "linestring" && drawRouteMenuItem}
+                            </Fragment>
+                          ))
+                        : drawRouteMenuItem}
+                      {place.geometry &&
+                        (editRouteMenuItem || onEditGeometry || onClearPointLocation) && (
+                          <DropdownMenuSeparator />
+                        )}
+                      {place.geometry && editRouteMenuItem}
+                      {place.geometry && !savedRoute && onEditGeometry && (
+                        <DropdownMenuItem onClick={handleEditGeometry}>
+                          <PencilRulerIcon />
+                          Edit shape
+                        </DropdownMenuItem>
+                      )}
+                      {place.geometry && onClearPointLocation && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => {
+                            setLocationMenuOpen(false);
+                            void handleClearLocation();
+                          }}
+                        >
+                          <MapPinOffIcon />
+                          Remove location
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
 
@@ -1236,7 +1409,10 @@ export const PlaceCard = memo(function PlaceCard({
                   onImageClick={(src) =>
                     // Vault images get their filename as the caption; remote
                     // image URLs carry no meaningful name.
-                    setLightbox({ src, caption: relPathFromVaultUrl(src)?.split("/").pop() })
+                    setLightbox({
+                      src,
+                      caption: relPathFromVaultUrl(src)?.split("/").pop()
+                    })
                   }
                 />
               )}
@@ -1284,7 +1460,7 @@ export const PlaceCard = memo(function PlaceCard({
                 void confirmDelete();
               }}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

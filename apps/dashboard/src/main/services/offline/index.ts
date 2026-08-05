@@ -9,6 +9,9 @@ import { offlineTiles } from "./tiles";
  * dependency-light), this one uses `better-sqlite3`, the region protocol, and the
  * `@valhallajs/valhallajs` native addon, so it lives in the Electron main process.
  * Implements geocoding, tiles, routing, and isochrones from downloaded packs.
+ *
+ * Geocoding is the exception to "in the main process": `geocoding.ts` is only a
+ * client, and the SQLite work happens in a worker thread (see `geocode-worker.ts`).
  */
 export const offlineAdapter: Adapter = {
   id: "offline",

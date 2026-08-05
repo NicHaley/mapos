@@ -24,11 +24,14 @@ import {
   bboxUsable,
   rejectForeignContinents
 } from "@renderer/lib/region-coverage";
+import { elevationStats, hasElevationData } from "@shared/elevation";
+import { type RouteFrontmatter, routeIsDirty } from "@shared/route";
 import { DIRECTIONS_OVERLAY_PREFIX, type MapOverlayLayer, type PlaceRecord } from "@shared/types";
 import {
   ArrowUpDownIcon,
   BikeIcon,
   CarIcon,
+  CheckIcon,
   CircleDotIcon,
   CircleIcon,
   DownloadIcon,
@@ -40,10 +43,14 @@ import {
   MapPinIcon,
   PlusIcon,
   RouteIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
   XIcon
 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ElevationProfile } from "./elevation-profile";
+import { FolderPickerPopover } from "./folder-picker-popover";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
@@ -60,6 +67,27 @@ export type DirectionsPanelProps = {
   onRouteChange: (layer: MapOverlayLayer | null) => void;
   /** Emphasize a step's segment on the map (and, when `focus`, ease the camera to it). Null clears. */
   onHighlightSegment: (coordinates: [number, number][] | null, focus: boolean) => void;
+  /** The vault file this route saves into; null when unbound (saving creates a new file). */
+  targetFilePath?: string | null;
+  /** Title of the bound file. Null once the index has loaded means the file is gone. */
+  targetTitle?: string | null;
+  /** Whether the places index has finished loading, so a null `targetTitle` can be trusted. */
+  indexLoaded?: boolean;
+  /** The route already stored in the bound file — drives the save copy and the dirty state. */
+  savedRoute?: RouteFrontmatter | null;
+  /** Folder highlighted as the default when an unbound save picks a destination. `null` = vault root. */
+  defaultParentFolderPath?: string | null;
+  /** Persist the route. The panel supplies the shape it is displaying; the app owns the
+   *  file writes and what happens to the tab afterwards. `folderPath` is where a *new* route
+   *  file goes (the user picked it); a bound save ignores it and writes into its own file. */
+  onSaveRoute?: (payload: {
+    stops: DirectionsWaypoint[];
+    mode: TravelMode;
+    coordinates: [number, number][];
+    folderPath: string | null;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Which stop a map click should fill, or null when the map should select normally. */
+  onArmedStopChange?: (index: number | null) => void;
   onClose: () => void;
 };
 
@@ -142,11 +170,27 @@ type RouteState =
   | { status: "loading" }
   | {
       status: "done";
+      /**
+       * The `${stopsKey}|${mode}` this shape was computed for. The routing effect flips to
+       * `loading` in an effect — i.e. after commit — so there is a window where the stops
+       * prop is already new while these coordinates are still the previous route's. Saving
+       * in that window would write a LINESTRING that disagrees with its own `route.stops`,
+       * and both halves would look plausible forever. Save is gated on this matching.
+       */
+      key: string;
       distanceMeters: number;
       durationSeconds: number;
       maneuvers: Maneuver[];
       /** Full route shape; maneuvers' shape indices point into this array. */
       coordinates: [number, number][];
+      /**
+       * Elevation profile, present only for the modes that ask for it and only when the
+       * region pack was built with elevation baked into the graph. Screened through
+       * `hasElevationData` on the way in, so a pre-elevation pack lands here as undefined
+       * rather than as a flat line at Valhalla's -500 m floor.
+       */
+      elevation?: number[];
+      elevationIntervalMeters?: number;
     }
   | { status: "error"; message: string }
   | { status: "needs-region" };
@@ -166,6 +210,13 @@ export function DirectionsPanel({
   onChange,
   onRouteChange,
   onHighlightSegment,
+  targetFilePath = null,
+  targetTitle = null,
+  indexLoaded = true,
+  savedRoute = null,
+  defaultParentFolderPath = null,
+  onSaveRoute,
+  onArmedStopChange,
   onClose
 }: DirectionsPanelProps): React.JSX.Element {
   const packs = useRegionPacks(true);
@@ -255,16 +306,24 @@ export function DirectionsPanel({
     window.api.services
       .routingDirections({
         locations: routableStops.map((s) => ({ lat: s.lat, lng: s.lng })),
-        costing: mode
+        costing: mode,
+        // Climb is part of the decision on foot or by bike; on a drive the samples are pure
+        // payload, roughly one number per 30 m of route.
+        elevation: mode !== "auto"
       })
       .then((r) => {
         if (cancelled) return;
+        const hasElevation = hasElevationData(r.elevation);
         setRoute({
           status: "done",
+          key: `${stopsKey}|${mode}`,
           distanceMeters: r.distanceMeters,
           durationSeconds: r.durationSeconds,
           maneuvers: r.maneuvers,
-          coordinates: r.geometry.coordinates as [number, number][]
+          coordinates: r.geometry.coordinates as [number, number][],
+          ...(hasElevation && r.elevation
+            ? { elevation: r.elevation, elevationIntervalMeters: r.elevationIntervalMeters ?? 30 }
+            : {})
         });
         onRouteChangeRef.current(
           buildRouteLayer(id, routableStops, r.geometry.coordinates as [number, number][])
@@ -332,6 +391,17 @@ export function DirectionsPanel({
   }
   const nextKey = (): string => String(Math.max(-1, ...rowKeys.map(Number)) + 1);
 
+  /** The row key that should take focus on mount — the stop "Add stop" just appended, or, when
+   *  the panel first opens, the first blank stop. A freshly-opened route is otherwise a pair of
+   *  empty inputs with nothing indicating which one to fill; focusing also arms it (see
+   *  armStop), so a map click lands somewhere useful without touching the panel at all.
+   *  Cleared once it focuses so a later remount of that row can't steal focus back. */
+  const [autoFocusKey, setAutoFocusKey] = useState<string | null>(() => {
+    const firstBlank = stops.findIndex((s) => s == null);
+    // Keys start out positional (see rowKeys above), so index doubles as the key on mount.
+    return firstBlank >= 0 ? String(firstBlank) : null;
+  });
+
   const setStops = (next: (DirectionsWaypoint | null)[], nextMode?: TravelMode): void => {
     onChange({ stops: next, mode: nextMode ?? mode });
   };
@@ -339,8 +409,10 @@ export function DirectionsPanel({
     setStops(stops.map((s, j) => (j === i ? wp : s)));
   };
   const addStop = (): void => {
+    const key = nextKey();
     setStops([...stops, null]);
-    setRowKeys([...rowKeys, nextKey()]);
+    setRowKeys([...rowKeys, key]);
+    setAutoFocusKey(key);
   };
   const removeStop = (i: number): void => {
     if (stops.length <= 2) return;
@@ -358,6 +430,90 @@ export function DirectionsPanel({
     setStops([...stops].reverse());
     setRowKeys([...rowKeys].reverse());
   };
+
+  /**
+   * The stop a map click will fill: the blank input the user focused most recently.
+   *
+   * Deliberately sticky across blur — clicking the map canvas blurs the input first, so
+   * disarming on blur would make the feature impossible. The effect below is the sole judge
+   * of whether an armed stop is really empty; it disarms when the stop has a value, whether
+   * because a pick filled it or because the focused input was never blank. Focusing another
+   * input re-targets, and unmounting clears.
+   */
+  const [armedIndex, setArmedIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (armedIndex !== null && stops[armedIndex] != null) setArmedIndex(null);
+  }, [armedIndex, stops]);
+  const onArmedStopChangeRef = useRef(onArmedStopChange);
+  onArmedStopChangeRef.current = onArmedStopChange;
+  useEffect(() => {
+    onArmedStopChangeRef.current?.(armedIndex);
+  }, [armedIndex]);
+  // Leaving the panel must not leave the map hijacking clicks for a stop that's gone.
+  useEffect(() => () => onArmedStopChangeRef.current?.(null), []);
+  /**
+   * Arm unconditionally and let the effect above decide whether the stop is actually empty.
+   *
+   * It must not read `stops[i]` here: the clear button dispatches `onSelect(null)` and then
+   * focuses the input in the same handler, so this runs a render before the cleared stop is
+   * visible in props. Checking emptiness at that moment would see the *old* value and disarm
+   * the row the user just emptied. Focusing a genuinely filled stop still disarms — it arms
+   * for one commit, then the effect clears it.
+   */
+  const armStop = (i: number): void => {
+    setArmedIndex(i);
+    if (autoFocusKey !== null && rowKeys[i] === autoFocusKey) setAutoFocusKey(null);
+  };
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  // A route that was saved and then edited is stale on disk. Derived rather than stored:
+  // it self-heals after an external edit and survives the remount the panel takes on every
+  // tab switch. No auto-save — the route recomputes on every stop pick, so writing on each
+  // one would spam the watcher and make an experiment impossible to abandon.
+  const dirty = routeIsDirty(savedRoute, routableStops, mode);
+  // The binding is only actionable once the index has loaded; until then a null title just
+  // means the initial scan hasn't reached the file yet, not that it's gone.
+  const targetMissing = targetFilePath != null && indexLoaded && targetTitle == null;
+  const bound = targetFilePath != null && !targetMissing;
+  // Bound, saved, and unedited: there is nothing to press. The status line below carries it
+  // instead of a disabled button sitting in the panel's heaviest slot.
+  const upToDate = bound && !!savedRoute && !dirty;
+  const canSave =
+    !!onSaveRoute &&
+    !saving &&
+    routableStops.length >= 2 &&
+    route.status === "done" &&
+    route.key === `${stopsKey}|${mode}` &&
+    (dirty || targetFilePath == null);
+
+  const handleSave = async (folderPath: string | null): Promise<void> => {
+    if (!onSaveRoute || route.status !== "done" || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await onSaveRoute({
+      stops: routableStops,
+      mode,
+      coordinates: route.coordinates,
+      folderPath
+    });
+    // On success the tab navigates away and this panel unmounts, so only the failure
+    // path needs to restore the button.
+    if (!result.ok) {
+      setSaveError(result.error);
+      setSaving(false);
+    }
+  };
+
+  // Shared between the two save buttons below. A bound save commits on click; an unbound one
+  // is a popover trigger instead, so it must not carry an onClick of its own to merge against.
+  const saveButtonContent = (
+    <>
+      {saving ? <Loader2Icon className="size-4 animate-spin" /> : <RouteIcon className="size-4" />}
+      {saveLabel({ bound, savedRoute })}
+    </>
+  );
 
   return (
     <div
@@ -390,13 +546,19 @@ export function DirectionsPanel({
                   icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
                   allowCurrentLocation
+                  armed={armedIndex === 0}
+                  autoFocus={rowKeys[0] === autoFocusKey}
+                  onFocus={() => armStop(0)}
                 />
                 <LocationInput
                   value={stops[1]}
                   onSelect={(wp) => updateStop(1, wp)}
-                  placeholder="Choose destination, or click on the map"
+                  placeholder="Choose destination"
                   icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
+                  armed={armedIndex === 1}
+                  autoFocus={rowKeys[1] === autoFocusKey}
+                  onFocus={() => armStop(1)}
                 />
               </div>
               <Button
@@ -427,6 +589,9 @@ export function DirectionsPanel({
                   isLast={i === stops.length - 1}
                   canRemove={stops.length > 2}
                   files={files}
+                  armed={armedIndex === i}
+                  autoFocus={rowKeys[i] === autoFocusKey}
+                  onFocus={() => armStop(i)}
                   onSelect={(wp) => updateStop(i, wp)}
                   onRemove={() => removeStop(i)}
                 />
@@ -470,8 +635,63 @@ export function DirectionsPanel({
           onStepClick={handleStepClick}
         />
       </div>
+
+      {onSaveRoute && (
+        <div className="flex shrink-0 flex-col gap-1.5 border-sidebar-border border-t p-3">
+          {saveError ? (
+            <p className="text-destructive text-xs">{saveError}</p>
+          ) : targetMissing ? (
+            <p className="text-muted-foreground text-xs">
+              The file this route was saved to is gone. Saving makes a new route.
+            </p>
+          ) : targetTitle ? (
+            <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {upToDate && <CheckIcon className="size-3.5 shrink-0" aria-hidden />}
+              <span className="truncate">
+                {upToDate ? `Saved to ${targetTitle}` : `Saving to ${targetTitle}`}
+              </span>
+            </p>
+          ) : null}
+          {upToDate ? null : bound ? (
+            <Button className="h-9" disabled={!canSave} onClick={() => void handleSave(null)}>
+              {saveButtonContent}
+            </Button>
+          ) : (
+            // A new route picks its folder the same way every other save in the app does,
+            // rather than silently landing in whichever folder was last touched.
+            <FolderPickerPopover
+              open={folderPickerOpen}
+              onOpenChange={setFolderPickerOpen}
+              defaultParentFolderPath={defaultParentFolderPath}
+              title="Save route to folder"
+              side="top"
+              align="center"
+              onSelect={(folderPath) => void handleSave(folderPath)}
+              trigger={
+                <Button className="h-9" disabled={!canSave}>
+                  {saveButtonContent}
+                </Button>
+              }
+            />
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/** Copy for the save button. An unbound tab creates a file; a bound one writes into the
+ *  file it is tied to, and says so once there is already a route there to replace. The
+ *  saved-and-unedited case has no button at all, so it needs no label here. */
+function saveLabel({
+  bound,
+  savedRoute
+}: {
+  bound: boolean;
+  savedRoute: RouteFrontmatter | null;
+}): string {
+  if (!bound) return "Save as a new route";
+  return savedRoute ? "Update route" : "Save route";
 }
 
 /** One reorderable stop row: a drag handle, a full-width location input, and a remove button. */
@@ -482,6 +702,9 @@ function StopRow({
   isLast,
   canRemove,
   files,
+  armed,
+  autoFocus,
+  onFocus,
   onSelect,
   onRemove
 }: {
@@ -491,6 +714,9 @@ function StopRow({
   isLast: boolean;
   canRemove: boolean;
   files?: PlaceRecord[];
+  armed?: boolean;
+  autoFocus?: boolean;
+  onFocus?: () => void;
   onSelect: (wp: DirectionsWaypoint | null) => void;
   onRemove: () => void;
 }): React.JSX.Element {
@@ -528,6 +754,9 @@ function StopRow({
           icon={icon}
           files={files}
           allowCurrentLocation={isFirst}
+          armed={armed}
+          autoFocus={autoFocus}
+          onFocus={onFocus}
         />
       </div>
       <Button
@@ -639,6 +868,11 @@ function RouteBody({
     return <div className="px-4 py-6 text-destructive text-sm">{state.message}</div>;
   }
 
+  // Cheap enough to redo per render (one pass over the samples), and the early returns above
+  // rule out a hook here anyway.
+  const elevation = state.elevation;
+  const stats = elevation ? elevationStats(elevation) : null;
+
   return (
     <div className="flex flex-col">
       <div className="flex items-baseline gap-2 px-4 py-3">
@@ -648,7 +882,27 @@ function RouteBody({
         <span className="text-muted-foreground text-sm">
           {formatDistance(state.distanceMeters)}
         </span>
+        {stats && (
+          <span className="ml-auto flex items-center gap-2 text-muted-foreground text-sm tabular-nums">
+            <span className="flex items-center gap-0.5" title="Total climb">
+              <TrendingUpIcon className="size-3.5" aria-hidden />
+              {stats.gainMeters} m
+            </span>
+            <span className="flex items-center gap-0.5" title="Total descent">
+              <TrendingDownIcon className="size-3.5" aria-hidden />
+              {stats.lossMeters} m
+            </span>
+          </span>
+        )}
       </div>
+      {stats && elevation && (
+        <div className="px-4 pb-3">
+          <ElevationProfile
+            samples={elevation}
+            intervalMeters={state.elevationIntervalMeters ?? 30}
+          />
+        </div>
+      )}
       <ol className="flex flex-col">
         {state.maneuvers.map((m, i) => {
           const locatable = m.beginShapeIndex !== undefined;
@@ -725,7 +979,10 @@ function LocationInput({
   placeholder,
   icon,
   files,
-  allowCurrentLocation
+  allowCurrentLocation,
+  armed,
+  autoFocus,
+  onFocus
 }: {
   value: DirectionsWaypoint | null;
   onSelect: (wp: DirectionsWaypoint | null) => void;
@@ -733,11 +990,17 @@ function LocationInput({
   icon: React.ReactNode;
   files?: PlaceRecord[];
   allowCurrentLocation?: boolean;
+  /** This stop is the one a map click will fill — ringed so the target is unambiguous. */
+  armed?: boolean;
+  /** Take focus on mount (a stop the user just added). */
+  autoFocus?: boolean;
+  onFocus?: () => void;
 }): React.JSX.Element {
   const [query, setQuery] = useState(value?.label ?? "");
   const [results, setResults] = useState<GeocodeSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const debounced = useDebounce(query, 300);
   const { getViewportBBox } = useMapViewport();
   const vaultRoot = useVaultRoot();
@@ -746,6 +1009,12 @@ function LocationInput({
   useEffect(() => {
     setQuery(value?.label ?? "");
   }, [value?.label]);
+
+  // A stop the user just added takes focus, so they can type into it right away. The focus
+  // also arms the row for a map click, same as clicking into it would.
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   useEffect(() => {
     const q = debounced.trim();
@@ -770,7 +1039,8 @@ function LocationInput({
   }, [debounced, value?.label, getViewportBBox]);
 
   // Vault places matched instantly against the (un-debounced) query. Only places with a
-  // derivable point can be a directions endpoint, so geometry-less notes are skipped.
+  // derivable point can be a directions endpoint, so geometry-less notes and saved routes
+  // are both skipped — waypointFromPlace returns null for each.
   const needle = query.trim().toLowerCase();
   const fileOptions = useMemo<LocationOption[]>(() => {
     if (!needle || needle === value?.label?.toLowerCase() || !files) return [];
@@ -835,7 +1105,13 @@ function LocationInput({
         <span className="pointer-events-none absolute top-1/2 left-2.5 z-10 -translate-y-1/2 text-muted-foreground">
           {icon}
         </span>
-        <ComboboxInput placeholder={placeholder} autoComplete="off" className="px-8" />
+        <ComboboxInput
+          ref={inputRef}
+          placeholder={placeholder}
+          autoComplete="off"
+          className={cn("px-8", armed && "ring-2 ring-ring")}
+          onFocus={onFocus}
+        />
         <div className="absolute top-1/2 right-1 -translate-y-1/2">
           {locating ? (
             <Loader2Icon className="size-4 shrink-0 animate-spin opacity-60" />
@@ -847,6 +1123,9 @@ function LocationInput({
               onClick={() => {
                 setQuery("");
                 onSelect(null);
+                // Clearing is a step towards re-picking, so leave the caret where the user
+                // will type next — and the focus re-arms the row for a map click.
+                inputRef.current?.focus();
               }}
             >
               <XIcon className="size-3.5" />

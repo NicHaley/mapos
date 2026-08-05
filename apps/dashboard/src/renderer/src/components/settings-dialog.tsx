@@ -391,7 +391,7 @@ export function SettingsDialog({
                 void confirmDelete();
               }}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

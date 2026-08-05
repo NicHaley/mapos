@@ -1,8 +1,19 @@
+import type { RouteFrontmatter } from "./route";
+
 export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
   color?: string;
   type: string;
+  /**
+   * A saved route's stops and travel mode (reserved `route` frontmatter key), so the
+   * directions panel can reopen it. `geometry` holds the same route's shape.
+   *
+   * Only present on records built from frontmatter — `places:query-bounds` and
+   * `places:query-folder-all` construct theirs from SQLite rows and can never carry it,
+   * so resolve this through the places index rather than off a record from a map click.
+   */
+  route?: RouteFrontmatter;
   // Canonical place identity in MapOS (replaces separate id field).
   filePath: string;
   /** When set, PlaceCard shows preview content without reading the file; no save/rename. */
@@ -206,7 +217,13 @@ export type RegionDownloadProgress = {
 
 export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_select";
 /** Frontmatter keys managed by the map; not shown as generic properties. */
-export const RESERVED_PROPERTY_KEYS = ["geometry", "color", "cover", "cover_source"] as const;
+export const RESERVED_PROPERTY_KEYS = [
+  "geometry",
+  "color",
+  "cover",
+  "cover_source",
+  "route"
+] as const;
 
 /**
  * Image formats the mapos-vault:// protocol serves. SVG is deliberately

@@ -3,6 +3,23 @@ type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 /** The subset of createNoteFile args that determine a place's `geometry` frontmatter. */
 export type GeometryCreateArgs = Pick<CreateNoteArgs, "lat" | "lng" | "geometryWkt">;
 
+/** How a place reads on the map, for iconography. A saved route is a line. */
+export type GeometryKind = "point" | "line" | "area";
+
+/** Classify a GeoJSON geometry JSON string. Null when absent or unrecognized. */
+export function geometryKindOf(geometryJson: string | undefined): GeometryKind | null {
+  if (!geometryJson) return null;
+  try {
+    const { type } = JSON.parse(geometryJson) as { type?: string };
+    if (type === "Point" || type === "MultiPoint") return "point";
+    if (type === "LineString" || type === "MultiLineString") return "line";
+    if (type === "Polygon" || type === "MultiPolygon") return "area";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function fmtCoord(n: number): string {
   return Number.isFinite(n) ? String(n) : "0";
 }
@@ -16,6 +33,25 @@ export function polygonWkt(rings: [number, number][][]): string {
     (ring) => `(${ring.map(([lng, lat]) => `${fmtCoord(lng)} ${fmtCoord(lat)}`).join(", ")})`
   );
   return `POLYGON(${parts.join(", ")})`;
+}
+
+export function pointWkt(lng: number, lat: number): string {
+  return `POINT(${fmtCoord(lng)} ${fmtCoord(lat)})`;
+}
+
+/**
+ * Convert a GeoJSON geometry JSON string into the WKT string that goes in a place
+ * file's `geometry` frontmatter. Returns null for unparseable, unsupported, or
+ * degenerate geometry (too few coordinates to form a line/ring).
+ */
+export function geometryJsonToWkt(geometryJson: string): string | null {
+  const args = geometryJsonToCreateArgs(geometryJson);
+  if (!args) return null;
+  if (args.geometryWkt) return args.geometryWkt;
+  if (typeof args.lng === "number" && typeof args.lat === "number") {
+    return pointWkt(args.lng, args.lat);
+  }
+  return null;
 }
 
 /**

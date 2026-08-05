@@ -122,6 +122,12 @@ importers:
       pmtiles:
         specifier: ^4.4.1
         version: 4.4.1
+      terra-draw:
+        specifier: ^1.32.2
+        version: 1.32.2
+      terra-draw-maplibre-gl-adapter:
+        specifier: ^1.4.1
+        version: 1.4.1(maplibre-gl@5.18.0)(terra-draw@1.32.2)
       typebox:
         specifier: ^1.1.38
         version: 1.1.38
@@ -7485,6 +7491,15 @@ packages:
   temp@0.9.4:
     resolution: {integrity: sha512-yYrrsWnrXMcdsnu/7YMYAofM1ktpL5By7vZhf15CrXijWWrEYZks5AXBudalfSWJLlnen/QUJUB5aoB0kqZUGA==}
     engines: {node: '>=6.0.0'}
+
+  terra-draw-maplibre-gl-adapter@1.4.1:
+    resolution: {integrity: sha512-qZ/bc9bVPnyt0keLVTofV8xiTPkdkbO6RzqrfNLe9zH/edW5PsjvJw97m1EksPZeXNJtFxsVbhi12cPaoNiWfg==}
+    peerDependencies:
+      maplibre-gl: '>=4'
+      terra-draw: ^1.0.0
+
+  terra-draw@1.32.2:
+    resolution: {integrity: sha512-ysy1EBhvYbMqddv4+LyNmb56DpZLGPP9QO/I5kZoD4PArRJekOBlvXPKjo9w+jikcOEMgHUSw2G7AHLqI2QoiA==}
 
   terser@5.16.9:
     resolution: {integrity: sha512-HPa/FdTB9XGI2H1/keLFZHxl6WNvAI4YalHGtDQTlMnJcoqSab1UwL4l1hGEhs6/GmLHBZIg/YgB++jcbzoOEg==}
@@ -15671,6 +15686,13 @@ snapshots:
     dependencies:
       mkdirp: 0.5.6
       rimraf: 2.6.3
+
+  terra-draw-maplibre-gl-adapter@1.4.1(maplibre-gl@5.18.0)(terra-draw@1.32.2):
+    dependencies:
+      maplibre-gl: 5.18.0
+      terra-draw: 1.32.2
+
+  terra-draw@1.32.2: {}
 
   terser@5.16.9:
     dependencies:

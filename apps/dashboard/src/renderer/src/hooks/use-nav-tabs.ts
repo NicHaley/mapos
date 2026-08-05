@@ -5,7 +5,14 @@ import type { PlaceRecord } from "../components/map-view";
 import { useVaultRoot } from "./use-vault-root";
 
 /** A resolved directions endpoint: coordinates plus the label shown in the input. */
-export type DirectionsWaypoint = { lat: number; lng: number; label: string };
+export type DirectionsWaypoint = {
+  lat: number;
+  lng: number;
+  label: string;
+  /** Absolute path of the vault place this stop came from, when it came from one. Saved as a
+   *  `[[wikilink]]` on the route; absent for a geocode result or a bare map pick. */
+  filePath?: string;
+};
 /** Travel mode for a directions request — the routing costing model. */
 export type TravelMode = RouteCosting;
 
@@ -27,6 +34,15 @@ export type NavEntry =
       label: string;
       stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
+      /**
+       * The vault file this route saves into. Absent means unbound: saving creates a new
+       * place file, and the entry is then bound to it so a second save updates rather than
+       * duplicating. Set up front when opened from a place card's "Draw a route".
+       *
+       * This is the one thing that makes a directions tab path-aware, so unlike `list` tabs
+       * it participates in renames (see relocateEntry) and deletions (see remove_path).
+       */
+      targetFilePath?: string;
     };
 
 export type NavTab = { id: string; history: NavEntry[]; cursor: number };
@@ -49,7 +65,17 @@ export type NavAction =
       id: string;
       stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
-    };
+    }
+  // Fill a directions tab's origin with the user's location once geolocation lands. Narrower
+  // than `update-directions` on purpose: the request is issued when the tab opens and can take
+  // its full 10s timeout, so writing back a whole stop list would revert everything the user
+  // did while waiting. Only stop 0 is touched, and only while it is still blank — a stop they
+  // filled themselves in the meantime is their answer, not one to overwrite.
+  | { type: "fill-directions-origin"; id: string; waypoint: DirectionsWaypoint }
+  // Attach an unbound directions tab to the file its first save created, so saving again
+  // updates that file instead of creating a second one. (After a save the tab navigates to
+  // the place, but the directions entry stays in history — Back, Save would duplicate.)
+  | { type: "bind-directions"; id: string; targetFilePath: string; label: string };
 
 /** Rewrite paths when a file or folder was moved to a new location. */
 function relocateFilePath(path: string, oldRoot: string, newRoot: string): string | null {
@@ -71,8 +97,21 @@ function relocateEntry(
   newPath: string,
   isDirectory: boolean
 ): NavEntry {
-  // List and directions tabs are not path-based — moves never touch them.
-  if (entry.kind === "list" || entry.kind === "directions") return entry;
+  // List tabs are not path-based — moves never touch them.
+  if (entry.kind === "list") return entry;
+  // A directions tab is path-based only through its binding. Following the move matters
+  // for more than a broken save: leave the old path in place and a *different* file that
+  // later occupies it gets silently overwritten by the next save.
+  if (entry.kind === "directions") {
+    if (!entry.targetFilePath) return entry;
+    const next = isDirectory
+      ? relocateFilePath(entry.targetFilePath, oldPath, newPath)
+      : entry.targetFilePath === oldPath
+        ? newPath
+        : null;
+    if (next === null) return entry;
+    return { ...entry, targetFilePath: next, label: placeTitleFromPath(next) };
+  }
   if (entry.kind === "place") {
     const fp = entry.place.filePath;
     if (!isDirectory) {
@@ -118,6 +157,7 @@ type PersistedTab =
       label: string;
       stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
+      targetFilePath?: string;
     };
 type PersistedNavState = { tabs: PersistedTab[]; activeTab: number };
 
@@ -129,8 +169,27 @@ export function folderLabel(folderPath: string): string {
   return folderPath.split(/[/\\]/).filter(Boolean).pop() ?? folderPath;
 }
 
+function pathIsUnder(candidate: string, path: string, isFolder: boolean): boolean {
+  if (candidate === path) return true;
+  return isFolder && (candidate.startsWith(`${path}/`) || candidate.startsWith(`${path}\\`));
+}
+
+/**
+ * Drop a directions tab's binding when its target file is deleted, leaving the tab itself
+ * alone. A binding is a weak reference: losing the file should cost the link, not the stops
+ * the user has assembled — so this runs *before* the remove_path filter, which would
+ * otherwise take the whole tab with it.
+ */
+function unbindRemovedTarget(entry: NavEntry, path: string, isFolder: boolean): NavEntry {
+  if (entry.kind !== "directions" || !entry.targetFilePath) return entry;
+  if (!pathIsUnder(entry.targetFilePath, path, isFolder)) return entry;
+  const { targetFilePath: _removed, ...rest } = entry;
+  return { ...rest, label: "Directions" };
+}
+
 function entryMatchesPath(entry: NavEntry, path: string, isFolder: boolean): boolean {
-  // List and directions tabs reference no vault path, so a path removal never matches them.
+  // A list tab references no vault path, and a directions tab's binding is handled by
+  // unbindRemovedTarget above — neither is ever removed by a deletion.
   if (entry.kind === "list" || entry.kind === "directions") return false;
   if (entry.kind === "place") {
     if (isFolder) {
@@ -208,9 +267,9 @@ export function navReducer(state: NavState, action: NavAction): NavState {
     case "remove_path": {
       const newTabs = state.tabs
         .map((tab) => {
-          const newHistory = tab.history.filter(
-            (entry) => !entryMatchesPath(entry, action.path, action.isFolder)
-          );
+          const newHistory = tab.history
+            .map((entry) => unbindRemovedTarget(entry, action.path, action.isFolder))
+            .filter((entry) => !entryMatchesPath(entry, action.path, action.isFolder));
           if (newHistory.length === 0) return null;
           const newCursor = Math.min(tab.cursor, newHistory.length - 1);
           return { ...tab, history: newHistory, cursor: newCursor };
@@ -285,6 +344,32 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         }))
       };
     }
+    case "fill-directions-origin": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "directions" && entry.id === action.id && entry.stops[0] == null
+              ? { ...entry, stops: [action.waypoint, ...entry.stops.slice(1)] }
+              : entry
+          )
+        }))
+      };
+    }
+    case "bind-directions": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "directions" && entry.id === action.id
+              ? { ...entry, targetFilePath: action.targetFilePath, label: action.label }
+              : entry
+          )
+        }))
+      };
+    }
     default:
       return state;
   }
@@ -321,14 +406,21 @@ export function useNavTabs({
           label: current.label,
           layer: current.layer
         });
-      else
+      else if (current.kind === "directions")
         persistTabs.push({
           kind: "directions",
           id: current.id,
           label: current.label,
           stops: current.stops,
-          mode: current.mode
+          mode: current.mode,
+          targetFilePath: current.targetFilePath
         });
+      // Exhaustive: a new NavEntry variant must fail to compile here rather than fall
+      // through a catch-all `else` and be persisted as the wrong kind.
+      else {
+        const _exhaustive: never = current;
+        void _exhaustive;
+      }
     }
     if (persistTabs.length === 0) {
       localStorage.removeItem(storageKey);
@@ -385,9 +477,23 @@ export function useNavTabs({
           const stops = Array.isArray(tab.stops)
             ? tab.stops
             : [legacy.origin ?? null, legacy.destination ?? null];
+          // The binding is restored verbatim, never validated here: places:get-by-path
+          // reads the in-memory Map with no "initial scan complete" gate, so on a large
+          // vault it returns null for perfectly good files. Validating would silently
+          // unbind, and the next save would create a stray duplicate. The write itself is
+          // the real check.
           return {
             id: crypto.randomUUID(),
-            history: [{ kind: "directions", id: tab.id, label: tab.label, stops, mode: tab.mode }],
+            history: [
+              {
+                kind: "directions",
+                id: tab.id,
+                label: tab.label,
+                stops,
+                mode: tab.mode,
+                targetFilePath: tab.targetFilePath
+              }
+            ],
             cursor: 0
           };
         }

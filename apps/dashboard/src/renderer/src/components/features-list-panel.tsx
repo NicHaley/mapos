@@ -304,7 +304,7 @@ export function FeaturesListPanel({
           <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-input/30">
             <MapPinIcon className="size-5 opacity-70" aria-hidden />
           </div>
-          <p className="text-muted-foreground text-sm">No features in this list.</p>
+          <p className="text-muted-foreground text-sm">No places in this list yet.</p>
         </div>
       ) : (
         // Virtualized so a large result set (thousands of features) renders only the rows
@@ -382,7 +382,7 @@ export function FeaturesListPanel({
                                 size="icon"
                                 className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
                                 aria-label="Save to vault"
-                                title="Save to folder"
+                                title="Save to vault"
                               >
                                 <PlusIcon className="size-4" />
                               </Button>

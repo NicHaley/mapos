@@ -63,8 +63,6 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   EllipsisIcon,
   FolderOpenIcon,
-  ImageIcon,
-  ImageOffIcon,
   Link2Icon,
   Link2OffIcon,
   MapPinOffIcon,
@@ -1059,28 +1057,24 @@ export const PlaceCard = memo(function PlaceCard({
                 <PencilIcon />
                 Rename
               </DropdownMenuItem>
+              {/* Appearance is its own group: three nouns, one row each. For the icon the title
+                  glyph is still the primary way in — this is for anyone who doesn't guess that the
+                  glyph is clickable, and for a file that has no glyph yet. */}
               {doc.kind === "vault" && (
-                // The title-row glyph is the primary trigger; repeating the items here makes them
-                // findable for anyone who doesn't guess that the icon is clickable.
-                <PlaceAppearanceMenuItems
-                  icon={appearanceIcon}
-                  color={appearanceColor}
-                  onChange={(patch) => void applyAppearance(patch)}
-                  onChooseIcon={() => setAppearanceOpen(true)}
-                />
+                <>
+                  <DropdownMenuSeparator />
+                  <PlaceAppearanceMenuItems
+                    icon={appearanceIcon}
+                    color={appearanceColor}
+                    cover={coverPath}
+                    onChange={(patch) => void applyAppearance(patch)}
+                    onChooseIcon={() => setAppearanceOpen(true)}
+                    onChooseCover={() => coverInputRef.current?.click()}
+                    onRemoveCover={() => void applyCover(null)}
+                  />
+                </>
               )}
-              {doc.kind === "vault" && (
-                <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
-                  <ImageIcon />
-                  {coverPath ? "Change cover photo" : "Set cover photo"}
-                </DropdownMenuItem>
-              )}
-              {doc.kind === "vault" && coverPath && (
-                <DropdownMenuItem onClick={() => void applyCover(null)}>
-                  <ImageOffIcon />
-                  Remove cover photo
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {

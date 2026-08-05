@@ -7,7 +7,7 @@ import {
 } from "@mapos/ui/components/dropdown-menu";
 import { ACCENT_PALETTE, featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { normalizeFeatureColor } from "@renderer/lib/map-styles";
-import { CheckIcon, PaletteIcon, SmileIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, ImageIcon, PaletteIcon, SmileIcon } from "lucide-react";
 
 /**
  * The `icon` and `color` frontmatter keys a file can set, as a patch. A key set to `null` is a
@@ -45,41 +45,58 @@ function ColorItem({
 }
 
 /**
- * The appearance controls as menu items, for the card's overflow menu.
+ * The three things a file's look is made of — icon, colour, cover photo — as one group of the
+ * card's overflow menu.
  *
- * The title-row glyph is the primary way in and opens the picker directly; these exist so the
- * controls are findable for anyone who doesn't guess that the glyph is clickable, and so colour has
- * a home — the picker popover is icon-only.
+ * **One row per thing, each a submenu**, rather than a flat run of "Change X" / "Remove X" pairs.
+ * Flat, the group was six rows that grew and shrank with what the file happened to have set, put a
+ * second trash icon two rows above Delete, and left the reader scanning verbs to find the noun they
+ * wanted. Nouns are what they're looking for, so nouns are the rows.
  *
- * Colour is a named submenu rather than a swatch strip: a row of unlabelled dots makes the reader
- * match a hue to an intent, and "Blue" is the thing they were looking for.
+ * `Remove` is disabled rather than omitted so the shape of the menu doesn't change under the
+ * pointer — the appearing and disappearing rows were most of why the flat version read as messy.
+ *
+ * Colour is a named list rather than a swatch strip: a row of unlabelled dots makes the reader match
+ * a hue to an intent, and "Blue" is the thing they were looking for.
  */
 export function PlaceAppearanceMenuItems({
   icon,
   color,
+  cover,
   onChange,
-  onChooseIcon
+  onChooseIcon,
+  onChooseCover,
+  onRemoveCover
 }: {
   icon?: string;
   color?: string;
+  /** Vault-relative path of the current cover photo, when there is one. */
+  cover?: string;
   onChange: (patch: PlaceAppearance) => void;
   /** Opens the icon picker popover, which is anchored to the title-row glyph. */
   onChooseIcon: () => void;
+  /** Opens the OS file picker for a new cover image. */
+  onChooseCover: () => void;
+  onRemoveCover: () => void;
 }): React.JSX.Element {
   const accent = useAccent();
   const current = normalizeFeatureColor(color);
   return (
     <>
-      <DropdownMenuItem onClick={onChooseIcon}>
-        <SmileIcon />
-        {icon ? "Change icon" : "Add icon"}
-      </DropdownMenuItem>
-      {icon && (
-        <DropdownMenuItem onClick={() => onChange({ icon: null })}>
-          <Trash2Icon />
-          Remove icon
-        </DropdownMenuItem>
-      )}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <SmileIcon />
+          Icon
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem onClick={onChooseIcon}>
+            {icon ? "Change emoji" : "Choose emoji"}
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!icon} onClick={() => onChange({ icon: null })}>
+            Remove
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
           <PaletteIcon />
@@ -104,6 +121,20 @@ export function PlaceAppearanceMenuItems({
               onSelect={() => onChange({ color: hex })}
             />
           ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <ImageIcon />
+          Cover photo
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem onClick={onChooseCover}>
+            {cover ? "Change image" : "Choose image"}
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!cover} onClick={onRemoveCover}>
+            Remove
+          </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
     </>

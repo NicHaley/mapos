@@ -298,6 +298,10 @@ function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
     type: "Preview",
     geometry: JSON.stringify({ type: "Point", coordinates: [p.lng, p.lat] }),
     previewMarkdown: p.preview_markdown ?? "",
+    // Carried through so the card's header glyph and the selection marker match the pin that was
+    // clicked — without this, clicking an emoji stop pops a plain disk over its own emoji.
+    ...(p.icon ? { icon: p.icon } : {}),
+    ...(p.color ? { color: p.color } : {}),
     ...(p.properties && Object.keys(p.properties).length > 0 ? { properties: p.properties } : {})
   };
 }
@@ -1202,6 +1206,10 @@ const MapView = forwardRef<
           properties: Record<string, unknown>;
         }> = [];
         l.points.forEach((pt, i) => {
+          // Same sanitize-and-omit rule as `toFeature`: `has` is `key in properties`, so a
+          // present-but-undefined key would pass HAS_EMOJI_FILTER and leave the point drawn as an
+          // image id with no glyph in it — invisible rather than fallen back.
+          const icon = emojiIcon(pt.icon);
           features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [pt.lng, pt.lat] },
@@ -1210,6 +1218,10 @@ const MapView = forwardRef<
               overlayId: pt.id,
               title: pt.title,
               preview_markdown: pt.preview_markdown,
+              // A stop that stands for a saved place carries that place's look, so it draws as the
+              // pin the rest of the app shows it as (see the `-stop-emoji` layer below).
+              ...(icon ? { [EMOJI_PROPERTY]: icon } : {}),
+              color: normalizeFeatureColor(pt.color),
               // Only meaningful on a directions route, where points are ordered stops. Harmless
               // elsewhere: no other layer filters on it.
               [DESTINATION_PROPERTY]: i > 0 && i === l.points.length - 1
@@ -1793,7 +1805,12 @@ const MapView = forwardRef<
       // A directions route is the panel's own drawing, not a feature to select — clicking it
       // would open a "Map overlay" card for a trip that has no file. Leaving it out lets the
       // click fall through to the map, so it can still fill an armed stop or clear a selection.
-      if (!layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX)) {
+      if (layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX)) {
+        // The stops that draw as a pin instead of a dot, so they answer a click the same way.
+        // Only for a route source: `-stop-emoji` isn't rendered for any other overlay, and one id
+        // missing from the style makes queryRenderedFeatures return nothing for the whole query.
+        ids.push(`${sourceId}-stop-emoji`);
+      } else {
         ids.push(`${sourceId}-lines-hit`, `${sourceId}-lines`);
       }
     }
@@ -2166,8 +2183,15 @@ const MapView = forwardRef<
             // The destination is lifted out of the dot layer into its own chequered symbol, so
             // the two never draw on top of each other.
             const dotFilter = (isRoute
-              ? ["all", stopFilter, NOT_DESTINATION_FILTER]
+              ? ["all", stopFilter, NOT_DESTINATION_FILTER, NO_EMOJI_FILTER]
               : stopFilter) as unknown as FilterSpecification;
+            // Exact complement of `dotFilter`, so every non-destination stop draws exactly once.
+            const stopPinFilter = [
+              "all",
+              stopFilter,
+              NOT_DESTINATION_FILTER,
+              HAS_EMOJI_FILTER
+            ] as unknown as FilterSpecification;
             const destinationFilter = [
               "all",
               stopFilter,
@@ -2239,6 +2263,19 @@ const MapView = forwardRef<
                       fill: overlayContrastColor,
                       opacity: lineOpacity
                     })}
+                  />
+                )}
+                {/* A stop that is a saved place with an emoji draws as that place's pin instead of
+                    a dot — the same raster the vault layers use, so the trip is made of things the
+                    user recognises. The pin's disk falls back to the route's own hue rather than
+                    the feature colour, since it belongs to this route. */}
+                {isRoute && (
+                  <Layer
+                    id={`${sourceId}-stop-emoji`}
+                    type="symbol"
+                    filter={stopPinFilter}
+                    layout={emojiPinLayout(overlayColor)}
+                    paint={{ "icon-opacity": lineOpacity }}
                   />
                 )}
                 {/* The finish line, drawn above the stop dots so a stop that lands under it

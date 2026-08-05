@@ -34,7 +34,7 @@ import { Reorder } from "motion/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultValueForType, inferPropertyType } from "../../../shared/property-inference";
 import type { PropertyType } from "../../../shared/types";
-import { RESERVED_PROPERTY_KEYS } from "../../../shared/types";
+import { isReservedPropertyKey } from "../../../shared/types";
 import { AutoSizeTextArea } from "./autosize-text-area";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -187,10 +187,9 @@ function existingPropertyKeysNotOnFile(
   allVaultKeyTypes: Array<{ key: string; type: PropertyType }>,
   fileKeys: string[]
 ): Array<{ key: string; type: PropertyType }> {
-  const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
   const onFile = new Set(fileKeys);
   return allVaultKeyTypes
-    .filter(({ key }) => !onFile.has(key) && !reserved.has(key))
+    .filter(({ key }) => !onFile.has(key) && !isReservedPropertyKey(key))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -202,6 +201,8 @@ interface PropertyKeyProps {
   onTypeChange: (key: string, type: PropertyType) => void;
   onRename: (oldKey: string, newKey: string) => void;
   onDelete: (key: string) => void;
+  /** Why `key` can't be this property's name, or null when it can. */
+  validateKey: (key: string) => string | null;
 }
 
 function PropertyKey({
@@ -209,7 +210,8 @@ function PropertyKey({
   value,
   onTypeChange,
   onRename,
-  onDelete
+  onDelete,
+  validateKey
 }: PropertyKeyProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [draftKey, setDraftKey] = useState(propKey);
@@ -223,16 +225,19 @@ function PropertyKey({
     }
   }, [open, propKey]);
 
-  const systemKeys = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
+  /** Live, so the reason shows while typing rather than after the attempt fails. Renaming a key to
+   *  itself is not a rename, so it's never an error. */
+  const trimmedDraft = draftKey.trim();
+  const renameError = trimmedDraft && trimmedDraft !== propKey ? validateKey(trimmedDraft) : null;
 
   function commitRename(): void {
-    const trimmed = draftKey.trim();
-    if (!trimmed || trimmed === propKey) return;
-    if (systemKeys.has(trimmed)) {
+    // Closing the menu with an unusable name keeps the old one. The message was on screen the
+    // whole time it was being typed, so this reverts something the reader already knows won't work.
+    if (!trimmedDraft || trimmedDraft === propKey || renameError) {
       setDraftKey(propKey);
       return;
     }
-    onRename(propKey, trimmed);
+    onRename(propKey, trimmedDraft);
   }
 
   function handleOpenChange(val: boolean, eventDetails?: { reason?: string }): void {
@@ -286,11 +291,15 @@ function PropertyKey({
           <Input
             ref={inputRef}
             value={draftKey}
+            aria-invalid={Boolean(renameError)}
             onChange={(e) => setDraftKey(e.target.value)}
             onKeyDown={(e) => {
               // Menu steals printable keys for typeahead / roving focus unless we isolate the field.
               e.stopPropagation();
               if (e.key === "Enter") {
+                // Hold the menu open on a bad name: closing it would revert the draft and take the
+                // reason away with it.
+                if (renameError) return;
                 commitRename();
                 setOpen(false);
               }
@@ -301,6 +310,7 @@ function PropertyKey({
             }}
             className="h-7 text-sm"
           />
+          {renameError && <p className="pt-1 text-destructive text-xs">{renameError}</p>}
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
@@ -880,11 +890,21 @@ function PropertiesPanelInner({
     if (reorderable) void window.api.fs.reorderFrontmatter(filePath, newOrder);
   }
 
+  /** The one place that decides whether a name can be used, shared by the rename field (which shows
+   *  the reason as you type) and `handleRename` (which still refuses, in case something skips it). */
+  const validatePropertyKey = useCallback(
+    (key: string): string | null => {
+      if (isReservedPropertyKey(key)) return `“${key.trim()}” is reserved by the map`;
+      if (Object.hasOwn(localFrontmatter, key)) return "This file already has that property";
+      return null;
+    },
+    [localFrontmatter]
+  );
+
   async function handleRename(oldKey: string, newKey: string): Promise<void> {
     const trimmed = newKey.trim();
-    const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-    if (reserved.has(trimmed)) return;
-    if (trimmed !== oldKey && Object.hasOwn(localFrontmatter, trimmed)) return;
+    if (!trimmed || trimmed === oldKey) return;
+    if (validatePropertyKey(trimmed)) return;
 
     const value = localFrontmatter[oldKey];
 
@@ -901,8 +921,7 @@ function PropertiesPanelInner({
 
   async function handleAddProperty(type: PropertyType): Promise<void> {
     const label = PROPERTY_TYPES.find((t) => t.value === type)?.label ?? "Text";
-    const reserved = new Set<string>(RESERVED_PROPERTY_KEYS as unknown as string[]);
-    const key = firstUniqueName(label, (k) => reserved.has(k) || k in localFrontmatter, {
+    const key = firstUniqueName(label, (k) => isReservedPropertyKey(k) || k in localFrontmatter, {
       suffixStyle: "spaceNumbered",
       maxCandidates: 1000,
       fallback: (b) => `${b} ${Date.now()}`
@@ -942,6 +961,7 @@ function PropertiesPanelInner({
                 onTypeChange={handleTypeChange}
                 onRename={handleRename}
                 onDelete={handleDelete}
+                validateKey={validatePropertyKey}
               />
             </div>
             <div className="flex min-h-0 min-w-0 items-start">

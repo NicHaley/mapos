@@ -105,6 +105,8 @@ declare global {
               frontmatter: Record<string, unknown>;
               cover?: string;
               coverSource?: string;
+              icon?: string;
+              color?: string;
             }
           | { error: string }
         >;

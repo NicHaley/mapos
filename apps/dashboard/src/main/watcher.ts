@@ -32,6 +32,7 @@ import {
   replaceFeaturePropertiesForFile,
   syncFeatureForFile
 } from "./db";
+import { stringifyPlaceFile } from "./frontmatter";
 import { sendToRenderer } from "./main-window";
 import { vaultDotDir as vaultDotDirPath } from "./mapos-config";
 import { isProtectedVaultPath, resolveInVault } from "./vault-path";
@@ -192,6 +193,7 @@ function placeRecordFromMatterData(
     geometry: geo ? JSON.stringify(geo) : undefined,
     title,
     color: typeof data.color === "string" ? data.color : undefined,
+    icon: typeof data.icon === "string" ? data.icon : undefined,
     type: (data.type as string) ?? "place",
     // Tolerant by design: a hand-edited `route` that doesn't parse costs the route,
     // not the place. See parseRouteFrontmatter.
@@ -475,7 +477,11 @@ export function setupPlacesWatcher(
       // surface each as its own field.
       const cover = typeof data.cover === "string" ? data.cover : undefined;
       const coverSource = typeof data.cover_source === "string" ? data.cover_source : undefined;
-      return { raw, body: content.trimStart(), frontmatter, cover, coverSource };
+      // Same reasoning for `icon`/`color`: reserved, but the appearance picker has to show
+      // the file's current values, and it can't read them out of `frontmatter`.
+      const icon = typeof data.icon === "string" ? data.icon : undefined;
+      const color = typeof data.color === "string" ? data.color : undefined;
+      return { raw, body: content.trimStart(), frontmatter, cover, coverSource, icon, color };
     } catch (err) {
       return { error: String(err) };
     }
@@ -511,7 +517,7 @@ export function setupPlacesWatcher(
   });
 
   // Update or delete a single frontmatter property, preserving the rest.
-  // Uses matter.stringify for clean round-trip serialization.
+  // Uses stringifyPlaceFile for clean round-trip serialization.
   ipcMain.handle(
     "fs:write-frontmatter-property",
     async (_event, filePath: string, key: string, value: unknown) => {
@@ -528,7 +534,7 @@ export function setupPlacesWatcher(
         } else {
           data[key] = value;
         }
-        writeVaultFile(filePath, matter.stringify(parsed.content, data));
+        writeVaultFile(filePath, stringifyPlaceFile(parsed.content, data));
         // Update the places Map synchronously from `data` — the same object we just
         // serialized to disk. Don't re-read the file: the barrier above will make
         // chokidar skip its own re-read for this change, so this is the one place
@@ -570,7 +576,7 @@ export function setupPlacesWatcher(
           if (value === null || value === undefined) delete data[key];
           else data[key] = value;
         }
-        writeVaultFile(filePath, matter.stringify(parsed.content, data));
+        writeVaultFile(filePath, stringifyPlaceFile(parsed.content, data));
         const rec = data;
         collectPropertyKeysFromData(rec, knownPropertyKeys);
         replaceFeaturePropertiesForFile(filePath, rec);
@@ -603,7 +609,7 @@ export function setupPlacesWatcher(
       for (const key of Object.keys(parsed.data)) {
         if (!Object.hasOwn(reordered, key)) reordered[key] = parsed.data[key];
       }
-      writeVaultFile(filePath, matter.stringify(parsed.content, reordered));
+      writeVaultFile(filePath, stringifyPlaceFile(parsed.content, reordered));
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -876,6 +882,7 @@ export function setupPlacesWatcher(
           geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
+          icon: r.icon ?? undefined,
           type: "place",
           filePath: r.file_path
         };
@@ -891,6 +898,7 @@ export function setupPlacesWatcher(
           geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
+          icon: r.icon ?? undefined,
           type: "place",
           filePath: r.file_path
         };
@@ -910,6 +918,7 @@ export function setupPlacesWatcher(
           geometry: r.geometry,
           title: titleFallback,
           color: r.color ?? undefined,
+          icon: r.icon ?? undefined,
           type: "place",
           filePath: r.file_path
         };

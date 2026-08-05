@@ -4,6 +4,12 @@ export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
   color?: string;
+  /**
+   * A single emoji (reserved `icon` frontmatter key) shown in place of the file-type glyph in
+   * lists, tabs, and the card header, and rasterized as the map pin for point geometry. Stored
+   * verbatim; validate with `emojiIcon` before rendering it as a pin.
+   */
+  icon?: string;
   type: string;
   /**
    * A saved route's stops and travel mode (reserved `route` frontmatter key), so the
@@ -220,6 +226,7 @@ export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_sele
 export const RESERVED_PROPERTY_KEYS = [
   "geometry",
   "color",
+  "icon",
   "cover",
   "cover_source",
   "route"

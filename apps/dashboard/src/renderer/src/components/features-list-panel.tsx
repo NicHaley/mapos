@@ -6,7 +6,6 @@ import { isVaultRelativePath, vaultImageUrl } from "@renderer/extensions/vault-i
 import { type MapOverlayLayer, isServableImageFile } from "@shared/types";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  FileTextIcon,
   Loader2Icon,
   MapPinIcon,
   PentagonIcon,
@@ -15,9 +14,10 @@ import {
   TextSearchIcon,
   XIcon
 } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import type { PlaceRecord } from "./map-view";
+import { VaultFileIcon } from "./vault-file-icon";
 
 /** The geometry a row stands for — drives its icon and how a click frames the map. */
 export type FeatureGeometryKind = "point" | "line" | "polygon";
@@ -38,6 +38,9 @@ export type FeatureListRow = {
   wikidataId?: string;
   /** Vault file path (vault rows only) — used to resolve the file's cover photo. */
   filePath?: string;
+  /** The file's own `icon`/`color` (vault rows only). A cover photo still wins over the emoji. */
+  icon?: string;
+  color?: string;
   /** True for a feature already saved in the vault (shown with a file icon). */
   isVault: boolean;
 };
@@ -56,11 +59,13 @@ const QID_RE = /^Q\d+$/;
 function RowThumbnail({
   wikidataId,
   vaultFilePath,
-  fallbackIcon: FallbackIcon
+  fallback: fallbackContent
 }: {
   wikidataId?: string;
   vaultFilePath?: string;
-  fallbackIcon: ComponentType<{ className?: string }>;
+  /** Shown until (or unless) a photo resolves. A node rather than a component type because a
+   *  vault row's fallback can be an emoji, which is a string, not an icon component. */
+  fallback: React.ReactNode;
 }): React.JSX.Element {
   const ref = useRef<HTMLSpanElement>(null);
   const [src, setSrc] = useState<string | null>(null);
@@ -104,7 +109,7 @@ function RowThumbnail({
 
   const fallback = (
     <AvatarFallback className="rounded-md bg-muted text-muted-foreground">
-      <FallbackIcon className="size-4" />
+      {fallbackContent}
     </AvatarFallback>
   );
 
@@ -223,6 +228,8 @@ export function FeaturesListPanel({
         category: place.properties?.category,
         address: place.properties?.address,
         filePath: path,
+        icon: place.icon,
+        color: place.color,
         isVault: true
       });
     }
@@ -315,13 +322,22 @@ export function FeaturesListPanel({
               const row = rows[vItem.index];
               const saving = savingIds.has(row.id);
               const canSave = !row.isVault && row.geometryKind === "point";
-              const RowIcon = row.isVault
-                ? FileTextIcon
-                : row.geometryKind === "line"
-                  ? RouteIcon
-                  : row.geometryKind === "polygon"
-                    ? PentagonIcon
-                    : MapPinIcon;
+              // A vault row goes through VaultFileIcon so the file's own emoji/colour shows here
+              // too; an overlay row has no file, so it keeps the plain geometry glyph.
+              const rowIcon = row.isVault ? (
+                <VaultFileIcon
+                  name={row.filePath ?? row.title}
+                  icon={row.icon}
+                  color={row.color}
+                  className={row.icon ? "size-[18px]" : "size-4"}
+                />
+              ) : row.geometryKind === "line" ? (
+                <RouteIcon className="size-4" />
+              ) : row.geometryKind === "polygon" ? (
+                <PentagonIcon className="size-4" />
+              ) : (
+                <MapPinIcon className="size-4" />
+              );
               return (
                 <div
                   key={row.id}
@@ -343,7 +359,7 @@ export function FeaturesListPanel({
                       <RowThumbnail
                         wikidataId={row.wikidataId}
                         vaultFilePath={row.filePath}
-                        fallbackIcon={RowIcon}
+                        fallback={rowIcon}
                       />
                       <div className="flex min-w-0 flex-1 flex-col text-left">
                         <div className="flex min-w-0 items-baseline gap-1.5">

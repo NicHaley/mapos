@@ -33,13 +33,28 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { iconForFilename } from "../../lib/file-icons";
 import type { GeometryKind } from "../../lib/geometry-wkt";
+import { VaultFileIcon } from "../vault-file-icon";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
-function fileIcon(name: string, geometryKind: GeometryKind | null) {
-  const Icon = iconForFilename(name, geometryKind);
-  return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+function fileIcon(
+  name: string,
+  geometryKind: GeometryKind | null,
+  appearance?: { icon?: string; color?: string }
+) {
+  return (
+    <VaultFileIcon
+      name={name}
+      geometryKind={geometryKind}
+      icon={appearance?.icon}
+      color={appearance?.color}
+      // The emoji pin is a filled disk, so it takes one step up from the line-art glyph to read at
+      // row size, and skips the muted tint the lucide glyphs take since it carries its own colour.
+      className={
+        appearance?.icon ? "size-4 shrink-0" : "size-3.5 shrink-0 text-sidebar-foreground/50"
+      }
+    />
+  );
 }
 
 export function FileTreeNode({
@@ -59,6 +74,7 @@ export function FileTreeNode({
   onCreateFolderIn,
   onCreateNoteIn,
   geometryKinds,
+  fileAppearance,
   dnd
 }: {
   node: FileNode;
@@ -78,6 +94,8 @@ export function FileTreeNode({
   onCreateNoteIn?: (path: string) => void;
   /** Indexed geometry per place-file path, so a file on the map gets a map icon. */
   geometryKinds: Map<string, GeometryKind>;
+  /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
+  fileAppearance: Map<string, { icon?: string; color?: string }>;
   dnd?: SidebarDndBridge;
 }) {
   const open = node.type === "directory" && openFolders.has(node.path);
@@ -423,6 +441,7 @@ export function FileTreeNode({
                 onCreateFolderIn={onCreateFolderIn}
                 onCreateNoteIn={onCreateNoteIn}
                 geometryKinds={geometryKinds}
+                fileAppearance={fileAppearance}
                 dnd={dnd}
               />
             ))}
@@ -470,7 +489,7 @@ export function FileTreeNode({
             />
           }
         >
-          {fileIcon(node.name, geometryKinds.get(node.path) ?? null)}
+          {fileIcon(node.name, geometryKinds.get(node.path) ?? null, fileAppearance.get(node.path))}
           {isRenaming ? (
             renameInput
           ) : (

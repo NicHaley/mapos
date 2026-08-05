@@ -36,6 +36,7 @@ import {
   runReadonlyQuery,
   syncFeatureForFile
 } from "./db";
+import { stringifyPlaceFile } from "./frontmatter";
 import { type GeoOperation, runGeoCompute } from "./geo-compute";
 import { getMainWindow, sendToRenderer } from "./main-window";
 import {
@@ -239,7 +240,7 @@ Read, browse, and search it with the built-in tools: \`read_vault_file\`, \`list
 
 ## Place files and frontmatter
 
-Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\`, \`color\`, and \`cover\` have special meaning to the map renderer — do not reuse those key names for other purposes. \`cover\` is a vault-relative path to an image file (e.g. \`cover: attachments/tower.jpg\`) shown as the place's hero photo; the body can also embed vault images with standard Markdown (\`![](attachments/tower.jpg)\`).
+Place files use Markdown with YAML frontmatter. Required frontmatter: \`geometry\` (WKT string). \`geometry\`, \`color\`, \`icon\`, and \`cover\` have special meaning to the map renderer — do not reuse those key names for other purposes. \`icon\` is a single emoji (e.g. \`icon: 🍜\`) shown in place of the file-type glyph and drawn as the map pin for a point. \`cover\` is a vault-relative path to an image file (e.g. \`cover: attachments/tower.jpg\`) shown as the place's hero photo; the body can also embed vault images with standard Markdown (\`![](attachments/tower.jpg)\`).
 
 In a file's body, \`[[Title]]\` is a wikilink to another vault file. \`Title\` must exactly match the target's filename without \`.md\` (case-sensitive; the folder doesn't matter): a file saved as \`tokyo/kinka-izakaya.md\` is linked as \`[[kinka-izakaya]]\`. If two files share a filename, qualify the link with the vault-relative path — \`[[tokyo/kinka-izakaya]]\` — which always takes precedence over a bare filename match. When the user opens a file, the places it wikilinks to are rendered on the map alongside it — so when writing notes that reference saved places (itineraries, trip plans, comparisons), link them with \`[[...]]\` rather than plain text. Wikilinks inside code fences or inline code are ignored.
 
@@ -287,7 +288,7 @@ To search the user's own indexed places spatially:
 
 find_near and query_within_polygon return the same records as \`query_spatial_index\` — file paths to feed \`present_features\`. To find a place BY NAME ("Home", "Adrian's"), pass \`filters.name\` to any of them: a place's name is its **file basename**, not a \`name\` property, and the match is fuzzy (case, accents, apostrophes, small typos), ranked best-first — don't scan for a \`name\` property or shell out to \`find\`. To find things INSIDE an isochrone: the user's own places → \`query_within_polygon\` (region_id); external POIs (cafes, gas stations) → \`geocode_search\` with \`within_id\`, not a plain \`bbox\` (which only biases ranking and leaks in points outside the shape).
 
-For analytics \`query_spatial_index\` can't express (counts, \`GROUP BY\`, sorting, joins), use \`spatial_sql\` — one read-only SELECT against the index. Tables: \`features(file_path, geometry_type, geometry, color, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (\`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
+For analytics \`query_spatial_index\` can't express (counts, \`GROUP BY\`, sorting, joins), use \`spatial_sql\` — one read-only SELECT against the index. Tables: \`features(file_path, geometry_type, geometry, color, icon, indexed_at)\`; \`feature_properties(feature_id, key, value, type)\` where \`feature_id\` = \`features.file_path\` and every value is TEXT (\`CAST(value AS REAL)\` for numbers); \`features_rtree(id, min_lat, max_lat, min_lng, max_lng)\` where \`id\` = \`features.rowid\`. \`geometry\` is a GeoJSON string and there are no ST_* functions — don't select it unless you need raw coordinates. List explicit columns, never \`SELECT *\`. To show places on the map, use \`query_spatial_index\`, not this.
 
 To COMPUTE geometry, use \`geo_compute\` — one offline op: \`buffer\` (radius_m), \`area\`, \`length\`, \`centroid\`, \`bbox\`, \`convex_hull\`, \`simplify\`, \`union\`, \`intersect\`, \`clusters_dbscan\` (max_distance_m). Input by handle (\`geometry_id\`/\`geometry_b_id\`), \`feature_paths\` from the index, or inline GeoJSON; geometry-producing ops return a new \`geometry_id\` (measurements return values inline). E.g. "what's within a 10-min walk of both spots" → two \`get_isochrone\` → \`geo_compute\` intersect on the two isochrone_ids → \`query_within_polygon\` with the result.
 
@@ -486,6 +487,7 @@ export function buildMaposCustomTools(
       file_path: string;
       geometry_type: string;
       color: string | null;
+      icon: string | null;
       distance_m?: number;
     }>,
     limit: number
@@ -495,6 +497,7 @@ export function buildMaposCustomTools(
       file_path: r.file_path,
       geometry_type: r.geometry_type,
       ...(r.color != null ? { color: r.color } : {}),
+      ...(r.icon != null ? { icon: r.icon } : {}),
       ...(r.distance_m != null ? { distance_m: r.distance_m } : {})
     }));
     return { features, count: features.length, truncated };
@@ -763,7 +766,7 @@ export function buildMaposCustomTools(
     name: "query_spatial_index",
     label: "Query spatial index",
     description:
-      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. Use filters.name to find a place BY NAME ('Home', 'Adrian's') — it matches the file basename, which is the place's name.",
+      "Query the spatial index for features, optionally within a bounding box. Returns saved places, notes, and any indexed files (file_path, geometry_type, color, icon — pass file_path to present_features, which re-resolves the geometry itself). `bounds` is optional: omit it to search the whole vault (e.g. when filtering by folder or property rather than location), or pass it to restrict to a rectangle. Use filters.properties to filter by any frontmatter multi-select or text field — e.g. { tags: ['ramen'], cuisine: ['japanese'] } requires the place to have ALL listed values under each key. Use filters.name to find a place BY NAME ('Home', 'Adrian's') — it matches the file basename, which is the place's name.",
     parameters: Type.Object({
       bounds: Type.Optional(
         Type.Object(
@@ -829,7 +832,7 @@ export function buildMaposCustomTools(
     description:
       "Find indexed places that fall inside a polygon region (e.g. a neighborhood the user drew " +
       "or an isochrone). Returns the same records as query_spatial_index (file_path, geometry_type, " +
-      "color). A place is included if any part of it intersects the region. Use this instead of " +
+      "color, icon). A place is included if any part of it intersects the region. Use this instead of " +
       "query_spatial_index when the area is not a rectangle. Pass the region by handle whenever you " +
       "have one — `region_id` (an isochrone_id from get_isochrone or a polygon geometry_id from " +
       "geo_compute) — so its coordinates never cross the LLM boundary; only pass `coordinates` for a " +
@@ -898,7 +901,7 @@ export function buildMaposCustomTools(
       "questions query_spatial_index can't express — counts, GROUP BY, faceting, sorting, joins. " +
       "For placing markers on the map, prefer query_spatial_index.\n\n" +
       "Tables:\n" +
-      "- features(rowid, file_path UNIQUE, geometry_type, geometry, color, indexed_at). " +
+      "- features(rowid, file_path UNIQUE, geometry_type, geometry, color, icon, indexed_at). " +
       "`geometry` is a GeoJSON STRING — there are NO ST_* spatial functions; don't select it " +
       "unless you need raw coordinates (it can be large/costly). `geometry_type` is a lowercased " +
       "GeoJSON type (point, polygon, …).\n" +
@@ -2157,7 +2160,7 @@ export function buildMaposCustomTools(
             .trim() || "place";
         const path = uniquePathInDir(folder, `${base}.md`, false);
         const body = r.body?.trim();
-        const content = matter.stringify(body ? `\n${body}\n` : "", data);
+        const content = stringifyPlaceFile(body ? `\n${body}\n` : "", data);
         onVaultWrite({ path, previousContent: null });
         writeFileSync(path, content, "utf-8");
         try {
@@ -2277,7 +2280,7 @@ export function buildMaposCustomTools(
     name: "write_frontmatter_property",
     label: "Write frontmatter property",
     description:
-      "Set or delete ONE YAML frontmatter key on an existing file, preserving the rest of the frontmatter and the body. Prefer this over rewriting the whole file with write_vault_file. Pass the value using the correct type (number/boolean/array/string); omit the value (or pass null) to delete the key. Setting `geometry` (WKT) moves the place; setting `color` recolors its marker.",
+      "Set or delete ONE YAML frontmatter key on an existing file, preserving the rest of the frontmatter and the body. Prefer this over rewriting the whole file with write_vault_file. Pass the value using the correct type (number/boolean/array/string); omit the value (or pass null) to delete the key. Setting `geometry` (WKT) moves the place; setting `color` recolors its marker; setting `icon` to a single emoji draws it as the marker.",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path within the MapOS vault" }),
       key: Type.String({ description: "Frontmatter key to set or delete" }),
@@ -2292,7 +2295,7 @@ export function buildMaposCustomTools(
       applyVaultEdit(args.path, (data, body) => {
         if (args.value === null || args.value === undefined) delete data[args.key];
         else data[args.key] = args.value;
-        return matter.stringify(body, data);
+        return stringifyPlaceFile(body, data);
       })
   });
 
@@ -2314,7 +2317,7 @@ export function buildMaposCustomTools(
           if (value === null || value === undefined) delete data[key];
           else data[key] = value;
         }
-        return matter.stringify(body, data);
+        return stringifyPlaceFile(body, data);
       })
   });
 

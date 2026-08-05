@@ -51,6 +51,7 @@ import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
+import { geometryKindOf } from "@renderer/lib/geometry-wkt";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
 import type { RouteFrontmatter } from "@shared/route";
 import { type Editor, Extension } from "@tiptap/core";
@@ -94,7 +95,10 @@ import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
+import { type PlaceAppearance, PlaceAppearanceMenuItems } from "./place-appearance-menu";
+import { PlaceIconPopover } from "./place-icon-popover";
 import { PropertiesPanel } from "./properties-panel";
+import { VaultFileIcon } from "./vault-file-icon";
 
 /** GeoJSON top-level members with dedicated UI (title / body editor), not the grid. */
 const GJ_EXCLUDED = new Set(["name", "description"]);
@@ -149,6 +153,10 @@ type LoadedDoc =
       cover?: string;
       /** Provenance URL for the cover (reserved `cover_source` frontmatter key). */
       coverSource?: string;
+      /** The file's emoji and colour (reserved `icon` / `color` keys) — the appearance picker's
+       *  current state. Read from the file rather than the index so it can't lag a write. */
+      icon?: string;
+      color?: string;
     }
   | { kind: "preview"; body: string }
   | {
@@ -480,7 +488,8 @@ export const PlaceCard = memo(function PlaceCard({
   activeDrawMode = null,
   onRename,
   onDelete,
-  onOpenFolder
+  onOpenFolder,
+  onAppearanceChange
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -518,6 +527,9 @@ export const PlaceCard = memo(function PlaceCard({
   onDelete?: (filePath: string) => void;
   /** Open a vault folder (breadcrumb click). Receives the absolute folder path. */
   onOpenFolder?: (folderPath: string) => void;
+  /** The file's `icon`/`color` were just written. Lets the app update the indexed record the map
+   *  and tabs read, without waiting on the watcher's debounce. */
+  onAppearanceChange?: (filePath: string, patch: PlaceAppearance) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   // With a rename-stable mount key, a relocation initiated outside this card
@@ -654,6 +666,41 @@ export const PlaceCard = memo(function PlaceCard({
     [currentFilePath]
   );
 
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+
+  /** Current appearance: the file's own values while a vault doc is loaded, else the indexed
+   *  record's (a preview place, or the brief window before the read resolves). */
+  const appearanceIcon = doc.kind === "vault" ? doc.icon : place.icon;
+  const appearanceColor = doc.kind === "vault" ? doc.color : place.color;
+
+  /** Set or clear the `icon` / `color` frontmatter keys in one write. `null` deletes a key; a key
+   *  left out of the patch is untouched. One call, not one per key — a second write would re-read
+   *  the file and can race the first's awaitWriteFinish debounce.
+   *
+   *  The card's own copy updates immediately: `places:updated` only lands ~300ms later (the
+   *  watcher's debounce), and `onAppearanceChange` propagates to the map and tabs, which read the
+   *  indexed record rather than this. */
+  const applyAppearance = useCallback(
+    async (patch: PlaceAppearance) => {
+      const result = await window.api.fs.writeFrontmatterProperties(currentFilePath, patch);
+      if (!result.success) {
+        console.error("[appearance]", result.error);
+        return;
+      }
+      setDoc((d) =>
+        d.kind === "vault"
+          ? {
+              ...d,
+              ...("icon" in patch ? { icon: patch.icon ?? undefined } : {}),
+              ...("color" in patch ? { color: patch.color ?? undefined } : {})
+            }
+          : d
+      );
+      onAppearanceChange?.(currentFilePath, patch);
+    },
+    [currentFilePath, onAppearanceChange]
+  );
+
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const gjFrontmatter = useMemo(
@@ -737,7 +784,9 @@ export const PlaceCard = memo(function PlaceCard({
         frontmatter: result.frontmatter,
         keys: vaultKeys,
         cover: result.cover,
-        coverSource: result.coverSource
+        coverSource: result.coverSource,
+        icon: result.icon,
+        color: result.color
       });
     });
     return () => {
@@ -1000,6 +1049,16 @@ export const PlaceCard = memo(function PlaceCard({
                 Rename
               </DropdownMenuItem>
               {doc.kind === "vault" && (
+                // The title-row glyph is the primary trigger; repeating the items here makes them
+                // findable for anyone who doesn't guess that the icon is clickable.
+                <PlaceAppearanceMenuItems
+                  icon={appearanceIcon}
+                  color={appearanceColor}
+                  onChange={(patch) => void applyAppearance(patch)}
+                  onChooseIcon={() => setAppearanceOpen(true)}
+                />
+              )}
+              {doc.kind === "vault" && (
                 <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
                   <ImageIcon />
                   {coverPath ? "Change cover photo" : "Set cover photo"}
@@ -1155,6 +1214,9 @@ export const PlaceCard = memo(function PlaceCard({
                   </Fragment>
                 ))}
                 <BreadcrumbItem className="min-w-0">
+                  {/* No icon here on purpose: the title row's picker button sits ~30px below and
+                      the coordinates row below that, so repeating it made three identical pins
+                      stack down the card. The breadcrumb's job is the path, not the identity. */}
                   <BreadcrumbPage className="truncate">{currentTitle}</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
@@ -1184,6 +1246,51 @@ export const PlaceCard = memo(function PlaceCard({
             )}
             {/* Header */}
             <div className="flex items-start px-3 py-2 shrink-0">
+              {/* The icon doubles as its own picker trigger (Notion's affordance) and exists only
+                  once one is set — nothing is reserved for a control the file doesn't need. Before
+                  that the overflow menu's "Add icon" is the way in, the same place "Set cover photo"
+                  already lives; both are things a file mostly doesn't have, so neither earns
+                  permanent space next to the title. Vault files only — a search preview has no file
+                  to write to yet. */}
+              {doc.kind === "vault" && (
+                <PlaceIconPopover
+                  hasIcon={Boolean(appearanceIcon)}
+                  onSelect={(emoji) => void applyAppearance({ icon: emoji })}
+                  onRemove={() => void applyAppearance({ icon: null })}
+                  open={appearanceOpen}
+                  onOpenChange={setAppearanceOpen}
+                  trigger={
+                    appearanceIcon ? (
+                      <button
+                        type="button"
+                        aria-label="Change icon"
+                        title="Change icon"
+                        className="mr-1.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md pt-0.5 transition-colors hover:bg-hover"
+                      >
+                        <VaultFileIcon
+                          name={currentFilePath}
+                          geometryKind={geometryKindOf(place.geometry)}
+                          icon={appearanceIcon}
+                          color={appearanceColor}
+                          className="size-7"
+                        />
+                      </button>
+                    ) : (
+                      // With no icon there is no button to hang the picker off, but the overflow
+                      // menu's "Add icon" still has to open it somewhere — so the popover keeps a
+                      // real, zero-size anchor at the title's left edge. A live button rather than
+                      // an `aria-hidden` one: the popover returns focus here on close, and focusing
+                      // an aria-hidden element is what macOS and the a11y tree object to.
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-label="Add icon"
+                        className="size-0 shrink-0 overflow-hidden"
+                      />
+                    )
+                  }
+                />
+              )}
               <div
                 className="flex-1 min-w-0 pt-1"
                 // In mini mode the pinned actions overlay the title row unless a

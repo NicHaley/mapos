@@ -75,7 +75,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onDeletePath,
   onRenamePath,
   onMoved,
-  geometryKinds
+  geometryKinds,
+  fileAppearance
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -87,6 +88,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   /** Indexed geometry per place-file path, so files on the map get map icons in the tree. */
   geometryKinds: Map<string, GeometryKind>;
+  /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
+  fileAppearance: Map<string, { icon?: string; color?: string }>;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const vaultRoot = useVaultRoot();
@@ -541,6 +544,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                           onCreateFolderIn={(path) => void createFolderIn(path)}
                           onCreateNoteIn={(path) => void createNoteIn(path)}
                           geometryKinds={geometryKinds}
+                          fileAppearance={fileAppearance}
                           dnd={dndBridge}
                         />
                       ))}

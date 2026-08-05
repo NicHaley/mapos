@@ -2,6 +2,7 @@ import type { RouteCosting } from "@mapos/contracts";
 import type { MapOverlayLayer } from "@shared/types";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
+import { geometryKindOf } from "../lib/geometry-wkt";
 import { useVaultRoot } from "./use-vault-root";
 
 /** A resolved directions endpoint: coordinates plus the label shown in the input. */
@@ -59,6 +60,10 @@ export type NavAction =
   | { type: "relocate_path"; oldPath: string; newPath: string; isDirectory: boolean }
   | { type: "reorder"; newOrder: string[] }
   | { type: "update-entry"; filePath: string; place: PlaceRecord }
+  // Merge a few fields into every history entry for a file, instead of replacing the record.
+  // For writes where the patch itself is the truth (e.g. `icon`/`color`) and the caller has no
+  // reason to hold a whole fresh PlaceRecord — the indexed copy is ~300ms behind the write.
+  | { type: "patch-entry"; filePath: string; patch: Partial<PlaceRecord> }
   | { type: "update-list"; layerId: string; layer: MapOverlayLayer }
   | {
       type: "update-directions";
@@ -313,6 +318,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           history: tab.history.map((entry) =>
             entry.kind === "place" && entry.place.filePath === action.filePath
               ? { ...entry, place: action.place }
+              : entry
+          )
+        }))
+      };
+    }
+    case "patch-entry": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "place" && entry.place.filePath === action.filePath
+              ? { ...entry, place: { ...entry.place, ...action.patch } }
               : entry
           )
         }))
@@ -577,7 +595,10 @@ export function useNavTabs({
             id: tab.id,
             title: current.place.title,
             kind: "place" as const,
-            filePath: current.place.filePath
+            filePath: current.place.filePath,
+            icon: current.place.icon,
+            color: current.place.color,
+            geometryKind: geometryKindOf(current.place.geometry)
           };
         }
         if (current?.kind === "folder") {

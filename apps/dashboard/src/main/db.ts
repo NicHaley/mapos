@@ -38,6 +38,7 @@ const SCHEMA_DDL = `
     geometry_type TEXT NOT NULL,
     geometry TEXT NOT NULL,
     color TEXT,
+    icon TEXT,
     indexed_at TEXT NOT NULL
   );
   CREATE VIRTUAL TABLE features_rtree USING rtree(
@@ -62,6 +63,7 @@ export const features = sqliteTable("features", {
   geometry_type: text("geometry_type").notNull(),
   geometry: text("geometry").notNull(),
   color: text("color"),
+  icon: text("icon"),
   indexed_at: text("indexed_at").notNull()
 });
 
@@ -199,6 +201,7 @@ export interface FeatureRecord {
   geometry_type: string;
   geometry: string;
   color: string | null;
+  icon: string | null;
 }
 
 export type { PlaceRecord };
@@ -219,6 +222,7 @@ export function indexFeature(record: PlaceRecord): void {
       geometry_type: geometryType,
       geometry: record.geometry,
       color: record.color ?? null,
+      icon: record.icon ?? null,
       indexed_at: now
     })
     .onConflictDoUpdate({
@@ -227,6 +231,7 @@ export function indexFeature(record: PlaceRecord): void {
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
         color: sql`excluded.color`,
+        icon: sql`excluded.icon`,
         indexed_at: sql`excluded.indexed_at`
       }
     })
@@ -291,6 +296,7 @@ export function indexFeatures(records: PlaceRecord[]): void {
           geometry_type: (geoObj.type as string).toLowerCase(),
           geometry: r.geometry,
           color: r.color ?? null,
+          icon: r.icon ?? null,
           indexed_at: now
         };
       })
@@ -301,6 +307,7 @@ export function indexFeatures(records: PlaceRecord[]): void {
         geometry_type: sql`excluded.geometry_type`,
         geometry: sql`excluded.geometry`,
         color: sql`excluded.color`,
+        icon: sql`excluded.icon`,
         indexed_at: sql`excluded.indexed_at`
       }
     })
@@ -377,12 +384,13 @@ function selectCandidates(bounds: Bounds | null, filters?: SpatialFilters): Feat
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color ${from} ${whereSql}`;
+  const sqlStr = `SELECT f.file_path, f.geometry_type, f.geometry, f.color, f.icon ${from} ${whereSql}`;
   const rows = sqlite.prepare(sqlStr).all(...params) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
+    icon: string | null;
   }>;
 
   // Name matching is fuzzy (accents/apostrophes/typos), so it can't be a SQL LIKE against
@@ -492,13 +500,14 @@ export function queryFolderAll(folderPath: string): FeatureRecord[] {
   const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
   const rows = sqlite
     .prepare(
-      "SELECT file_path, geometry_type, geometry, color FROM features WHERE file_path LIKE ?"
+      "SELECT file_path, geometry_type, geometry, color, icon FROM features WHERE file_path LIKE ?"
     )
     .all(`${prefix}%`) as Array<{
     file_path: string;
     geometry_type: string;
     geometry: string;
     color: string | null;
+    icon: string | null;
   }>;
   return rows.map((r) => ({ ...r }));
 }

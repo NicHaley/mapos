@@ -42,14 +42,25 @@ import {
   OVERLAY_CHIP_IMAGE_ID,
   OVERLAY_CHIP_PIXEL_RATIO,
   ROUND_LINE_LAYOUT,
+  ROUTE_ARROW_IMAGE_ID,
+  ROUTE_ARROW_LAYOUT,
+  ROUTE_ARROW_PIXEL_RATIO,
+  ROUTE_DESTINATION_IMAGE_ID,
+  ROUTE_DESTINATION_LAYOUT,
+  ROUTE_DESTINATION_PIXEL_RATIO,
+  ROUTE_STOP_SIZE,
+  ROUTE_STOP_STROKE,
   SELECTED_OUTLINE_PAINT,
   drawOverlayChip,
+  drawRouteArrow,
+  drawRouteDestination,
   featureCirclePaint,
   featureFillOutlinePaint,
   featureFillPaint,
   featureLinePaint,
   overlayFillPaint,
   overlayLinePaint,
+  routeArrowPaint,
   routeLinePaint,
   routeStopPaint,
   selectedCirclePaint,
@@ -322,6 +333,21 @@ const POINT_FILTER = ["==", ["geometry-type"], "Point"];
 const POLYGON_FILTER = ["==", ["geometry-type"], "Polygon"];
 const LINESTRING_FILTER = ["==", ["geometry-type"], "LineString"];
 
+/** Feature property marking a route's final stop, which draws as the chequered destination
+ *  icon instead of another stop dot. */
+const DESTINATION_PROPERTY = "isDestination";
+const DESTINATION_FILTER = ["==", ["get", DESTINATION_PROPERTY], true];
+const NOT_DESTINATION_FILTER = ["!=", ["get", DESTINATION_PROPERTY], true];
+
+/** Feature property marking a vault line that is a saved route, so it gets direction arrows
+ *  while a hand-drawn line doesn't. */
+const ROUTE_PROPERTY = "isRoute";
+const ROUTE_LINE_FILTER = [
+  "all",
+  LINESTRING_FILTER,
+  ["==", ["get", ROUTE_PROPERTY], true]
+] as unknown as FilterSpecification;
+
 type FitPadding = { left: number; right: number; top: number; bottom: number };
 
 type RawFeatureCollection = {
@@ -418,16 +444,36 @@ type SelectionAnchor = {
 function SelectionMarker({
   anchor,
   color,
-  chip
+  chip,
+  stop
 }: {
   anchor: SelectionAnchor;
   color: string;
   // When set, render the search-result "poker chip" look (dashed border) instead of the
   // solid selection dot, so an active search result keeps its overlay styling.
   chip?: { fill: string; borderColor: string };
+  // A clicked route stop. Same exemption as `routeStopPaint`: a route is ephemeral but draws
+  // solid, so the marker matches the dot it replaces instead of putting a big dashed chip on
+  // a solid line. Wins over `chip` — a stop is an overlay point, so both would otherwise apply.
+  stop?: { fill: string; borderColor: string };
 }): React.JSX.Element {
   // Per-feature `color` (custom-coloured place) wins over the accent default.
   const fill = anchor.color ?? color;
+  if (stop) {
+    return (
+      <Marker longitude={anchor.lng} latitude={anchor.lat} anchor="center">
+        <div
+          className="animate-selection-pop rounded-full shadow-md"
+          style={{
+            width: ROUTE_STOP_SIZE,
+            height: ROUTE_STOP_SIZE,
+            backgroundColor: stop.fill,
+            border: `${ROUTE_STOP_STROKE}px solid ${stop.borderColor}`
+          }}
+        />
+      </Marker>
+    );
+  }
   return (
     <Marker longitude={anchor.lng} latitude={anchor.lat} anchor="center">
       <div
@@ -512,23 +558,42 @@ function RouteDragHandle({
 }
 
 /**
- * Registers (and keeps registered) the poker-chip icon the overlay point layers reference.
- * Re-rasterized when the accent/theme colours change; the `styleimagemissing` listener
- * covers style reloads, which drop runtime-added images.
+ * Registers (and keeps registered) the icons the overlay layers rasterize at runtime: the
+ * poker chip on ephemeral points, the arrowhead repeated along a route line, and the
+ * chequered destination stop. All are re-rasterized when the accent/theme colours change; the
+ * `styleimagemissing` listener covers style reloads, which drop runtime-added images.
  */
-function OverlayChipImage({ fill, border }: { fill: string; border: string }): null {
+function OverlayImages({ fill, border }: { fill: string; border: string }): null {
   const { current: mapRef } = useMap();
   useEffect(() => {
     const map = mapRef?.getMap();
     if (!map) return;
+    const put = (id: string, image: ImageData, pixelRatio: number): void => {
+      if (map.hasImage(id)) map.updateImage(id, image);
+      else map.addImage(id, image, { pixelRatio });
+    };
     const add = (): void => {
-      const image = drawOverlayChip(fill, border);
-      if (map.hasImage(OVERLAY_CHIP_IMAGE_ID)) map.updateImage(OVERLAY_CHIP_IMAGE_ID, image);
-      else map.addImage(OVERLAY_CHIP_IMAGE_ID, image, { pixelRatio: OVERLAY_CHIP_PIXEL_RATIO });
+      put(OVERLAY_CHIP_IMAGE_ID, drawOverlayChip(fill, border), OVERLAY_CHIP_PIXEL_RATIO);
+      // The arrow takes the chip's rim colour, not the disk's: it draws *on* the route line,
+      // which is itself the overlay hue.
+      put(ROUTE_ARROW_IMAGE_ID, drawRouteArrow(border), ROUTE_ARROW_PIXEL_RATIO);
+      // Chequer + rim in the route hue (`fill`) against the contrast colour (`border`), so the
+      // destination reads as the same feature as the stops leading up to it.
+      put(
+        ROUTE_DESTINATION_IMAGE_ID,
+        drawRouteDestination(fill, border),
+        ROUTE_DESTINATION_PIXEL_RATIO
+      );
     };
     add();
     const onMissing = (e: { id: string }): void => {
-      if (e.id === OVERLAY_CHIP_IMAGE_ID) add();
+      if (
+        e.id === OVERLAY_CHIP_IMAGE_ID ||
+        e.id === ROUTE_ARROW_IMAGE_ID ||
+        e.id === ROUTE_DESTINATION_IMAGE_ID
+      ) {
+        add();
+      }
     };
     map.on("styleimagemissing", onMissing);
     return () => {
@@ -650,9 +715,10 @@ const MapView = forwardRef<
   // Accent hue for selection + chat overlays; falls back to the theme foreground when monochrome.
   const accentColor = accentHex(accent);
   const overlayColor = accentColor ?? foregroundColor;
-  // Poker-chip rim for ephemeral points (symbol-layer icon + HTML selection chip): white
-  // dashes on the accent disk; monochrome dark mode flips to near-black for contrast.
-  const chipBorderColor = accentColor ? "#ffffff" : isDark ? "#111111" : "#ffffff";
+  // What reads against the overlay hue: the poker-chip rim on ephemeral points (symbol-layer
+  // icon + HTML selection chip) and the centre of a route stop's dot. White on the accent;
+  // monochrome dark mode flips to near-black, since the hue is then near-white itself.
+  const overlayContrastColor = accentColor ? "#ffffff" : isDark ? "#111111" : "#ffffff";
 
   const selectedFolderRef = useRef<string | null>(null);
   selectedFolderRef.current = selectedFolder ?? null;
@@ -1068,7 +1134,7 @@ const MapView = forwardRef<
             | { type: "Polygon"; coordinates: [number, number][][] };
           properties: Record<string, unknown>;
         }> = [];
-        for (const pt of l.points) {
+        l.points.forEach((pt, i) => {
           features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [pt.lng, pt.lat] },
@@ -1076,10 +1142,13 @@ const MapView = forwardRef<
               kind: "overlay",
               overlayId: pt.id,
               title: pt.title,
-              preview_markdown: pt.preview_markdown
+              preview_markdown: pt.preview_markdown,
+              // Only meaningful on a directions route, where points are ordered stops. Harmless
+              // elsewhere: no other layer filters on it.
+              [DESTINATION_PROPERTY]: i > 0 && i === l.points.length - 1
             }
           });
-        }
+        });
         for (const ln of l.lines) {
           features.push({
             type: "Feature",
@@ -1324,7 +1393,14 @@ const MapView = forwardRef<
       geometry: parseGeometry(p.geometry),
       // Leave `color` undefined when unset so each layer can pick its own default
       // (lines need white; circles/polygons stay gray).
-      properties: { filePath: p.filePath, color: p.color }
+      properties: {
+        filePath: p.filePath,
+        color: p.color,
+        // A saved route earns direction arrows; a hand-drawn line doesn't. Records built from
+        // SQLite rows never carry `route`, so a line clicked on the map draws bare until the
+        // indexed record arrives — the same staleness every other route affordance lives with.
+        [ROUTE_PROPERTY]: Boolean(p.route)
+      }
     };
   }, []);
 
@@ -1378,14 +1454,21 @@ const MapView = forwardRef<
     const excluded = [selectedPlace?.filePath, openPlace?.filePath].filter((p): p is string =>
       Boolean(p)
     );
+    const isRouteLine = ["==", ["get", ROUTE_PROPERTY], true];
     if (excluded.length === 0) {
-      return { point: POINT_FILTER, polygon: POLYGON_FILTER, line: LINESTRING_FILTER };
+      return {
+        point: POINT_FILTER,
+        polygon: POLYGON_FILTER,
+        line: LINESTRING_FILTER,
+        routeLine: ["all", LINESTRING_FILTER, isRouteLine]
+      };
     }
     const notSelected = ["!", ["in", ["get", "filePath"], ["literal", excluded]]];
     return {
       point: ["all", POINT_FILTER, notSelected],
       polygon: ["all", POLYGON_FILTER, notSelected],
-      line: ["all", LINESTRING_FILTER, notSelected]
+      line: ["all", LINESTRING_FILTER, notSelected],
+      routeLine: ["all", LINESTRING_FILTER, notSelected, isRouteLine]
     };
   }, [selectedPlace?.filePath, openPlace?.filePath]);
 
@@ -1427,10 +1510,10 @@ const MapView = forwardRef<
     if (selectedPlace?.filePath === editingFilePath) return null;
     return {
       type: "FeatureCollection" as const,
-      features: routeStops.map((s) => ({
+      features: routeStops.map((s, i) => ({
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
-        properties: {}
+        properties: { [DESTINATION_PROPERTY]: i > 0 && i === routeStops.length - 1 }
       }))
     };
   }, [routeStops, selectedPlace?.filePath, editingFilePath]);
@@ -1680,7 +1763,7 @@ const MapView = forwardRef<
         onMouseMove={handleRouteHover}
         onMouseOut={handleRouteHoverLeave}
       >
-        <OverlayChipImage fill={overlayColor} border={chipBorderColor} />
+        <OverlayImages fill={overlayColor} border={overlayContrastColor} />
         {folderGeoJSON && (
           <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
             <Layer
@@ -1704,6 +1787,16 @@ const MapView = forwardRef<
               filter={unselectedFilters.line}
               paint={featureLinePaint(featureColor)}
               layout={ROUND_LINE_LAYOUT}
+            />
+            {/* A saved route reads as a journey wherever it's drawn, not just in the
+                directions panel. */}
+            <Layer
+              id="folder-route-arrows"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.routeLine}
+              layout={ROUTE_ARROW_LAYOUT}
+              paint={routeArrowPaint(1)}
             />
             <Layer
               id="folder-circle"
@@ -1738,6 +1831,16 @@ const MapView = forwardRef<
               paint={featureLinePaint(featureColor)}
               layout={ROUND_LINE_LAYOUT}
             />
+            {/* A saved route reads as a journey wherever it's drawn, not just in the
+                directions panel. */}
+            <Layer
+              id="linked-route-arrows"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.routeLine}
+              layout={ROUTE_ARROW_LAYOUT}
+              paint={routeArrowPaint(1)}
+            />
             <Layer
               id="linked-circle"
               type="circle"
@@ -1770,6 +1873,16 @@ const MapView = forwardRef<
               filter={unselectedFilters.line}
               paint={featureLinePaint(featureColor)}
               layout={ROUND_LINE_LAYOUT}
+            />
+            {/* A saved route reads as a journey wherever it's drawn, not just in the
+                directions panel. */}
+            <Layer
+              id="presented-route-arrows"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.routeLine}
+              layout={ROUTE_ARROW_LAYOUT}
+              paint={routeArrowPaint(1)}
             />
             <Layer
               id="presented-circle"
@@ -1823,6 +1936,13 @@ const MapView = forwardRef<
               paint={selectedLinePaint(featureColor)}
               layout={ROUND_LINE_LAYOUT}
             />
+            <Layer
+              id="selected-route-arrows"
+              type="symbol"
+              filter={ROUTE_LINE_FILTER}
+              layout={ROUTE_ARROW_LAYOUT}
+              paint={routeArrowPaint(1)}
+            />
             {/* The selected place's own point is drawn by the animated SelectionMarker;
                 exclude it here so they don't stack. A peeked (open) place keeps this
                 static selected circle. */}
@@ -1843,7 +1963,18 @@ const MapView = forwardRef<
         {/* After the selected source so the stops sit on top of their own route line. */}
         {routeStopsGeoJSON && (
           <Source id="route-stops-geojson" type="geojson" data={routeStopsGeoJSON}>
-            <Layer id="route-stops" type="circle" paint={routeStopPaint(featureColor)} />
+            <Layer
+              id="route-stops"
+              type="circle"
+              filter={NOT_DESTINATION_FILTER as unknown as FilterSpecification}
+              paint={routeStopPaint(featureColor)}
+            />
+            <Layer
+              id="route-stops-destination"
+              type="symbol"
+              filter={DESTINATION_FILTER as unknown as FilterSpecification}
+              layout={ROUTE_DESTINATION_LAYOUT}
+            />
           </Source>
         )}
         {augmentedGeoJsonLayers.map(({ sourceId, data }) => (
@@ -1889,12 +2020,25 @@ const MapView = forwardRef<
             // pre-drag shape underneath — two routes at once. The preview outlives the drop,
             // so this holds until the committed route catches up.
             const lineHidden = isRoute && routeDragPreviewGeoJSON !== null;
-            // The stop being dragged is drawn by the handle instead, so its chip would
+            // The stop being dragged is drawn by the handle instead, so its dot would
             // otherwise sit behind as a ghost at the old position.
             const hiddenStopId =
               isRoute && routeDragTo && routeGrab?.kind === "move"
                 ? draggableRoute?.stops[routeGrab.index]?.id
                 : undefined;
+            const stopFilter = (hiddenStopId
+              ? ["all", POINT_FILTER, ["!=", ["get", "overlayId"], hiddenStopId]]
+              : POINT_FILTER) as unknown as FilterSpecification;
+            // The destination is lifted out of the dot layer into its own chequered symbol, so
+            // the two never draw on top of each other.
+            const dotFilter = (isRoute
+              ? ["all", stopFilter, NOT_DESTINATION_FILTER]
+              : stopFilter) as unknown as FilterSpecification;
+            const destinationFilter = [
+              "all",
+              stopFilter,
+              DESTINATION_FILTER
+            ] as unknown as FilterSpecification;
             return (
               <Source key={sourceId} id={sourceId} type="geojson" data={data}>
                 <Layer
@@ -1930,24 +2074,63 @@ const MapView = forwardRef<
                   }
                   layout={isRoute ? ROUND_LINE_LAYOUT : {}}
                 />
-                {/* Overlay points as a symbol layer with the rasterized poker-chip icon (not
-                    HTML markers) so a large result set stays cheap — one WebGL layer draws
-                    thousands. The icon is registered by OverlayChipImage above. */}
-                <Layer
-                  id={`${sourceId}-points`}
-                  type="symbol"
-                  filter={
-                    (hiddenStopId
-                      ? ["all", POINT_FILTER, ["!=", ["get", "overlayId"], hiddenStopId]]
-                      : POINT_FILTER) as unknown as FilterSpecification
-                  }
-                  layout={{
-                    "icon-image": OVERLAY_CHIP_IMAGE_ID,
-                    "icon-allow-overlap": true,
-                    "icon-ignore-placement": true
-                  }}
-                  paint={{ "icon-opacity": lineOpacity }}
-                />
+                {/* Direction arrows, so a route reads as travelled origin → destination rather
+                    than as a shape someone drew. Above the line, below the stops. */}
+                {isRoute && (
+                  <Layer
+                    id={`${sourceId}-arrows`}
+                    type="symbol"
+                    // @ts-expect-error - MapLibre filter expression
+                    filter={LINESTRING_FILTER}
+                    layout={ROUTE_ARROW_LAYOUT}
+                    paint={routeArrowPaint(lineHidden ? 0 : lineOpacity)}
+                  />
+                )}
+                {/* A route's points are its stops, so they draw as solid dots to match the
+                    solid line (see routeStopPaint). Every other overlay's points go out as a
+                    symbol layer with the rasterized poker-chip icon (not HTML markers) so a
+                    large result set stays cheap — one WebGL layer draws thousands. The icon is
+                    registered by OverlayChipImage above.
+
+                    A source never flips between the two: `isRoute` is derived from its id. */}
+                {/* Each Layer stays a *direct* child of Source: react-map-gl injects `source`
+                    by cloning its immediate children, so wrapping a pair in a fragment leaves
+                    them sourceless. */}
+                {isRoute && (
+                  <Layer
+                    id={`${sourceId}-points`}
+                    type="circle"
+                    filter={dotFilter}
+                    paint={routeStopPaint(overlayColor, {
+                      fill: overlayContrastColor,
+                      opacity: lineOpacity
+                    })}
+                  />
+                )}
+                {/* The finish line, drawn above the stop dots so a stop that lands under it
+                    can't peek out. */}
+                {isRoute && (
+                  <Layer
+                    id={`${sourceId}-destination`}
+                    type="symbol"
+                    filter={destinationFilter}
+                    layout={ROUTE_DESTINATION_LAYOUT}
+                    paint={{ "icon-opacity": lineOpacity }}
+                  />
+                )}
+                {!isRoute && (
+                  <Layer
+                    id={`${sourceId}-points`}
+                    type="symbol"
+                    filter={stopFilter}
+                    layout={{
+                      "icon-image": OVERLAY_CHIP_IMAGE_ID,
+                      "icon-allow-overlap": true,
+                      "icon-ignore-placement": true
+                    }}
+                    paint={{ "icon-opacity": lineOpacity }}
+                  />
+                )}
               </Source>
             );
           })}
@@ -1960,6 +2143,13 @@ const MapView = forwardRef<
               type="line"
               paint={routeLinePaint(overlayColor, 1)}
               layout={ROUND_LINE_LAYOUT}
+            />
+            {/* Arrows here too, or they blink out of the route for the length of the drag. */}
+            <Layer
+              id="route-drag-preview-arrows"
+              type="symbol"
+              layout={ROUTE_ARROW_LAYOUT}
+              paint={routeArrowPaint(1)}
             />
           </Source>
         )}
@@ -2047,7 +2237,12 @@ const MapView = forwardRef<
             color={featureColor}
             chip={
               selectedPlace?.filePath.startsWith(MAP_OVERLAY_PREFIX)
-                ? { fill: overlayColor, borderColor: chipBorderColor }
+                ? { fill: overlayColor, borderColor: overlayContrastColor }
+                : undefined
+            }
+            stop={
+              selectedPlace?.filePath.includes(DIRECTIONS_OVERLAY_PREFIX)
+                ? { fill: overlayContrastColor, borderColor: overlayColor }
                 : undefined
             }
           />

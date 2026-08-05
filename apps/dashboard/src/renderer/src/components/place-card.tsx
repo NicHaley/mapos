@@ -505,7 +505,8 @@ export const PlaceCard = memo(function PlaceCard({
   /** Edit the file's existing geometry on the map. Receives its GeoJSON JSON string. */
   onEditGeometry?: (filePath: string, geometry: string) => void;
   /** Open a directions tab bound to this file, so its route saves back here. */
-  onPlanRoute?: (filePath: string) => void;
+  /** `fresh` asks for a blank route rather than this file's saved one — see "Draw a route". */
+  onPlanRoute?: (filePath: string, opts?: { fresh?: boolean }) => void;
   /** This file's saved route. Resolve it from the places index, not from `place` — records
    *  built by a map click come from SQLite rows and never carry one. */
   savedRoute?: RouteFrontmatter | null;
@@ -817,6 +818,13 @@ export const PlaceCard = memo(function PlaceCard({
     onPlanRoute?.(currentFilePath);
   }, [currentFilePath, onPlanRoute]);
 
+  /** "Draw a route" — always starts over, even when the file already has a route, so it reads
+   *  as a sibling of "Draw a line" / "Draw an area" rather than a second way to edit. */
+  const handleDrawRoute = useCallback(() => {
+    setLocationMenuOpen(false);
+    onPlanRoute?.(currentFilePath, { fresh: true });
+  }, [currentFilePath, onPlanRoute]);
+
   function validateTitle(name: string): string | null {
     if (!name.trim()) return "Name cannot be empty";
     if (/[/\\]/.test(name)) return "Name cannot contain slashes";
@@ -1067,15 +1075,29 @@ export const PlaceCard = memo(function PlaceCard({
     </>
   );
 
-  /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather
-   *  than with the search — even though it opens the directions panel, not a draw session.
-   *  Declared once here because it slots into the middle of the DRAW_OPTIONS list below. */
-  const routeMenuItem = onPlanRoute ? (
-    <DropdownMenuItem onClick={handlePlanRoute}>
+  /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather than
+   *  with the search — even though it opens the directions panel, not a draw session. Shown
+   *  whatever the file already holds, exactly like the other draw options: each one starts a
+   *  new shape that replaces the old on save. Declared once here because it slots into the
+   *  middle of the DRAW_OPTIONS list below. */
+  const drawRouteMenuItem = onPlanRoute ? (
+    <DropdownMenuItem onClick={handleDrawRoute}>
       <RouteIcon />
-      {savedRoute ? "Edit route" : "Draw a route"}
+      Draw a route
     </DropdownMenuItem>
   ) : null;
+
+  /** Editing an existing route replaces "Edit shape", which would open a draw session on the
+   *  route's line. That line is *derived* from the stops, and committing a hand-edit writes
+   *  `route: null` (see commitVaultGeometry) — so the shape editor silently downgrades a route
+   *  to a plain line. The directions panel is the only coherent way to change one. */
+  const editRouteMenuItem =
+    onPlanRoute && savedRoute ? (
+      <DropdownMenuItem onClick={handlePlanRoute}>
+        <RouteIcon />
+        Edit route
+      </DropdownMenuItem>
+    ) : null;
 
   return (
     <div
@@ -1277,7 +1299,7 @@ export const PlaceCard = memo(function PlaceCard({
                         <SearchIcon />
                         Search for a location
                       </DropdownMenuItem>
-                      {(onStartDrawing || routeMenuItem) && <DropdownMenuSeparator />}
+                      {(onStartDrawing || drawRouteMenuItem) && <DropdownMenuSeparator />}
                       {onStartDrawing
                         ? DRAW_OPTIONS.map(({ shape, icon: Icon }) => (
                             <Fragment key={shape}>
@@ -1285,14 +1307,16 @@ export const PlaceCard = memo(function PlaceCard({
                                 <Icon />
                                 {DRAW_SHAPE_LABELS[shape]}
                               </DropdownMenuItem>
-                              {shape === "linestring" && routeMenuItem}
+                              {shape === "linestring" && drawRouteMenuItem}
                             </Fragment>
                           ))
-                        : routeMenuItem}
-                      {place.geometry && (onEditGeometry || onClearPointLocation) && (
-                        <DropdownMenuSeparator />
-                      )}
-                      {place.geometry && onEditGeometry && (
+                        : drawRouteMenuItem}
+                      {place.geometry &&
+                        (editRouteMenuItem || onEditGeometry || onClearPointLocation) && (
+                          <DropdownMenuSeparator />
+                        )}
+                      {place.geometry && editRouteMenuItem}
+                      {place.geometry && !savedRoute && onEditGeometry && (
                         <DropdownMenuItem onClick={handleEditGeometry}>
                           <PencilRulerIcon />
                           Edit shape

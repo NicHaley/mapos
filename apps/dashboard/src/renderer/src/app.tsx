@@ -826,12 +826,18 @@ function App(): React.JSX.Element {
   );
 
   /** "Draw a route" / "Edit route" on a place card: open a directions tab that saves back
-   *  into this file, pre-filled from its saved route when it has one. */
+   *  into this file, pre-filled from its saved route when it has one.
+   *
+   *  `fresh` starts over instead — it's what "Draw a route" means on a file that already has
+   *  one, matching how "Draw a line" on an existing line starts a new line rather than editing
+   *  it. Nothing is destroyed until the user saves the new route over the old one. */
   const handlePlanRoute = useCallback(
-    (filePath: string) => {
+    (filePath: string, opts?: { fresh?: boolean }) => {
       // One editor per file. Two tabs bound to the same path is trivially reachable
       // (open the file, Edit route, back, Edit route) and the second would silently
-      // overwrite whatever the first saved.
+      // overwrite whatever the first saved. A `fresh` request focuses that editor rather than
+      // blanking it — discarding stops the user may still be working on would be worse than
+      // handing them the tab they already have.
       const existing = nav.tabs.findIndex((tab) => {
         const entry = tab.history[tab.cursor];
         return entry.kind === "directions" && entry.targetFilePath === filePath;
@@ -841,7 +847,7 @@ function App(): React.JSX.Element {
         return;
       }
       const place = placesByPath.get(filePath);
-      const saved = place?.route ?? null;
+      const saved = opts?.fresh ? null : (place?.route ?? null);
       // A blank plan starts empty rather than seeded with this file's own point — that
       // would ask the user to route to their destination from their destination, and the
       // point is about to be replaced by the route's line anyway.

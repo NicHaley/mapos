@@ -391,10 +391,16 @@ export function DirectionsPanel({
   }
   const nextKey = (): string => String(Math.max(-1, ...rowKeys.map(Number)) + 1);
 
-  /** The row key that should take focus on mount — the stop "Add stop" just appended, so the
-   *  user can type straight into it. Cleared once it focuses (see armStop) so a later remount
-   *  of that row can't steal focus back. */
-  const [autoFocusKey, setAutoFocusKey] = useState<string | null>(null);
+  /** The row key that should take focus on mount — the stop "Add stop" just appended, or, when
+   *  the panel first opens, the first blank stop. A freshly-opened route is otherwise a pair of
+   *  empty inputs with nothing indicating which one to fill; focusing also arms it (see
+   *  armStop), so a map click lands somewhere useful without touching the panel at all.
+   *  Cleared once it focuses so a later remount of that row can't steal focus back. */
+  const [autoFocusKey, setAutoFocusKey] = useState<string | null>(() => {
+    const firstBlank = stops.findIndex((s) => s == null);
+    // Keys start out positional (see rowKeys above), so index doubles as the key on mount.
+    return firstBlank >= 0 ? String(firstBlank) : null;
+  });
 
   const setStops = (next: (DirectionsWaypoint | null)[], nextMode?: TravelMode): void => {
     onChange({ stops: next, mode: nextMode ?? mode });
@@ -541,6 +547,7 @@ export function DirectionsPanel({
                   files={files}
                   allowCurrentLocation
                   armed={armedIndex === 0}
+                  autoFocus={rowKeys[0] === autoFocusKey}
                   onFocus={() => armStop(0)}
                 />
                 <LocationInput
@@ -550,6 +557,7 @@ export function DirectionsPanel({
                   icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
                   armed={armedIndex === 1}
+                  autoFocus={rowKeys[1] === autoFocusKey}
                   onFocus={() => armStop(1)}
                 />
               </div>

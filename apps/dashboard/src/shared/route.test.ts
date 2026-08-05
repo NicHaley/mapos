@@ -67,9 +67,16 @@ describe("parseRouteFrontmatter", () => {
     expect(parsed?.stops.map((s) => s.file)).toEqual([undefined, undefined]);
   });
 
-  it("caps a pathologically long stop list", () => {
-    const stops = Array.from({ length: 40 }, (_, i) => ({ label: `S${i}`, lat: 45, lng: -73 }));
+  it("accepts a stop list right up to the cap", () => {
+    const stops = Array.from({ length: 25 }, (_, i) => ({ label: `S${i}`, lat: 45, lng: -73 }));
     expect(parseRouteFrontmatter({ stops })?.stops).toHaveLength(25);
+  });
+
+  // Clipping to the first 25 would reopen the panel with a shorter trip than the file holds,
+  // and a save from there would overwrite the original with it.
+  it("rejects a pathologically long stop list rather than clipping it", () => {
+    const stops = Array.from({ length: 40 }, (_, i) => ({ label: `S${i}`, lat: 45, lng: -73 }));
+    expect(parseRouteFrontmatter({ stops })).toBeNull();
   });
 
   // A malformed route must cost the route, never the file: parseRouteFrontmatter runs

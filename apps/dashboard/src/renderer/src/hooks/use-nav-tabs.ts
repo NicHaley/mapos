@@ -66,6 +66,12 @@ export type NavAction =
       stops: (DirectionsWaypoint | null)[];
       mode: TravelMode;
     }
+  // Fill a directions tab's origin with the user's location once geolocation lands. Narrower
+  // than `update-directions` on purpose: the request is issued when the tab opens and can take
+  // its full 10s timeout, so writing back a whole stop list would revert everything the user
+  // did while waiting. Only stop 0 is touched, and only while it is still blank — a stop they
+  // filled themselves in the meantime is their answer, not one to overwrite.
+  | { type: "fill-directions-origin"; id: string; waypoint: DirectionsWaypoint }
   // Attach an unbound directions tab to the file its first save created, so saving again
   // updates that file instead of creating a second one. (After a save the tab navigates to
   // the place, but the directions entry stays in history — Back, Save would duplicate.)
@@ -333,6 +339,19 @@ export function navReducer(state: NavState, action: NavAction): NavState {
           history: tab.history.map((entry) =>
             entry.kind === "directions" && entry.id === action.id
               ? { ...entry, stops: action.stops, mode: action.mode }
+              : entry
+          )
+        }))
+      };
+    }
+    case "fill-directions-origin": {
+      return {
+        ...state,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          history: tab.history.map((entry) =>
+            entry.kind === "directions" && entry.id === action.id && entry.stops[0] == null
+              ? { ...entry, stops: [action.waypoint, ...entry.stops.slice(1)] }
               : entry
           )
         }))

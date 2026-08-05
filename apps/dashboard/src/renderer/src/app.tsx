@@ -610,17 +610,22 @@ function App(): React.JSX.Element {
       // Fill a blank origin with the current location, but never block the tab on it:
       // getCurrentPosition can take its full 10s timeout, and a menu item that does
       // nothing for ten seconds reads as broken. The stops update in place when it lands.
+      //
+      // `fill-directions-origin` rather than `update-directions`: everything captured here is a
+      // snapshot from before the wait, so writing back a whole stop list would revert any stop
+      // the user added, retargeted, or re-moded in the meantime. The reducer touches stop 0 and
+      // only while it is still blank, so a slow fix can never undo their work.
       if (stops[0]) return;
       navigator.geolocation.getCurrentPosition(
         (pos) =>
           dispatchNav({
-            type: "update-directions",
+            type: "fill-directions-origin",
             id,
-            stops: [
-              { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Your location" },
-              ...stops.slice(1)
-            ],
-            mode
+            waypoint: {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              label: "Your location"
+            }
           }),
         () => {},
         { enableHighAccuracy: true, timeout: 10000 }

@@ -28,7 +28,8 @@ export type RouteFrontmatter = { mode: RouteCosting; stops: RouteStop[] };
 const COSTINGS: readonly RouteCosting[] = ["auto", "pedestrian", "bicycle"];
 
 /** Two stops minimum to be a route at all; the cap keeps a pathological hand-edited
- *  file from turning into an enormous routing request. */
+ *  file from turning into an enormous routing request. Both are rejections, not clamps —
+ *  see parseRouteFrontmatter. */
 const MIN_STOPS = 2;
 const MAX_STOPS = 25;
 
@@ -65,8 +66,12 @@ export function parseRouteFrontmatter(value: unknown): RouteFrontmatter | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   if (!Array.isArray(raw.stops)) return null;
+  // Over the cap the route is rejected, not clipped, for the same reason a bad stop rejects it
+  // below: keeping the first 25 of 40 would reopen the panel with a shorter trip than the file
+  // describes, and saving from there would write that shorter trip back over the original.
+  if (raw.stops.length > MAX_STOPS) return null;
   const stops: RouteStop[] = [];
-  for (const [i, entry] of raw.stops.slice(0, MAX_STOPS).entries()) {
+  for (const [i, entry] of raw.stops.entries()) {
     const stop = parseStop(entry, i);
     // One bad stop invalidates the route — silently dropping it would reopen the
     // directions panel with a different trip than the file describes.

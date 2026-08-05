@@ -974,6 +974,25 @@ export const PlaceCard = memo(function PlaceCard({
 
   const actionButtons = (
     <>
+      {/* First in the group: the mini card is a step towards the full one, so the way onward reads
+          left-to-right ahead of the actions that operate on the place itself. */}
+      {mode === "mini" && onExpand && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size={actionSize}
+                onClick={onExpand}
+                aria-label="Open full view"
+              >
+                <Maximize2Icon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">Open full view</TooltipContent>
+        </Tooltip>
+      )}
       {place.previewMarkdown !== undefined && onSaveSearchToVault && (
         <Tooltip>
           <FolderPickerPopover
@@ -1107,23 +1126,6 @@ export const PlaceCard = memo(function PlaceCard({
             }
           />
           <TooltipContent side="bottom">Get directions</TooltipContent>
-        </Tooltip>
-      )}
-      {mode === "mini" && onExpand && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size={actionSize}
-                onClick={onExpand}
-                aria-label="Open full view"
-              >
-                <Maximize2Icon />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">Open full view</TooltipContent>
         </Tooltip>
       )}
       <Tooltip>

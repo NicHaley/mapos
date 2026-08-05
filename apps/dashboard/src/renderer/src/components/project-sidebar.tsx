@@ -38,7 +38,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { useVaultRoot } from "../hooks/use-vault-root";
-import type { GeometryKind } from "../lib/geometry-wkt";
+import type { FileGlyphKind } from "../lib/geometry-wkt";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
@@ -87,7 +87,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   /** Indexed geometry per place-file path, so files on the map get map icons in the tree. */
-  geometryKinds: Map<string, GeometryKind>;
+  geometryKinds: Map<string, FileGlyphKind>;
   /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
   fileAppearance: Map<string, { icon?: string; color?: string }>;
 }): React.JSX.Element {

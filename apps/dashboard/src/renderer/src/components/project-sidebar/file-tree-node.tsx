@@ -33,13 +33,13 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { GeometryKind } from "../../lib/geometry-wkt";
+import type { FileGlyphKind } from "../../lib/geometry-wkt";
 import { VaultFileIcon } from "../vault-file-icon";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
 function fileIcon(
   name: string,
-  geometryKind: GeometryKind | null,
+  geometryKind: FileGlyphKind | null,
   appearance?: { icon?: string; color?: string }
 ) {
   return (
@@ -93,7 +93,7 @@ export function FileTreeNode({
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
   /** Indexed geometry per place-file path, so a file on the map gets a map icon. */
-  geometryKinds: Map<string, GeometryKind>;
+  geometryKinds: Map<string, FileGlyphKind>;
   /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
   fileAppearance: Map<string, { icon?: string; color?: string }>;
   dnd?: SidebarDndBridge;

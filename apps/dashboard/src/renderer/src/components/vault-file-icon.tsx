@@ -1,7 +1,7 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import type { GeometryKind } from "@renderer/lib/geometry-wkt";
+import type { FileGlyphKind } from "@renderer/lib/geometry-wkt";
 import { emojiIcon, emojiPinDataUrl, normalizeFeatureColor } from "@renderer/lib/map-styles";
 
 /**
@@ -32,7 +32,7 @@ export function VaultFileIcon({
   className
 }: {
   name: string;
-  geometryKind?: GeometryKind | null;
+  geometryKind?: FileGlyphKind | null;
   icon?: string;
   color?: string;
   className?: string;

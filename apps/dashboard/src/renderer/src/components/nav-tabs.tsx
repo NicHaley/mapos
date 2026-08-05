@@ -4,7 +4,7 @@ import { Surface } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
-import type { GeometryKind } from "@renderer/lib/geometry-wkt";
+import type { FileGlyphKind } from "@renderer/lib/geometry-wkt";
 import { FolderIcon, PlusIcon, RouteIcon, TextSearchIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
@@ -23,7 +23,7 @@ export type NavTabData =
       color?: string;
       /** Indexed geometry, so a place with no emoji gets its geometry glyph rather than the
        *  generic document icon the sidebar row never shows. */
-      geometryKind?: GeometryKind | null;
+      geometryKind?: FileGlyphKind | null;
     }
   | { id: string; title: string; kind: "folder" }
   | { id: string; title: string; kind: "list" }

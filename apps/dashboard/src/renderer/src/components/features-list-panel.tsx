@@ -3,6 +3,7 @@ import { Button } from "@mapos/ui/components/button";
 import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { isVaultRelativePath, vaultImageUrl } from "@renderer/extensions/vault-image-extension";
+import { type FileGlyphKind, glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { type MapOverlayLayer, isServableImageFile } from "@shared/types";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -41,6 +42,9 @@ export type FeatureListRow = {
   /** The file's own `icon`/`color` (vault rows only). A cover photo still wins over the emoji. */
   icon?: string;
   color?: string;
+  /** The file's real shape (vault rows only). `geometryKind` above is always "point" for a vault
+   *  row — it drives click-to-focus, not the glyph — so the icon needs its own field. */
+  glyphKind?: FileGlyphKind | null;
   /** True for a feature already saved in the vault (shown with a file icon). */
   isVault: boolean;
 };
@@ -230,6 +234,7 @@ export function FeaturesListPanel({
         filePath: path,
         icon: place.icon,
         color: place.color,
+        glyphKind: glyphKindOf(place.geometry, Boolean(place.route)),
         isVault: true
       });
     }
@@ -327,6 +332,7 @@ export function FeaturesListPanel({
               const rowIcon = row.isVault ? (
                 <VaultFileIcon
                   name={row.filePath ?? row.title}
+                  geometryKind={row.glyphKind}
                   icon={row.icon}
                   color={row.color}
                   className={row.icon ? "size-[18px]" : "size-4"}

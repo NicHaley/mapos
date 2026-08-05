@@ -47,10 +47,10 @@ import { useVaultRoot } from "./hooks/use-vault-root";
 import type { DrawSession, DrawShape } from "./lib/draw";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import {
-  type GeometryKind,
+  type FileGlyphKind,
   geometryJsonToCreateArgs,
   geometryJsonToWkt,
-  geometryKindOf
+  glyphKindOf
 } from "./lib/geometry-wkt";
 import {
   filenameBaseFromPlaceTitle,
@@ -1568,12 +1568,12 @@ function App(): React.JSX.Element {
   // Flattened view of the indexed vault for the search popover's "Files" group.
   const indexedFiles = useMemo(() => Array.from(placesByPath.values()), [placesByPath]);
 
-  /** Path → geometry kind, so the sidebar tree can show which files are on the map. Derived
-   *  once per index change rather than per render, since ProjectSidebar is memoized. */
+  /** Path → glyph kind, so the sidebar tree can show which files are on the map and as what.
+   *  Derived once per index change rather than per render, since ProjectSidebar is memoized. */
   const geometryKinds = useMemo(() => {
-    const kinds = new Map<string, GeometryKind>();
+    const kinds = new Map<string, FileGlyphKind>();
     for (const place of placesByPath.values()) {
-      const kind = geometryKindOf(place.geometry);
+      const kind = glyphKindOf(place.geometry, Boolean(place.route));
       if (kind) kinds.set(place.filePath, kind);
     }
     return kinds;
@@ -1605,7 +1605,7 @@ function App(): React.JSX.Element {
           ...tab,
           icon: indexed.icon,
           color: indexed.color,
-          geometryKind: geometryKindOf(indexed.geometry)
+          geometryKind: glyphKindOf(indexed.geometry, Boolean(indexed.route))
         };
       }),
     [navTabsData, placesByPath]

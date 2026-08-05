@@ -16,6 +16,7 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
+import { glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { scoreNameMatch } from "@shared/name-match";
 import type { PlaceRecord } from "@shared/types";
 import { VaultFileIcon } from "./vault-file-icon";
@@ -381,6 +382,7 @@ export function GeocodeSearchPanel({
                 >
                   <VaultFileIcon
                     name={f.filePath}
+                    geometryKind={glyphKindOf(f.geometry, Boolean(f.route))}
                     icon={f.icon}
                     color={f.color}
                     className={

@@ -16,7 +16,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from "@mapos/ui/components/breadcrumb";
-import { Button } from "@mapos/ui/components/button";
+import { Button, buttonVariants } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,8 +50,9 @@ import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikil
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
+import { iconForGeometry } from "@renderer/lib/file-icons";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
-import { geometryKindOf } from "@renderer/lib/geometry-wkt";
+import { glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
 import type { RouteFrontmatter } from "@shared/route";
 import { type Editor, Extension } from "@tiptap/core";
@@ -66,7 +67,6 @@ import {
   ImageOffIcon,
   Link2Icon,
   Link2OffIcon,
-  MapPinIcon,
   MapPinOffIcon,
   MapPinPlus,
   Maximize2Icon,
@@ -703,6 +703,10 @@ export const PlaceCard = memo(function PlaceCard({
 
   const coverInputRef = useRef<HTMLInputElement>(null);
 
+  /** The path `doc` was read from, so a re-read of the *same* file can leave the content on screen.
+   *  A previous-render value used for comparison, which is what a ref is for. */
+  const loadedPathRef = useRef<string | null>(null);
+
   const gjFrontmatter = useMemo(
     () =>
       doc.kind === "geojson-layer"
@@ -733,6 +737,8 @@ export const PlaceCard = memo(function PlaceCard({
 
   useEffect(() => {
     void place.geometry;
+    const samePath = loadedPathRef.current === place.filePath;
+    loadedPathRef.current = place.filePath;
     if (selfRenamedToRef.current === place.filePath) {
       selfRenamedToRef.current = null;
       return;
@@ -742,7 +748,7 @@ export const PlaceCard = memo(function PlaceCard({
       return;
     }
     if (place.type === "GeoJsonLayer") {
-      setDoc({ kind: "loading" });
+      if (!samePath) setDoc({ kind: "loading" });
       let cancelled = false;
       void window.api.fs.readGeoJson(place.filePath).then((data) => {
         if (cancelled || !data) return;
@@ -767,7 +773,12 @@ export const PlaceCard = memo(function PlaceCard({
         cancelled = true;
       };
     }
-    setDoc({ kind: "loading" });
+    // Blank to `loading` only when this is a *different* document. The effect also re-runs on a
+    // geometry change to the same file — a location edit rewrites frontmatter, so the doc genuinely
+    // has to be re-read — and blanking there unmounts the body editor and the properties grid for
+    // the length of the read, which reads as the whole card flashing. Re-read under the content
+    // that's already on screen instead and swap it when it lands.
+    if (!samePath) setDoc({ kind: "loading" });
     let cancelled = false;
     void Promise.all([
       window.api.fs.readFile(place.filePath),
@@ -1134,6 +1145,12 @@ export const PlaceCard = memo(function PlaceCard({
     </>
   );
 
+  /** What this place's shape is, for the header glyph and the location row: a point, a line, an
+   *  area, or a route (a line the `route` frontmatter reopens as a trip). */
+  const glyphKind = glyphKindOf(place.geometry, Boolean(savedRoute));
+  /** The location row's leading glyph — the shape it already has, or the offer to give it one. */
+  const LocationIcon = glyphKind ? iconForGeometry(glyphKind) : MapPinPlus;
+
   /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather than
    *  with the search — even though it opens the directions panel, not a draw session. Shown
    *  whatever the file already holds, exactly like the other draw options: each one starts a
@@ -1265,11 +1282,23 @@ export const PlaceCard = memo(function PlaceCard({
                         type="button"
                         aria-label="Change icon"
                         title="Change icon"
-                        className="mr-1.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md pt-0.5 transition-colors hover:bg-hover"
+                        // The card's own ghost styling, straight from `buttonVariants`, so the
+                        // hover fill and radius can't drift from the buttons in the top bar.
+                        //
+                        // Centred on the title's *first line*, not on the header box: the title is
+                        // 24px at leading-snug, so its line box is 33px tall inside the block's own
+                        // 4px top padding, putting its centre at 20.5px. A 36px button has to start
+                        // 2.5px down to land there. `items-start` on the row is deliberate and the
+                        // browser can't do this for us — the title may wrap to two lines, and the
+                        // icon belongs beside the first.
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "icon-lg" }),
+                          "mt-[2.5px] mr-1.5 cursor-pointer"
+                        )}
                       >
                         <VaultFileIcon
                           name={currentFilePath}
-                          geometryKind={geometryKindOf(place.geometry)}
+                          geometryKind={glyphKind}
                           icon={appearanceIcon}
                           color={appearanceColor}
                           className="size-7"
@@ -1379,11 +1408,7 @@ export const PlaceCard = memo(function PlaceCard({
                           type="button"
                           className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
                         >
-                          {place.geometry ? (
-                            <MapPinIcon className="size-4 shrink-0" />
-                          ) : (
-                            <MapPinPlus className="size-4 shrink-0" />
-                          )}
+                          <LocationIcon className="size-4 shrink-0" />
                           <span className="truncate">
                             {activeDrawMode === "select"
                               ? "Editing on the map…"

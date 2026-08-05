@@ -383,8 +383,18 @@ export const EMOJI_PIN_SIZE = FEATURE_POINT_SIZE + 8;
 export const SELECTED_EMOJI_PIN_SIZE = EMOJI_PIN_SIZE + 4;
 
 const EMOJI_PIN_BORDER = 2;
-/** How much of the inner disk the glyph's *ink box* fills. */
-const EMOJI_INK_FRACTION = 0.82;
+/**
+ * How far out the corners of the glyph's ink box are allowed to reach, as a fraction of the inner
+ * disk's radius.
+ *
+ * The constraint is a circle, not a square. Fitting the ink box inside a square of the disk's
+ * diameter — the obvious reading — puts the corners at 1.41× the radius, so a glyph that really
+ * does fill its box (🟥, ⬛, a flag) spills out over the white rim while a round one looks right.
+ * Fitting the box's half-diagonal to the radius instead is correct for every shape, and is *more*
+ * generous to flat glyphs than a square fit: a wide, short ink box can span nearly the full
+ * diameter, because a thin strip through the centre of a circle can.
+ */
+const EMOJI_INK_FRACTION = 0.98;
 /** Measurement-only font size; the drawn size is derived from the measured ink box. */
 const EMOJI_MEASURE_SIZE = 64;
 const EMOJI_FONT_STACK =
@@ -405,15 +415,16 @@ const EMOJI_FONT_STACK =
  * emoji's ink sits high and off-centre inside it, so a text-based pin never lines up with the row
  * beside it. Centring here is measured, so it holds for every glyph.
  */
-function paintEmojiPin(emoji: string, color: string): HTMLCanvasElement {
-  const size = EMOJI_PIN_SIZE * EMOJI_PIN_PIXEL_RATIO;
+function paintEmojiPin(emoji: string, color: string, size: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   const center = size / 2;
-  const lineWidth = EMOJI_PIN_BORDER * EMOJI_PIN_PIXEL_RATIO;
+  // Everything scales off the raster's own size, so a bigger canvas is the same pin at a higher
+  // resolution rather than a differently proportioned one.
+  const lineWidth = EMOJI_PIN_BORDER * (size / EMOJI_PIN_SIZE);
 
   ctx.beginPath();
   ctx.arc(center, center, center, 0, Math.PI * 2);
@@ -425,14 +436,16 @@ function paintEmojiPin(emoji: string, color: string): HTMLCanvasElement {
   ctx.arc(center, center, center - lineWidth / 2, 0, Math.PI * 2);
   ctx.stroke();
 
-  const target = (size - lineWidth * 2) * EMOJI_INK_FRACTION;
+  const target = (center - lineWidth) * EMOJI_INK_FRACTION;
   ctx.font = `${EMOJI_MEASURE_SIZE}px ${EMOJI_FONT_STACK}`;
   const measured = ctx.measureText(emoji);
   const inkWidth = measured.actualBoundingBoxLeft + measured.actualBoundingBoxRight;
   const inkHeight = measured.actualBoundingBoxAscent + measured.actualBoundingBoxDescent;
   // A glyph with no ink (an unsupported sequence) leaves the plain disk rather than a NaN font.
   if (!(inkWidth > 0) || !(inkHeight > 0)) return canvas;
-  const fitted = EMOJI_MEASURE_SIZE * Math.min(target / inkWidth, target / inkHeight);
+  // The ink box is centred on the disk's centre, so its corners are the constraint: keep their
+  // distance from the centre — half the box's diagonal — inside the disk.
+  const fitted = (EMOJI_MEASURE_SIZE * target) / (Math.hypot(inkWidth, inkHeight) / 2);
   ctx.font = `${fitted}px ${EMOJI_FONT_STACK}`;
   // Centre the ink box, not the advance width or the baseline. Default `textAlign: "left"` puts
   // ink at [x - left, x + right]; default `textBaseline: "alphabetic"` at [y - ascent, y + descent].
@@ -448,7 +461,7 @@ function paintEmojiPin(emoji: string, color: string): HTMLCanvasElement {
 /** The pin as `ImageData`, for `map.addImage`. Synchronous, which is what lets the
  *  `styleimagemissing` handler satisfy the very request that fired it. */
 export function drawEmojiPin(emoji: string, color: string): ImageData {
-  const canvas = paintEmojiPin(emoji, color);
+  const canvas = paintEmojiPin(emoji, color, EMOJI_PIN_SIZE * EMOJI_PIN_PIXEL_RATIO);
   const ctx = canvas.getContext("2d");
   return ctx
     ? ctx.getImageData(0, 0, canvas.width, canvas.height)
@@ -484,15 +497,24 @@ export function parseEmojiPinImageId(id: string): { emoji: string; color: string
  *
  * Keyed by the map's own image id, so a colour that produces one pin on the map produces one
  * entry here. Never evicted: the cache is bounded by the distinct emoji×colour pairs the vault
- * actually uses, and each entry is a ~2 KB data URL for a 44px square.
+ * actually uses.
+ *
+ * Painted once at `DOM_EMOJI_PIN_PIXELS` and scaled *down* by CSS at every surface, rather than at
+ * the map's own 44px raster. The card header shows it at 28 CSS px, which is 56 device px on a 2×
+ * display and 84 on a 3× one — an upscaled 44px square there is visibly soft. One oversized entry
+ * per pair beats one per display size: sharp everywhere, and still a single cache key.
  */
 const emojiPinUrls = new Map<string, string>();
+
+/** Raster size for the DOM copy. Covers the largest surface (28 CSS px) at 3× with headroom;
+ *  minification down to a 16px row icon is what browsers are good at. */
+const DOM_EMOJI_PIN_PIXELS = 96;
 
 export function emojiPinDataUrl(emoji: string, color: string): string {
   const key = emojiPinImageId(emoji, color);
   const cached = emojiPinUrls.get(key);
   if (cached) return cached;
-  const url = paintEmojiPin(emoji, color).toDataURL();
+  const url = paintEmojiPin(emoji, color, DOM_EMOJI_PIN_PIXELS).toDataURL();
   emojiPinUrls.set(key, url);
   return url;
 }

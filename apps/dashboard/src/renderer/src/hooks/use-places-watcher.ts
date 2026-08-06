@@ -13,13 +13,12 @@ export function usePlacesWatcher({
   handleDeletedPath: (deletedPath: string, type: "file" | "directory") => void;
 }): void {
   // Keep the latest callback in a ref so the IPC subscription can stay mounted
-  // once — `onUpdated` has no per-listener unsubscribe, so re-subscribing on
-  // every `handleDeletedPath` identity change would leak listeners.
+  // once, rather than re-subscribing on every `handleDeletedPath` identity change.
   const handleDeletedPathRef = useRef(handleDeletedPath);
   handleDeletedPathRef.current = handleDeletedPath;
 
   useEffect(() => {
-    window.api.places.onUpdated((update) => {
+    return window.api.places.onUpdated((update) => {
       if (update.event === "unlink") {
         handleDeletedPathRef.current(update.filePath, "file");
       }

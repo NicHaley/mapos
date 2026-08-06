@@ -1117,13 +1117,13 @@ const MapView = forwardRef<
 
   useEffect(() => {
     // File changed on disk — refresh folder places without moving the camera
-    window.api.places.onUpdated(() => {
+    const off = window.api.places.onUpdated(() => {
       if (selectedFolderRef.current) {
         void loadFolderPlaces(selectedFolderRef.current);
       }
     });
     return () => {
-      window.api.places.removeListeners();
+      off();
       sendViewport.cancel();
     };
   }, [loadFolderPlaces, sendViewport.cancel]);

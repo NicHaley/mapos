@@ -314,6 +314,22 @@ function App(): React.JSX.Element {
     };
   }, [selectedPlace?.filePath]);
 
+  /** Live update: swap in the fresh record when a *linked* place changes on disk, so an
+   * edit to its `color`/`icon`/`geometry` repaints without reopening the note. The two
+   * effects below only re-resolve on the OPEN file's path or content, which a linked
+   * file's edit never touches. Reconciling in place is enough — the wikilink set can only
+   * change when the note body does, and that case is already covered below. */
+  useEffect(() => {
+    return window.api.places.onUpdated((update) => {
+      if (update.event !== "change") return;
+      setLinkedPlaces((prev) =>
+        prev.some((p) => p.filePath === update.place.filePath)
+          ? prev.map((p) => (p.filePath === update.place.filePath ? update.place : p))
+          : prev
+      );
+    });
+  }, []);
+
   /** Live update: refresh markers (no fit) when the open file's body changes on disk.
    * Only the filePath shape is consulted — re-binds when the open file changes, not on metadata. */
   useEffect(() => {

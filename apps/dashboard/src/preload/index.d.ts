@@ -61,9 +61,8 @@ declare global {
           bounds: { north: number; south: number; east: number; west: number };
         }) => Promise<PlaceRecord[]>;
         getByPath: (filePath: string) => Promise<PlaceRecord | null>;
-        onInitial: (cb: (places: PlaceRecord[]) => void) => void;
-        onUpdated: (cb: (update: PlaceUpdate) => void) => void;
-        removeListeners: () => void;
+        onInitial: (cb: (places: PlaceRecord[]) => void) => () => void;
+        onUpdated: (cb: (update: PlaceUpdate) => void) => () => void;
       };
       map: {
         onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) => void;

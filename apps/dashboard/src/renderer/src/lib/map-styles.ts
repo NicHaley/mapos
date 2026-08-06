@@ -22,14 +22,24 @@ import type {
  * "glow" that reads the same on points, lines, and polygons.
  */
 
-/** Feature colour: the per-feature `color` if present, else the passed default (accent/grey). */
+/** Feature colour: the per-feature `color` if present, else the passed default (accent/grey).
+ *  Shared with `emojiPinLayout`, which bakes the resolved colour into its image id — so a pin
+ *  and the circle it replaces resolve their colour through the same expression by construction. */
+function colorExpression(defaultColor: string): ExpressionSpecification {
+  return ["coalesce", ["get", "color"], defaultColor];
+}
+
 function withColor(defaultColor: string): DataDrivenPropertyValueSpecification<string> {
-  return ["coalesce", ["get", "color"], defaultColor] as ExpressionSpecification;
+  return colorExpression(defaultColor);
 }
 
 // Matches the user-location dot: radius 5 + a 2px stroke = a 14px circle, the same
 // outer size as that HTML marker (size-3.5 + border-2).
 export const FEATURE_CIRCLE_RADIUS = 5;
+
+/** Outer diameter of a persisted point: the radius plus its 2px stroke on each side. The size
+ *  every other point mark is measured against, so the family can't drift. */
+const FEATURE_POINT_SIZE = FEATURE_CIRCLE_RADIUS * 2 + 4;
 
 /** Round caps/joins for line + fill-outline layers so paths and corners read cleanly. */
 export const ROUND_LINE_LAYOUT: LineLayerSpecification["layout"] = {
@@ -313,9 +323,8 @@ export const ROUTE_DESTINATION_LAYOUT = {
 
 export const OVERLAY_CHIP_IMAGE_ID = "overlay-chip";
 export const OVERLAY_CHIP_PIXEL_RATIO = 2;
-// Same 14px footprint as persisted points (FEATURE_CIRCLE_RADIUS + 2px stroke); the 18px
-// selection chip stays a touch bigger.
-const OVERLAY_CHIP_SIZE = FEATURE_CIRCLE_RADIUS * 2 + 4;
+// Same 14px footprint as persisted points; the 18px selection chip stays a touch bigger.
+const OVERLAY_CHIP_SIZE = FEATURE_POINT_SIZE;
 const OVERLAY_CHIP_BORDER = 2;
 // Long dashes, few breaks: the rim reads as a chip, not a dotted circle.
 const OVERLAY_CHIP_DASH_UNIT = 8;
@@ -348,3 +357,209 @@ export function drawOverlayChip(fill: string, border: string): ImageData {
   ctx.stroke();
   return ctx.getImageData(0, 0, size, size);
 }
+
+// --- Emoji place pins ------------------------------------------------------------------------
+//
+// A place whose `icon` frontmatter holds an emoji draws as the feature circle's disk with the
+// glyph on it, rasterized to a map icon rather than a DOM marker — a folder can hold thousands
+// of points and they have to stay one WebGL draw.
+//
+// The disk colour is baked into the raster, so the *resolved* colour (per-feature `color`, else
+// the accent default) is part of the image id. The id is built by an expression at layout time
+// (`emojiPinLayout`) rather than baked into the feature, so changing the accent recolours every
+// pin without re-uploading a single source. Nothing pre-registers the images: `styleimagemissing`
+// fires for an id the first time a tile needs it and the handler rasterizes it there and then
+// (see `EmojiPinImages` in map-view.tsx).
+
+export const EMOJI_PIN_PIXEL_RATIO = 2;
+
+/** Outer diameter, CSS px. One step up from the 14px circle it replaces: a glyph inside a 14px
+ *  disk is ~10px of ink, which is mush at any zoom. 22px leaves an 18px disk for the emoji and
+ *  lands on the same step as the 18px selection chip rather than inventing a third scale. */
+export const EMOJI_PIN_SIZE = FEATURE_POINT_SIZE + 8;
+
+/** The selected variant's outer diameter, exported so the HTML SelectionMarker matches the
+ *  raster instead of guessing at it. */
+export const SELECTED_EMOJI_PIN_SIZE = EMOJI_PIN_SIZE + 4;
+
+const EMOJI_PIN_BORDER = 2;
+/**
+ * How far out the corners of the glyph's ink box are allowed to reach, as a fraction of the inner
+ * disk's radius.
+ *
+ * The constraint is a circle, not a square. Fitting the ink box inside a square of the disk's
+ * diameter — the obvious reading — puts the corners at 1.41× the radius, so a glyph that really
+ * does fill its box (🟥, ⬛, a flag) spills out over the white rim while a round one looks right.
+ * Fitting the box's half-diagonal to the radius instead is correct for every shape, and is *more*
+ * generous to flat glyphs than a square fit: a wide, short ink box can span nearly the full
+ * diameter, because a thin strip through the centre of a circle can.
+ */
+const EMOJI_INK_FRACTION = 0.98;
+/** Measurement-only font size; the drawn size is derived from the measured ink box. */
+const EMOJI_MEASURE_SIZE = 64;
+const EMOJI_FONT_STACK =
+  '"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif';
+
+/**
+ * An emoji place pin: the feature circle's disk and white rim with the glyph on top.
+ *
+ * The glyph is fitted from its measured ink box rather than drawn at a fixed font size. Emoji
+ * differ wildly in how much of the em box they fill (a flag is wide, a bowl of ramen is tall) and
+ * the emoji fonts' ascent sits high, so a fixed size plus `textBaseline: "middle"` leaves them
+ * visibly off-centre and unevenly sized. Fitting here is also why the symbol layer needs no
+ * `icon-size` or `icon-offset` fudge, and why the raster is 22px rather than the ~100px a fixed
+ * 48px font would need — the icon atlas is rebuilt per tile, so wasted raster is wasted texture.
+ *
+ * Ink-fitting is also the reason the DOM surfaces render this raster (via `emojiPinDataUrl`)
+ * instead of an emoji in a styled `<span>`: CSS can only centre a glyph's *line box*, and an
+ * emoji's ink sits high and off-centre inside it, so a text-based pin never lines up with the row
+ * beside it. Centring here is measured, so it holds for every glyph.
+ */
+function paintEmojiPin(emoji: string, color: string, size: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  const center = size / 2;
+  // Everything scales off the raster's own size, so a bigger canvas is the same pin at a higher
+  // resolution rather than a differently proportioned one.
+  const lineWidth = EMOJI_PIN_BORDER * (size / EMOJI_PIN_SIZE);
+
+  ctx.beginPath();
+  ctx.arc(center, center, center, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(center, center, center - lineWidth / 2, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const target = (center - lineWidth) * EMOJI_INK_FRACTION;
+  ctx.font = `${EMOJI_MEASURE_SIZE}px ${EMOJI_FONT_STACK}`;
+  const measured = ctx.measureText(emoji);
+  const inkWidth = measured.actualBoundingBoxLeft + measured.actualBoundingBoxRight;
+  const inkHeight = measured.actualBoundingBoxAscent + measured.actualBoundingBoxDescent;
+  // A glyph with no ink (an unsupported sequence) leaves the plain disk rather than a NaN font.
+  if (!(inkWidth > 0) || !(inkHeight > 0)) return canvas;
+  // The ink box is centred on the disk's centre, so its corners are the constraint: keep their
+  // distance from the centre — half the box's diagonal — inside the disk.
+  const fitted = (EMOJI_MEASURE_SIZE * target) / (Math.hypot(inkWidth, inkHeight) / 2);
+  ctx.font = `${fitted}px ${EMOJI_FONT_STACK}`;
+  // Centre the ink box, not the advance width or the baseline. Default `textAlign: "left"` puts
+  // ink at [x - left, x + right]; default `textBaseline: "alphabetic"` at [y - ascent, y + descent].
+  const ink = ctx.measureText(emoji);
+  ctx.fillText(
+    emoji,
+    center + (ink.actualBoundingBoxLeft - ink.actualBoundingBoxRight) / 2,
+    center + (ink.actualBoundingBoxAscent - ink.actualBoundingBoxDescent) / 2
+  );
+  return canvas;
+}
+
+/** The pin as `ImageData`, for `map.addImage`. Synchronous, which is what lets the
+ *  `styleimagemissing` handler satisfy the very request that fired it. */
+export function drawEmojiPin(emoji: string, color: string): ImageData {
+  const canvas = paintEmojiPin(emoji, color, EMOJI_PIN_SIZE * EMOJI_PIN_PIXEL_RATIO);
+  const ctx = canvas.getContext("2d");
+  return ctx
+    ? ctx.getImageData(0, 0, canvas.width, canvas.height)
+    : new ImageData(canvas.width, canvas.height);
+}
+
+const EMOJI_PIN_PREFIX = "emoji-pin:";
+/**
+ * Colour first, then `|`, then the glyph. `|` can't appear in any CSS colour syntax, and the
+ * glyph is the whole remainder — so ZWJ sequences, variation selectors, skin-tone modifiers and
+ * regional-indicator pairs survive byte-for-byte without the codec knowing anything about them.
+ * Only the fixed-shape field can safely be the delimited one.
+ */
+const EMOJI_PIN_SEPARATOR = "|";
+
+export function emojiPinImageId(emoji: string, color: string): string {
+  return `${EMOJI_PIN_PREFIX}${color}${EMOJI_PIN_SEPARATOR}${emoji}`;
+}
+
+/** The inverse, for the `styleimagemissing` handler. Null for any other image id. */
+export function parseEmojiPinImageId(id: string): { emoji: string; color: string } | null {
+  if (!id.startsWith(EMOJI_PIN_PREFIX)) return null;
+  const rest = id.slice(EMOJI_PIN_PREFIX.length);
+  const cut = rest.indexOf(EMOJI_PIN_SEPARATOR);
+  if (cut <= 0) return null;
+  const emoji = rest.slice(cut + EMOJI_PIN_SEPARATOR.length);
+  return emoji ? { emoji, color: rest.slice(0, cut) } : null;
+}
+
+/**
+ * The same pin the map draws, as a data URL, so sidebar rows / tabs / result rows / the card
+ * header show a place's icon as the marker it is on the map rather than a bare glyph.
+ *
+ * Keyed by the map's own image id, so a colour that produces one pin on the map produces one
+ * entry here. Never evicted: the cache is bounded by the distinct emoji×colour pairs the vault
+ * actually uses.
+ *
+ * Painted once at `DOM_EMOJI_PIN_PIXELS` and scaled *down* by CSS at every surface, rather than at
+ * the map's own 44px raster. The card header shows it at 28 CSS px, which is 56 device px on a 2×
+ * display and 84 on a 3× one — an upscaled 44px square there is visibly soft. One oversized entry
+ * per pair beats one per display size: sharp everywhere, and still a single cache key.
+ */
+const emojiPinUrls = new Map<string, string>();
+
+/** Raster size for the DOM copy. Covers the largest surface (28 CSS px) at 3× with headroom;
+ *  minification down to a 16px row icon is what browsers are good at. */
+const DOM_EMOJI_PIN_PIXELS = 96;
+
+export function emojiPinDataUrl(emoji: string, color: string): string {
+  const key = emojiPinImageId(emoji, color);
+  const cached = emojiPinUrls.get(key);
+  if (cached) return cached;
+  const url = paintEmojiPin(emoji, color, DOM_EMOJI_PIN_PIXELS).toDataURL();
+  emojiPinUrls.set(key, url);
+  return url;
+}
+
+/**
+ * Feature property carrying a place's single-emoji `icon`. Set only when it really is an emoji
+ * (see `emojiIcon`): the circle and symbol filters are exact complements, so a value the
+ * rasterizer would refuse to draw must never reach the symbol layer — the point would vanish
+ * rather than fall back to a circle.
+ */
+export const EMOJI_PROPERTY = "icon";
+export const HAS_EMOJI_FILTER: ExpressionSpecification = ["has", EMOJI_PROPERTY];
+export const NO_EMOJI_FILTER: ExpressionSpecification = ["!", ["has", EMOJI_PROPERTY]];
+
+/**
+ * The emoji pin's `icon-image`, built from the glyph and the *resolved* colour so the id carries
+ * everything the raster bakes in. `icon-size` stays 1 and there is no `icon-offset`: the raster
+ * is already display-sized and ink-centred.
+ *
+ * Deliberately a plain `concat` (a string coerced to resolvedImage) and *not* `["image", …]` —
+ * `image` checks the style's available-images list and would resolve to nothing for an id that
+ * hasn't been registered yet, which is every id on first sight.
+ */
+export function emojiPinLayout(defaultColor: string): SymbolLayerSpecification["layout"] {
+  return {
+    "icon-image": [
+      "concat",
+      EMOJI_PIN_PREFIX,
+      colorExpression(defaultColor),
+      EMOJI_PIN_SEPARATOR,
+      ["get", EMOJI_PROPERTY]
+    ] as ExpressionSpecification,
+    // Same exemption as the route marks: a place is not a label. Collision would also drop the
+    // pin from the collision index, and with it from queryRenderedFeatures — i.e. from clicks.
+    "icon-allow-overlap": true,
+    "icon-ignore-placement": true
+  };
+}
+
+/** A symbol icon can't take a circle stroke, so the selected pin's white highlight is a plain
+ *  white disk drawn *under* it: 2px proud of the pin's own 2px rim, which comes to the same 4px
+ *  of white as `selectedCirclePaint`'s stroke. */
+export function selectedEmojiPinHaloPaint(): CircleLayerSpecification["paint"] {
+  return { "circle-radius": SELECTED_EMOJI_PIN_SIZE / 2, "circle-color": "#ffffff" };
+}
+
+/** The `icon`/`color` frontmatter validators live in `place-appearance.ts` — the surfaces that
+ *  need them mostly aren't the map. */

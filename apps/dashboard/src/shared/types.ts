@@ -4,6 +4,12 @@ export type PlaceRecord = {
   geometry?: string; // GeoJSON geometry JSON string; omitted when the file has no location
   title: string;
   color?: string;
+  /**
+   * A single emoji (reserved `icon` frontmatter key) shown in place of the file-type glyph in
+   * lists, tabs, and the card header, and rasterized as the map pin for point geometry. Stored
+   * verbatim; validate with `emojiIcon` before rendering it as a pin.
+   */
+  icon?: string;
   type: string;
   /**
    * A saved route's stops and travel mode (reserved `route` frontmatter key), so the
@@ -28,6 +34,16 @@ export type PlaceRecord = {
    */
   properties?: Record<string, string>;
 };
+
+/**
+ * A place's own look — the reserved `icon`/`color` frontmatter keys as they currently stand, with
+ * undefined meaning unset. The four values every surface needs to draw a file's glyph travel
+ * together, so they travel as this rather than as loose props.
+ *
+ * Distinct from `PlaceAppearancePatch`, which spells *clearing* a key as `null`: a map of what
+ * files currently look like must not be able to hold a clear.
+ */
+export type PlaceAppearance = Pick<PlaceRecord, "icon" | "color">;
 
 /**
  * Canonical detail keys, in the order they render in the place-card grid and in
@@ -84,6 +100,15 @@ export type OverlayPoint = {
    * Rendered read-only in the place card and persisted as frontmatter on "Add".
    */
   properties?: Record<string, string>;
+  /**
+   * Look, for a point that stands for something the user already has: a single emoji and/or a
+   * colour, drawn exactly as the same values on a place file's frontmatter are. Set by the
+   * directions panel for a stop that came from a saved place, so the stop is recognisable as that
+   * place rather than as one more anonymous dot. Left unset, the point keeps the ephemeral look
+   * (the chip, or the route's own stop dot).
+   */
+  icon?: string;
+  color?: string;
 };
 
 export type OverlayLine = {
@@ -220,10 +245,23 @@ export type PropertyType = "text" | "number" | "date" | "checkbox" | "multi_sele
 export const RESERVED_PROPERTY_KEYS = [
   "geometry",
   "color",
+  "icon",
   "cover",
   "cover_source",
   "route"
 ] as const;
+
+/**
+ * Whether the app should refuse to *name* a user property this. Case-insensitive, unlike the
+ * exact-match test used to strip reserved keys out of the generic properties grid, and the
+ * difference is deliberate: YAML keys are case-sensitive, so a file's own `Color` is a genuine
+ * user property and keeps showing as one. But letting someone *create* `Color` next to the
+ * renderer's `color` builds a file where two near-identical keys mean completely different
+ * things, and only one of them does anything.
+ */
+export function isReservedPropertyKey(key: string): boolean {
+  return (RESERVED_PROPERTY_KEYS as readonly string[]).includes(key.trim().toLowerCase());
+}
 
 /**
  * Image formats the mapos-vault:// protocol serves. SVG is deliberately

@@ -39,12 +39,21 @@ const api = {
       bounds: { north: number; south: number; east: number; west: number };
     }) => ipcRenderer.invoke("places:query-folder-bounds", args),
     getByPath: (filePath: string) => ipcRenderer.invoke("places:get-by-path", filePath),
-    onInitial: (cb: (places: unknown[]) => void) =>
-      ipcRenderer.on("places:initial", (_e, p) => cb(p)),
-    onUpdated: (cb: (u: unknown) => void) => ipcRenderer.on("places:updated", (_e, u) => cb(u)),
-    removeListeners: () => {
-      ipcRenderer.removeAllListeners("places:initial");
-      ipcRenderer.removeAllListeners("places:updated");
+    /** Returns an unsubscribe for this listener only — several hooks subscribe
+     *  independently, so a blanket removeAllListeners would tear down the others. */
+    onInitial: (cb: (places: unknown[]) => void): (() => void) => {
+      const listener = (_e: unknown, p: unknown[]): void => cb(p);
+      ipcRenderer.on("places:initial", listener);
+      return () => {
+        ipcRenderer.off("places:initial", listener);
+      };
+    },
+    onUpdated: (cb: (u: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, u: unknown): void => cb(u);
+      ipcRenderer.on("places:updated", listener);
+      return () => {
+        ipcRenderer.off("places:updated", listener);
+      };
     }
   },
   map: {
@@ -117,6 +126,8 @@ const api = {
             frontmatter: Record<string, unknown>;
             cover?: string;
             coverSource?: string;
+            icon?: string;
+            color?: string;
           }
         | { error: string }
       >,

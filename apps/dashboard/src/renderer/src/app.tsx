@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { type RouteFrontmatter, type RouteStop, defaultRouteTitle } from "@shared/route";
-import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
+import type { MapOverlayLayer, OverlayPoint, PlaceAppearance } from "@shared/types";
 import { DIRECTIONS_OVERLAY_PREFIX, orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import type { Geometry } from "geojson";
@@ -47,10 +47,10 @@ import { useVaultRoot } from "./hooks/use-vault-root";
 import type { DrawSession, DrawShape } from "./lib/draw";
 import type { GeocodeSearchResult } from "./lib/geocode-search";
 import {
-  type GeometryKind,
+  type FileGlyphKind,
   geometryJsonToCreateArgs,
   geometryJsonToWkt,
-  geometryKindOf
+  placeGlyphKind
 } from "./lib/geometry-wkt";
 import {
   filenameBaseFromPlaceTitle,
@@ -74,8 +74,10 @@ const PROJECT_SIDEBAR_DEFAULT_WIDTH = 16 * BASE_UNITS;
 // plus the traffic-light inset) never overflow into the tab strip.
 const PROJECT_SIDEBAR_MIN_WIDTH = 14 * BASE_UNITS;
 const PROJECT_SIDEBAR_MAX_WIDTH = 30 * BASE_UNITS;
-const MAIN_PANE_DEFAULT_WIDTH = 22 * BASE_UNITS;
-const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS;
+const MAIN_PANE_DEFAULT_WIDTH = 24 * BASE_UNITS;
+// The floor the resize handle stops at. Wide enough that a property's label and its value still
+// share a line, and that the place card's location row can show a full coordinate pair untruncated.
+const MAIN_PANE_MIN_WIDTH = 17 * BASE_UNITS + 100;
 const MAIN_PANE_MAX_WIDTH = 40 * BASE_UNITS;
 const TOP_BAR_HEIGHT = 2.5 * BASE_UNITS;
 const FIT_BUFFER = 2.5 * BASE_UNITS;
@@ -311,6 +313,22 @@ function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [selectedPlace?.filePath]);
+
+  /** Live update: swap in the fresh record when a *linked* place changes on disk, so an
+   * edit to its `color`/`icon`/`geometry` repaints without reopening the note. The two
+   * effects below only re-resolve on the OPEN file's path or content, which a linked
+   * file's edit never touches. Reconciling in place is enough — the wikilink set can only
+   * change when the note body does, and that case is already covered below. */
+  useEffect(() => {
+    return window.api.places.onUpdated((update) => {
+      if (update.event !== "change") return;
+      setLinkedPlaces((prev) =>
+        prev.some((p) => p.filePath === update.place.filePath)
+          ? prev.map((p) => (p.filePath === update.place.filePath ? update.place : p))
+          : prev
+      );
+    });
+  }, []);
 
   /** Live update: refresh markers (no fit) when the open file's body changes on disk.
    * Only the filePath shape is consulted — re-binds when the open file changes, not on metadata. */
@@ -1566,16 +1584,48 @@ function App(): React.JSX.Element {
   // Flattened view of the indexed vault for the search popover's "Files" group.
   const indexedFiles = useMemo(() => Array.from(placesByPath.values()), [placesByPath]);
 
-  /** Path → geometry kind, so the sidebar tree can show which files are on the map. Derived
-   *  once per index change rather than per render, since ProjectSidebar is memoized. */
+  /** Path → glyph kind, so the sidebar tree can show which files are on the map and as what.
+   *  Derived once per index change rather than per render, since ProjectSidebar is memoized. */
   const geometryKinds = useMemo(() => {
-    const kinds = new Map<string, GeometryKind>();
+    const kinds = new Map<string, FileGlyphKind>();
     for (const place of placesByPath.values()) {
-      const kind = geometryKindOf(place.geometry);
+      const kind = placeGlyphKind(place);
       if (kind) kinds.set(place.filePath, kind);
     }
     return kinds;
   }, [placesByPath]);
+
+  /** Path → the file's own `icon`/`color`, for the sidebar tree's row icons. Sparse on purpose:
+   *  most files set neither, so only the ones that do get an entry. */
+  const fileAppearance = useMemo(() => {
+    const marks = new Map<string, PlaceAppearance>();
+    for (const place of placesByPath.values()) {
+      if (place.icon || place.color) {
+        marks.set(place.filePath, { icon: place.icon, color: place.color });
+      }
+    }
+    return marks;
+  }, [placesByPath]);
+
+  /** Tab glyphs, resolved against the live index rather than the history entry the tab was opened
+   *  with. A nav entry is a snapshot: an `icon`/`color` set by a hand-edit, the agent, or any
+   *  surface other than the card's own optimistic write would leave an open tab showing the glyph
+   *  the file had when it was opened. Falls back to the entry for a file not (yet) indexed. */
+  const navTabs = useMemo(
+    () =>
+      navTabsData.map((tab) => {
+        if (tab.kind !== "place") return tab;
+        const indexed = placesByPath.get(tab.filePath);
+        if (!indexed) return tab;
+        return {
+          ...tab,
+          icon: indexed.icon,
+          color: indexed.color,
+          geometryKind: placeGlyphKind(indexed)
+        };
+      }),
+    [navTabsData, placesByPath]
+  );
 
   const handleSearchSelectFile = useCallback(
     (file: PlaceRecord) => {
@@ -1635,6 +1685,23 @@ function App(): React.JSX.Element {
       return true;
     },
     [getMapPadding, placeMode, dispatchNav]
+  );
+
+  /** Reflect an `icon`/`color` write the card already persisted. Same reason as
+   *  `commitVaultGeometry`'s merge: the watcher's awaitWriteFinish means `places:updated` is ~300ms
+   *  out, and `selectedPlace` is a snapshot nothing re-derives — so the map keeps the old pin until
+   *  the folder layer is invalidated. `null` in the patch means the key was deleted. */
+  const handleAppearanceChange = useCallback(
+    (filePath: string, patch: { icon?: string | null; color?: string | null }) => {
+      // A key absent from the patch is untouched; `null` means it was deleted.
+      const merged: Partial<PlaceRecord> = {};
+      if ("icon" in patch) merged.icon = patch.icon ?? undefined;
+      if ("color" in patch) merged.color = patch.color ?? undefined;
+      setSelectedPlace((prev) => (prev?.filePath === filePath ? { ...prev, ...merged } : prev));
+      dispatchNav({ type: "patch-entry", filePath, patch: merged });
+      mapRef.current?.invalidateFolderPlace(filePath);
+    },
+    [dispatchNav]
   );
 
   const commitVaultPointLocation = useCallback(
@@ -2163,7 +2230,7 @@ function App(): React.JSX.Element {
         {/* Tabs zone — tab strip, anchored just outside the sidebar's right edge. */}
         <div className="flex-1 min-w-0 flex items-center h-full min-h-0 px-2">
           <NavTabs
-            tabs={navTabsData}
+            tabs={navTabs}
             activeTabIndex={activeTabIndex}
             onTabActivate={handleNavTabActivate}
             onTabClose={handleCloseTab}
@@ -2205,6 +2272,7 @@ function App(): React.JSX.Element {
           onRenamePath={handlePathRelocated}
           onMoved={handlePathRelocated}
           geometryKinds={geometryKinds}
+          fileAppearance={fileAppearance}
         />
       </SidebarProvider>
 
@@ -2262,6 +2330,7 @@ function App(): React.JSX.Element {
               }
               onDelete={handleDeletePlaceFile}
               onOpenFolder={handleSelectFolder}
+              onAppearanceChange={handleAppearanceChange}
             />
             {/* Rail tracks the card edges: offset = -(right padding), bottom = bottom padding. */}
             <ResizeHandle
@@ -2390,6 +2459,7 @@ function App(): React.JSX.Element {
               }
               defaultParentFolderPath={parentFolderForNewFiles}
               onOpenFolder={handleSelectFolder}
+              onAppearanceChange={handleAppearanceChange}
               onExpand={
                 selectedPlace.previewMarkdown !== undefined ? undefined : handleExpandMiniCard
               }
@@ -2431,6 +2501,7 @@ function App(): React.JSX.Element {
               }
               defaultParentFolderPath={parentFolderForNewFiles}
               onOpenFolder={handleSelectFolder}
+              onAppearanceChange={handleAppearanceChange}
               onExpand={mapPeekPlace.previewMarkdown !== undefined ? undefined : handleExpandPeek}
             />
           </div>

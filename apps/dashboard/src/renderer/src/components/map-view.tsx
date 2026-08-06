@@ -39,6 +39,10 @@ import { useMapColor } from "@renderer/lib/map-color";
 import {
   CLICKED_FILTER,
   CLICKED_PROPERTY,
+  EMOJI_PIN_PIXEL_RATIO,
+  EMOJI_PROPERTY,
+  HAS_EMOJI_FILTER,
+  NO_EMOJI_FILTER,
   OVERLAY_CHIP_IMAGE_ID,
   OVERLAY_CHIP_PIXEL_RATIO,
   ROUND_LINE_LAYOUT,
@@ -50,24 +54,31 @@ import {
   ROUTE_DESTINATION_PIXEL_RATIO,
   ROUTE_STOP_SIZE,
   ROUTE_STOP_STROKE,
+  SELECTED_EMOJI_PIN_SIZE,
   SELECTED_OUTLINE_PAINT,
+  drawEmojiPin,
   drawOverlayChip,
   drawRouteArrow,
   drawRouteDestination,
+  emojiPinDataUrl,
+  emojiPinLayout,
   featureCirclePaint,
   featureFillOutlinePaint,
   featureFillPaint,
   featureLinePaint,
   overlayFillPaint,
   overlayLinePaint,
+  parseEmojiPinImageId,
   routeArrowPaint,
   routeLinePaint,
   routeStopPaint,
   selectedCirclePaint,
+  selectedEmojiPinHaloPaint,
   selectedFillOutlinePaint,
   selectedFillPaint,
   selectedLinePaint
 } from "@renderer/lib/map-styles";
+import { emojiIcon, normalizeFeatureColor } from "@renderer/lib/place-appearance";
 import {
   type LngLat,
   type RouteDragEdit,
@@ -286,6 +297,10 @@ function placeFromOverlayPoint(p: OverlayPoint): PlaceRecord {
     type: "Preview",
     geometry: JSON.stringify({ type: "Point", coordinates: [p.lng, p.lat] }),
     previewMarkdown: p.preview_markdown ?? "",
+    // Carried through so the card's header glyph and the selection marker match the pin that was
+    // clicked — without this, clicking an emoji stop pops a plain disk over its own emoji.
+    ...(p.icon ? { icon: p.icon } : {}),
+    ...(p.color ? { color: p.color } : {}),
     ...(p.properties && Object.keys(p.properties).length > 0 ? { properties: p.properties } : {})
   };
 }
@@ -433,6 +448,8 @@ type SelectionAnchor = {
   lat: number;
   /** The place's own `color` frontmatter, when set (points only). */
   color?: string;
+  /** The place's own `icon` emoji, when set — already through `emojiIcon` (points only). */
+  icon?: string;
 };
 
 /**
@@ -470,6 +487,23 @@ function SelectionMarker({
             backgroundColor: stop.fill,
             border: `${ROUTE_STOP_STROKE}px solid ${stop.borderColor}`
           }}
+        />
+      </Marker>
+    );
+  }
+  // A vault place with an emoji: literally the same raster the symbol layer draws, scaled up to
+  // the selected size, so nothing shifts as selection moves between places. Drawn rather than
+  // styled because CSS can only centre the glyph's line box — see `VaultFileIcon`. Ordered after
+  // `chip`/`stop` — those are overlay/route points, which carry no icon.
+  if (anchor.icon) {
+    return (
+      <Marker longitude={anchor.lng} latitude={anchor.lat} anchor="center">
+        <img
+          src={emojiPinDataUrl(anchor.icon, fill)}
+          alt=""
+          draggable={false}
+          className="animate-selection-pop rounded-full shadow-md"
+          style={{ width: SELECTED_EMOJI_PIN_SIZE, height: SELECTED_EMOJI_PIN_SIZE }}
         />
       </Marker>
     );
@@ -600,6 +634,42 @@ function OverlayImages({ fill, border }: { fill: string; border: string }): null
       map.off("styleimagemissing", onMissing);
     };
   }, [mapRef, fill, border]);
+  return null;
+}
+
+/**
+ * Rasterizes emoji place pins on demand. Nothing pre-registers them: the symbol layers build each
+ * `icon-image` id from the feature's emoji and its resolved colour (see `emojiPinLayout`), so
+ * MapLibre asks for an id the first time a tile needs it. `styleimagemissing` fires *synchronously*
+ * from the image lookup and MapLibre re-reads the image straight after, so adding it here lands in
+ * that same request — no second tile pass, no async race, and nothing has to track which emoji are
+ * in view.
+ *
+ * The same handler covers style reloads (theme / map-colour changes drop runtime-added images) and
+ * accent changes (a new default colour is a new id), so the registry self-heals and stays bounded
+ * to what has actually been on screen.
+ *
+ * Separate from `OverlayImages` on purpose: it takes no props, so its effect runs once per map and
+ * never re-runs on an accent/theme change. Multiple `styleimagemissing` listeners coexist fine, and
+ * each ignores the ids it doesn't own.
+ */
+function EmojiPinImages(): null {
+  const { current: mapRef } = useMap();
+  useEffect(() => {
+    const map = mapRef?.getMap();
+    if (!map) return;
+    const onMissing = ({ id }: { id: string }): void => {
+      const pin = parseEmojiPinImageId(id);
+      if (!pin || map.hasImage(id)) return;
+      // A glyph that rasterizes to nothing still yields a valid blank ImageData, so a bad id
+      // can't put this in a fire-loop.
+      map.addImage(id, drawEmojiPin(pin.emoji, pin.color), { pixelRatio: EMOJI_PIN_PIXEL_RATIO });
+    };
+    map.on("styleimagemissing", onMissing);
+    return () => {
+      map.off("styleimagemissing", onMissing);
+    };
+  }, [mapRef]);
   return null;
 }
 
@@ -1046,13 +1116,13 @@ const MapView = forwardRef<
 
   useEffect(() => {
     // File changed on disk — refresh folder places without moving the camera
-    window.api.places.onUpdated(() => {
+    const off = window.api.places.onUpdated(() => {
       if (selectedFolderRef.current) {
         void loadFolderPlaces(selectedFolderRef.current);
       }
     });
     return () => {
-      window.api.places.removeListeners();
+      off();
       sendViewport.cancel();
     };
   }, [loadFolderPlaces, sendViewport.cancel]);
@@ -1135,6 +1205,10 @@ const MapView = forwardRef<
           properties: Record<string, unknown>;
         }> = [];
         l.points.forEach((pt, i) => {
+          // Same sanitize-and-omit rule as `toFeature`: `has` is `key in properties`, so a
+          // present-but-undefined key would pass HAS_EMOJI_FILTER and leave the point drawn as an
+          // image id with no glyph in it — invisible rather than fallen back.
+          const icon = emojiIcon(pt.icon);
           features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [pt.lng, pt.lat] },
@@ -1143,6 +1217,10 @@ const MapView = forwardRef<
               overlayId: pt.id,
               title: pt.title,
               preview_markdown: pt.preview_markdown,
+              // A stop that stands for a saved place carries that place's look, so it draws as the
+              // pin the rest of the app shows it as (see the `-stop-emoji` layer below).
+              ...(icon ? { [EMOJI_PROPERTY]: icon } : {}),
+              color: normalizeFeatureColor(pt.color),
               // Only meaningful on a directions route, where points are ordered stops. Harmless
               // elsewhere: no other layer filters on it.
               [DESTINATION_PROPERTY]: i > 0 && i === l.points.length - 1
@@ -1388,6 +1466,11 @@ const MapView = forwardRef<
   }, [directionsHighlight]);
 
   const toFeature = useCallback((p: PlaceRecord & { geometry: string }) => {
+    // Sanitized, and omitted entirely rather than set to undefined: MapLibre's `has` is
+    // `key in properties`, so a present-but-undefined key would pass HAS_EMOJI_FILTER and hide
+    // the point behind an image id with no glyph in it. (`color` is safe from this — `get`
+    // returns null for undefined, which its `coalesce` treats as absent.)
+    const icon = emojiIcon(p.icon);
     return {
       type: "Feature" as const,
       geometry: parseGeometry(p.geometry),
@@ -1395,7 +1478,9 @@ const MapView = forwardRef<
       // (lines need white; circles/polygons stay gray).
       properties: {
         filePath: p.filePath,
-        color: p.color,
+        // Normalized so `#FFF` and `#ffffff` don't register two identical pin images.
+        color: normalizeFeatureColor(p.color),
+        ...(icon ? { [EMOJI_PROPERTY]: icon } : {}),
         // A saved route earns direction arrows; a hand-drawn line doesn't. Records built from
         // SQLite rows never carry `route`, so a line clicked on the map draws bare until the
         // indexed record arrives — the same staleness every other route affordance lives with.
@@ -1455,22 +1540,31 @@ const MapView = forwardRef<
       Boolean(p)
     );
     const isRouteLine = ["==", ["get", ROUTE_PROPERTY], true];
-    if (excluded.length === 0) {
-      return {
-        point: POINT_FILTER,
-        polygon: POLYGON_FILTER,
-        line: LINESTRING_FILTER,
-        routeLine: ["all", LINESTRING_FILTER, isRouteLine]
-      };
-    }
     const notSelected = ["!", ["in", ["get", "filePath"], ["literal", excluded]]];
+    const none = excluded.length === 0;
+    const point = none ? POINT_FILTER : ["all", POINT_FILTER, notSelected];
     return {
-      point: ["all", POINT_FILTER, notSelected],
-      polygon: ["all", POLYGON_FILTER, notSelected],
-      line: ["all", LINESTRING_FILTER, notSelected],
-      routeLine: ["all", LINESTRING_FILTER, notSelected, isRouteLine]
+      point,
+      // Points split by whether they carry an emoji: `circlePoint` draws as a circle,
+      // `emojiPoint` as the rasterized pin. Exact complements, so every point is drawn
+      // once and none is dropped.
+      circlePoint: ["all", point, NO_EMOJI_FILTER],
+      emojiPoint: ["all", point, HAS_EMOJI_FILTER],
+      polygon: none ? POLYGON_FILTER : ["all", POLYGON_FILTER, notSelected],
+      line: none ? LINESTRING_FILTER : ["all", LINESTRING_FILTER, notSelected],
+      routeLine: none
+        ? ["all", LINESTRING_FILTER, isRouteLine]
+        : ["all", LINESTRING_FILTER, notSelected, isRouteLine]
     };
   }, [selectedPlace?.filePath, openPlace?.filePath]);
+
+  /** The selected source's points minus the selected place's own, which the animated
+   *  SelectionMarker draws. A peeked (open) place keeps its static mark here. Needed by the
+   *  circle, the emoji pin, and the pin's halo, so it's hoisted rather than inlined. */
+  const selectedPointFilter = useMemo(
+    () => ["all", POINT_FILTER, ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]],
+    [selectedPlace?.filePath]
+  );
 
   // Selected place as its own source for distinct styling. While a peek is active,
   // the still-open file renders here too — same style, but only the selected place
@@ -1526,8 +1620,14 @@ const MapView = forwardRef<
       const geo = parseGeometry(selectedPlace.geometry);
       if (isPoint(geo)) {
         const [lng, lat] = geo.coordinates;
-        // Carry the feature colour so the marker circle matches a custom-coloured place.
-        return { kind: "place", lng, lat, color: selectedPlace.color };
+        // Carry the feature colour and emoji so the marker matches the pin it stands in for.
+        return {
+          kind: "place",
+          lng,
+          lat,
+          color: normalizeFeatureColor(selectedPlace.color),
+          icon: emojiIcon(selectedPlace.icon)
+        };
       }
       if (selectionPulseAnchor && selectionPulseAnchor.filePath === selectedPlace.filePath) {
         if (!selectionPulseAnchor.showDot) return null;
@@ -1683,24 +1783,33 @@ const MapView = forwardRef<
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
+    // Each `-emoji` symbol layer goes in under the exact same guard as its `-circle` sibling: a
+    // point is on one or the other, and queryRenderedFeatures returns nothing at all if any id
+    // here is missing from the style. `selected-emoji-halo` is left out — it's decoration, and
+    // the symbol above it answers the click.
     if (folderGeoJSON) {
-      ids.push("folder-circle", "folder-fill", "folder-line");
+      ids.push("folder-circle", "folder-emoji", "folder-fill", "folder-line");
     }
     if (linkedGeoJSON) {
-      ids.push("linked-circle", "linked-fill", "linked-line");
+      ids.push("linked-circle", "linked-emoji", "linked-fill", "linked-line");
     }
     if (showOverlay && presentedGeoJSON) {
-      ids.push("presented-circle", "presented-fill", "presented-line");
+      ids.push("presented-circle", "presented-emoji", "presented-fill", "presented-line");
     }
     if (selectedGeoJSON) {
-      ids.push("selected-circle", "selected-fill", "selected-line");
+      ids.push("selected-circle", "selected-emoji", "selected-fill", "selected-line");
     }
     for (const { layerId, sourceId } of overlayLayerSources) {
       ids.push(`${sourceId}-polygons`, `${sourceId}-points`);
       // A directions route is the panel's own drawing, not a feature to select — clicking it
       // would open a "Map overlay" card for a trip that has no file. Leaving it out lets the
       // click fall through to the map, so it can still fill an armed stop or clear a selection.
-      if (!layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX)) {
+      if (layerId.startsWith(DIRECTIONS_OVERLAY_PREFIX)) {
+        // The stops that draw as a pin instead of a dot, so they answer a click the same way.
+        // Only for a route source: `-stop-emoji` isn't rendered for any other overlay, and one id
+        // missing from the style makes queryRenderedFeatures return nothing for the whole query.
+        ids.push(`${sourceId}-stop-emoji`);
+      } else {
         ids.push(`${sourceId}-lines-hit`, `${sourceId}-lines`);
       }
     }
@@ -1764,6 +1873,7 @@ const MapView = forwardRef<
         onMouseOut={handleRouteHoverLeave}
       >
         <OverlayImages fill={overlayColor} border={overlayContrastColor} />
+        <EmojiPinImages />
         {folderGeoJSON && (
           <Source id="folder-geojson" type="geojson" data={folderGeoJSON}>
             <Layer
@@ -1802,8 +1912,19 @@ const MapView = forwardRef<
               id="folder-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
+              filter={unselectedFilters.circlePoint}
               paint={featureCirclePaint(featureColor)}
+            />
+            {/* Points with an `icon` emoji draw as the rasterized pin instead. Rendered
+                unconditionally beside its circle sibling: queryRenderedFeatures returns nothing at
+                all if any id in its layer list is missing from the style, so the two ids must never
+                diverge. */}
+            <Layer
+              id="folder-emoji"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.emojiPoint}
+              layout={emojiPinLayout(featureColor)}
             />
           </Source>
         )}
@@ -1845,8 +1966,15 @@ const MapView = forwardRef<
               id="linked-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
+              filter={unselectedFilters.circlePoint}
               paint={featureCirclePaint(featureColor)}
+            />
+            <Layer
+              id="linked-emoji"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.emojiPoint}
+              layout={emojiPinLayout(featureColor)}
             />
           </Source>
         )}
@@ -1888,8 +2016,15 @@ const MapView = forwardRef<
               id="presented-circle"
               type="circle"
               // @ts-expect-error - MapLibre filter expression
-              filter={unselectedFilters.point}
+              filter={unselectedFilters.circlePoint}
               paint={featureCirclePaint(featureColor)}
+            />
+            <Layer
+              id="presented-emoji"
+              type="symbol"
+              // @ts-expect-error - MapLibre filter expression
+              filter={unselectedFilters.emojiPoint}
+              layout={emojiPinLayout(featureColor)}
             />
           </Source>
         )}
@@ -1950,13 +2085,28 @@ const MapView = forwardRef<
               id="selected-circle"
               type="circle"
               filter={
-                [
-                  "all",
-                  POINT_FILTER,
-                  ["!=", ["get", "filePath"], selectedPlace?.filePath ?? ""]
-                ] as unknown as FilterSpecification
+                ["all", selectedPointFilter, NO_EMOJI_FILTER] as unknown as FilterSpecification
               }
               paint={selectedCirclePaint(featureColor)}
+            />
+            {/* The selected pin's white highlight. A symbol icon can't take a circle stroke, so
+                the "glow" is a white disk drawn under it. Must precede the symbol layer — JSX
+                order is layer order. */}
+            <Layer
+              id="selected-emoji-halo"
+              type="circle"
+              filter={
+                ["all", selectedPointFilter, HAS_EMOJI_FILTER] as unknown as FilterSpecification
+              }
+              paint={selectedEmojiPinHaloPaint()}
+            />
+            <Layer
+              id="selected-emoji"
+              type="symbol"
+              filter={
+                ["all", selectedPointFilter, HAS_EMOJI_FILTER] as unknown as FilterSpecification
+              }
+              layout={emojiPinLayout(featureColor)}
             />
           </Source>
         )}
@@ -2032,8 +2182,15 @@ const MapView = forwardRef<
             // The destination is lifted out of the dot layer into its own chequered symbol, so
             // the two never draw on top of each other.
             const dotFilter = (isRoute
-              ? ["all", stopFilter, NOT_DESTINATION_FILTER]
+              ? ["all", stopFilter, NOT_DESTINATION_FILTER, NO_EMOJI_FILTER]
               : stopFilter) as unknown as FilterSpecification;
+            // Exact complement of `dotFilter`, so every non-destination stop draws exactly once.
+            const stopPinFilter = [
+              "all",
+              stopFilter,
+              NOT_DESTINATION_FILTER,
+              HAS_EMOJI_FILTER
+            ] as unknown as FilterSpecification;
             const destinationFilter = [
               "all",
               stopFilter,
@@ -2105,6 +2262,19 @@ const MapView = forwardRef<
                       fill: overlayContrastColor,
                       opacity: lineOpacity
                     })}
+                  />
+                )}
+                {/* A stop that is a saved place with an emoji draws as that place's pin instead of
+                    a dot — the same raster the vault layers use, so the trip is made of things the
+                    user recognises. The pin's disk falls back to the route's own hue rather than
+                    the feature colour, since it belongs to this route. */}
+                {isRoute && (
+                  <Layer
+                    id={`${sourceId}-stop-emoji`}
+                    type="symbol"
+                    filter={stopPinFilter}
+                    layout={emojiPinLayout(overlayColor)}
+                    paint={{ "icon-opacity": lineOpacity }}
                   />
                 )}
                 {/* The finish line, drawn above the stop dots so a stop that lands under it

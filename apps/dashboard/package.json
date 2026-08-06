@@ -26,6 +26,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@emoji-mart/data": "^1.2.1",
     "@mapos/contracts": "workspace:*",
     "@mapos/service-adapters": "workspace:*",
     "@mapos/ui": "workspace:*",
@@ -53,6 +54,7 @@
     "drizzle-orm": "^0.44.2",
     "electron-updater": "^6.6.2",
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.1",
     "pmtiles": "^4.4.1",
     "terra-draw": "^1.32.2",
     "terra-draw-maplibre-gl-adapter": "^1.4.1",
@@ -78,6 +80,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/diff": "^8.0.0",
     "@types/geojson": "^7946.0.16",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

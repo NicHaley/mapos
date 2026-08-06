@@ -32,13 +32,13 @@ import {
   SidebarMenuItem
 } from "@mapos/ui/components/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
-import { type FileNode, isServableImageFile } from "@shared/types";
+import { type FileNode, type PlaceAppearance, isServableImageFile } from "@shared/types";
 import { FolderPlusIcon, PlusIcon, SettingsIcon, SquarePenIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { vaultImageUrl } from "../extensions/vault-image-extension";
 import { modSymbol, useShortcuts } from "../hooks/use-shortcuts";
 import { useVaultRoot } from "../hooks/use-vault-root";
-import type { GeometryKind } from "../lib/geometry-wkt";
+import type { FileGlyphKind } from "../lib/geometry-wkt";
 import { useLocalStorage } from "../lib/use-local-storage";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import type { PlaceRecord } from "./map-view";
@@ -75,7 +75,8 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onDeletePath,
   onRenamePath,
   onMoved,
-  geometryKinds
+  geometryKinds,
+  fileAppearance
 }: {
   selectedFilePath?: string;
   selectedFolderPath?: string;
@@ -86,7 +87,9 @@ export const ProjectSidebar = memo(function ProjectSidebar({
   onRenamePath?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   onMoved?: (oldPath: string, newPath: string, isDirectory: boolean) => void;
   /** Indexed geometry per place-file path, so files on the map get map icons in the tree. */
-  geometryKinds: Map<string, GeometryKind>;
+  geometryKinds: Map<string, FileGlyphKind>;
+  /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
+  fileAppearance: Map<string, PlaceAppearance>;
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([]);
   const vaultRoot = useVaultRoot();
@@ -541,6 +544,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                           onCreateFolderIn={(path) => void createFolderIn(path)}
                           onCreateNoteIn={(path) => void createNoteIn(path)}
                           geometryKinds={geometryKinds}
+                          fileAppearance={fileAppearance}
                           dnd={dndBridge}
                         />
                       ))}

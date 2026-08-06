@@ -50,7 +50,9 @@ import { WikilinkExtension, type WikilinkItem } from "@renderer/extensions/wikil
 import { useDarkMode } from "@renderer/hooks/use-dark-mode";
 import { useDebouncedCallback } from "@renderer/hooks/use-debounced-callback";
 import { DRAW_SHAPE_LABELS, type DrawMode, type DrawShape } from "@renderer/lib/draw";
+import { iconForGeometry } from "@renderer/lib/file-icons";
 import type { GeocodeSearchResult } from "@renderer/lib/geocode-search";
+import { glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { flattenMdFiles, resolveWikilinkTarget } from "@renderer/lib/wikilinks";
 import type { RouteFrontmatter } from "@shared/route";
 import { type Editor, Extension } from "@tiptap/core";
@@ -61,11 +63,8 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   EllipsisIcon,
   FolderOpenIcon,
-  ImageIcon,
-  ImageOffIcon,
   Link2Icon,
   Link2OffIcon,
-  MapPinIcon,
   MapPinOffIcon,
   MapPinPlus,
   Maximize2Icon,
@@ -94,6 +93,8 @@ import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
+import { PlaceAppearanceMenuItems, type PlaceAppearancePatch } from "./place-appearance-menu";
+import { PlaceIconPopover } from "./place-icon-popover";
 import { PropertiesPanel } from "./properties-panel";
 
 /** GeoJSON top-level members with dedicated UI (title / body editor), not the grid. */
@@ -149,6 +150,10 @@ type LoadedDoc =
       cover?: string;
       /** Provenance URL for the cover (reserved `cover_source` frontmatter key). */
       coverSource?: string;
+      /** The file's emoji and colour (reserved `icon` / `color` keys) — the appearance picker's
+       *  current state. Read from the file rather than the index so it can't lag a write. */
+      icon?: string;
+      color?: string;
     }
   | { kind: "preview"; body: string }
   | {
@@ -480,7 +485,8 @@ export const PlaceCard = memo(function PlaceCard({
   activeDrawMode = null,
   onRename,
   onDelete,
-  onOpenFolder
+  onOpenFolder,
+  onAppearanceChange
 }: {
   place: PlaceRecord;
   onClose: () => void;
@@ -518,6 +524,9 @@ export const PlaceCard = memo(function PlaceCard({
   onDelete?: (filePath: string) => void;
   /** Open a vault folder (breadcrumb click). Receives the absolute folder path. */
   onOpenFolder?: (folderPath: string) => void;
+  /** The file's `icon`/`color` were just written. Lets the app update the indexed record the map
+   *  and tabs read, without waiting on the watcher's debounce. */
+  onAppearanceChange?: (filePath: string, patch: PlaceAppearancePatch) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   // With a rename-stable mount key, a relocation initiated outside this card
@@ -654,7 +663,46 @@ export const PlaceCard = memo(function PlaceCard({
     [currentFilePath]
   );
 
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+
+  /** Current appearance: the file's own values while a vault doc is loaded, else the indexed
+   *  record's (a preview place, or the brief window before the read resolves). */
+  const appearanceIcon = doc.kind === "vault" ? doc.icon : place.icon;
+  const appearanceColor = doc.kind === "vault" ? doc.color : place.color;
+
+  /** Set or clear the `icon` / `color` frontmatter keys in one write. `null` deletes a key; a key
+   *  left out of the patch is untouched. One call, not one per key — a second write would re-read
+   *  the file and can race the first's awaitWriteFinish debounce.
+   *
+   *  The card's own copy updates immediately: `places:updated` only lands ~300ms later (the
+   *  watcher's debounce), and `onAppearanceChange` propagates to the map and tabs, which read the
+   *  indexed record rather than this. */
+  const applyAppearance = useCallback(
+    async (patch: PlaceAppearancePatch) => {
+      const result = await window.api.fs.writeFrontmatterProperties(currentFilePath, patch);
+      if (!result.success) {
+        console.error("[appearance]", result.error);
+        return;
+      }
+      setDoc((d) =>
+        d.kind === "vault"
+          ? {
+              ...d,
+              ...("icon" in patch ? { icon: patch.icon ?? undefined } : {}),
+              ...("color" in patch ? { color: patch.color ?? undefined } : {})
+            }
+          : d
+      );
+      onAppearanceChange?.(currentFilePath, patch);
+    },
+    [currentFilePath, onAppearanceChange]
+  );
+
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  /** The path `doc` was read from, so a re-read of the *same* file can leave the content on screen.
+   *  A previous-render value used for comparison, which is what a ref is for. */
+  const loadedPathRef = useRef<string | null>(null);
 
   const gjFrontmatter = useMemo(
     () =>
@@ -686,6 +734,8 @@ export const PlaceCard = memo(function PlaceCard({
 
   useEffect(() => {
     void place.geometry;
+    const samePath = loadedPathRef.current === place.filePath;
+    loadedPathRef.current = place.filePath;
     if (selfRenamedToRef.current === place.filePath) {
       selfRenamedToRef.current = null;
       return;
@@ -695,7 +745,7 @@ export const PlaceCard = memo(function PlaceCard({
       return;
     }
     if (place.type === "GeoJsonLayer") {
-      setDoc({ kind: "loading" });
+      if (!samePath) setDoc({ kind: "loading" });
       let cancelled = false;
       void window.api.fs.readGeoJson(place.filePath).then((data) => {
         if (cancelled || !data) return;
@@ -720,7 +770,12 @@ export const PlaceCard = memo(function PlaceCard({
         cancelled = true;
       };
     }
-    setDoc({ kind: "loading" });
+    // Blank to `loading` only when this is a *different* document. The effect also re-runs on a
+    // geometry change to the same file — a location edit rewrites frontmatter, so the doc genuinely
+    // has to be re-read — and blanking there unmounts the body editor and the properties grid for
+    // the length of the read, which reads as the whole card flashing. Re-read under the content
+    // that's already on screen instead and swap it when it lands.
+    if (!samePath) setDoc({ kind: "loading" });
     let cancelled = false;
     void Promise.all([
       window.api.fs.readFile(place.filePath),
@@ -737,7 +792,9 @@ export const PlaceCard = memo(function PlaceCard({
         frontmatter: result.frontmatter,
         keys: vaultKeys,
         cover: result.cover,
-        coverSource: result.coverSource
+        coverSource: result.coverSource,
+        icon: result.icon,
+        color: result.color
       });
     });
     return () => {
@@ -909,13 +966,134 @@ export const PlaceCard = memo(function PlaceCard({
     1 + // close (always shown)
     Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) + // save
     Number(Boolean(onGetDirections) && Boolean(place.geometry) && !savedRoute) + // directions
-    Number(Boolean(onExpand)); // expand
+    Number(place.previewMarkdown === undefined); // overflow menu
   // Mini keeps a slightly smaller cluster since it floats over content; the
   // title's reserved padding below is `miniActionCount * MINI_ACTION_PX`.
   const actionSize = mode === "mini" ? "icon-sm" : "icon";
 
   const actionButtons = (
     <>
+      {/* Overflow is always leftmost in the cluster, so its position never shifts with whichever
+          contextual buttons happen to be showing. It is also why "Open full view" is a menu item
+          rather than a button: the pinned cluster is capped at three next to Close, and expanding
+          is a navigation action that reads as a sibling of "Open in new tab". Directions keeps its
+          button — it is the map's primary verb, and it would be the only geospatial item in a menu
+          that is otherwise entirely file operations. */}
+      {place.previewMarkdown === undefined && (
+        // `relative` so the icon picker can hang an inert positioning anchor over this button.
+        // Base UI allows one trigger per overlay and the dropdown already owns this one, so the
+        // popover gets a copy of the button's box instead — the same trick the location row uses
+        // for its geocode popover.
+        <span className="relative inline-flex">
+          {doc.kind === "vault" && (
+            <PlaceIconPopover
+              hasIcon={Boolean(appearanceIcon)}
+              onSelect={(emoji) => void applyAppearance({ icon: emoji })}
+              onRemove={() => void applyAppearance({ icon: null })}
+              open={appearanceOpen}
+              onOpenChange={setAppearanceOpen}
+              trigger={
+                // Focusable but unreachable: the popover returns focus to its trigger on close,
+                // and focusing an `aria-hidden` element is what macOS and the a11y tree object to.
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Icon"
+                  className="pointer-events-none absolute inset-0"
+                />
+              }
+            />
+          )}
+          <Tooltip>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={<Button variant="ghost" size={actionSize} aria-label="More actions" />}
+                  />
+                }
+              >
+                <EllipsisIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="bottom"
+                align="start"
+                finalFocus={() => {
+                  if (renameRequestedRef.current) {
+                    renameRequestedRef.current = false;
+                    // Focus + select all once the menu has finished closing, so
+                    // the whole title is highlighted ready to overtype.
+                    requestAnimationFrame(() => {
+                      titleInputRef.current?.focus({ preventScroll: true });
+                      titleInputRef.current?.select();
+                    });
+                    return false; // we manage focus ourselves for rename
+                  }
+                  return true;
+                }}
+              >
+                {/* The way onward from a mini card. A menu item rather than a button because the
+                  pinned cluster is capped at three, and this is a navigation action — it belongs
+                  beside "Open in new tab", not ahead of the map verbs. */}
+                {onExpand && (
+                  <DropdownMenuItem onClick={onExpand}>
+                    <Maximize2Icon />
+                    Open full view
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+                  <PlusIcon />
+                  Open in new tab
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => void window.api.fs.revealInFinder(currentFilePath)}
+                >
+                  <FolderOpenIcon />
+                  Reveal in Finder
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    renameRequestedRef.current = true;
+                  }}
+                >
+                  <PencilIcon />
+                  Rename
+                </DropdownMenuItem>
+                {/* Appearance is its own group: three nouns, one row each. This is the only way in —
+                  the card deliberately shows no icon or colour of its own (see the title row), so
+                  there is no glyph to click and no state the menu's presence depends on. */}
+                {doc.kind === "vault" && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <PlaceAppearanceMenuItems
+                      icon={appearanceIcon}
+                      color={appearanceColor}
+                      cover={coverPath}
+                      onChange={(patch) => void applyAppearance(patch)}
+                      onChooseIcon={() => setAppearanceOpen(true)}
+                      onChooseCover={() => coverInputRef.current?.click()}
+                      onRemoveCover={() => void applyCover(null)}
+                    />
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <TooltipContent side="bottom">More actions</TooltipContent>
+          </Tooltip>
+        </span>
+      )}
       {place.previewMarkdown !== undefined && onSaveSearchToVault && (
         <Tooltip>
           <FolderPickerPopover
@@ -953,79 +1131,6 @@ export const PlaceCard = memo(function PlaceCard({
           <TooltipContent side="bottom">Save to vault</TooltipContent>
         </Tooltip>
       )}
-      {mode === "full" && place.previewMarkdown === undefined && (
-        <Tooltip>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={<Button variant="ghost" size={actionSize} aria-label="More actions" />}
-                />
-              }
-            >
-              <EllipsisIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="bottom"
-              align="end"
-              finalFocus={() => {
-                if (renameRequestedRef.current) {
-                  renameRequestedRef.current = false;
-                  // Focus + select all once the menu has finished closing, so
-                  // the whole title is highlighted ready to overtype.
-                  requestAnimationFrame(() => {
-                    titleInputRef.current?.focus({ preventScroll: true });
-                    titleInputRef.current?.select();
-                  });
-                  return false; // we manage focus ourselves for rename
-                }
-                return true;
-              }}
-            >
-              <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
-                <PlusIcon />
-                Open in new tab
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
-                <FolderOpenIcon />
-                Reveal in Finder
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  renameRequestedRef.current = true;
-                }}
-              >
-                <PencilIcon />
-                Rename
-              </DropdownMenuItem>
-              {doc.kind === "vault" && (
-                <DropdownMenuItem onClick={() => coverInputRef.current?.click()}>
-                  <ImageIcon />
-                  {coverPath ? "Change cover photo" : "Set cover photo"}
-                </DropdownMenuItem>
-              )}
-              {doc.kind === "vault" && coverPath && (
-                <DropdownMenuItem onClick={() => void applyCover(null)}>
-                  <ImageOffIcon />
-                  Remove cover photo
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => {
-                  setDeleteError(null);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2Icon />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <TooltipContent side="bottom">More actions</TooltipContent>
-        </Tooltip>
-      )}
       {/* Not for a saved route: "directions to this trip" would route to the midpoint of
           its own line, and the card already offers "Edit route" for the real action. */}
       {onGetDirections && place.geometry && !savedRoute && (
@@ -1045,23 +1150,6 @@ export const PlaceCard = memo(function PlaceCard({
           <TooltipContent side="bottom">Get directions</TooltipContent>
         </Tooltip>
       )}
-      {mode === "mini" && onExpand && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size={actionSize}
-                onClick={onExpand}
-                aria-label="Open full view"
-              >
-                <Maximize2Icon />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">Open full view</TooltipContent>
-        </Tooltip>
-      )}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -1074,6 +1162,12 @@ export const PlaceCard = memo(function PlaceCard({
       </Tooltip>
     </>
   );
+
+  /** What this place's shape is, for the header glyph and the location row: a point, a line, an
+   *  area, or a route (a line the `route` frontmatter reopens as a trip). */
+  const glyphKind = glyphKindOf(place.geometry, Boolean(savedRoute));
+  /** The location row's leading glyph — the shape it already has, or the offer to give it one. */
+  const LocationIcon = glyphKind ? iconForGeometry(glyphKind) : MapPinPlus;
 
   /** Routing is a way of giving this file a line, so it sits with the drawn shapes rather than
    *  with the search — even though it opens the directions panel, not a draw session. Shown
@@ -1155,6 +1249,9 @@ export const PlaceCard = memo(function PlaceCard({
                   </Fragment>
                 ))}
                 <BreadcrumbItem className="min-w-0">
+                  {/* No icon here on purpose: the coordinates row below already carries the
+                      place's glyph, and the card shows no identity of its own. The breadcrumb's
+                      job is the path. */}
                   <BreadcrumbPage className="truncate">{currentTitle}</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
@@ -1184,6 +1281,14 @@ export const PlaceCard = memo(function PlaceCard({
             )}
             {/* Header */}
             <div className="flex items-start px-3 py-2 shrink-0">
+              {/* No icon and no colour here, on purpose. The card shows one place, and an icon or
+                  colour is a device for telling this place apart from others — its work happens in
+                  the sidebar, the tabs, the result rows and on the map. Putting it here also meant
+                  a second pin ~30px above the location row (see the breadcrumb, same reason), and
+                  an appearance control whose existence depended on the appearance it edits: you
+                  could change an icon you already had but never add one. Appearance lives in the
+                  overflow menu in both modes, and the result shows up in the tab, the tree, and —
+                  in mini and peek — the map pin directly beneath this card. */}
               <div
                 className="flex-1 min-w-0 pt-1"
                 // In mini mode the pinned actions overlay the title row unless a
@@ -1272,11 +1377,7 @@ export const PlaceCard = memo(function PlaceCard({
                           type="button"
                           className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground ring-sidebar-ring outline-hidden transition-colors hover:bg-hover hover:text-sidebar-accent-foreground focus-visible:ring-2"
                         >
-                          {place.geometry ? (
-                            <MapPinIcon className="size-4 shrink-0" />
-                          ) : (
-                            <MapPinPlus className="size-4 shrink-0" />
-                          )}
+                          <LocationIcon className="size-4 shrink-0" />
                           <span className="truncate">
                             {activeDrawMode === "select"
                               ? "Editing on the map…"

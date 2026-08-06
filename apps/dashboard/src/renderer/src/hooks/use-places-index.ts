@@ -16,13 +16,13 @@ export function usePlacesIndex(): {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    window.api.places.onInitial((places) => {
+    const offInitial = window.api.places.onInitial((places) => {
       const next = new Map<string, PlaceRecord>();
       for (const p of places) next.set(p.filePath, p);
       setByPath(next);
       setLoaded(true);
     });
-    window.api.places.onUpdated((update) => {
+    const offUpdated = window.api.places.onUpdated((update) => {
       setByPath((prev) => {
         const next = new Map(prev);
         if (update.event === "unlink") next.delete(update.filePath);
@@ -31,6 +31,10 @@ export function usePlacesIndex(): {
       });
     });
     window.api.places.requestInitial();
+    return () => {
+      offInitial();
+      offUpdated();
+    };
   }, []);
 
   return { byPath, loaded };

@@ -20,7 +20,7 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import { type FileNode, isServableImageFile } from "@shared/types";
+import { type FileNode, type PlaceAppearance, isServableImageFile } from "@shared/types";
 import {
   ChevronRightIcon,
   EllipsisIcon,
@@ -33,13 +33,21 @@ import {
   Trash2Icon
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { iconForFilename } from "../../lib/file-icons";
-import type { GeometryKind } from "../../lib/geometry-wkt";
+import type { FileGlyphKind } from "../../lib/geometry-wkt";
+import { VaultFileIcon } from "../vault-file-icon";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
-function fileIcon(name: string, geometryKind: GeometryKind | null) {
-  const Icon = iconForFilename(name, geometryKind);
-  return <Icon className="size-3.5 shrink-0 text-sidebar-foreground/50" />;
+function fileIcon(name: string, geometryKind: FileGlyphKind | null, appearance?: PlaceAppearance) {
+  return (
+    <VaultFileIcon
+      name={name}
+      geometryKind={geometryKind}
+      icon={appearance?.icon}
+      color={appearance?.color}
+      size="sm"
+      glyphClassName="text-sidebar-foreground/50"
+    />
+  );
 }
 
 export function FileTreeNode({
@@ -59,6 +67,7 @@ export function FileTreeNode({
   onCreateFolderIn,
   onCreateNoteIn,
   geometryKinds,
+  fileAppearance,
   dnd
 }: {
   node: FileNode;
@@ -77,7 +86,9 @@ export function FileTreeNode({
   onCreateFolderIn?: (path: string) => void;
   onCreateNoteIn?: (path: string) => void;
   /** Indexed geometry per place-file path, so a file on the map gets a map icon. */
-  geometryKinds: Map<string, GeometryKind>;
+  geometryKinds: Map<string, FileGlyphKind>;
+  /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
+  fileAppearance: Map<string, PlaceAppearance>;
   dnd?: SidebarDndBridge;
 }) {
   const open = node.type === "directory" && openFolders.has(node.path);
@@ -423,6 +434,7 @@ export function FileTreeNode({
                 onCreateFolderIn={onCreateFolderIn}
                 onCreateNoteIn={onCreateNoteIn}
                 geometryKinds={geometryKinds}
+                fileAppearance={fileAppearance}
                 dnd={dnd}
               />
             ))}
@@ -470,7 +482,7 @@ export function FileTreeNode({
             />
           }
         >
-          {fileIcon(node.name, geometryKinds.get(node.path) ?? null)}
+          {fileIcon(node.name, geometryKinds.get(node.path) ?? null, fileAppearance.get(node.path))}
           {isRenaming ? (
             renameInput
           ) : (

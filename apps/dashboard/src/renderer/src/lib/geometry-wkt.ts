@@ -3,8 +3,32 @@ type CreateNoteArgs = Parameters<typeof window.api.fs.createNoteFile>[0];
 /** The subset of createNoteFile args that determine a place's `geometry` frontmatter. */
 export type GeometryCreateArgs = Pick<CreateNoteArgs, "lat" | "lng" | "geometryWkt">;
 
-/** How a place reads on the map, for iconography. A saved route is a line. */
+/** How a place reads on the map. A saved route's shape is a line. */
 export type GeometryKind = "point" | "line" | "area";
+
+/** What a place's glyph should say — its shape, or that the shape is a saved trip. */
+export type FileGlyphKind = GeometryKind | "route";
+
+/**
+ * The glyph kind for a place file: its geometry, except that a line carrying `route` frontmatter
+ * reads as a route. Shape alone can't tell them apart — a route's `geometry` *is* a LineString —
+ * so the caller passes the flag it already has.
+ */
+export function glyphKindOf(
+  geometryJson: string | undefined,
+  hasRoute: boolean
+): FileGlyphKind | null {
+  const kind = geometryKindOf(geometryJson);
+  return kind === "line" && hasRoute ? "route" : kind;
+}
+
+/** {@link glyphKindOf} for an indexed place, which already carries both halves of the pair. */
+export function placeGlyphKind(place: {
+  geometry?: string;
+  route?: unknown;
+}): FileGlyphKind | null {
+  return glyphKindOf(place.geometry, Boolean(place.route));
+}
 
 /** Classify a GeoJSON geometry JSON string. Null when absent or unrecognized. */
 export function geometryKindOf(geometryJson: string | undefined): GeometryKind | null {

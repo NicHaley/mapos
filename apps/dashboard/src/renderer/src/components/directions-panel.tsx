@@ -26,7 +26,12 @@ import {
 } from "@renderer/lib/region-coverage";
 import { elevationStats, hasElevationData } from "@shared/elevation";
 import { type RouteFrontmatter, routeIsDirty } from "@shared/route";
-import { DIRECTIONS_OVERLAY_PREFIX, type MapOverlayLayer, type PlaceRecord } from "@shared/types";
+import {
+  DIRECTIONS_OVERLAY_PREFIX,
+  type MapOverlayLayer,
+  type OverlayPoint,
+  type PlaceRecord
+} from "@shared/types";
 import {
   ArrowUpDownIcon,
   BikeIcon,
@@ -35,7 +40,6 @@ import {
   CircleDotIcon,
   CircleIcon,
   DownloadIcon,
-  FileTextIcon,
   FootprintsIcon,
   GripVerticalIcon,
   Loader2Icon,
@@ -51,6 +55,7 @@ import { Reorder, useDragControls } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ElevationProfile } from "./elevation-profile";
 import { FolderPickerPopover } from "./folder-picker-popover";
+import { VaultFileIcon } from "./vault-file-icon";
 
 export type DirectionsPanelProps = {
   /** Stable id of the backing directions tab — used to key the route overlay layer. */
@@ -146,20 +151,35 @@ function sampleSegment(
   return pts;
 }
 
+/**
+ * The route as a map overlay: the line, plus a point per stop.
+ *
+ * A stop that came from a saved place carries that place's `icon` and `color`, so the map draws it
+ * as the emoji pin the sidebar, the tabs, and the card all show it as — the anonymous dot is for
+ * stops with no file behind them. The stop stays a real overlay point either way: its id is what
+ * the drag handles move and what the destination chequer filters on, so it can't be handed off to
+ * `vaultPaths` to be drawn as a place instead.
+ */
 function buildRouteLayer(
   id: string,
   stops: DirectionsWaypoint[],
-  coordinates: [number, number][]
+  coordinates: [number, number][],
+  filesByPath: Map<string, PlaceRecord>
 ): MapOverlayLayer {
   return {
     id: `${DIRECTIONS_OVERLAY_PREFIX}${id}`,
     layerName: "Route",
-    points: stops.map((s, i) => ({
-      id: `${DIRECTIONS_OVERLAY_PREFIX}${id}:stop-${i}`,
-      lat: s.lat,
-      lng: s.lng,
-      title: s.label
-    })),
+    points: stops.map((s, i): OverlayPoint => {
+      const place = s.filePath ? filesByPath.get(s.filePath) : undefined;
+      return {
+        id: `${DIRECTIONS_OVERLAY_PREFIX}${id}:stop-${i}`,
+        lat: s.lat,
+        lng: s.lng,
+        title: s.label,
+        ...(place?.icon ? { icon: place.icon } : {}),
+        ...(place?.color ? { color: place.color } : {})
+      };
+    }),
     lines: [{ id: `${DIRECTIONS_OVERLAY_PREFIX}${id}:line`, coordinates, title: "Route" }],
     polygons: []
   };
@@ -227,6 +247,14 @@ export function DirectionsPanel({
     [stops]
   );
   const stopsKey = routableStops.map((s) => `${s.lat},${s.lng}`).join("|");
+  /** Path → place, for turning a stop that came from a vault file back into the record whose
+   *  glyph, colour, and emoji every other surface shows it with. Built once here rather than
+   *  scanned per input: `files` is the whole index. */
+  const filesByPath = useMemo(() => new Map((files ?? []).map((f) => [f.filePath, f])), [files]);
+  /** Read at call time by the routing effect, which is keyed on the stops rather than the index —
+   *  a file gaining an emoji shouldn't re-request the route. */
+  const filesByPathRef = useRef(filesByPath);
+  filesByPathRef.current = filesByPath;
   const [route, setRoute] = useState<RouteState>({ status: "idle" });
   // Bumped to force a re-route (a needed region pack finished downloading). Kept separate
   // from the pack list so the initial pack load doesn't spuriously re-run — and flash — the route.
@@ -326,7 +354,12 @@ export function DirectionsPanel({
             : {})
         });
         onRouteChangeRef.current(
-          buildRouteLayer(id, routableStops, r.geometry.coordinates as [number, number][])
+          buildRouteLayer(
+            id,
+            routableStops,
+            r.geometry.coordinates as [number, number][],
+            filesByPathRef.current
+          )
         );
       })
       .catch((e: unknown) => {
@@ -545,6 +578,7 @@ export function DirectionsPanel({
                   placeholder="Choose starting point"
                   icon={<CircleDotIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
+                  filesByPath={filesByPath}
                   allowCurrentLocation
                   armed={armedIndex === 0}
                   autoFocus={rowKeys[0] === autoFocusKey}
@@ -556,6 +590,7 @@ export function DirectionsPanel({
                   placeholder="Choose destination"
                   icon={<MapPinIcon className="size-4 shrink-0 opacity-60" />}
                   files={files}
+                  filesByPath={filesByPath}
                   armed={armedIndex === 1}
                   autoFocus={rowKeys[1] === autoFocusKey}
                   onFocus={() => armStop(1)}
@@ -589,6 +624,7 @@ export function DirectionsPanel({
                   isLast={i === stops.length - 1}
                   canRemove={stops.length > 2}
                   files={files}
+                  filesByPath={filesByPath}
                   armed={armedIndex === i}
                   autoFocus={rowKeys[i] === autoFocusKey}
                   onFocus={() => armStop(i)}
@@ -702,6 +738,7 @@ function StopRow({
   isLast,
   canRemove,
   files,
+  filesByPath,
   armed,
   autoFocus,
   onFocus,
@@ -714,6 +751,7 @@ function StopRow({
   isLast: boolean;
   canRemove: boolean;
   files?: PlaceRecord[];
+  filesByPath?: Map<string, PlaceRecord>;
   armed?: boolean;
   autoFocus?: boolean;
   onFocus?: () => void;
@@ -753,6 +791,7 @@ function StopRow({
           }
           icon={icon}
           files={files}
+          filesByPath={filesByPath}
           allowCurrentLocation={isFirst}
           armed={armed}
           autoFocus={autoFocus}
@@ -956,6 +995,8 @@ type LocationOption = {
   label: string;
   secondary?: string;
   waypoint: DirectionsWaypoint;
+  /** The vault record behind a `file` option, so the row shows the same glyph the sidebar does. */
+  place?: PlaceRecord;
 };
 
 /** Uppercase the first character; secondary labels arrive un-cased from some providers. */
@@ -979,6 +1020,7 @@ function LocationInput({
   placeholder,
   icon,
   files,
+  filesByPath,
   allowCurrentLocation,
   armed,
   autoFocus,
@@ -987,8 +1029,11 @@ function LocationInput({
   value: DirectionsWaypoint | null;
   onSelect: (wp: DirectionsWaypoint | null) => void;
   placeholder: string;
+  /** The fallback glyph: what this stop *is* in the route (start, via, destination). Used until
+   *  the stop resolves to a vault file, whose own glyph then takes over. */
   icon: React.ReactNode;
   files?: PlaceRecord[];
+  filesByPath?: Map<string, PlaceRecord>;
   allowCurrentLocation?: boolean;
   /** This stop is the one a map click will fill — ringed so the target is unambiguous. */
   armed?: boolean;
@@ -1056,7 +1101,8 @@ function LocationInput({
         kind: "file",
         label: f.title,
         secondary: fileRelativeDir(f.filePath, vaultRoot ?? "") || undefined,
-        waypoint: wp
+        waypoint: wp,
+        place: f
       });
       if (out.length >= LOCAL_RESULT_LIMIT) break;
     }
@@ -1076,6 +1122,9 @@ function LocationInput({
   );
 
   const options = useMemo(() => [...fileOptions, ...placeOptions], [fileOptions, placeOptions]);
+
+  /** The vault place this stop is, when it is one. */
+  const valuePlace = value?.filePath ? filesByPath?.get(value.filePath) : undefined;
 
   const useCurrentLocation = (): void => {
     setLocating(true);
@@ -1103,7 +1152,11 @@ function LocationInput({
     >
       <div className="relative">
         <span className="pointer-events-none absolute top-1/2 left-2.5 z-10 -translate-y-1/2 text-muted-foreground">
-          {icon}
+          {/* A stop that is a saved place shows that place's glyph — the emoji pin or the shape
+              icon the sidebar, tabs, and card all use — so the row names the same thing the map
+              draws. The positional glyph only stands in while the stop is empty or is a plain
+              geocoded address, where there is no file to speak for it. */}
+          {valuePlace ? <VaultFileIcon place={valuePlace} glyphClassName="opacity-60" /> : icon}
         </span>
         <ComboboxInput
           ref={inputRef}
@@ -1186,8 +1239,8 @@ function LocationGroupHeading({ children }: { children: React.ReactNode }): Reac
 function renderLocationItem(o: LocationOption): React.JSX.Element {
   return (
     <ComboboxItem key={o.key} value={o}>
-      {o.kind === "file" ? (
-        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+      {o.place ? (
+        <VaultFileIcon place={o.place} glyphClassName="text-muted-foreground" />
       ) : (
         <MapPinIcon className="size-4 shrink-0 text-muted-foreground" />
       )}

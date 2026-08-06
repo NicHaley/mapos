@@ -4,15 +4,27 @@ import { Surface } from "@mapos/ui/components/surface";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { modSymbol } from "@renderer/hooks/use-shortcuts";
-import { iconForFilename } from "@renderer/lib/file-icons";
+import type { FileGlyphKind } from "@renderer/lib/geometry-wkt";
 import { FolderIcon, PlusIcon, RouteIcon, TextSearchIcon, XIcon } from "lucide-react";
 import { Reorder, motion } from "motion/react";
 import { memo, useState } from "react";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { NewNoteTooltipContent } from "./new-note-tooltip";
+import { VaultFileIcon } from "./vault-file-icon";
 
 export type NavTabData =
-  | { id: string; title: string; kind: "place"; filePath: string }
+  | {
+      id: string;
+      title: string;
+      kind: "place";
+      filePath: string;
+      /** The place's own `icon`/`color`, so a tab matches its sidebar row and map pin. */
+      icon?: string;
+      color?: string;
+      /** Indexed geometry, so a place with no emoji gets its geometry glyph rather than the
+       *  generic document icon the sidebar row never shows. */
+      geometryKind?: FileGlyphKind | null;
+    }
   | { id: string; title: string; kind: "folder" }
   | { id: string; title: string; kind: "list" }
   | { id: string; title: string; kind: "directions" };
@@ -32,11 +44,23 @@ type NavTabsProps = {
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const dragRegion = { WebkitAppRegion: "drag" } as React.CSSProperties;
 
-function tabIcon(tab: NavTabData): React.ElementType {
-  if (tab.kind === "folder") return FolderIcon;
-  if (tab.kind === "list") return TextSearchIcon;
-  if (tab.kind === "directions") return RouteIcon;
-  return iconForFilename(tab.filePath);
+/** A tab's leading glyph. Place tabs route through VaultFileIcon so a file's own emoji/colour
+ *  shows here too; the other kinds are fixed lucide icons. */
+function TabIcon({ tab }: { tab: NavTabData }): React.JSX.Element {
+  const className = "size-3.5 shrink-0 opacity-70";
+  if (tab.kind === "folder") return <FolderIcon className={className} />;
+  if (tab.kind === "list") return <TextSearchIcon className={className} />;
+  if (tab.kind === "directions") return <RouteIcon className={className} />;
+  return (
+    <VaultFileIcon
+      name={tab.filePath}
+      geometryKind={tab.geometryKind}
+      icon={tab.icon}
+      color={tab.color}
+      size="sm"
+      glyphClassName="opacity-70"
+    />
+  );
 }
 
 export const NavTabs = memo(function NavTabs({
@@ -80,7 +104,6 @@ export const NavTabs = memo(function NavTabs({
             >
               {tabs.map((tab, i) => {
                 const isActive = i === activeTabIndex;
-                const Icon = tabIcon(tab);
                 return (
                   <Reorder.Item
                     key={tab.id}
@@ -107,7 +130,7 @@ export const NavTabs = memo(function NavTabs({
                         : "text-sidebar-foreground/50 hover:bg-hover hover:text-sidebar-foreground/80"
                     )}
                   >
-                    <Icon className="size-3.5 shrink-0 opacity-70" />
+                    <TabIcon tab={tab} />
                     <span className="min-w-0 flex-1 truncate text-left">{tab.title}</span>
                     <Tooltip>
                       <TooltipTrigger

@@ -1,11 +1,16 @@
 {
   "name": "@mapos/dashboard",
   "version": "1.0.0-beta.14",
-  "description": "An Electron application with React and TypeScript",
+  "description": "The connected map for you and your agents.",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "Nicholas Haley <hello@mapos.md>",
+  "homepage": "https://mapos.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NicHaley/mapos.git",
+    "directory": "apps/dashboard"
+  },
   "scripts": {
     "format": "biome format --write .",
     "lint": "biome lint .",

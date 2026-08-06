@@ -1,6 +1,15 @@
 {
   "name": "mapos",
   "private": true,
+  "description": "The connected map for you and your agents.",
+  "homepage": "https://mapos.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NicHaley/mapos.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NicHaley/mapos/issues"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --filter=@mapos/dashboard",

@@ -1,5 +1,11 @@
 import { Button } from "@mapos/ui/components/button";
 import { Input } from "@mapos/ui/components/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger
+} from "@mapos/ui/components/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
 import { useVaultRoot } from "@renderer/hooks/use-vault-root";
@@ -31,6 +37,9 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 const COLUMNS = 9;
 const CELL = 34;
+/** The panel is exactly its grid. Hard-coding a width instead left a remainder past the last
+ *  column, and the header's trailing control sat in it looking like a tenth column. */
+const GRID_WIDTH = COLUMNS * CELL;
 const HEADER = 26;
 const GRID_HEIGHT = 288;
 const RECENTS_KEY = "mapos-emoji-recents";
@@ -148,7 +157,7 @@ export function EmojiPicker({
   );
 
   return (
-    <div className={cn("flex w-[336px] flex-col gap-2", className)}>
+    <div className={cn("flex flex-col gap-2", className)} style={{ width: GRID_WIDTH }}>
       <div className="flex items-center gap-1.5">
         <Input
           autoFocus
@@ -173,45 +182,44 @@ export function EmojiPicker({
           <TooltipContent>Random</TooltipContent>
         </Tooltip>
         {TONE_REFERENCE && (
-          <button
-            type="button"
-            aria-label="Skin tone"
-            aria-expanded={tonesOpen}
-            onClick={() => setTonesOpen((v) => !v)}
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-lg leading-none transition-colors hover:bg-hover"
-          >
-            {toneOf(TONE_REFERENCE, tone)}
-          </button>
+          <Popover open={tonesOpen} onOpenChange={setTonesOpen}>
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Skin tone"
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-lg leading-none transition-colors hover:bg-hover"
+                >
+                  {toneOf(TONE_REFERENCE, tone)}
+                </button>
+              }
+            />
+            <PopoverContent align="end" className="w-auto flex-row gap-0.5 p-1">
+              <PopoverTitle className="sr-only">Skin tone</PopoverTitle>
+              {SKIN_TONES.map(({ index, label }) => (
+                <button
+                  key={index}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={tone === index}
+                  onClick={() => {
+                    setTone(index);
+                    localStorage.setItem(TONE_KEY, String(index));
+                    setTonesOpen(false);
+                  }}
+                  className={cn(
+                    "flex size-7 cursor-pointer items-center justify-center rounded text-lg leading-none transition-colors hover:bg-hover",
+                    tone === index && "bg-hover"
+                  )}
+                >
+                  {toneOf(TONE_REFERENCE, index)}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
         )}
       </div>
-
-      {/* Tones expand inline rather than in a nested popover: a popup inside a popup has to agree
-          with the outer one about outside-clicks and focus return, and there is no reason to take
-          that on for six buttons. */}
-      {tonesOpen && TONE_REFERENCE && (
-        <div className="flex items-center gap-0.5">
-          {SKIN_TONES.map(({ index, label }) => (
-            <button
-              key={index}
-              type="button"
-              title={label}
-              aria-label={label}
-              aria-pressed={tone === index}
-              onClick={() => {
-                setTone(index);
-                localStorage.setItem(TONE_KEY, String(index));
-                setTonesOpen(false);
-              }}
-              className={cn(
-                "flex size-7 cursor-pointer items-center justify-center rounded text-lg leading-none transition-colors hover:bg-hover",
-                tone === index && "bg-hover"
-              )}
-            >
-              {toneOf(TONE_REFERENCE, index)}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div
         ref={scrollRef}

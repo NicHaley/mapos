@@ -12,15 +12,13 @@ import type { PlaceRecord } from "@shared/types";
  * same weight — which had every caller writing the same `icon ? bigger : smaller` ternary. The
  * component already owns the emoji-vs-glyph decision, so it owns the step that decision forces.
  */
-export type VaultFileIconSize = "sm" | "md" | "lg";
+export type VaultFileIconSize = "sm" | "md";
 
 const SIZES: Record<VaultFileIconSize, { glyph: string; pin: string }> = {
   /** Sidebar rows and tabs. */
   sm: { glyph: "size-3.5", pin: "size-4" },
   /** Result rows, feature lists, and directions stops. */
-  md: { glyph: "size-4", pin: "size-[18px]" },
-  /** The card header, where the icon is the file's own hero glyph and needs no step up. */
-  lg: { glyph: "size-7", pin: "size-7" }
+  md: { glyph: "size-4", pin: "size-[18px]" }
 };
 
 /** The frontmatter a glyph is drawn from. A `PlaceRecord` satisfies it, which is the point: the
@@ -42,9 +40,10 @@ type VaultFileIconProps = {
 );
 
 /**
- * A vault file's icon, everywhere one is shown: sidebar rows, tabs, result rows, and the card
- * header. The single place that decides between a file's own `icon` emoji and the file-type
- * lucide glyph, so the surfaces can't drift.
+ * A vault file's icon, everywhere one is shown: sidebar rows, tabs, result rows, and directions
+ * stops. The single place that decides between a file's own `icon` emoji and the file-type lucide
+ * glyph, so the surfaces can't drift. Not the place card — that shows one place, so it carries no
+ * identity glyph of its own.
  *
  * An emoji renders as the *map pin* — the identical raster the symbol layer uses — not as text.
  * Two reasons, and the first is the load-bearing one:

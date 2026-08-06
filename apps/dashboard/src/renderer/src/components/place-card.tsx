@@ -16,7 +16,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from "@mapos/ui/components/breadcrumb";
-import { Button, buttonVariants } from "@mapos/ui/components/button";
+import { Button } from "@mapos/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -96,7 +96,6 @@ import { ImageLightbox, type LightboxData } from "./image-lightbox";
 import { PlaceAppearanceMenuItems, type PlaceAppearancePatch } from "./place-appearance-menu";
 import { PlaceIconPopover } from "./place-icon-popover";
 import { PropertiesPanel } from "./properties-panel";
-import { VaultFileIcon } from "./vault-file-icon";
 
 /** GeoJSON top-level members with dedicated UI (title / body editor), not the grid. */
 const GJ_EXCLUDED = new Set(["name", "description"]);
@@ -967,31 +966,133 @@ export const PlaceCard = memo(function PlaceCard({
     1 + // close (always shown)
     Number(place.previewMarkdown !== undefined && Boolean(onSaveSearchToVault)) + // save
     Number(Boolean(onGetDirections) && Boolean(place.geometry) && !savedRoute) + // directions
-    Number(Boolean(onExpand)); // expand
+    Number(place.previewMarkdown === undefined); // overflow menu
   // Mini keeps a slightly smaller cluster since it floats over content; the
   // title's reserved padding below is `miniActionCount * MINI_ACTION_PX`.
   const actionSize = mode === "mini" ? "icon-sm" : "icon";
 
   const actionButtons = (
     <>
-      {/* First in the group: the mini card is a step towards the full one, so the way onward reads
-          left-to-right ahead of the actions that operate on the place itself. */}
-      {mode === "mini" && onExpand && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size={actionSize}
-                onClick={onExpand}
-                aria-label="Open full view"
+      {/* Overflow is always leftmost in the cluster, so its position never shifts with whichever
+          contextual buttons happen to be showing. It is also why "Open full view" is a menu item
+          rather than a button: the pinned cluster is capped at three next to Close, and expanding
+          is a navigation action that reads as a sibling of "Open in new tab". Directions keeps its
+          button — it is the map's primary verb, and it would be the only geospatial item in a menu
+          that is otherwise entirely file operations. */}
+      {place.previewMarkdown === undefined && (
+        // `relative` so the icon picker can hang an inert positioning anchor over this button.
+        // Base UI allows one trigger per overlay and the dropdown already owns this one, so the
+        // popover gets a copy of the button's box instead — the same trick the location row uses
+        // for its geocode popover.
+        <span className="relative inline-flex">
+          {doc.kind === "vault" && (
+            <PlaceIconPopover
+              hasIcon={Boolean(appearanceIcon)}
+              onSelect={(emoji) => void applyAppearance({ icon: emoji })}
+              onRemove={() => void applyAppearance({ icon: null })}
+              open={appearanceOpen}
+              onOpenChange={setAppearanceOpen}
+              trigger={
+                // Focusable but unreachable: the popover returns focus to its trigger on close,
+                // and focusing an `aria-hidden` element is what macOS and the a11y tree object to.
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Icon"
+                  className="pointer-events-none absolute inset-0"
+                />
+              }
+            />
+          )}
+          <Tooltip>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={<Button variant="ghost" size={actionSize} aria-label="More actions" />}
+                  />
+                }
               >
-                <Maximize2Icon />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">Open full view</TooltipContent>
-        </Tooltip>
+                <EllipsisIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="bottom"
+                align="start"
+                finalFocus={() => {
+                  if (renameRequestedRef.current) {
+                    renameRequestedRef.current = false;
+                    // Focus + select all once the menu has finished closing, so
+                    // the whole title is highlighted ready to overtype.
+                    requestAnimationFrame(() => {
+                      titleInputRef.current?.focus({ preventScroll: true });
+                      titleInputRef.current?.select();
+                    });
+                    return false; // we manage focus ourselves for rename
+                  }
+                  return true;
+                }}
+              >
+                {/* The way onward from a mini card. A menu item rather than a button because the
+                  pinned cluster is capped at three, and this is a navigation action — it belongs
+                  beside "Open in new tab", not ahead of the map verbs. */}
+                {onExpand && (
+                  <DropdownMenuItem onClick={onExpand}>
+                    <Maximize2Icon />
+                    Open full view
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
+                  <PlusIcon />
+                  Open in new tab
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => void window.api.fs.revealInFinder(currentFilePath)}
+                >
+                  <FolderOpenIcon />
+                  Reveal in Finder
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    renameRequestedRef.current = true;
+                  }}
+                >
+                  <PencilIcon />
+                  Rename
+                </DropdownMenuItem>
+                {/* Appearance is its own group: three nouns, one row each. This is the only way in —
+                  the card deliberately shows no icon or colour of its own (see the title row), so
+                  there is no glyph to click and no state the menu's presence depends on. */}
+                {doc.kind === "vault" && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <PlaceAppearanceMenuItems
+                      icon={appearanceIcon}
+                      color={appearanceColor}
+                      cover={coverPath}
+                      onChange={(patch) => void applyAppearance(patch)}
+                      onChooseIcon={() => setAppearanceOpen(true)}
+                      onChooseCover={() => coverInputRef.current?.click()}
+                      onRemoveCover={() => void applyCover(null)}
+                    />
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <TooltipContent side="bottom">More actions</TooltipContent>
+          </Tooltip>
+        </span>
       )}
       {place.previewMarkdown !== undefined && onSaveSearchToVault && (
         <Tooltip>
@@ -1028,85 +1129,6 @@ export const PlaceCard = memo(function PlaceCard({
             }
           />
           <TooltipContent side="bottom">Save to vault</TooltipContent>
-        </Tooltip>
-      )}
-      {mode === "full" && place.previewMarkdown === undefined && (
-        <Tooltip>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={<Button variant="ghost" size={actionSize} aria-label="More actions" />}
-                />
-              }
-            >
-              <EllipsisIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="bottom"
-              align="end"
-              finalFocus={() => {
-                if (renameRequestedRef.current) {
-                  renameRequestedRef.current = false;
-                  // Focus + select all once the menu has finished closing, so
-                  // the whole title is highlighted ready to overtype.
-                  requestAnimationFrame(() => {
-                    titleInputRef.current?.focus({ preventScroll: true });
-                    titleInputRef.current?.select();
-                  });
-                  return false; // we manage focus ourselves for rename
-                }
-                return true;
-              }}
-            >
-              <DropdownMenuItem onClick={() => onNavigate?.(place, true)}>
-                <PlusIcon />
-                Open in new tab
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void window.api.fs.revealInFinder(currentFilePath)}>
-                <FolderOpenIcon />
-                Reveal in Finder
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  renameRequestedRef.current = true;
-                }}
-              >
-                <PencilIcon />
-                Rename
-              </DropdownMenuItem>
-              {/* Appearance is its own group: three nouns, one row each. For the icon the title
-                  glyph is still the primary way in — this is for anyone who doesn't guess that the
-                  glyph is clickable, and for a file that has no glyph yet. */}
-              {doc.kind === "vault" && (
-                <>
-                  <DropdownMenuSeparator />
-                  <PlaceAppearanceMenuItems
-                    icon={appearanceIcon}
-                    color={appearanceColor}
-                    cover={coverPath}
-                    onChange={(patch) => void applyAppearance(patch)}
-                    onChooseIcon={() => setAppearanceOpen(true)}
-                    onChooseCover={() => coverInputRef.current?.click()}
-                    onRemoveCover={() => void applyCover(null)}
-                  />
-                </>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => {
-                  setDeleteError(null);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2Icon />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <TooltipContent side="bottom">More actions</TooltipContent>
         </Tooltip>
       )}
       {/* Not for a saved route: "directions to this trip" would route to the midpoint of
@@ -1227,9 +1249,9 @@ export const PlaceCard = memo(function PlaceCard({
                   </Fragment>
                 ))}
                 <BreadcrumbItem className="min-w-0">
-                  {/* No icon here on purpose: the title row's picker button sits ~30px below and
-                      the coordinates row below that, so repeating it made three identical pins
-                      stack down the card. The breadcrumb's job is the path, not the identity. */}
+                  {/* No icon here on purpose: the coordinates row below already carries the
+                      place's glyph, and the card shows no identity of its own. The breadcrumb's
+                      job is the path. */}
                   <BreadcrumbPage className="truncate">{currentTitle}</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
@@ -1259,63 +1281,14 @@ export const PlaceCard = memo(function PlaceCard({
             )}
             {/* Header */}
             <div className="flex items-start px-3 py-2 shrink-0">
-              {/* The icon doubles as its own picker trigger (Notion's affordance) and exists only
-                  once one is set — nothing is reserved for a control the file doesn't need. Before
-                  that the overflow menu's "Add icon" is the way in, the same place "Set cover photo"
-                  already lives; both are things a file mostly doesn't have, so neither earns
-                  permanent space next to the title. Vault files only — a search preview has no file
-                  to write to yet. */}
-              {doc.kind === "vault" && (
-                <PlaceIconPopover
-                  hasIcon={Boolean(appearanceIcon)}
-                  onSelect={(emoji) => void applyAppearance({ icon: emoji })}
-                  onRemove={() => void applyAppearance({ icon: null })}
-                  open={appearanceOpen}
-                  onOpenChange={setAppearanceOpen}
-                  trigger={
-                    appearanceIcon ? (
-                      <button
-                        type="button"
-                        aria-label="Change icon"
-                        title="Change icon"
-                        // The card's own ghost styling, straight from `buttonVariants`, so the
-                        // hover fill and radius can't drift from the buttons in the top bar.
-                        //
-                        // Centred on the title's *first line*, not on the header box: the title is
-                        // 24px at leading-snug, so its line box is 33px tall inside the block's own
-                        // 4px top padding, putting its centre at 20.5px. A 36px button has to start
-                        // 2.5px down to land there. `items-start` on the row is deliberate and the
-                        // browser can't do this for us — the title may wrap to two lines, and the
-                        // icon belongs beside the first.
-                        className={cn(
-                          buttonVariants({ variant: "ghost", size: "icon-lg" }),
-                          "mt-[2.5px] mr-1.5 cursor-pointer"
-                        )}
-                      >
-                        <VaultFileIcon
-                          name={currentFilePath}
-                          geometryKind={glyphKind}
-                          icon={appearanceIcon}
-                          color={appearanceColor}
-                          size="lg"
-                        />
-                      </button>
-                    ) : (
-                      // With no icon there is no button to hang the picker off, but the overflow
-                      // menu's "Add icon" still has to open it somewhere — so the popover keeps a
-                      // real, zero-size anchor at the title's left edge. A live button rather than
-                      // an `aria-hidden` one: the popover returns focus here on close, and focusing
-                      // an aria-hidden element is what macOS and the a11y tree object to.
-                      <button
-                        type="button"
-                        tabIndex={-1}
-                        aria-label="Add icon"
-                        className="size-0 shrink-0 overflow-hidden"
-                      />
-                    )
-                  }
-                />
-              )}
+              {/* No icon and no colour here, on purpose. The card shows one place, and an icon or
+                  colour is a device for telling this place apart from others — its work happens in
+                  the sidebar, the tabs, the result rows and on the map. Putting it here also meant
+                  a second pin ~30px above the location row (see the breadcrumb, same reason), and
+                  an appearance control whose existence depended on the appearance it edits: you
+                  could change an icon you already had but never add one. Appearance lives in the
+                  overflow menu in both modes, and the result shows up in the tab, the tree, and —
+                  in mini and peek — the map pin directly beneath this card. */}
               <div
                 className="flex-1 min-w-0 pt-1"
                 // In mini mode the pinned actions overlay the title row unless a

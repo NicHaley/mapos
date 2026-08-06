@@ -2,9 +2,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@mapos/ui/components/po
 import { EmojiPicker } from "./emoji-picker";
 
 /**
- * The icon picker as a popover on a place's leading glyph — Notion's affordance.
+ * The icon picker, opened from the card's overflow menu and anchored to its button.
  *
- * Icon only. Colour lives in the card's overflow menu as a named `Color` submenu, because a row of
+ * Icon only. Colour sits beside it in that menu as a named `Color` submenu, because a row of
  * unlabelled swatches makes the reader match a hue to an intent when "Blue" is what they wanted.
  *
  * The header row is deliberately shaped for a second tab: `icon` is a plain string, so a later
@@ -30,6 +30,8 @@ export function PlaceIconPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger render={trigger} />
+      {/* Opens the same way as the overflow menu it is reached from — both start-aligned on the
+          overflow button, so choosing "Icon" doesn't make the panel jump sides. */}
       <PopoverContent align="start" className="w-auto gap-2 p-2">
         <div className="flex items-center justify-between">
           <span className="px-1 font-medium text-sm">Emoji</span>

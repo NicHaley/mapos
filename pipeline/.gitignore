@@ -1,9 +1,0 @@
-# Build scratch and generated artifacts — never commit these.
-work/
-dist/
-# Batch driver outcome log (scripts/batch-build.ts)
-failures.log
-# Planetiler cache (downloaded base layers + temp)
-data/
-tools/planetiler.jar
-*.osm.pbf

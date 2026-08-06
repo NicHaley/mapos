@@ -98,7 +98,8 @@ async function main() {
   if (!(await exists(worldPath))) {
     console.error("  ✗ world basemap MISSING: resources/basemap-assets/basemap/world.pmtiles");
     console.error("    The map would ship with NO low-zoom backdrop. Build + bundle it with:");
-    console.error("      cd ../../pipeline && make world bundle-world");
+    console.error("      cd ../../../mapos-pipeline && make world bundle-world");
+    console.error("      (github.com/NicHaley/mapos-pipeline — clone it beside this repo)");
     process.exit(1);
   }
   const { size } = await stat(worldPath);

@@ -42,7 +42,7 @@ export default {
     // Scope is about INTENT, not file coverage. 85% of MCP commits also touch
     // renderer/preload code (adding a tool tends to touch the bridge and some
     // status UI); if the commit is *about* MCP, scope it `mcp` regardless.
-    "scope-enum": [1, "always", ["mcp", "web", "pipeline"]],
+    "scope-enum": [1, "always", ["mcp", "web"]],
     // Hard error: casing drift (mcp/MCP/Mcp) would fragment the changelog, and
     // there's never a reason to want it.
     "scope-case": [2, "always", "lower-case"],

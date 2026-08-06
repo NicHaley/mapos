@@ -32,7 +32,14 @@ pnpm + Turbo workspace (`apps/*`, `packages/*`).
 | `packages/contracts` | Shared Zod schemas for service requests/responses (GeocodeResult, Route, Isochrone, …). |
 | `packages/service-adapters` | Pluggable service implementations (Photon, Valhalla, Tavily, MapOS API) behind a common adapter interface. |
 | `packages/ui` | Shared React + Tailwind components/hooks, consumed by `apps/dashboard` and `apps/web`. |
-| `pipeline/` | Standalone build pipeline that turns Geofabrik OSM extracts into downloadable **region packs** (`.pmtiles`, Valhalla tiles, geocode SQLite) and a manifest on R2. Separate workspace; driven by a `Makefile` + `scripts/`. |
+
+**Not in this repo:** the region-pack build pipeline (Geofabrik OSM extracts →
+`.pmtiles` + Valhalla tiles + geocode SQLite, published to R2 with a manifest) lives in
+[`mapos-pipeline`](https://github.com/NicHaley/mapos-pipeline). It shares no code with
+the app — only the artifact format and the manifest schema, so a change to either side
+of that contract has to land in both repos. `make bundle-world` over there writes the
+bundled world basemap into `apps/dashboard/resources/basemap-assets/`, and it defaults
+to assuming the two checkouts are siblings.
 
 ---
 
@@ -107,7 +114,7 @@ pnpm changelog:preview   # what the next release's CHANGELOG.md section would sa
 - **Persisted state follows the Obsidian model — three tiers.** See [`.mapos/` layout](#mapos-layout) below.
 - **Style is Biome-enforced** — don't hand-format; run `pnpm check`.
 - **Commits are Conventional Commits** (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, plus `wip:` for partial work and `release:` for the release script). The type decides whether a commit appears in `CHANGELOG.md` — see `cliff.toml`. Subjects are sentence-case, which is why `subject-case` is disabled in `commitlint.config.mjs`.
-- **Scopes mark the exceptions, not the norm.** `mcp`, `web`, `pipeline`. **An unscoped commit means the desktop app** — most commits are dashboard work, so scoping it would add a prefix to nearly every changelog line and tell the reader nothing. Scope by intent, not by which files changed: an MCP commit usually also touches renderer/preload, and it's still `mcp`. Unlisted scopes warn rather than fail, so the list can grow.
+- **Scopes mark the exceptions, not the norm.** `mcp`, `web`. **An unscoped commit means the desktop app** — most commits are dashboard work, so scoping it would add a prefix to nearly every changelog line and tell the reader nothing. Scope by intent, not by which files changed: an MCP commit usually also touches renderer/preload, and it's still `mcp`. Unlisted scopes warn rather than fail, so the list can grow.
 - **Local vs cloud services** is a config mode (`services.mode`). Local needs downloaded region packs; cloud proxies to `apps/server`. Keep both paths working when touching `services/`.
 - Code style: match the surrounding file. Comments are sparse and reserved for non-obvious logic.
 

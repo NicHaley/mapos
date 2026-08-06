@@ -164,7 +164,7 @@ export type FileNode = {
 };
 
 // ── Region packs (offline map data) ───────────────────────────────────────────
-// Mirrors the R2 manifest schema (pipeline/scripts/make-manifest.ts, schema 3).
+// Mirrors the R2 manifest schema (mapos-pipeline repo, scripts/make-manifest.ts, schema 3).
 
 export type RegionArtifact = { file: string; bytes: number; sha256: string };
 

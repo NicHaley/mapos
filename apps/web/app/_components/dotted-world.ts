@@ -193,7 +193,7 @@ export type RegionPin = {
   y: number;
 };
 
-/** Real entries from pipeline/regions.json, positioned by their centre. */
+/** Real entries from the mapos-pipeline repo's regions.json, positioned by their centre. */
 export const REGION_PINS: readonly RegionPin[] = [
   {
     slug: "quebec",

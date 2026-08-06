@@ -93,7 +93,7 @@ import { AutoSizeTextArea } from "./autosize-text-area";
 import { FolderPickerPopover } from "./folder-picker-popover";
 import { GeocodeSearchPanel } from "./geocode-search-panel";
 import { ImageLightbox, type LightboxData } from "./image-lightbox";
-import { type PlaceAppearance, PlaceAppearanceMenuItems } from "./place-appearance-menu";
+import { PlaceAppearanceMenuItems, type PlaceAppearancePatch } from "./place-appearance-menu";
 import { PlaceIconPopover } from "./place-icon-popover";
 import { PropertiesPanel } from "./properties-panel";
 import { VaultFileIcon } from "./vault-file-icon";
@@ -527,7 +527,7 @@ export const PlaceCard = memo(function PlaceCard({
   onOpenFolder?: (folderPath: string) => void;
   /** The file's `icon`/`color` were just written. Lets the app update the indexed record the map
    *  and tabs read, without waiting on the watcher's debounce. */
-  onAppearanceChange?: (filePath: string, patch: PlaceAppearance) => void;
+  onAppearanceChange?: (filePath: string, patch: PlaceAppearancePatch) => void;
 }): React.JSX.Element {
   const [currentFilePath, setCurrentFilePath] = useState(place.filePath);
   // With a rename-stable mount key, a relocation initiated outside this card
@@ -679,7 +679,7 @@ export const PlaceCard = memo(function PlaceCard({
    *  watcher's debounce), and `onAppearanceChange` propagates to the map and tabs, which read the
    *  indexed record rather than this. */
   const applyAppearance = useCallback(
-    async (patch: PlaceAppearance) => {
+    async (patch: PlaceAppearancePatch) => {
       const result = await window.api.fs.writeFrontmatterProperties(currentFilePath, patch);
       if (!result.success) {
         console.error("[appearance]", result.error);
@@ -1297,7 +1297,7 @@ export const PlaceCard = memo(function PlaceCard({
                           geometryKind={glyphKind}
                           icon={appearanceIcon}
                           color={appearanceColor}
-                          className="size-7"
+                          size="lg"
                         />
                       </button>
                     ) : (

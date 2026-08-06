@@ -2,7 +2,7 @@ import type { RouteCosting } from "@mapos/contracts";
 import type { MapOverlayLayer } from "@shared/types";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { PlaceRecord } from "../components/map-view";
-import { glyphKindOf } from "../lib/geometry-wkt";
+import { placeGlyphKind } from "../lib/geometry-wkt";
 import { useVaultRoot } from "./use-vault-root";
 
 /** A resolved directions endpoint: coordinates plus the label shown in the input. */
@@ -598,7 +598,7 @@ export function useNavTabs({
             filePath: current.place.filePath,
             icon: current.place.icon,
             color: current.place.color,
-            geometryKind: glyphKindOf(current.place.geometry, Boolean(current.place.route))
+            geometryKind: placeGlyphKind(current.place)
           };
         }
         if (current?.kind === "folder") {

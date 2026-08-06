@@ -60,14 +60,12 @@ import {
   drawOverlayChip,
   drawRouteArrow,
   drawRouteDestination,
-  emojiIcon,
   emojiPinDataUrl,
   emojiPinLayout,
   featureCirclePaint,
   featureFillOutlinePaint,
   featureFillPaint,
   featureLinePaint,
-  normalizeFeatureColor,
   overlayFillPaint,
   overlayLinePaint,
   parseEmojiPinImageId,
@@ -80,6 +78,7 @@ import {
   selectedFillPaint,
   selectedLinePaint
 } from "@renderer/lib/map-styles";
+import { emojiIcon, normalizeFeatureColor } from "@renderer/lib/place-appearance";
 import {
   type LngLat,
   type RouteDragEdit,

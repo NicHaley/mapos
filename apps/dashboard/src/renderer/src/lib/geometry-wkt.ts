@@ -22,6 +22,14 @@ export function glyphKindOf(
   return kind === "line" && hasRoute ? "route" : kind;
 }
 
+/** {@link glyphKindOf} for an indexed place, which already carries both halves of the pair. */
+export function placeGlyphKind(place: {
+  geometry?: string;
+  route?: unknown;
+}): FileGlyphKind | null {
+  return glyphKindOf(place.geometry, Boolean(place.route));
+}
+
 /** Classify a GeoJSON geometry JSON string. Null when absent or unrecognized. */
 export function geometryKindOf(geometryJson: string | undefined): GeometryKind | null {
   if (!geometryJson) return null;

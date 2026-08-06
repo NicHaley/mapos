@@ -20,7 +20,7 @@ import {
 } from "@mapos/ui/components/sidebar";
 import { ErrorTooltip } from "@mapos/ui/components/tooltip";
 import { cn } from "@mapos/ui/lib/utils";
-import { type FileNode, isServableImageFile } from "@shared/types";
+import { type FileNode, type PlaceAppearance, isServableImageFile } from "@shared/types";
 import {
   ChevronRightIcon,
   EllipsisIcon,
@@ -37,22 +37,15 @@ import type { FileGlyphKind } from "../../lib/geometry-wkt";
 import { VaultFileIcon } from "../vault-file-icon";
 import { type SidebarDndBridge, parentDir } from "./dnd";
 
-function fileIcon(
-  name: string,
-  geometryKind: FileGlyphKind | null,
-  appearance?: { icon?: string; color?: string }
-) {
+function fileIcon(name: string, geometryKind: FileGlyphKind | null, appearance?: PlaceAppearance) {
   return (
     <VaultFileIcon
       name={name}
       geometryKind={geometryKind}
       icon={appearance?.icon}
       color={appearance?.color}
-      // The emoji pin is a filled disk, so it takes one step up from the line-art glyph to read at
-      // row size, and skips the muted tint the lucide glyphs take since it carries its own colour.
-      className={
-        appearance?.icon ? "size-4 shrink-0" : "size-3.5 shrink-0 text-sidebar-foreground/50"
-      }
+      size="sm"
+      glyphClassName="text-sidebar-foreground/50"
     />
   );
 }
@@ -95,7 +88,7 @@ export function FileTreeNode({
   /** Indexed geometry per place-file path, so a file on the map gets a map icon. */
   geometryKinds: Map<string, FileGlyphKind>;
   /** A file's own `icon`/`color`, when it sets either. Sparse — absent means neither. */
-  fileAppearance: Map<string, { icon?: string; color?: string }>;
+  fileAppearance: Map<string, PlaceAppearance>;
   dnd?: SidebarDndBridge;
 }) {
   const open = node.type === "directory" && openFolders.has(node.path);

@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { type RouteFrontmatter, type RouteStop, defaultRouteTitle } from "@shared/route";
-import type { MapOverlayLayer, OverlayPoint } from "@shared/types";
+import type { MapOverlayLayer, OverlayPoint, PlaceAppearance } from "@shared/types";
 import { DIRECTIONS_OVERLAY_PREFIX, orderDetailProperties } from "@shared/types";
 import { bbox } from "@turf/bbox";
 import type { Geometry } from "geojson";
@@ -50,7 +50,7 @@ import {
   type FileGlyphKind,
   geometryJsonToCreateArgs,
   geometryJsonToWkt,
-  glyphKindOf
+  placeGlyphKind
 } from "./lib/geometry-wkt";
 import {
   filenameBaseFromPlaceTitle,
@@ -1589,7 +1589,7 @@ function App(): React.JSX.Element {
   const geometryKinds = useMemo(() => {
     const kinds = new Map<string, FileGlyphKind>();
     for (const place of placesByPath.values()) {
-      const kind = glyphKindOf(place.geometry, Boolean(place.route));
+      const kind = placeGlyphKind(place);
       if (kind) kinds.set(place.filePath, kind);
     }
     return kinds;
@@ -1598,7 +1598,7 @@ function App(): React.JSX.Element {
   /** Path → the file's own `icon`/`color`, for the sidebar tree's row icons. Sparse on purpose:
    *  most files set neither, so only the ones that do get an entry. */
   const fileAppearance = useMemo(() => {
-    const marks = new Map<string, { icon?: string; color?: string }>();
+    const marks = new Map<string, PlaceAppearance>();
     for (const place of placesByPath.values()) {
       if (place.icon || place.color) {
         marks.set(place.filePath, { icon: place.icon, color: place.color });
@@ -1621,7 +1621,7 @@ function App(): React.JSX.Element {
           ...tab,
           icon: indexed.icon,
           color: indexed.color,
-          geometryKind: glyphKindOf(indexed.geometry, Boolean(indexed.route))
+          geometryKind: placeGlyphKind(indexed)
         };
       }),
     [navTabsData, placesByPath]

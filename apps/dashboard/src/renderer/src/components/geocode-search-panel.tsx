@@ -16,7 +16,6 @@ import { useMapViewport } from "@renderer/contexts/map-viewport";
 import { useDebounce } from "@renderer/hooks/use-debounce";
 import { modSymbol, useShortcuts } from "@renderer/hooks/use-shortcuts";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
-import { glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { scoreNameMatch } from "@shared/name-match";
 import type { PlaceRecord } from "@shared/types";
 import { VaultFileIcon } from "./vault-file-icon";
@@ -380,15 +379,7 @@ export function GeocodeSearchPanel({
                   onSelect={() => onSelectFile?.(f)}
                   className="rounded-md"
                 >
-                  <VaultFileIcon
-                    name={f.filePath}
-                    geometryKind={glyphKindOf(f.geometry, Boolean(f.route))}
-                    icon={f.icon}
-                    color={f.color}
-                    className={
-                      f.icon ? "size-[18px] shrink-0" : "size-4 shrink-0 text-muted-foreground"
-                    }
-                  />
+                  <VaultFileIcon place={f} glyphClassName="text-muted-foreground" />
                   <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
                     <span className="max-w-full shrink-0 truncate font-medium leading-tight">
                       {f.title}

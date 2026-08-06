@@ -36,6 +36,16 @@ export type PlaceRecord = {
 };
 
 /**
+ * A place's own look — the reserved `icon`/`color` frontmatter keys as they currently stand, with
+ * undefined meaning unset. The four values every surface needs to draw a file's glyph travel
+ * together, so they travel as this rather than as loose props.
+ *
+ * Distinct from `PlaceAppearancePatch`, which spells *clearing* a key as `null`: a map of what
+ * files currently look like must not be able to hold a clear.
+ */
+export type PlaceAppearance = Pick<PlaceRecord, "icon" | "color">;
+
+/**
  * Canonical detail keys, in the order they render in the place-card grid and in
  * which they're written to frontmatter on "Add". Known keys come first (this order);
  * any extra keys follow in insertion order. The renderer special-cases these for

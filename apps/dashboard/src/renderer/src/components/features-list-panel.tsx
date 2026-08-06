@@ -3,7 +3,7 @@ import { Button } from "@mapos/ui/components/button";
 import { surfaceVariants } from "@mapos/ui/components/surface";
 import { cn } from "@mapos/ui/lib/utils";
 import { isVaultRelativePath, vaultImageUrl } from "@renderer/extensions/vault-image-extension";
-import { type FileGlyphKind, glyphKindOf } from "@renderer/lib/geometry-wkt";
+import { type FileGlyphKind, placeGlyphKind } from "@renderer/lib/geometry-wkt";
 import { type MapOverlayLayer, isServableImageFile } from "@shared/types";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -234,7 +234,7 @@ export function FeaturesListPanel({
         filePath: path,
         icon: place.icon,
         color: place.color,
-        glyphKind: glyphKindOf(place.geometry, Boolean(place.route)),
+        glyphKind: placeGlyphKind(place),
         isVault: true
       });
     }
@@ -335,7 +335,6 @@ export function FeaturesListPanel({
                   geometryKind={row.glyphKind}
                   icon={row.icon}
                   color={row.color}
-                  className={row.icon ? "size-[18px]" : "size-4"}
                 />
               ) : row.geometryKind === "line" ? (
                 <RouteIcon className="size-4" />

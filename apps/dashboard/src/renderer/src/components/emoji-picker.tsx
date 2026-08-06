@@ -11,9 +11,10 @@ import {
   searchEmoji,
   toneOf
 } from "@renderer/lib/emoji-data";
+import { useLocalStorage } from "@renderer/lib/use-local-storage";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ShuffleIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 /**
  * The emoji picker: our own grid over `@emoji-mart/data`, in our own DOM.
@@ -58,6 +59,16 @@ function readTone(): number {
   return Number.isInteger(saved) && saved >= 0 && saved < SKIN_TONES.length ? saved : 0;
 }
 
+/** Stable identity so the hook's initial value doesn't change between renders. */
+const EMPTY_RECENTS: string[] = [];
+
+/** A corrupt list isn't worth reporting — an empty Recents looks correct. Anything that isn't a
+ *  list of glyphs is dropped rather than rendered. */
+function parseRecents(raw: string): string[] {
+  const parsed: unknown = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed.filter((e): e is string => typeof e === "string") : [];
+}
+
 export function EmojiPicker({
   onSelect,
   className
@@ -69,31 +80,22 @@ export function EmojiPicker({
   const [tone, setTone] = useState(readTone);
   const [tonesOpen, setTonesOpen] = useState(false);
   const vaultRoot = useVaultRoot();
-  const recentsKey = vaultRoot ? `${RECENTS_KEY}:${vaultRoot}` : null;
-  const [recents, setRecents] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Recents load once the vault root resolves — an unscoped key would leak them across vaults.
-  useEffect(() => {
-    if (!recentsKey) return;
-    try {
-      const saved: unknown = JSON.parse(localStorage.getItem(recentsKey) ?? "[]");
-      if (Array.isArray(saved)) setRecents(saved.filter((s): s is string => typeof s === "string"));
-    } catch {
-      /* a corrupt list isn't worth reporting — an empty Recents looks correct */
-    }
-  }, [recentsKey]);
+  // Scoped to the vault — an unscoped key would leak recents across vaults. The hook holds the
+  // value in memory until the root resolves, then re-reads for the real key.
+  const [recents, setRecents] = useLocalStorage<string[]>(
+    vaultRoot ? `${RECENTS_KEY}:${vaultRoot}` : null,
+    EMPTY_RECENTS,
+    { deserialize: parseRecents }
+  );
 
   const pick = useCallback(
     (emoji: string) => {
       onSelect(emoji);
-      setRecents((prev) => {
-        const next = [emoji, ...prev.filter((e) => e !== emoji)].slice(0, MAX_RECENTS);
-        if (recentsKey) localStorage.setItem(recentsKey, JSON.stringify(next));
-        return next;
-      });
+      setRecents((prev) => [emoji, ...prev.filter((e) => e !== emoji)].slice(0, MAX_RECENTS));
     },
-    [onSelect, recentsKey]
+    [onSelect, setRecents]
   );
 
   /** Rows for the current view. Searching flattens to one unlabelled run: category headers over

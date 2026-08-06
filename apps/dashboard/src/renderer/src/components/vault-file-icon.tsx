@@ -1,8 +1,45 @@
 import { cn } from "@mapos/ui/lib/utils";
 import { featureDefaultColor, useAccent } from "@renderer/lib/accent";
 import { iconForFilename } from "@renderer/lib/file-icons";
-import type { FileGlyphKind } from "@renderer/lib/geometry-wkt";
-import { emojiIcon, emojiPinDataUrl, normalizeFeatureColor } from "@renderer/lib/map-styles";
+import { type FileGlyphKind, glyphKindOf } from "@renderer/lib/geometry-wkt";
+import { emojiPinDataUrl } from "@renderer/lib/map-styles";
+import { emojiIcon, normalizeFeatureColor } from "@renderer/lib/place-appearance";
+import type { PlaceRecord } from "@shared/types";
+
+/**
+ * A named size rather than a class per call site. The emoji pin is a filled disk and the lucide
+ * glyph is line art, so a pin has to sit one step up from the glyph it replaces to read at the
+ * same weight — which had every caller writing the same `icon ? bigger : smaller` ternary. The
+ * component already owns the emoji-vs-glyph decision, so it owns the step that decision forces.
+ */
+export type VaultFileIconSize = "sm" | "md" | "lg";
+
+const SIZES: Record<VaultFileIconSize, { glyph: string; pin: string }> = {
+  /** Sidebar rows and tabs. */
+  sm: { glyph: "size-3.5", pin: "size-4" },
+  /** Result rows, feature lists, and directions stops. */
+  md: { glyph: "size-4", pin: "size-[18px]" },
+  /** The card header, where the icon is the file's own hero glyph and needs no step up. */
+  lg: { glyph: "size-7", pin: "size-7" }
+};
+
+/** The frontmatter a glyph is drawn from. A `PlaceRecord` satisfies it, which is the point: the
+ *  four values always come off one record, so they travel as the record. */
+type PlaceGlyphSource = Pick<PlaceRecord, "filePath" | "geometry" | "route" | "icon" | "color">;
+
+type VaultFileIconProps = {
+  size?: VaultFileIconSize;
+  /** Classes for whichever branch renders. */
+  className?: string;
+  /**
+   * Classes for the lucide branch only — the muted tint most rows give their glyph. A pin carries
+   * the file's own colour, so it must never take it.
+   */
+  glyphClassName?: string;
+} & (
+  | { place: PlaceGlyphSource }
+  | { name: string; geometryKind?: FileGlyphKind | null; icon?: string; color?: string }
+);
 
 /**
  * A vault file's icon, everywhere one is shown: sidebar rows, tabs, result rows, and the card
@@ -24,22 +61,21 @@ import { emojiIcon, emojiPinDataUrl, normalizeFeatureColor } from "@renderer/lib
  * `iconForFilename` stays the source of truth for the fallback glyph (extension + geometry); this
  * only adds the emoji branch on top, since an emoji is a string and that returns a component.
  */
-export function VaultFileIcon({
-  name,
-  geometryKind,
-  icon,
-  color,
-  className
-}: {
-  name: string;
-  geometryKind?: FileGlyphKind | null;
-  icon?: string;
-  color?: string;
-  className?: string;
-}): React.JSX.Element {
+export function VaultFileIcon(props: VaultFileIconProps): React.JSX.Element {
+  const { size = "md", className, glyphClassName } = props;
+  const source =
+    "place" in props
+      ? {
+          name: props.place.filePath,
+          geometryKind: glyphKindOf(props.place.geometry, Boolean(props.place.route)),
+          icon: props.place.icon,
+          color: props.place.color
+        }
+      : props;
+
   const accent = useAccent();
-  const emoji = emojiIcon(icon);
-  const tint = normalizeFeatureColor(color);
+  const emoji = emojiIcon(source.icon);
+  const tint = normalizeFeatureColor(source.color);
   if (emoji) {
     return (
       <img
@@ -48,11 +84,16 @@ export function VaultFileIcon({
         src={emojiPinDataUrl(emoji, tint ?? featureDefaultColor(accent))}
         alt=""
         draggable={false}
-        // `object-contain` so a caller sizing by width (`size-3.5`) can't stretch the square.
-        className={cn("shrink-0 object-contain", className)}
+        // `object-contain` so a caller overriding the width can't stretch the square.
+        className={cn("shrink-0 object-contain", SIZES[size].pin, className)}
       />
     );
   }
-  const Icon = iconForFilename(name, geometryKind);
-  return <Icon className={className} style={tint ? { color: tint } : undefined} />;
+  const Icon = iconForFilename(source.name, source.geometryKind);
+  return (
+    <Icon
+      className={cn("shrink-0", SIZES[size].glyph, className, glyphClassName)}
+      style={tint ? { color: tint } : undefined}
+    />
+  );
 }

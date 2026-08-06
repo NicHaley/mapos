@@ -16,7 +16,6 @@ import { type RegionRow, useRegionPacks } from "@renderer/hooks/use-region-packs
 import { useVaultRoot } from "@renderer/hooks/use-vault-root";
 import { formatBytes, formatDistance, formatDuration } from "@renderer/lib/format";
 import { type GeocodeSearchResult, searchGeocode } from "@renderer/lib/geocode-search";
-import { glyphKindOf } from "@renderer/lib/geometry-wkt";
 import { waypointFromPlace } from "@renderer/lib/place-waypoint";
 import {
   type Bbox,
@@ -1157,17 +1156,7 @@ function LocationInput({
               icon the sidebar, tabs, and card all use — so the row names the same thing the map
               draws. The positional glyph only stands in while the stop is empty or is a plain
               geocoded address, where there is no file to speak for it. */}
-          {valuePlace ? (
-            <VaultFileIcon
-              name={valuePlace.filePath}
-              geometryKind={glyphKindOf(valuePlace.geometry, Boolean(valuePlace.route))}
-              icon={valuePlace.icon}
-              color={valuePlace.color}
-              className={valuePlace.icon ? "size-[18px]" : "size-4 shrink-0 opacity-60"}
-            />
-          ) : (
-            icon
-          )}
+          {valuePlace ? <VaultFileIcon place={valuePlace} glyphClassName="opacity-60" /> : icon}
         </span>
         <ComboboxInput
           ref={inputRef}
@@ -1251,15 +1240,7 @@ function renderLocationItem(o: LocationOption): React.JSX.Element {
   return (
     <ComboboxItem key={o.key} value={o}>
       {o.place ? (
-        <VaultFileIcon
-          name={o.place.filePath}
-          geometryKind={glyphKindOf(o.place.geometry, Boolean(o.place.route))}
-          icon={o.place.icon}
-          color={o.place.color}
-          className={
-            o.place.icon ? "size-[18px] shrink-0" : "size-4 shrink-0 text-muted-foreground"
-          }
-        />
+        <VaultFileIcon place={o.place} glyphClassName="text-muted-foreground" />
       ) : (
         <MapPinIcon className="size-4 shrink-0 text-muted-foreground" />
       )}

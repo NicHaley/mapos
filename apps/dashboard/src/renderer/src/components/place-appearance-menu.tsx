@@ -5,20 +5,25 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger
 } from "@mapos/ui/components/dropdown-menu";
-import { ACCENT_PALETTE, featureDefaultColor, useAccent } from "@renderer/lib/accent";
-import { normalizeFeatureColor } from "@renderer/lib/map-styles";
+import {
+  ACCENT_PALETTE,
+  type AccentOption,
+  featureDefaultColor,
+  useAccent
+} from "@renderer/lib/accent";
+import { normalizeFeatureColor } from "@renderer/lib/place-appearance";
 import { CheckIcon, ImageIcon, PaletteIcon, SmileIcon } from "lucide-react";
 
 /**
  * The `icon` and `color` frontmatter keys a file can set, as a patch. A key set to `null` is a
  * delete (the plural frontmatter write API treats `null` as "remove"); a key left out is
- * unchanged.
+ * unchanged. The non-nullable "what it looks like now" form is `PlaceAppearance`.
  */
-export type PlaceAppearance = { icon?: string | null; color?: string | null };
+export type PlaceAppearancePatch = { icon?: string | null; color?: string | null };
 
 /** The colour options: the fixed accent hues. Monochrome is skipped — it carries no hex, so it has
  *  nothing to write; "Default" covers that case by clearing the key. */
-const COLOR_OPTIONS = ACCENT_PALETTE.filter((o) => o.hex !== null);
+const COLOR_OPTIONS = ACCENT_PALETTE.filter((o): o is AccentOption & { hex: string } => !!o.hex);
 
 /** A single colour row: the hue as a filled dot, its name, and a tick when it's the current one. */
 function ColorItem({
@@ -72,7 +77,7 @@ export function PlaceAppearanceMenuItems({
   color?: string;
   /** Vault-relative path of the current cover photo, when there is one. */
   cover?: string;
-  onChange: (patch: PlaceAppearance) => void;
+  onChange: (patch: PlaceAppearancePatch) => void;
   /** Opens the icon picker popover, which is anchored to the title-row glyph. */
   onChooseIcon: () => void;
   /** Opens the OS file picker for a new cover image. */
@@ -116,7 +121,7 @@ export function PlaceAppearanceMenuItems({
             <ColorItem
               key={id}
               label={label}
-              swatch={hex as string}
+              swatch={hex}
               selected={current === hex}
               onSelect={() => onChange({ color: hex })}
             />

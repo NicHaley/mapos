@@ -57,9 +57,8 @@ function TabIcon({ tab }: { tab: NavTabData }): React.JSX.Element {
       geometryKind={tab.geometryKind}
       icon={tab.icon}
       color={tab.color}
-      // A pin disk reads at one step up from the line-art glyph it replaces, and carries its own
-      // colour so it skips the muted opacity the lucide glyphs take.
-      className={tab.icon ? "size-4 shrink-0" : "size-3.5 shrink-0 opacity-70"}
+      size="sm"
+      glyphClassName="opacity-70"
     />
   );
 }

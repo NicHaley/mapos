@@ -2,6 +2,7 @@
   "name": "mapos",
   "private": true,
   "description": "The connected map for you and your agents.",
+  "license": "Apache-2.0",
   "homepage": "https://mapos.md",
   "repository": {
     "type": "git",

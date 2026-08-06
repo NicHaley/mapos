@@ -155,6 +155,11 @@ Documentation improvements are welcome and don't need an issue first. If somethi
 README or in `CLAUDE.md` was wrong or confusing while you were getting set up, fixing it
 is a genuinely useful contribution.
 
+## Licensing of contributions
+
+MapOS is [Apache-2.0](LICENSE). By submitting a pull request you agree that your
+contribution is licensed under those same terms.
+
 ## Questions
 
 [hello@mapos.md](mailto:hello@mapos.md)

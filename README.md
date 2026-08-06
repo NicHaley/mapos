@@ -43,7 +43,7 @@ Map data © OpenStreetMap contributors, available under the
 
 ## License
 
-<!-- TODO: not yet chosen. Add a LICENSE file and name it here before making this repo public. -->
+[Apache-2.0](LICENSE)
 
 ## Contact
 

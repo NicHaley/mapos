@@ -46,7 +46,11 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: true
   gatekeeperAssess: false
-  identity: "Nicholas Haley (45N226Q5J8)"
+  # Signing identity is NOT pinned here, so a fork without the certificate isn't
+  # blocked. electron-builder reads CSC_NAME from the environment (set it in
+  # apps/dashboard/.env, which publish-release.sh exports); without it, it
+  # auto-discovers a Developer ID in the keychain. To skip signing entirely, set
+  # CSC_IDENTITY_AUTO_DISCOVERY=false.
   notarize: true
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -61,7 +65,7 @@ linux:
     - AppImage
     - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: Nicholas Haley <hello@mapos.md>
   category: Utility
 appImage:
   artifactName: ${productName}-${version}.${ext}

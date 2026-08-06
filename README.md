@@ -24,6 +24,9 @@ pnpm test         # main-process logic only
 pnpm check        # Biome lint + format
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup, conventions, and one extra
+step a fresh clone needs before `pnpm typecheck` passes.
+
 ## Built on
 
 [OpenStreetMap](https://www.openstreetmap.org/copyright) ·

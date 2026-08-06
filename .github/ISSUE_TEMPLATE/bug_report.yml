@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in MapOS isn't working
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a vault with...
+        2. Click...
+        3. See...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MapOS version
+      description: Settings → About
+      placeholder: 1.0.0-beta.14
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Services mode
+      description: Settings → Services
+      options:
+        - Cloud
+        - Local (offline region packs)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: file
+    attributes:
+      label: Place file frontmatter
+      description: >
+        If the bug involves a specific place, its frontmatter is usually the fastest way
+        to reproduce it. Please don't paste vault contents you'd rather not make public.
+      render: yaml
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, a short clip, or error text.

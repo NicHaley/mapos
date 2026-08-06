@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea for MapOS
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        The [feedback board](https://mapos.userjot.com) is usually a better home for
+        ideas, since others can upvote and comment. Either works.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        Describe the underlying need, not only the feature you have in mind. There's
+        often a better solution than the first one that comes to mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like to see
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: How you work around it today

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Feature ideas and voting
+    url: https://mapos.userjot.com
+    about: The feedback board, where ideas can be upvoted and discussed.
+  - name: Report a security vulnerability
+    url: https://github.com/NicHaley/mapos/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: Questions
+    url: mailto:hello@mapos.md
+    about: Anything that isn't a bug or a feature request.

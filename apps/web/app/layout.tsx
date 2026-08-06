@@ -20,7 +20,7 @@ const handjet = Handjet({
   subsets: ["latin"]
 });
 
-const SITE_URL = "https://mapos.app";
+const SITE_URL = "https://mapos.md";
 const OG_DESCRIPTION =
   "Your places, notes, and AI on one map. Plain files on your Mac, no accounts, works offline.";
 

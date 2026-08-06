@@ -8,7 +8,7 @@ Your places, notes, and AI on one map. Plain files on your Mac, no accounts, wor
 
 Free, no account, Apple Silicon only. No telemetry or analytics.
 
-**[Download from mapos.app](https://mapos.app)**
+**[Download from mapos.md](https://mapos.md)**
 
 Download a region pack and the basemap, search, and routing all run offline.
 

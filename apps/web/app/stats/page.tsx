@@ -144,7 +144,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           Download stats
         </h1>
         <p className="m-0 mt-1 font-[family-name:var(--font-server-mono)] text-xs text-neutral-500">
-          mapos.app/download · counted server-side, nothing identifying stored
+          mapos.md/download · counted server-side, nothing identifying stored
         </p>
       </header>
       {children}

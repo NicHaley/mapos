@@ -16,7 +16,7 @@
     "@mapos/contracts": "workspace:*",
     "@mapos/service-adapters": "workspace:*",
     "@protomaps/basemaps": "^5.7.2",
-    "hono": "^4.6.14",
+    "hono": "^4.12.34",
     "zod": "^4.0.0"
   },
   "devDependencies": {

@@ -456,6 +456,14 @@ export function Landing({ version, sizeLabel }: LandingProps) {
           </Link>
           <a
             className="text-neutral-500 no-underline transition-colors hover:text-neutral-300"
+            href="https://github.com/NicHaley/mapos"
+            rel="noreferrer"
+            target="_blank"
+          >
+            GitHub
+          </a>
+          <a
+            className="text-neutral-500 no-underline transition-colors hover:text-neutral-300"
             href="mailto:hello@mapos.md"
           >
             Contact

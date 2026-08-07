@@ -39,9 +39,17 @@ export function LegalPage({ title, lastUpdated, children }: LegalPageProps) {
         <Link className={footerLink} href="/terms">
           Terms
         </Link>
-        <Link className={footerLink} href="/">
-          Home
-        </Link>
+        <a
+          className={footerLink}
+          href="https://github.com/NicHaley/mapos"
+          rel="noreferrer"
+          target="_blank"
+        >
+          GitHub
+        </a>
+        <a className={footerLink} href="mailto:hello@mapos.md">
+          Contact
+        </a>
       </footer>
     </div>
   );

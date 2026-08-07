@@ -4,6 +4,8 @@
 
 Your places, notes, and AI on one map. Plain files on your Mac, no accounts, works offline.
 
+![MapOS showing a search for campgrounds around Montreal, with results listed beside the map and pinned on it](.github/assets/screenshot.jpg)
+
 ## Install
 
 Free, no account, Apple Silicon only. No telemetry or analytics.

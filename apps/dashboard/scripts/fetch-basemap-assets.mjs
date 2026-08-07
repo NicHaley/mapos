@@ -13,7 +13,8 @@
  *
  * Re-run after bumping @protomaps/basemaps to keep the assets in sync.
  */
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,8 +24,10 @@ const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "resources", "ba
 // The world basemap and its geocode index are built by the region-pack pipeline,
 // which is a separate repo, so unlike glyphs/sprites they have no public CDN.
 // The pipeline's `make upload-world` publishes them to the same public R2 bucket
-// the app downloads region packs from. Public read-only URL — it already ships
-// inside every release binary. Override to point at a staging bucket.
+// the app downloads region packs from — that bucket is the ONLY channel between
+// the two repos, so this build works identically for a maintainer and a fresh
+// clone. Public read-only URL; it already ships inside every release binary.
+// Override to point at a staging bucket.
 const WORLD_BASE = (
   process.env.MAPOS_WORLD_BASE_URL ?? "https://pub-858df7b1f2be43cfbc42ab2a4b444ea3.r2.dev/_world"
 ).replace(/\/+$/, "");
@@ -84,28 +87,60 @@ async function mapLimit(items, limit, fn) {
  */
 async function fetchWorldAsset(name, required) {
   const dest = join(OUT, "basemap", name);
-  if (await exists(dest)) {
-    const { size } = await stat(dest);
-    console.log(`  ${name}: ${(size / 1e6).toFixed(0)} MB (already present)`);
-    return;
-  }
-
   const url = `${WORLD_BASE}/${name}`;
-  console.log(`  ${name}: downloading from ${url}`);
+
+  // Match against what's published rather than trusting whatever is on disk: a
+  // maintainer who rebuilt the world locally would otherwise keep building
+  // against their own copy while everyone else got the published one. R2 returns
+  // the content md5 as the etag for these (single-part uploads), so size + etag
+  // is an exact comparison and costs one HEAD.
+  let remote = null;
   let reason = null;
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      reason = `HTTP ${res.status}`;
+    const res = await fetch(url, { method: "HEAD" });
+    if (res.ok) {
+      remote = {
+        size: Number(res.headers.get("content-length")),
+        etag: (res.headers.get("etag") ?? "").replace(/"/g, "")
+      };
     } else {
-      const buf = Buffer.from(await res.arrayBuffer());
-      await mkdir(dirname(dest), { recursive: true });
-      await writeFile(dest, buf);
-      console.log(`  ${name}: ${(buf.length / 1e6).toFixed(0)} MB`);
-      return;
+      reason = `HTTP ${res.status}`;
     }
   } catch (e) {
     reason = e.message;
+  }
+
+  if (await exists(dest)) {
+    const local = await readFile(dest);
+    const md5 = createHash("md5").update(local).digest("hex");
+    if (!remote) {
+      // Offline or the bucket is down. A valid local copy shouldn't block a build.
+      console.warn(`  ! ${name}: can't reach ${url} (${reason}); using local copy`);
+      return;
+    }
+    if (remote.size === local.length && (!remote.etag || remote.etag === md5)) {
+      console.log(`  ${name}: ${(local.length / 1e6).toFixed(0)} MB (up to date)`);
+      return;
+    }
+    console.log(`  ${name}: local copy differs from published, re-downloading`);
+  }
+
+  if (remote) {
+    console.log(`  ${name}: downloading from ${url}`);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        reason = `HTTP ${res.status}`;
+      } else {
+        const buf = Buffer.from(await res.arrayBuffer());
+        await mkdir(dirname(dest), { recursive: true });
+        await writeFile(dest, buf);
+        console.log(`  ${name}: ${(buf.length / 1e6).toFixed(0)} MB`);
+        return;
+      }
+    } catch (e) {
+      reason = e.message;
+    }
   }
 
   if (!required) {
@@ -115,8 +150,8 @@ async function fetchWorldAsset(name, required) {
   }
   console.error(`  ✗ ${name} unavailable (${reason})`);
   console.error("    The map would ship with NO backdrop outside downloaded regions.");
-  console.error("    Set MAPOS_WORLD_BASE_URL to another source, or with access to the");
-  console.error("    region-pack pipeline run `make world bundle-world` there.");
+  console.error("    Set MAPOS_WORLD_BASE_URL to another source, or publish one with");
+  console.error("    `make world world-geocode upload-world` from the region-pack pipeline.");
   process.exit(1);
 }
 
@@ -149,9 +184,7 @@ async function main() {
   const fontBytes = await mapLimit(jobs, 12, (j) => download(j.url, j.dest));
   console.log(`  fonts: ${(fontBytes / 1e6).toFixed(1)} MB across ${STACKS.length} stacks`);
 
-  // A local copy always wins: `make bundle-world` from the pipeline drops fresher
-  // files straight into place, and re-downloading would clobber them with
-  // whatever was last published.
+  // The published bucket is the source of truth for these, for every build.
   await fetchWorldAsset("world.pmtiles", true);
   await fetchWorldAsset("world.sqlite", false);
   console.log("Done.");

@@ -214,7 +214,7 @@ export function forwardQuery(req: GeocodeForwardRequest, ep: Endpoint): GeocodeR
   const regions = listInstalledRegions(ep.url).filter((r) => r.geocode);
   // Append the bundled coarse world index (countries + major cities) as an
   // always-available fallback, last so pack rows rank/dedup ahead of it. Skipped
-  // when the file is absent (older build / dev before `make bundle-world`).
+  // when the file is absent (older build, or a dev run before `pnpm fetch:assets`).
   if (ep.worldGeocode && existsSync(ep.worldGeocode)) {
     regions.push({ region: WORLD_REGION, dir: "", geocode: ep.worldGeocode, bbox: WORLD_BBOX });
   }

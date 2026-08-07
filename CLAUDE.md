@@ -41,12 +41,16 @@ format and the manifest schema, so a change to either side of that contract has 
 in both repos.
 
 The world basemap (`world.pmtiles` + `world.sqlite`) is the one artifact the app build
-needs from it. Contributors don't need pipeline access: `fetch:assets` downloads both
-from the public R2 bucket, which the pipeline populates via `make upload-world`. From a
-pipeline checkout, `make bundle-world` writes them straight into
-`apps/dashboard/resources/basemap-assets/` instead (it assumes the two checkouts are
-siblings), and `fetch:assets` leaves an existing local copy alone. **Refreshing the world
-means running `upload-world` too**, or contributors keep building against the old one.
+needs from it, and **the public R2 bucket is the only channel between the two repos**.
+Nothing in the pipeline writes into a checkout of this one, so a maintainer's build is
+byte-identical to a fresh clone's — don't reintroduce a path that reaches across.
+
+`fetch:assets` HEADs the published object and compares size + etag (R2 returns the
+content md5 for these) against the local file, re-downloading on any mismatch. So a
+world that wasn't published simply doesn't exist as far as this repo is concerned:
+refreshing it means `make world world-geocode upload-world` on the pipeline side, full
+stop. If the bucket is unreachable, an existing local copy is used with a warning rather
+than failing the build.
 
 ---
 

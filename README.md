@@ -2,7 +2,7 @@
 
 **The connected map for you and your agents.**
 
-Your places, notes, and AI on one map. Plain files on your Mac, no accounts, works offline.
+Your places, notes, and AI on one map. Markdown, no accounts, offline.
 
 ![MapOS showing a search for campgrounds around Montreal, with results listed beside the map and pinned on it](.github/assets/screenshot.jpg)
 
@@ -22,12 +22,11 @@ Node 22 and pnpm.
 pnpm install
 pnpm dev          # the desktop app
 pnpm typecheck
-pnpm test         # main-process logic only
+pnpm test
 pnpm check        # Biome lint + format
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup, conventions, and one extra
-step a fresh clone needs before `pnpm typecheck` passes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and conventions.
 
 ## Built on
 

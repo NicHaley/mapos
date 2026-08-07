@@ -26,7 +26,7 @@ pnpm test
 pnpm check        # Biome lint + format
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and how to submit changes.
 
 ## Built on
 

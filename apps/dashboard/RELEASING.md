@@ -54,7 +54,7 @@ Two consequences worth knowing:
 
 The changelog is generated from commits since the last tag, per `cliff.toml` at the repo root. `wip`/`chore`/merge/version-bump commits are filtered out; conventional-commit prefixes (`feat:`, `fix:`, `perf:`, …) get grouped, and anything else lands under "Other". Preview the next release's section any time with `pnpm changelog:preview`.
 
-> `CHANGELOG.md` is developer-facing. The user-facing post (userjot.com) should be written from it, not generated out of it.
+> `CHANGELOG.md` is developer-facing. The user-facing post — a discussion in the [Announcements](https://github.com/NicHaley/mapos/discussions/categories/announcements) category — should be written from it, not generated out of it.
 
 ---
 

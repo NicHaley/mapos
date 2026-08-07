@@ -45,7 +45,6 @@ next-env.d.ts
 .open-next
 .wrangler
 .dev.vars
-cloudflare-env.d.ts
 
 # next-video sources (synced to R2; asset JSON stays committed)
 /videos/*

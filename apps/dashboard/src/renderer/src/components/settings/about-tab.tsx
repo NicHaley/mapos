@@ -6,7 +6,7 @@ import maposLogo from "../../assets/mapos.svg";
 const LINKS: { label: string; href: string; icon: React.ElementType }[] = [
   {
     label: "Feedback",
-    href: "https://mapos.userjot.com/?cursor=1&order=top&limit=10",
+    href: "https://github.com/NicHaley/mapos/discussions/categories/ideas",
     icon: MegaphoneIcon
   },
   { label: "Website", href: "https://mapos.md", icon: GlobeIcon },

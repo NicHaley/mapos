@@ -219,4 +219,5 @@ if (( WEB_DEPLOYED )); then
   echo "  · verify:  the download CTA on https://mapos.md reads ${NEW_VERSION}"
 fi
 echo "  · smoke test auto-update from an older install"
-echo "  · write the user-facing post from this CHANGELOG.md section (userjot.com)"
+echo "  · write the user-facing post from this CHANGELOG.md section:"
+echo "    https://github.com/NicHaley/mapos/discussions/new?category=announcements"

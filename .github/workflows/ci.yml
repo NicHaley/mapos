@@ -44,15 +44,15 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # apps/web's typecheck depends on two generated files that are gitignored:
-      #   - next-env.d.ts   -> replaced by the committed apps/web/types/next-ambient.d.ts
-      #   - cloudflare-env.d.ts -> generated below by wrangler (offline, no auth needed)
-      # wrangler reads .dev.vars to discover secret names, so the template has to
-      # be in place first or CloudflareEnv comes out missing STATS_KEY.
-      - name: Generate Cloudflare types
+      # apps/web/cloudflare-env.d.ts is committed, so typecheck needs no codegen.
+      # This only guards against it going stale: wrangler discovers secret names
+      # by reading .dev.vars (they aren't in wrangler.jsonc), so the template goes
+      # in place first, then --check fails if a binding or secret was added
+      # without rerunning `pnpm --filter=@mapos/web cf-typegen`.
+      - name: Check Cloudflare types are current
         run: |
           cp apps/web/.dev.vars.example apps/web/.dev.vars
-          pnpm --filter=@mapos/web cf-typegen
+          pnpm --filter=@mapos/web cf-typegen --check
 
       # biome ci checks lint AND formatting without writing, so it catches drift
       # that slipped past the pre-commit hook via --no-verify.

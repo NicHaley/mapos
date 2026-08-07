@@ -21,9 +21,16 @@ import {
 import { sendToRenderer } from "./main-window";
 import { invalidateServiceClient } from "./services/client";
 
-// Build-time injected by electron-vite (declared in env.d.ts). Trailing slash
-// stripped so URL joins are unambiguous.
-const R2_BASE = (import.meta.env.MAIN_VITE_R2_PUBLIC_URL ?? "").replace(/\/+$/, "");
+// The public bucket the pipeline publishes packs to — read-only, and already
+// baked into every release binary, so defaulting it here just means a fresh
+// clone gets a working Offline tab. Override (build-time, injected by
+// electron-vite and declared in env.d.ts) to point at a staging bucket. Trailing
+// slash stripped so URL joins are unambiguous.
+// `||` not `??`: the .env.example ships the key with no value, which injects an
+// empty string rather than undefined.
+const R2_BASE = (
+  import.meta.env.MAIN_VITE_R2_PUBLIC_URL || "https://pub-858df7b1f2be43cfbc42ab2a4b444ea3.r2.dev"
+).replace(/\/+$/, "");
 
 // Completeness marker written last after a successful download, so an interrupted
 // download (whose .part files are cleaned up) never leaves a dir that looks installed.
@@ -66,9 +73,6 @@ function broadcastChanged(): void {
  * re-rendering doesn't re-hit the network on every keystroke. `force` bypasses it.
  */
 export async function fetchManifest(force = false): Promise<RegionManifest> {
-  if (!R2_BASE) {
-    throw new Error("Region packs are not configured (MAIN_VITE_R2_PUBLIC_URL is unset).");
-  }
   if (!force && manifestCache && Date.now() - manifestCache.at < MANIFEST_TTL_MS) {
     return manifestCache.data;
   }

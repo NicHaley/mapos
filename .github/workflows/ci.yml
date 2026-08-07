@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Must precede setup-node so that `cache: pnpm` can find pnpm. Version
       # comes from the root package.json `packageManager` field.

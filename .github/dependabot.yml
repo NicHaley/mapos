@@ -1,0 +1,26 @@
+version: 2
+
+# Grouped and capped on purpose: ungrouped updates across a pnpm workspace open a
+# dozen PRs a week, which is worse than none because they stop getting read.
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/apps/*"
+      - "/packages/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Patch/minor bumps land as one PR; CI (lint + typecheck + test) is the gate.
+      minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"

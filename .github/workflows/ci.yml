@@ -17,6 +17,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Now that the repo is public, fork PRs run this workflow. These checks only read
+# the tree, so the token gets nothing else.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: lint / typecheck / test

@@ -2,9 +2,7 @@ import { Fragment } from "react";
 
 // The full MCP surface as two counter-scrolling belts. Every name here is a
 // tool `buildMaposCustomTools` actually registers, split by what it touches:
-// the map and the index above, the vault and region packs below. `web_search`
-// is left out — it's the one tool that only exists when a search key is
-// configured, so the count stays true for every install.
+// the map and the index above, the vault and region packs below.
 const MAP_TOOLS = [
   "geocode_search",
   "reverse_geocode",

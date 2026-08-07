@@ -1633,37 +1633,6 @@ export function buildMaposCustomTools(
     }
   });
 
-  const webSearchTool = defineTool({
-    name: "web_search",
-    label: "Web search",
-    description:
-      "Search the web for current information, news, or external facts not in the vault. Returns results with title, url, and a snippet. Use for questions the user's files can't answer (opening hours, recent events, articles). Only available when MapOS is configured against a server — surfaces an error otherwise.",
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      maxResults: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 20, default: 5, description: "Max results to return" })
-      ),
-      recency: Type.Optional(
-        Type.Union(
-          [Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")],
-          { description: "Restrict results to a recency window relative to now" }
-        )
-      )
-    }),
-    execute: async (_id, args) => {
-      try {
-        const response = await getServiceClient().webSearch.search({
-          query: args.query,
-          maxResults: args.maxResults ?? 5,
-          recency: args.recency
-        });
-        return TEXT_RESULT(JSON.stringify(response));
-      } catch (err) {
-        return TEXT_RESULT(errorPayload(err));
-      }
-    }
-  });
-
   const computeBboxTool = defineTool({
     name: "compute_bbox",
     label: "Compute bounding box",
@@ -2652,15 +2621,6 @@ export function buildMaposCustomTools(
     }
   });
 
-  // Web search is server-only — only expose the tool when the active services mode
-  // can actually serve it (the cloud MapOS server). Omitting it
-  // (rather than letting it error) keeps the agent from offering web search it
-  // can't deliver. The services mode is stable per process, so build-time gating
-  // is sufficient.
-  // Temporarily disabled until the cloud API that powers web search is stood up.
-  // Restore `getServiceClient().isAvailable("webSearch")` to re-enable.
-  const webSearchAvailable = false;
-
   // MCP behavior hints. Advisory (clients treat them as untrusted) — defense-in-depth
   // over the vault sandbox + no-clobber guards, never the primary control. Categories:
   const READ_ONLY: ToolAnnotations = {
@@ -2728,7 +2688,6 @@ export function buildMaposCustomTools(
     present_directions: MAP_EFFECT,
     get_isochrone: READ_ONLY_EXTERNAL,
     get_matrix: READ_ONLY_EXTERNAL,
-    web_search: { readOnlyHint: true, openWorldHint: true },
     index_file: INDEX_MAINT,
     rebuild_index: INDEX_MAINT,
     save_features_to_vault: CREATE_ONLY,
@@ -2765,7 +2724,6 @@ export function buildMaposCustomTools(
     presentDirections,
     getIsochroneTool,
     getMatrixTool,
-    ...(webSearchAvailable ? [webSearchTool] : []),
     computeBboxTool,
     readVaultFile,
     listVaultFiles,

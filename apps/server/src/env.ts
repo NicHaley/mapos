@@ -14,12 +14,10 @@ export const EnvSchema = z.object({
   PROTOMAPS_TILE_URL_TEMPLATE: z
     .string()
     .default("https://api.protomaps.com/tiles/v4/{z}/{x}/{y}.mvt"),
-  TAVILY_URL: z.url().default("https://api.tavily.com"),
 
   // Secrets. Optional at the type level so we can produce a clean error at request
   // time for routes that need them, rather than failing every route at boot.
   PROTOMAPS_API_KEY: z.string().min(1).optional(),
-  TAVILY_API_KEY: z.string().min(1).optional(),
 
   // Comma-separated list of allowed CORS origins. Electron's main process
   // doesn't trigger CORS, so the dashboard works with an empty allowlist.

@@ -15,18 +15,14 @@ import {
   RouteMatrixRequestSchema,
   type ServiceId,
   type TileStyleRequest,
-  TileStyleRequestSchema,
-  type WebSearchRequest,
-  WebSearchRequestSchema,
-  type WebSearchResponse
+  TileStyleRequestSchema
 } from "@mapos/contracts";
 import type {
   AdapterContext,
   GeocodingCapability,
   IsochroneCapability,
   RoutingCapability,
-  TileCapability,
-  WebSearchCapability
+  TileCapability
 } from "@mapos/service-adapters";
 import type { ServicesConfig } from "../mapos-config";
 import { ServiceUnavailableError } from "./errors";
@@ -37,14 +33,13 @@ export { ServiceUnavailableError } from "./errors";
 export type { ServicesConfig } from "../mapos-config";
 export type { ClientCredentials } from "./types";
 
-type CapabilityKey = "geocoding" | "routing" | "isochrones" | "tiles" | "webSearch";
+type CapabilityKey = "geocoding" | "routing" | "isochrones" | "tiles";
 
 type CapabilityType = {
   geocoding: GeocodingCapability;
   routing: RoutingCapability;
   isochrones: IsochroneCapability;
   tiles: TileCapability;
-  webSearch: WebSearchCapability;
 };
 
 function requireCapability<K extends CapabilityKey>(
@@ -114,16 +109,9 @@ export function createClient(config: ServicesConfig, credentials: ClientCredenti
       }
     },
 
-    webSearch: {
-      search: (req: WebSearchRequest, ctx?: AdapterContext): Promise<WebSearchResponse> => {
-        const { capability, endpoint } = get("webSearch", "webSearch");
-        return capability.search(WebSearchRequestSchema.parse(req), endpoint, ctx);
-      }
-    },
-
     /**
-     * Cheap availability check for UI gating (e.g. hiding a web-search button
-     * when the active mode can't serve it). Does not perform any network call.
+     * Cheap availability check for UI gating (e.g. hiding a routing control when
+     * the active mode can't serve it). Does not perform any network call.
      */
     isAvailable: (serviceId: ServiceId): boolean => {
       try {
@@ -132,7 +120,6 @@ export function createClient(config: ServicesConfig, credentials: ClientCredenti
         if (serviceId === "geocoding") return r.adapter.geocoding !== undefined;
         if (serviceId === "routing") return r.adapter.routing !== undefined;
         if (serviceId === "isochrones") return r.adapter.isochrones !== undefined;
-        if (serviceId === "webSearch") return r.adapter.webSearch !== undefined;
         return false;
       } catch {
         return false;

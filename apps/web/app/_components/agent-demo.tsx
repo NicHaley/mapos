@@ -38,14 +38,14 @@ type Step = {
 const STEPS: Step[] = [
   {
     delay: 700,
-    line: { kind: "tool", text: 'web_search "best pizza nyc"' }
-  },
-  { delay: 1300, line: { kind: "result", text: "Una Pizza Napoletana ranked #1" } },
-  {
-    delay: 800,
     line: { kind: "tool", text: 'geocode_search "pizza, new york"' }
   },
-  { delay: 1000, line: { kind: "result", text: "28 results" } },
+  { delay: 1300, line: { kind: "result", text: "28 results" } },
+  {
+    delay: 800,
+    line: { kind: "tool", text: "get_viewport" }
+  },
+  { delay: 1000, line: { kind: "result", text: "Manhattan, z12" } },
   {
     delay: 900,
     line: { kind: "tool", text: 'write_vault_file "Pizza/Joe\'s Pizza.md"' },

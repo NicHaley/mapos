@@ -27,10 +27,10 @@ pnpm + Turbo workspace (`apps/*`, `packages/*`).
 | Path | What it is |
 |---|---|
 | `apps/dashboard` | The Electron desktop app — the product. Main / preload / renderer. Hosts the spatial index, map services, and the file watcher. |
-| `apps/server` | Hono API proxy for map services (geocode, routing, isochrone, tiles, web search). Runs on Node or as a Cloudflare Worker. Backs the app's **cloud** services mode. |
+| `apps/server` | Hono API proxy for map services (geocode, routing, isochrone, tiles). Runs on Node or as a Cloudflare Worker. Backs the app's **cloud** services mode. |
 | `apps/web` | Next.js web client. Early/minimal. |
 | `packages/contracts` | Shared Zod schemas for service requests/responses (GeocodeResult, Route, Isochrone, …). |
-| `packages/service-adapters` | Pluggable service implementations (Photon, Valhalla, Tavily, MapOS API) behind a common adapter interface. |
+| `packages/service-adapters` | Pluggable service implementations (Photon, Valhalla, MapOS API) behind a common adapter interface. |
 | `packages/ui` | Shared React + Tailwind components/hooks, consumed by `apps/dashboard` and `apps/web`. |
 
 **Not in this repo:** the region-pack build pipeline (Geofabrik OSM extracts →

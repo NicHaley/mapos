@@ -6,17 +6,10 @@
 
 import { z } from "zod";
 
-export const ServiceIdSchema = z.enum(["geocoding", "routing", "isochrones", "tiles", "webSearch"]);
+export const ServiceIdSchema = z.enum(["geocoding", "routing", "isochrones", "tiles"]);
 export type ServiceId = z.infer<typeof ServiceIdSchema>;
 
-export const AdapterIdSchema = z.enum([
-  "photon",
-  "valhalla",
-  "protomaps",
-  "mapos_v1",
-  "tavily",
-  "searxng"
-]);
+export const AdapterIdSchema = z.enum(["photon", "valhalla", "protomaps", "mapos_v1"]);
 export type AdapterId = z.infer<typeof AdapterIdSchema>;
 
 export const AuthCredentialSchema = z.discriminatedUnion("type", [

@@ -47,14 +47,3 @@ export type {
 
 export { MAP_ATTRIBUTION_HTML, MAP_ATTRIBUTIONS, TileStyleRequestSchema } from "./services/tiles";
 export type { TileStyleRequest } from "./services/tiles";
-
-export {
-  WebSearchRequestSchema,
-  WebSearchResponseSchema,
-  WebSearchResultSchema
-} from "./services/web-search";
-export type {
-  WebSearchRequest,
-  WebSearchResponse,
-  WebSearchResult
-} from "./services/web-search";

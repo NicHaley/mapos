@@ -2,7 +2,6 @@ import * as geocoding from "./geocoding";
 import * as isochrone from "./isochrone";
 import * as routing from "./routing";
 import { styleUrl } from "./tiles";
-import * as webSearch from "./web-search";
 
 /**
  * The MapOS v1 server adapter. Implements every capability by POSTing contract
@@ -20,6 +19,5 @@ export const maposV1Adapter = {
   geocoding,
   routing,
   isochrones: { contours: isochrone.contours },
-  tiles: { styleUrl },
-  webSearch: { search: webSearch.search }
+  tiles: { styleUrl }
 };

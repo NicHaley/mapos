@@ -8,17 +8,12 @@ import type { ClientCredentials } from "./types";
 
 export type Resolution = { adapter: Adapter; endpoint: Endpoint };
 
-/**
- * Services the MapOS server (`mapos_v1` adapter) implements. Web search is
- * server-only — the server holds the Tavily key and exposes it at
- * `POST /v1/web-search`.
- */
+/** Services the MapOS server (`mapos_v1` adapter) implements. */
 const SERVER_SUPPORTED_SERVICES: readonly ServiceId[] = [
   "geocoding",
   "routing",
   "isochrones",
-  "tiles",
-  "webSearch"
+  "tiles"
 ] as const;
 
 export function resolve(
@@ -60,9 +55,6 @@ export function resolve(
 }
 
 function localUnavailableReason(serviceId: ServiceId): string {
-  if (serviceId === "webSearch") {
-    return "web search is not available offline — connect to MapOS Cloud";
-  }
   return `${serviceId} is not available offline — download a region pack to enable it`;
 }
 

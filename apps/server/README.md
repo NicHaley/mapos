@@ -1,6 +1,10 @@
 # @mapos/server
 
-HTTP server exposing the `@mapos/contracts` service surface (geocoding, routing, isochrones, tiles) over a versioned JSON API. Same Hono app runs on Cloudflare Workers (`api.mapos.md`) and as a self-hosted Node binary.
+HTTP server exposing the `@mapos/contracts` service surface (geocoding, routing, isochrones, tiles) over a versioned JSON API. The same Hono app runs on Cloudflare Workers or as a self-hosted Node binary.
+
+> **Not deployed.** There is no hosted MapOS API yet, and the desktop app has no UI for
+> pointing at one — cloud mode is reachable only by hand-editing `services.baseUrl` in
+> `mapos.json`. Run this yourself if you want it; the app defaults to fully local.
 
 ## Wire surface
 

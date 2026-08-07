@@ -45,15 +45,6 @@ Please match the existing conventions and style of the file you're editing. Form
 Biome-enforced — run `pnpm check` rather than hand-formatting. Commits follow
 [Conventional Commits](https://www.conventionalcommits.org/), enforced by commitlint.
 
-A few architectural rules worth knowing before you start:
-
-- **Files are the source of truth.** The SQLite index is a rebuildable cache. Never
-  persist canonical state only in the index.
-- **All vault mutations go through the file-write path**, so the index stays in sync.
-  Never write to vault files directly.
-- **Geometry is WKT** in place-file frontmatter, converted to GeoJSON for queries and
-  rendering. Use Turf for computation; there are no spatial SQL `ST_*` functions.
-
 `CLAUDE.md` at the repo root has the full architecture notes. It's written for coding
 agents, but it's the most detailed map of the codebase that exists. If you're unsure
 about any aspect of the conventions, feel free to ask in your PR.

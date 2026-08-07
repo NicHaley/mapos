@@ -4,6 +4,13 @@ Notable changes to MapOS. Generated from commit history by [git-cliff](https://g
 History before `v1.0.0-beta.12` is not covered here — see `git log`.
 
 
+## 1.0.0-beta.15 — 2026-08-07
+
+### Features
+
+- **web:** Add GitHub link to site footers ([`8d0791e`](https://github.com/NicHaley/mapos/commit/8d0791e71a9818466aed548719d06e891d95aa59))
+
+
 ## 1.0.0-beta.14 — 2026-08-06
 
 ### Bug fixes

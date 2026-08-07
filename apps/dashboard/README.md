@@ -21,11 +21,15 @@ pnpm build:win
 pnpm build:linux
 ```
 
-`build:*` runs `fetch:assets` first, which downloads the basemap glyphs and sprites into
-`resources/basemap-assets/` (gitignored). It also requires `world.pmtiles` to already be
-there, and fails loudly if it isn't, because the app would otherwise ship with no
-low-zoom backdrop. That file comes from the region-pack pipeline, which is a separate
-project.
+`build:*` runs `fetch:assets` first, which populates `resources/basemap-assets/`
+(gitignored) from two sources: glyphs and sprites from the Protomaps CDN, and the world
+basemap plus its geocode index from the R2 bucket the region-pack pipeline publishes to.
+Files already on disk are left alone, so a locally built world always wins.
+
+`world.pmtiles` is a hard requirement and fails the build if it can't be obtained,
+because the app would otherwise ship with no backdrop outside downloaded regions.
+`world.sqlite` only powers the coarse global search fallback and is guarded at runtime,
+so it degrades to a warning. `MAPOS_WORLD_BASE_URL` overrides where both come from.
 
 Signing and notarization need Apple credentials in `.env` (see `.env.example`). Without
 them, `build:mac` produces an unsigned build. `build:unpack` skips packaging entirely and

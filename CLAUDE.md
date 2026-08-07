@@ -35,11 +35,18 @@ pnpm + Turbo workspace (`apps/*`, `packages/*`).
 
 **Not in this repo:** the region-pack build pipeline (Geofabrik OSM extracts →
 `.pmtiles` + Valhalla tiles + geocode SQLite, published to R2 with a manifest) lives in
-[`mapos-pipeline`](https://github.com/NicHaley/mapos-pipeline). It shares no code with
-the app — only the artifact format and the manifest schema, so a change to either side
-of that contract has to land in both repos. `make bundle-world` over there writes the
-bundled world basemap into `apps/dashboard/resources/basemap-assets/`, and it defaults
-to assuming the two checkouts are siblings.
+a separate `mapos-pipeline` repo, which is **private** — this repo is public, so never
+link to it in a file that ships here. It shares no code with the app, only the artifact
+format and the manifest schema, so a change to either side of that contract has to land
+in both repos.
+
+The world basemap (`world.pmtiles` + `world.sqlite`) is the one artifact the app build
+needs from it. Contributors don't need pipeline access: `fetch:assets` downloads both
+from the public R2 bucket, which the pipeline populates via `make upload-world`. From a
+pipeline checkout, `make bundle-world` writes them straight into
+`apps/dashboard/resources/basemap-assets/` instead (it assumes the two checkouts are
+siblings), and `fetch:assets` leaves an existing local copy alone. **Refreshing the world
+means running `upload-world` too**, or contributors keep building against the old one.
 
 ---
 

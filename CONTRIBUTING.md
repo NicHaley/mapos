@@ -145,9 +145,9 @@ which is fine for testing. Nothing is pinned to a specific identity, so this won
 out on you.
 
 **Region packs.** The pipeline that turns OpenStreetMap extracts into offline packs is a
-separate project, not in this repo. `build:mac` also expects a prebuilt `world.pmtiles`
-in `resources/basemap-assets/` and fails loudly without it. You can run and develop the
-app in cloud services mode without any of this.
+separate project, not in this repo. You don't need it: `build:*` runs `fetch:assets`,
+which downloads the prebuilt world basemap from a public bucket alongside the glyphs and
+sprites. Point `MAPOS_WORLD_BASE_URL` elsewhere if you want to supply your own.
 
 ## Documentation
 

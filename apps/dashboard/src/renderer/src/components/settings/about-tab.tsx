@@ -1,9 +1,14 @@
 import { Button, buttonVariants } from "@mapos/ui/components/button";
-import { GlobeIcon, MailIcon, MegaphoneIcon } from "lucide-react";
+import { BugIcon, GlobeIcon, MailIcon, MegaphoneIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import maposLogo from "../../assets/mapos.svg";
 
 const LINKS: { label: string; href: string; icon: React.ElementType }[] = [
+  {
+    label: "Report a bug",
+    href: "https://github.com/NicHaley/mapos/issues",
+    icon: BugIcon
+  },
   {
     label: "Feedback",
     href: "https://github.com/NicHaley/mapos/discussions/categories/ideas",

@@ -460,7 +460,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
             </Tooltip>
           </SidebarMenu>
         </SidebarGroup>
-        <SidebarGroup className="pb-0">
+        <SidebarGroup className="min-h-0 flex-1 pb-0">
           <div className="group/group-header relative mb-0.5 flex flex-col">
             <CollapsibleGroupLabel
               label="Vault"
@@ -552,7 +552,7 @@ export const ProjectSidebar = memo(function ProjectSidebar({
                     {vaultRoot && dndBridge ? (
                       <div
                         aria-hidden
-                        className="h-6"
+                        className="min-h-6 flex-1"
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.dataTransfer.dropEffect = "move";

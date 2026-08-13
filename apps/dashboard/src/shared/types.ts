@@ -93,6 +93,8 @@ export type OverlayPoint = {
   lat: number;
   lng: number;
   title: string;
+  /** Geocode result id when this point came from geocode_search/reverse_geocode. */
+  resultId?: string;
   /** Shown in mini PlaceCard body before save (optional). */
   preview_markdown?: string;
   /**
@@ -114,6 +116,8 @@ export type OverlayPoint = {
 export type OverlayLine = {
   id: string;
   coordinates: [number, number][];
+  /** get_directions handle when this line came from a route_id. */
+  routeId?: string;
   title?: string;
   preview_markdown?: string;
 };
@@ -121,6 +125,8 @@ export type OverlayLine = {
 export type OverlayPolygon = {
   id: string;
   coordinates: [number, number][][];
+  /** isochrone_id or geo_compute geometry_id when this polygon came from a handle. */
+  geometryId?: string;
   title?: string;
   preview_markdown?: string;
 };
@@ -155,6 +161,122 @@ export type MapOverlayLayer = MapOverlayPayload & {
    */
   vaultPaths?: string[];
 };
+
+/** One feature in an ephemeral feature-list tab, as reported to the MCP agent. */
+export type FeatureListItemSummary =
+  | {
+      ref: string;
+      kind: "geocode";
+      result_id: string;
+      title: string;
+      preview_markdown?: string;
+    }
+  | { ref: string; kind: "vault"; path: string; title: string }
+  | {
+      ref: string;
+      kind: "ad_hoc";
+      title: string;
+      lat: number;
+      lng: number;
+      preview_markdown?: string;
+      properties?: Record<string, string>;
+    }
+  | {
+      ref: string;
+      kind: "route";
+      route_id: string;
+      title?: string;
+      preview_markdown?: string;
+    }
+  | {
+      ref: string;
+      kind: "area";
+      geometry_id: string;
+      title?: string;
+      preview_markdown?: string;
+    };
+
+export type NavTabInfo =
+  | { kind: "place" | "folder"; path: string; title: string }
+  | {
+      kind: "feature_list";
+      layerId: string;
+      title: string;
+      features: FeatureListItemSummary[];
+    };
+
+export type NavStatePayload = {
+  active: NavTabInfo | null;
+  activeIndex: number;
+  tabs: NavTabInfo[];
+};
+
+function placeTitleFromPath(filePath: string): string {
+  const base = filePath.split(/[/\\]/).pop() ?? filePath;
+  return base.replace(/\.(md|geojson)$/i, "");
+}
+
+/** Serialize an overlay layer into the shape MCP tools report for feature-list tabs. */
+export function featureListSummaryFromLayer(
+  layer: MapOverlayLayer,
+  toVaultRelative: (absOrRel: string) => string
+): FeatureListItemSummary[] {
+  const out: FeatureListItemSummary[] = [];
+  for (const p of layer.points) {
+    if (p.resultId) {
+      out.push({
+        ref: `overlay:${p.id}`,
+        kind: "geocode",
+        result_id: p.resultId,
+        title: p.title,
+        ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {})
+      });
+    } else {
+      out.push({
+        ref: `overlay:${p.id}`,
+        kind: "ad_hoc",
+        title: p.title,
+        lat: p.lat,
+        lng: p.lng,
+        ...(p.preview_markdown != null ? { preview_markdown: p.preview_markdown } : {}),
+        ...(p.properties && Object.keys(p.properties).length > 0
+          ? { properties: p.properties }
+          : {})
+      });
+    }
+  }
+  for (const l of layer.lines) {
+    if (l.routeId) {
+      out.push({
+        ref: `overlay:${l.id}`,
+        kind: "route",
+        route_id: l.routeId,
+        ...(l.title != null ? { title: l.title } : {}),
+        ...(l.preview_markdown != null ? { preview_markdown: l.preview_markdown } : {})
+      });
+    }
+  }
+  for (const pg of layer.polygons) {
+    if (pg.geometryId) {
+      out.push({
+        ref: `overlay:${pg.id}`,
+        kind: "area",
+        geometry_id: pg.geometryId,
+        ...(pg.title != null ? { title: pg.title } : {}),
+        ...(pg.preview_markdown != null ? { preview_markdown: pg.preview_markdown } : {})
+      });
+    }
+  }
+  for (const path of layer.vaultPaths ?? []) {
+    out.push({
+      ref: `vault:${path}`,
+      kind: "vault",
+      path: toVaultRelative(path),
+      title: placeTitleFromPath(path)
+    });
+  }
+  return out;
+}
 
 export type FileNode = {
   name: string;

@@ -15,6 +15,7 @@ import type {
   McpClientId,
   McpConnectionInfo,
   McpToolPhase,
+  NavStatePayload,
   PropertyType,
   RegionDownloadProgress,
   RegionManifest
@@ -59,6 +60,8 @@ const api = {
   map: {
     onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) =>
       ipcRenderer.on("map:overlay-add", (_e, layer) => cb(layer)),
+    onOverlayUpdate: (cb: (layer: MapOverlayLayer) => void) =>
+      ipcRenderer.on("map:overlay-update", (_e, layer) => cb(layer)),
     sendViewport: (data: {
       north: number;
       south: number;
@@ -77,14 +80,11 @@ const api = {
     /** Overlay listener is owned by App; not cleared by MapView.removeListeners. */
     removeOverlayListeners: () => {
       ipcRenderer.removeAllListeners("map:overlay-add");
+      ipcRenderer.removeAllListeners("map:overlay-update");
     }
   },
   nav: {
-    sendNavState: (data: {
-      active: { path: string; kind: "place" | "folder"; title: string } | null;
-      activeIndex: number;
-      tabs: Array<{ path: string; kind: "place" | "folder"; title: string }>;
-    }) => ipcRenderer.send("nav:state-update", data),
+    sendNavState: (data: NavStatePayload) => ipcRenderer.send("nav:state-update", data),
     onOpenFile: (cb: (data: { path: string }) => void) =>
       ipcRenderer.on("nav:open-file", (_e, data) => cb(data)),
     /** Agent `present_directions`: open a Directions tab for the given ordered stops
@@ -92,7 +92,7 @@ const api = {
      * stop → the renderer defaults to the user's current location. */
     onOpenDirections: (
       cb: (data: {
-        stops: ({ lat: number; lng: number; label: string } | null)[];
+        stops: ({ lat: number; lng: number; label: string; filePath?: string } | null)[];
         mode: "auto" | "pedestrian" | "bicycle";
       }) => void
     ) => ipcRenderer.on("nav:open-directions", (_e, data) => cb(data)),

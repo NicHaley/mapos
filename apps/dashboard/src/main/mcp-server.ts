@@ -24,7 +24,15 @@ import {
   sanitizeAdHocProperties
 } from "../shared/geocode-detail";
 import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
-import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
+import type { RouteFrontmatter, RouteStop } from "../shared/route";
+import {
+  type MapOverlayLayer,
+  type NavStatePayload,
+  type NavTabInfo,
+  type PlaceRecord,
+  orderDetailProperties
+} from "../shared/types";
+import { wikilinkForFile } from "../shared/wikilinks";
 import { computeBbox } from "./bbox";
 import {
   queryNear,
@@ -59,6 +67,17 @@ import { geometryToWkt } from "./wkt";
  * The agent gets back an opaque id (`route_N`, `iso_N`, `geom_N`) and passes that id to
  * render/query/save/geo_compute; the tool layer resolves it here.
  */
+/** One endpoint stashed with a route so save_features_to_vault can write `route` frontmatter. */
+export type StashedRouteStop = {
+  label: string;
+  lat: number;
+  lng: number;
+  /** Absolute vault path when the stop came from a saved place. */
+  vaultPath?: string;
+  /** Geocode result id when the stop came from geocode_search — resolved to a wikilink at save time. */
+  resultId?: string;
+};
+
 export type StashedGeometry = {
   kind: "route" | "isochrone" | "geometry";
   /** GeoJSON geometry (Point | LineString | Polygon | MultiPolygon | …). */
@@ -67,6 +86,8 @@ export type StashedGeometry = {
   distanceMeters?: number;
   durationSeconds?: number;
   mode?: string;
+  /** route only: ordered stops for `route` frontmatter (reopens in the directions panel). */
+  stops?: StashedRouteStop[];
   /** isochrone only: the contour's minute value. */
   minutes?: number;
 };
@@ -202,10 +223,6 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
   lastViewport = data;
 });
 
-/** One open tab / the active view. `path` is absolute (as the renderer knows it). */
-type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
-type NavStatePayload = { active: NavTabInfo | null; activeIndex: number; tabs: NavTabInfo[] };
-
 // The renderer pushes its current tab/selection state up whenever it changes, mirroring
 // the viewport cache above. get_active_file / get_open_tabs read this snapshot.
 let lastNavState: NavStatePayload | null = null;
@@ -260,9 +277,9 @@ Have a neutral tone. Don't be too friendly or too formal.
 
 ## What the user is looking at
 
-You can see and drive the app's open files:
-- \`get_active_file\` — the file open in the active tab (path, title, kind). Call it to ground vague references — "this place", "what I'm looking at", "here" — instead of asking the user which file they mean.
-- \`get_open_tabs\` — every open tab plus which one is active, i.e. the user's current workspace.
+You can see and drive the app's open files and ephemeral feature lists:
+- \`get_active_file\` — what the user is viewing in the active tab: a vault place/folder (\`kind: "place"\` / \`"folder"\`, with \`path\`) OR an ephemeral feature list (\`kind: "feature_list"\`, with \`layerId\` and \`features\`). Call it to ground "this place", "this list", "remove the third one", "add a note to…".
+- \`get_open_tabs\` — every open tab plus which is active. Feature-list tabs include \`layerId\` and \`features\` so you can modify a list the user already has open.
 - \`open_file\` — open a vault file in a tab so the user actually sees it. After you create or find something the user will want to look at (e.g. a note from \`write_vault_file\` or a place from \`save_features_to_vault\`), open it rather than only describing it. Don't open files the user didn't ask to see.
 
 Where the user is looking is not where they are. For the map viewport (the visible area/center) use \`get_viewport\`; for the user's real physical position use \`get_current_location\` (device GPS). Ground "near me", "how far am I", or "route me home" in \`get_current_location\`, not the viewport — the map may be panned somewhere else entirely. For "where am I" or "take me to my location", call it with \`reveal_on_map: true\` — that single call shows the location on the map (marker + fly), so you don't need a separate \`pan_to\`; leave it false when you only need the coordinates for a calculation. It triggers a fresh fix and may prompt for OS permission the first time; if it returns null, fall back to asking the user or using the viewport, and say which you used.
@@ -323,6 +340,8 @@ To SAVE places or routes, use \`save_features_to_vault\`, not hand-written write
 ## Presenting places and features
 
 \`present_features\` is the one tool for putting transient (unsaved) features on the map — points, routes, polygons. Use it, not a Markdown list or table, whenever you show located places the user might pick from (search results, recommendations, matching saved places), draw a route, or draw an area. It renders the map markers AND a clickable, map-synced list in the chat from the same data, and takes an ordered \`features\` array (order preserved; kinds can be mixed).
+
+To **change** a feature list the user already has open (add/remove/reorder places, edit \`preview_markdown\`, rename the tab), call \`get_active_file\` or \`get_open_tabs\` first to read \`layerId\` and the current \`features\`, then call \`present_features\` again with \`layer_id\` set to that \`layerId\` and a full replacement \`features\` array — do NOT omit \`layer_id\`; that opens a duplicate tab. Each tool response also returns \`layer_id\` for the list it created.
 
 Reference each feature by handle, never by transcribed content — the exact field to set is on the tool's own schema:
 - a looked-up geocode/POI result → \`result_id\` (the app fills in marker, title, and properties; transcribing them yourself causes drift like "fast_food" → "fast food"). Add only optional \`preview_markdown\`.
@@ -399,6 +418,26 @@ const directionsEndpointSchema = Type.Object({
   )
 });
 
+type ResolvedDirectionsStop = {
+  lat: number;
+  lng: number;
+  label: string;
+  vaultPath?: string;
+  resultId?: string;
+};
+
+/** Match coordinates at ~10cm — same precision as route frontmatter round-trips. */
+function coordsNear(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+  precision = 6
+): boolean {
+  return (
+    a.lat.toFixed(precision) === b.lat.toFixed(precision) &&
+    a.lng.toFixed(precision) === b.lng.toFixed(precision)
+  );
+}
+
 export function buildMaposCustomTools(
   places: Map<string, PlaceRecord>,
   maposDir: string,
@@ -443,6 +482,7 @@ export function buildMaposCustomTools(
     distanceMeters: number;
     durationSeconds: number;
     mode: string;
+    stops: StashedRouteStop[];
   }): string => stashGeometry({ kind: "route", ...route }, "route");
   /** Resolve an opaque handle to its geometry, or throw a clear, tool-naming miss error. */
   const resolveGeometryId = (id: string): StashedGeometry => {
@@ -516,6 +556,86 @@ export function buildMaposCustomTools(
     return resolved;
   };
 
+  const resolveDirectionsEndpoint = (ep: {
+    result_id?: string;
+    path?: string;
+    lat?: number;
+    lng?: number;
+    label?: string;
+  }): ResolvedDirectionsStop | { error: string } => {
+    if (ep.result_id) {
+      const cached = geocodeStore.get(ep.result_id);
+      if (!cached) {
+        return {
+          error: `result_id "${ep.result_id}" is no longer cached (cleared on app restart or provider/model change). Re-run geocode_search and use the fresh id.`
+        };
+      }
+      return {
+        lat: cached.lat,
+        lng: cached.lng,
+        label: cached.primaryLabel,
+        resultId: ep.result_id
+      };
+    }
+    if (ep.path) {
+      const abs = isAbsolute(ep.path) ? ep.path : join(maposDir, ep.path);
+      const place = places.get(abs) ?? places.get(ep.path);
+      if (!place) return { error: `No indexed place at path "${ep.path}".` };
+      const pt = representativePoint(place.geometry);
+      if (!pt) return { error: `Place "${ep.path}" has no location to route to.` };
+      return {
+        lat: pt.lat,
+        lng: pt.lng,
+        label: place.title || "Saved place",
+        vaultPath: place.filePath
+      };
+    }
+    if (typeof ep.lat === "number" && typeof ep.lng === "number") {
+      return { lat: ep.lat, lng: ep.lng, label: ep.label || "Point" };
+    }
+    return { error: "Each endpoint needs a result_id, a path, or lat+lng." };
+  };
+
+  const vaultFilePaths = (): Iterable<string> => places.keys();
+
+  const findVaultPathForStop = (
+    stop: StashedRouteStop,
+    savedByResultId: ReadonlyMap<string, string>
+  ): string | undefined => {
+    if (stop.vaultPath) return stop.vaultPath;
+    if (stop.resultId) {
+      const fromBatch = savedByResultId.get(stop.resultId);
+      if (fromBatch) return fromBatch;
+    }
+    for (const place of places.values()) {
+      const pt = representativePoint(place.geometry);
+      if (pt && coordsNear(pt, stop)) return place.filePath;
+    }
+    return undefined;
+  };
+
+  const routeFrontmatterFromStash = (
+    stored: StashedGeometry,
+    savedByResultId: ReadonlyMap<string, string>
+  ): RouteFrontmatter | null => {
+    if (!stored.stops || stored.stops.length < 2) return null;
+    const mode =
+      stored.mode === "auto" || stored.mode === "pedestrian" || stored.mode === "bicycle"
+        ? stored.mode
+        : "auto";
+    const paths = vaultFilePaths();
+    const stops: RouteStop[] = stored.stops.map((stop, index) => {
+      const vaultPath = findVaultPathForStop(stop, savedByResultId);
+      return {
+        label: stop.label.trim() || `Stop ${index + 1}`,
+        lat: stop.lat,
+        lng: stop.lng,
+        ...(vaultPath ? { file: wikilinkForFile(vaultPath, maposDir, paths) } : {})
+      };
+    });
+    return { mode, stops };
+  };
+
   // Shared attribute-filter shape for the spatial query tools (query_spatial_index,
   // find_near, query_within_polygon). Mirrors db.ts `SpatialFilters`.
   const spatialFilters = Type.Object({
@@ -533,7 +653,7 @@ export function buildMaposCustomTools(
     name: "present_features",
     label: "Present features",
     description:
-      "Show the user transient features on the map AND, for places, a clickable map-connected list in the chat, kept in sync. This is the ONE tool for putting features on the map without saving them — points, lines, and polygons. Use it — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query), and use it to draw routes and areas. Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), a genuinely ad-hoc point you couldn't look up (set `lat`, `lng`, `title`), a route line (set `route_id` from get_directions), or a polygon/area (set `isochrone_id` from get_isochrone or `geometry_id` from geo_compute). Pass geometry by handle, NEVER by coordinates — re-emitting coordinates costs tens of thousands of tokens. Order is preserved. For a route the user will read turn-by-turn or re-route, use present_directions; to keep anything, use save_features_to_vault.",
+      "Show the user transient features on the map AND, for places, a clickable map-connected list in the chat, kept in sync. This is the ONE tool for putting features on the map without saving them — points, lines, and polygons. Use it — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query), and use it to draw routes and areas. Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), a genuinely ad-hoc point you couldn't look up (set `lat`, `lng`, `title`), a route line (set `route_id` from get_directions), or a polygon/area (set `isochrone_id` from get_isochrone or `geometry_id` from geo_compute). Pass geometry by handle, NEVER by coordinates — re-emitting coordinates costs tens of thousands of tokens. Order is preserved. To UPDATE an open feature list (add/remove/reorder/edit notes), pass `layer_id` from get_active_file/get_open_tabs with a full replacement `features` array — omitting `layer_id` opens a new tab. For a route the user will read turn-by-turn or re-route, use present_directions; to keep anything, use save_features_to_vault.",
     parameters: Type.Object({
       features: jsonArrayParam(
         Type.Object({
@@ -552,7 +672,7 @@ export function buildMaposCustomTools(
           path: Type.Optional(
             Type.String({
               description:
-                "Vault file path of a saved place (as returned by query_spatial_index). Set this for a place already in the vault — its marker already exists on the map. Leave lat/lng unset in this case."
+                "Vault file path of a saved place — absolute (query_spatial_index `file_path`) or vault-relative (get_active_file / get_open_tabs). Set this for a place already in the vault. Leave lat/lng unset in this case."
             })
           ),
           lat: Type.Optional(
@@ -602,10 +722,19 @@ export function buildMaposCustomTools(
       ),
       layer_name: Type.Optional(
         Type.String({ default: "search-results", description: "Name for the overlay layer" })
+      ),
+      layer_id: Type.Optional(
+        Type.String({
+          description:
+            "Update an existing feature-list tab instead of opening a new one. Set to the `layerId` from get_active_file/get_open_tabs (or the `layer_id` returned by a prior present_features). Requires a full replacement `features` array."
+        })
       )
     }),
     execute: async (toolCallId, args) => {
-      const layerId = toolCallId;
+      const requestedLayerId =
+        args.layer_id != null && args.layer_id.length > 0 ? args.layer_id : undefined;
+      const updateExisting = requestedLayerId != null;
+      const layerId = requestedLayerId ?? toolCallId;
       const features = coerceJsonArray(args.features);
       if (features.length === 0) {
         return TEXT_RESULT(
@@ -626,8 +755,12 @@ export function buildMaposCustomTools(
       const unresolvedResultIds: string[] = [];
       features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
-          refs.push(`vault:${f.path}`);
-          vaultPaths.push(f.path);
+          // Renderer looks up vaultPaths against absolutely keyed placesByPath.
+          // get_open_tabs reports vault-relative paths, so resolve before storing.
+          const abs = resolveUnderVault(f.path);
+          if (!abs) return;
+          refs.push(`vault:${abs}`);
+          vaultPaths.push(abs);
           return;
         }
 
@@ -644,6 +777,7 @@ export function buildMaposCustomTools(
           lines.push({
             id: lineId,
             coordinates: geom.coordinates as [number, number][],
+            routeId: f.route_id,
             title: f.title,
             ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
           });
@@ -671,6 +805,7 @@ export function buildMaposCustomTools(
             polygons.push({
               id: polyId,
               coordinates: rings.map(closeRing),
+              geometryId: polyHandle,
               title: f.title,
               ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
             });
@@ -698,6 +833,7 @@ export function buildMaposCustomTools(
               lat: cached.lat,
               lng: cached.lng,
               title: cached.primaryLabel,
+              resultId: f.result_id,
               ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
               ...(Object.keys(properties).length > 0 ? { properties } : {})
             });
@@ -732,29 +868,57 @@ export function buildMaposCustomTools(
       // Vault paths ride along on the layer: the renderer resolves them against the
       // places index and draws their markers, since a presented place may lie outside
       // the selected folder and would otherwise have no marker on the map.
-      if (points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0) {
-        const layer: MapOverlayLayer = {
-          id: layerId,
-          layerName: args.layer_name ?? "search-results",
-          points,
-          lines,
-          polygons,
-          ...(vaultPaths.length > 0 ? { vaultPaths } : {})
-        };
+      const existingListTab =
+        updateExisting && lastNavState
+          ? lastNavState.tabs.find((t) => t.kind === "feature_list" && t.layerId === layerId)
+          : undefined;
+      const layer: MapOverlayLayer = {
+        id: layerId,
+        layerName: args.layer_name ?? existingListTab?.title ?? "search-results",
+        points,
+        lines,
+        polygons,
+        ...(vaultPaths.length > 0 ? { vaultPaths } : {})
+      };
+      const hasContent =
+        points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0;
+      const unresolved =
+        unresolvedResultIds.length > 0
+          ? {
+              unresolved_result_ids: unresolvedResultIds,
+              warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
+            }
+          : {};
+      if (updateExisting) {
+        if (!existingListTab) {
+          return TEXT_RESULT(
+            JSON.stringify({
+              error: `No open feature list with layer_id "${layerId}". Call get_active_file or get_open_tabs for the current list, or omit layer_id to open a new one.`
+            })
+          );
+        }
+        if (!hasContent) {
+          return TEXT_RESULT(
+            JSON.stringify({
+              error:
+                "None of the features could be resolved — the open list was left unchanged. Re-run geocode_search/reverse_geocode for stale result_ids (or pass path/lat+lng), then call present_features again with layer_id.",
+              ...unresolved
+            })
+          );
+        }
+        sendToRenderer("map:overlay-update", layer);
+      } else if (hasContent) {
         sendToRenderer("map:overlay-add", layer);
       }
 
       return TEXT_RESULT(
         JSON.stringify({
           kind: "feature_list",
+          layer_id: layerId,
+          updated: updateExisting,
           count: refs.length,
           refs: refs.join(","),
-          ...(unresolvedResultIds.length > 0
-            ? {
-                unresolved_result_ids: unresolvedResultIds,
-                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
-              }
-            : {}),
+          ...unresolved,
           assistant_instructions:
             "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
         })
@@ -1122,11 +1286,28 @@ export function buildMaposCustomTools(
     return rel === "" || rel.startsWith("..") ? abs : rel.split(sep).join("/");
   };
 
+  const formatNavTabForAgent = (tab: NavTabInfo) => {
+    if (tab.kind === "feature_list") {
+      return {
+        kind: tab.kind,
+        layerId: tab.layerId,
+        title: tab.title,
+        featureCount: tab.features.length,
+        features: tab.features
+      };
+    }
+    return {
+      kind: tab.kind,
+      path: toVaultRelative(tab.path),
+      title: tab.title
+    };
+  };
+
   const getActiveFile = defineTool({
     name: "get_active_file",
     label: "Get active file",
     description:
-      'Returns the file the user is currently viewing in the app (the active tab): its vault-relative path, title, and kind (\'place\' or \'folder\'). Use this to ground requests about what the user is looking at — "summarize this", "add a note to this place", "what\'s near here". Returns { activeFile: null } when nothing is open.',
+      'Returns what the user is viewing in the active tab: a vault place/folder (`kind: "place"` or `"folder"`, with `path`) or an ephemeral feature list (`kind: "feature_list"`, with `layerId` and `features`). Use for "this place", "this list", "remove the third one", "add a note here". Returns { activeFile: null } when nothing is open.',
     parameters: Type.Object({}),
     execute: async () => {
       if (!lastNavState) {
@@ -1134,11 +1315,7 @@ export function buildMaposCustomTools(
       }
       const a = lastNavState.active;
       if (!a) return TEXT_RESULT(JSON.stringify({ activeFile: null }));
-      return TEXT_RESULT(
-        JSON.stringify({
-          activeFile: { path: toVaultRelative(a.path), kind: a.kind, title: a.title }
-        })
-      );
+      return TEXT_RESULT(JSON.stringify({ activeFile: formatNavTabForAgent(a) }));
     }
   });
 
@@ -1146,17 +1323,13 @@ export function buildMaposCustomTools(
     name: "get_open_tabs",
     label: "Get open tabs",
     description:
-      "Returns the user's currently open tabs (their workspace): each tab's vault-relative path, title, and kind, plus which tab is active (activeIndex). Use this to see the full set of things the user is working with, not just the active one.",
+      "Returns the user's open tabs (workspace): vault places/folders and ephemeral feature lists. Feature-list tabs include `layerId` and `features` for modifying an existing list via present_features with `layer_id`. Also returns activeIndex.",
     parameters: Type.Object({}),
     execute: async () => {
       if (!lastNavState) {
         return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
       }
-      const tabs = lastNavState.tabs.map((t) => ({
-        path: toVaultRelative(t.path),
-        kind: t.kind,
-        title: t.title
-      }));
+      const tabs = lastNavState.tabs.map((t) => formatNavTabForAgent(t));
       return TEXT_RESULT(
         JSON.stringify({ tabs, activeIndex: lastNavState.activeIndex, count: tabs.length })
       );
@@ -1378,11 +1551,12 @@ export function buildMaposCustomTools(
     name: "get_directions",
     label: "Get directions",
     description:
-      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. For 'pedestrian' and 'bicycle' it also returns elevationGainMeters, elevationLossMeters, minElevationMeters and maxElevationMeters — total climb and descent, noise-filtered — which is how to compare two loops for how hilly they are. These are omitted when the region pack predates elevation support; say so rather than guessing at climb. The route shape is stored server-side; to draw it, pass the `route_id` to `present_features` as a feature with `route_id`; to save it as a vault file, pass it to `save_features_to_vault` with a title. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
+      "Compute a route between two or more locations via Valhalla. Returns: distanceMeters, durationSeconds, a `route_id` (opaque handle), pointCount, and turn-by-turn `maneuvers`. Use 'pedestrian' for walking, 'bicycle' for cycling, 'auto' for driving. For 'pedestrian' and 'bicycle' it also returns elevationGainMeters, elevationLossMeters, minElevationMeters and maxElevationMeters — total climb and descent, noise-filtered — which is how to compare two loops for how hilly they are. These are omitted when the region pack predates elevation support; say so rather than guessing at climb. The route shape is stored server-side; to draw it, pass the `route_id` to `present_features` as a feature with `route_id`; to save it as a vault file, pass it to `save_features_to_vault` with a title. Each location is ONE of: a geocode result (`result_id`, preferred), a saved vault place (`path`), or an ad-hoc point (`lat`+`lng`, optional `label`). Prefer `result_id`/`path` over bare coordinates so saved routes reopen in the directions panel with linked stops. Do NOT attempt to retrieve, decode, downsample, or re-emit the route geometry yourself — there is no need.",
     parameters: Type.Object({
-      locations: Type.Array(Type.Object({ lat: Type.Number(), lng: Type.Number() }), {
+      locations: Type.Array(directionsEndpointSchema, {
         minItems: 2,
-        description: "Ordered list of waypoints; must have at least two"
+        description:
+          "Ordered waypoints (2 or more). Each is a result_id, path, or lat+lng — same shape as present_directions locations."
       }),
       costing: Type.Optional(
         Type.Union([Type.Literal("auto"), Type.Literal("pedestrian"), Type.Literal("bicycle")], {
@@ -1393,8 +1567,16 @@ export function buildMaposCustomTools(
     execute: async (_id, args) => {
       try {
         const costing = args.costing ?? "pedestrian";
+        const resolved: ResolvedDirectionsStop[] = [];
+        for (const loc of args.locations) {
+          const r = resolveDirectionsEndpoint(loc);
+          if ("error" in r) {
+            return TEXT_RESULT(JSON.stringify({ success: false, error: r.error }));
+          }
+          resolved.push(r);
+        }
         const route = await getServiceClient().routing.directions({
-          locations: args.locations,
+          locations: resolved.map((s) => ({ lat: s.lat, lng: s.lng })),
           costing,
           // Climb is part of the answer on foot or by bike, dead weight on a drive. The samples
           // themselves stay in the main process — only the aggregates below cross the boundary.
@@ -1407,7 +1589,14 @@ export function buildMaposCustomTools(
           geometry: route.geometry,
           distanceMeters: route.distanceMeters,
           durationSeconds: route.durationSeconds,
-          mode: args.costing ?? "pedestrian"
+          mode: costing,
+          stops: resolved.map((s) => ({
+            label: s.label,
+            lat: s.lat,
+            lng: s.lng,
+            ...(s.vaultPath ? { vaultPath: s.vaultPath } : {}),
+            ...(s.resultId ? { resultId: s.resultId } : {})
+          }))
         });
         // Long routes can carry hundreds of maneuvers; cap what crosses the boundary.
         const MANEUVER_CAP = 60;
@@ -1459,41 +1648,10 @@ export function buildMaposCustomTools(
       )
     }),
     execute: async (_id, args) => {
-      const resolveEndpoint = (ep: {
-        result_id?: string;
-        path?: string;
-        lat?: number;
-        lng?: number;
-        label?: string;
-      }): { lat: number; lng: number; label: string } | { error: string } => {
-        if (ep.result_id) {
-          const cached = geocodeStore.get(ep.result_id);
-          if (!cached) {
-            return {
-              error: `result_id "${ep.result_id}" is no longer cached (cleared on app restart or provider/model change). Re-run geocode_search and use the fresh id.`
-            };
-          }
-          return { lat: cached.lat, lng: cached.lng, label: cached.primaryLabel };
-        }
-        if (ep.path) {
-          const abs = isAbsolute(ep.path) ? ep.path : join(maposDir, ep.path);
-          const place = places.get(abs) ?? places.get(ep.path);
-          if (!place) return { error: `No indexed place at path "${ep.path}".` };
-          const pt = representativePoint(place.geometry);
-          if (!pt) return { error: `Place "${ep.path}" has no location to route to.` };
-          return { lat: pt.lat, lng: pt.lng, label: place.title || "Saved place" };
-        }
-        if (typeof ep.lat === "number" && typeof ep.lng === "number") {
-          return { lat: ep.lat, lng: ep.lng, label: ep.label || "Point" };
-        }
-        return { error: "Each endpoint needs a result_id, a path, or lat+lng." };
-      };
-
-      type ResolvedStop = { lat: number; lng: number; label: string };
       const mode = args.mode ?? "auto";
       // Ordered stops sent to the renderer; a null entry is a blank input (only stops[0]
       // may be null → the renderer fills the user's current location).
-      let stops: (ResolvedStop | null)[];
+      let stops: (ResolvedDirectionsStop | null)[];
 
       if (args.locations && args.locations.length > 0) {
         if (args.locations.length < 2) {
@@ -1501,9 +1659,9 @@ export function buildMaposCustomTools(
             JSON.stringify({ success: false, error: "`locations` needs at least 2 stops." })
           );
         }
-        const resolved: ResolvedStop[] = [];
+        const resolved: ResolvedDirectionsStop[] = [];
         for (const loc of args.locations) {
-          const r = resolveEndpoint(loc);
+          const r = resolveDirectionsEndpoint(loc);
           if ("error" in r) {
             return TEXT_RESULT(JSON.stringify({ success: false, error: r.error }));
           }
@@ -1519,13 +1677,13 @@ export function buildMaposCustomTools(
             })
           );
         }
-        const destination = resolveEndpoint(args.destination);
+        const destination = resolveDirectionsEndpoint(args.destination);
         if ("error" in destination) {
           return TEXT_RESULT(JSON.stringify({ success: false, error: destination.error }));
         }
-        let origin: ResolvedStop | null = null;
+        let origin: ResolvedDirectionsStop | null = null;
         if (args.origin) {
-          const resolved = resolveEndpoint(args.origin);
+          const resolved = resolveDirectionsEndpoint(args.origin);
           if ("error" in resolved) {
             return TEXT_RESULT(JSON.stringify({ success: false, error: resolved.error }));
           }
@@ -1534,7 +1692,19 @@ export function buildMaposCustomTools(
         stops = [origin, destination];
       }
 
-      sendToRenderer("nav:open-directions", { stops, mode });
+      sendToRenderer("nav:open-directions", {
+        stops: stops.map((s) =>
+          s
+            ? {
+                lat: s.lat,
+                lng: s.lng,
+                label: s.label,
+                ...(s.vaultPath ? { filePath: s.vaultPath } : {})
+              }
+            : null
+        ),
+        mode
+      });
       const originLabel = stops[0]?.label ?? "current location";
       const destinationLabel = stops[stops.length - 1]?.label ?? "destination";
       return TEXT_RESULT(
@@ -1907,7 +2077,7 @@ export function buildMaposCustomTools(
     name: "save_features_to_vault",
     label: "Save places to vault",
     description:
-      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — the app expands the id to the full LINESTRING geometry and fills in distance/duration/mode), a stashed geometry like an isochrone or a geo_compute result (set `geometry_id` plus a `title` — the app expands the id to the polygon/line geometry), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
+      "Save one or more places to the vault as place files, in the exact same format as the app's own save affordance: `geometry` WKT frontmatter, structured properties derived from the geocoder source (category, address, osm_id, wikidata_id), and the place's Wikimedia cover photo when one exists. STRONGLY PREFERRED over write_vault_file for saving places and routes. Each feature is ONE of: a geocode/POI result you looked up (set `result_id` — the app derives the filename, geometry, and properties from the cached result, so never re-type its facts), a route from get_directions (set `route_id` plus a `title` — saves as a directions trip with `route` frontmatter so it reopens in the directions panel; pass stop result_ids to get_directions so wikilinks resolve), a stashed geometry like an isochrone or a geo_compute result (set `geometry_id` plus a `title` — the app expands the id to the polygon/line geometry), or a genuinely ad-hoc point you could not look up (set `title`, `lat`, `lng`). Filenames are derived from titles automatically.",
     parameters: Type.Object({
       features: jsonArrayParam(
         Type.Object({
@@ -1920,7 +2090,7 @@ export function buildMaposCustomTools(
           route_id: Type.Optional(
             Type.String({
               description:
-                'The `route_id` returned by get_directions. Saves the route as a LINESTRING place file; the app resolves the geometry and fills in distance/duration/mode — never re-emit coordinates yourself. Requires `title` (e.g. "Home to Café Olimpico"); leave lat/lng unset.'
+                'The `route_id` returned by get_directions. Saves as a directions trip (`route` frontmatter + LINESTRING geometry) that reopens in the directions panel — never re-emit coordinates yourself. Requires `title` (e.g. "Day 1 route"); leave lat/lng unset. Pass the same stop result_ids to get_directions so saved stops wikilink correctly.'
             })
           ),
           geometry_id: Type.Optional(
@@ -1997,8 +2167,15 @@ export function buildMaposCustomTools(
         properties: Record<string, string>;
         wikidataId?: string;
         body?: string;
+        sourceResultId?: string;
       };
       const resolved: ResolvedFeature[] = [];
+      const pendingRoutes: Array<{
+        title: string;
+        geometry: string;
+        body?: string;
+        stored: StashedGeometry;
+      }> = [];
       const unresolvedResultIds: string[] = [];
       const unresolvedRouteIds: string[] = [];
       const untitledRouteIds: string[] = [];
@@ -2020,7 +2197,8 @@ export function buildMaposCustomTools(
                 ...detailPropertiesFromGeocodeResult(cached)
               }),
               wikidataId: cached.wikidataId,
-              body: f.body_markdown
+              body: f.body_markdown,
+              sourceResultId: f.result_id
             });
             continue;
           }
@@ -2043,21 +2221,11 @@ export function buildMaposCustomTools(
             unsupportedGeometryIds.push(f.route_id);
             continue;
           }
-          resolved.push({
+          pendingRoutes.push({
             title: f.title,
             geometry: wkt,
-            properties: orderDetailProperties({
-              ...sanitizeAdHocProperties(f.properties),
-              category: "route",
-              ...(stored.mode != null ? { mode: stored.mode } : {}),
-              ...(stored.distanceMeters != null
-                ? { distance_m: String(Math.round(stored.distanceMeters)) }
-                : {}),
-              ...(stored.durationSeconds != null
-                ? { duration_s: String(Math.round(stored.durationSeconds)) }
-                : {})
-            }),
-            body: f.body_markdown
+            body: f.body_markdown,
+            stored
           });
           continue;
         }
@@ -2097,7 +2265,7 @@ export function buildMaposCustomTools(
         if (f.result_id) unresolvedResultIds.push(f.result_id);
       }
 
-      if (resolved.length > 0) mkdirSync(folder, { recursive: true });
+      if (resolved.length > 0 || pendingRoutes.length > 0) mkdirSync(folder, { recursive: true });
 
       // Prefetch covers concurrently; best-effort (offline or imageless QIDs skip).
       const covers = await Promise.all(
@@ -2105,6 +2273,8 @@ export function buildMaposCustomTools(
       );
 
       const saved: Array<{ path: string; title: string }> = [];
+      const savedByResultId = new Map<string, string>();
+
       for (let i = 0; i < resolved.length; i++) {
         const r = resolved[i];
         const data: Record<string, unknown> = {
@@ -2139,6 +2309,32 @@ export function buildMaposCustomTools(
           // Indexing failure is non-fatal; the watcher will pick the file up
         }
         saved.push({ path, title: r.title });
+        if (r.sourceResultId) savedByResultId.set(r.sourceResultId, path);
+      }
+
+      for (const pending of pendingRoutes) {
+        const route = routeFrontmatterFromStash(pending.stored, savedByResultId);
+        const data: Record<string, unknown> = {
+          geometry: pending.geometry,
+          ...(route ? { route } : {})
+        };
+        const base =
+          pending.title
+            .trim()
+            .replace(/[/\\:*?"<>|]/g, "")
+            .trim() || "route";
+        const path = uniquePathInDir(folder, `${base}.md`, false);
+        const body = pending.body?.trim();
+        const content = stringifyPlaceFile(body ? `\n${body}\n` : "", data);
+        onVaultWrite({ path, previousContent: null });
+        writeFileSync(path, content, "utf-8");
+        try {
+          const record = await parsePlaceFile(path);
+          syncFeatureForFile(path, record);
+        } catch {
+          // Indexing failure is non-fatal; the watcher will pick the file up
+        }
+        saved.push({ path, title: pending.title });
       }
 
       const warnings: string[] = [];

@@ -15,6 +15,8 @@ import type {
   McpClientId,
   McpConnectionInfo,
   McpToolPhase,
+  NavStatePayload,
+  NavTabInfo,
   OverlayLine,
   OverlayPoint,
   OverlayPolygon,
@@ -34,8 +36,6 @@ type ViewportState = {
   centerLng: number;
   zoom: number;
 };
-
-type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
 
 declare global {
   interface Window {
@@ -66,21 +66,18 @@ declare global {
       };
       map: {
         onOverlayAdd: (cb: (layer: MapOverlayLayer) => void) => void;
+        onOverlayUpdate: (cb: (layer: MapOverlayLayer) => void) => void;
         sendViewport: (data: ViewportState) => void;
         onPanTo: (cb: (data: { lat: number; lng: number; zoom?: number }) => void) => void;
         removeListeners: () => void;
         removeOverlayListeners: () => void;
       };
       nav: {
-        sendNavState: (data: {
-          active: NavTabInfo | null;
-          activeIndex: number;
-          tabs: NavTabInfo[];
-        }) => void;
+        sendNavState: (data: NavStatePayload) => void;
         onOpenFile: (cb: (data: { path: string }) => void) => void;
         onOpenDirections: (
           cb: (data: {
-            stops: ({ lat: number; lng: number; label: string } | null)[];
+            stops: ({ lat: number; lng: number; label: string; filePath?: string } | null)[];
             mode: "auto" | "pedestrian" | "bicycle";
           }) => void
         ) => void;

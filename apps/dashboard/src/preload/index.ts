@@ -409,6 +409,13 @@ const api = {
       return () => {
         ipcRenderer.off("regions:changed", listener);
       };
+    },
+    onManifestUpdated: (cb: (data: RegionManifest) => void): (() => void) => {
+      const listener = (_e: unknown, data: RegionManifest): void => cb(data);
+      ipcRenderer.on("regions:manifest-updated", listener);
+      return () => {
+        ipcRenderer.off("regions:manifest-updated", listener);
+      };
     }
   }
 };

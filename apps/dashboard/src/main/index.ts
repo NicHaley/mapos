@@ -26,6 +26,7 @@ import { registerMcpIpc } from "./mcp-ipc";
 import { mcpManager } from "./mcp/manager";
 import { registerRegionPacksIpc } from "./region-packs";
 import {
+  prewarmWorldArchive,
   registerAssetProtocol,
   registerLocalSchemes,
   registerRegionProtocol
@@ -184,6 +185,7 @@ app.whenReady().then(() => {
   // global glyphs/sprites + world basemap bundled with the app.
   registerRegionProtocol(join(appStateDir, "regions"), worldPmtilesPath());
   registerAssetProtocol(basemapAssetsDir());
+  void prewarmWorldArchive(worldPmtilesPath());
   // Reads `vaultRoot` per-request so vault switches/renames need no re-registration.
   registerVaultProtocol(() => vaultRoot);
   registerWikiIpc(() => vaultRoot);

@@ -95,6 +95,10 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
   // coverage indicator — stays in sync without waiting for a manual refresh.
   useEffect(() => window.api.regions.onChanged(() => void refreshLocal()), [refreshLocal]);
 
+  // Background manifest refresh (after a stale disk cache was returned) updates
+  // the catalog without forcing a full reload.
+  useEffect(() => window.api.regions.onManifestUpdated((data) => setManifest(data)), []);
+
   // Stream download progress. "done" clears the row and re-reads local packs;
   // a cancellation just clears it; real errors stay so the row can show + offer retry.
   useEffect(() => {

@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-beta.15",
+  "version": "1.0.0-beta.16",
   "description": "The connected map for you and your agents.",
   "type": "module",
   "main": "./out/main/index.js",

@@ -4,6 +4,28 @@ Notable changes to MapOS. Generated from commit history by [git-cliff](https://g
 History before `v1.0.0-beta.12` is not covered here — see `git log`.
 
 
+## 1.0.0-beta.16 — 2026-08-13
+
+### Bug fixes
+
+- **mcp:** Preserve open lists and vault-linked stops when presenting again ([`eaacf4a`](https://github.com/NicHaley/mapos/commit/eaacf4ae1df0d3b28eafa8638c2ec5646e5996ec))
+- **mcp:** Let the agent update open feature lists in place ([`5fbcbfb`](https://github.com/NicHaley/mapos/commit/5fbcbfb33a0469aff9b4ed66b56b343c140f98f4))
+- **mcp:** Save routes with route frontmatter so they reopen in directions ([`65007b5`](https://github.com/NicHaley/mapos/commit/65007b5db7c7385858f5589ea08092ce7cf2ae38))
+- Fix region pill and slow tiles on cold start ([`516dc51`](https://github.com/NicHaley/mapos/commit/516dc51d35629f4f39d5f1ac826df092e9b9df00))
+- Fix sidebar rename from the ellipsis menu ([`58bb578`](https://github.com/NicHaley/mapos/commit/58bb5780939f07a8148c44953e4653a83e044895))
+- Stretch the sidebar file tree to fill its available height ([`61ca7f7`](https://github.com/NicHaley/mapos/commit/61ca7f7c7bb5360405dc960f8c0148e47333f57f))
+
+### Features
+
+- Add a Report a bug link to the About tab ([`6efe1e5`](https://github.com/NicHaley/mapos/commit/6efe1e57bc70ad6b4296472fab700d0551b10de2))
+
+### Other
+
+- Revise README with new project details and image
+
+Updated the project description and image in README.md. ([`6528257`](https://github.com/NicHaley/mapos/commit/652825784bf3c5628f2b0415480ca1bea2ade51a))
+
+
 ## 1.0.0-beta.15 — 2026-08-07
 
 ### Features

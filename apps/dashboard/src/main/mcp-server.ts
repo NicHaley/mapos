@@ -25,7 +25,13 @@ import {
 } from "../shared/geocode-detail";
 import { placeNameFromPath, scoreNameMatch } from "../shared/name-match";
 import type { RouteFrontmatter, RouteStop } from "../shared/route";
-import { type MapOverlayLayer, type PlaceRecord, orderDetailProperties } from "../shared/types";
+import {
+  type MapOverlayLayer,
+  type NavStatePayload,
+  type NavTabInfo,
+  type PlaceRecord,
+  orderDetailProperties
+} from "../shared/types";
 import { wikilinkForFile } from "../shared/wikilinks";
 import { computeBbox } from "./bbox";
 import {
@@ -217,10 +223,6 @@ ipcMain.on("map:viewport-update", (_event, data: ViewportState) => {
   lastViewport = data;
 });
 
-/** One open tab / the active view. `path` is absolute (as the renderer knows it). */
-type NavTabInfo = { path: string; kind: "place" | "folder"; title: string };
-type NavStatePayload = { active: NavTabInfo | null; activeIndex: number; tabs: NavTabInfo[] };
-
 // The renderer pushes its current tab/selection state up whenever it changes, mirroring
 // the viewport cache above. get_active_file / get_open_tabs read this snapshot.
 let lastNavState: NavStatePayload | null = null;
@@ -275,9 +277,9 @@ Have a neutral tone. Don't be too friendly or too formal.
 
 ## What the user is looking at
 
-You can see and drive the app's open files:
-- \`get_active_file\` — the file open in the active tab (path, title, kind). Call it to ground vague references — "this place", "what I'm looking at", "here" — instead of asking the user which file they mean.
-- \`get_open_tabs\` — every open tab plus which one is active, i.e. the user's current workspace.
+You can see and drive the app's open files and ephemeral feature lists:
+- \`get_active_file\` — what the user is viewing in the active tab: a vault place/folder (\`kind: "place"\` / \`"folder"\`, with \`path\`) OR an ephemeral feature list (\`kind: "feature_list"\`, with \`layerId\` and \`features\`). Call it to ground "this place", "this list", "remove the third one", "add a note to…".
+- \`get_open_tabs\` — every open tab plus which is active. Feature-list tabs include \`layerId\` and \`features\` so you can modify a list the user already has open.
 - \`open_file\` — open a vault file in a tab so the user actually sees it. After you create or find something the user will want to look at (e.g. a note from \`write_vault_file\` or a place from \`save_features_to_vault\`), open it rather than only describing it. Don't open files the user didn't ask to see.
 
 Where the user is looking is not where they are. For the map viewport (the visible area/center) use \`get_viewport\`; for the user's real physical position use \`get_current_location\` (device GPS). Ground "near me", "how far am I", or "route me home" in \`get_current_location\`, not the viewport — the map may be panned somewhere else entirely. For "where am I" or "take me to my location", call it with \`reveal_on_map: true\` — that single call shows the location on the map (marker + fly), so you don't need a separate \`pan_to\`; leave it false when you only need the coordinates for a calculation. It triggers a fresh fix and may prompt for OS permission the first time; if it returns null, fall back to asking the user or using the viewport, and say which you used.
@@ -338,6 +340,8 @@ To SAVE places or routes, use \`save_features_to_vault\`, not hand-written write
 ## Presenting places and features
 
 \`present_features\` is the one tool for putting transient (unsaved) features on the map — points, routes, polygons. Use it, not a Markdown list or table, whenever you show located places the user might pick from (search results, recommendations, matching saved places), draw a route, or draw an area. It renders the map markers AND a clickable, map-synced list in the chat from the same data, and takes an ordered \`features\` array (order preserved; kinds can be mixed).
+
+To **change** a feature list the user already has open (add/remove/reorder places, edit \`preview_markdown\`, rename the tab), call \`get_active_file\` or \`get_open_tabs\` first to read \`layerId\` and the current \`features\`, then call \`present_features\` again with \`layer_id\` set to that \`layerId\` and a full replacement \`features\` array — do NOT omit \`layer_id\`; that opens a duplicate tab. Each tool response also returns \`layer_id\` for the list it created.
 
 Reference each feature by handle, never by transcribed content — the exact field to set is on the tool's own schema:
 - a looked-up geocode/POI result → \`result_id\` (the app fills in marker, title, and properties; transcribing them yourself causes drift like "fast_food" → "fast food"). Add only optional \`preview_markdown\`.
@@ -649,7 +653,7 @@ export function buildMaposCustomTools(
     name: "present_features",
     label: "Present features",
     description:
-      "Show the user transient features on the map AND, for places, a clickable map-connected list in the chat, kept in sync. This is the ONE tool for putting features on the map without saving them — points, lines, and polygons. Use it — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query), and use it to draw routes and areas. Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), a genuinely ad-hoc point you couldn't look up (set `lat`, `lng`, `title`), a route line (set `route_id` from get_directions), or a polygon/area (set `isochrone_id` from get_isochrone or `geometry_id` from geo_compute). Pass geometry by handle, NEVER by coordinates — re-emitting coordinates costs tens of thousands of tokens. Order is preserved. For a route the user will read turn-by-turn or re-route, use present_directions; to keep anything, use save_features_to_vault.",
+      "Show the user transient features on the map AND, for places, a clickable map-connected list in the chat, kept in sync. This is the ONE tool for putting features on the map without saving them — points, lines, and polygons. Use it — NOT a Markdown list or table — whenever you present located places the user might pick from (search results, recommendations, saved places matching a query), and use it to draw routes and areas. Each feature is ONE of: a geocode/POI result you just looked up (set `result_id` — STRONGLY PREFERRED, the app fills in its name/category/address from the source), a saved vault place (set `path`), a genuinely ad-hoc point you couldn't look up (set `lat`, `lng`, `title`), a route line (set `route_id` from get_directions), or a polygon/area (set `isochrone_id` from get_isochrone or `geometry_id` from geo_compute). Pass geometry by handle, NEVER by coordinates — re-emitting coordinates costs tens of thousands of tokens. Order is preserved. To UPDATE an open feature list (add/remove/reorder/edit notes), pass `layer_id` from get_active_file/get_open_tabs with a full replacement `features` array — omitting `layer_id` opens a new tab. For a route the user will read turn-by-turn or re-route, use present_directions; to keep anything, use save_features_to_vault.",
     parameters: Type.Object({
       features: jsonArrayParam(
         Type.Object({
@@ -718,10 +722,19 @@ export function buildMaposCustomTools(
       ),
       layer_name: Type.Optional(
         Type.String({ default: "search-results", description: "Name for the overlay layer" })
+      ),
+      layer_id: Type.Optional(
+        Type.String({
+          description:
+            "Update an existing feature-list tab instead of opening a new one. Set to the `layerId` from get_active_file/get_open_tabs (or the `layer_id` returned by a prior present_features). Requires a full replacement `features` array."
+        })
       )
     }),
     execute: async (toolCallId, args) => {
-      const layerId = toolCallId;
+      const requestedLayerId =
+        args.layer_id != null && args.layer_id.length > 0 ? args.layer_id : undefined;
+      const updateExisting = requestedLayerId != null;
+      const layerId = requestedLayerId ?? toolCallId;
       const features = coerceJsonArray(args.features);
       if (features.length === 0) {
         return TEXT_RESULT(
@@ -760,6 +773,7 @@ export function buildMaposCustomTools(
           lines.push({
             id: lineId,
             coordinates: geom.coordinates as [number, number][],
+            routeId: f.route_id,
             title: f.title,
             ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
           });
@@ -787,6 +801,7 @@ export function buildMaposCustomTools(
             polygons.push({
               id: polyId,
               coordinates: rings.map(closeRing),
+              geometryId: polyHandle,
               title: f.title,
               ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {})
             });
@@ -814,6 +829,7 @@ export function buildMaposCustomTools(
               lat: cached.lat,
               lng: cached.lng,
               title: cached.primaryLabel,
+              resultId: f.result_id,
               ...(f.preview_markdown != null ? { preview_markdown: f.preview_markdown } : {}),
               ...(Object.keys(properties).length > 0 ? { properties } : {})
             });
@@ -848,21 +864,38 @@ export function buildMaposCustomTools(
       // Vault paths ride along on the layer: the renderer resolves them against the
       // places index and draws their markers, since a presented place may lie outside
       // the selected folder and would otherwise have no marker on the map.
-      if (points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0) {
-        const layer: MapOverlayLayer = {
-          id: layerId,
-          layerName: args.layer_name ?? "search-results",
-          points,
-          lines,
-          polygons,
-          ...(vaultPaths.length > 0 ? { vaultPaths } : {})
-        };
+      const existingListTab =
+        updateExisting && lastNavState
+          ? lastNavState.tabs.find((t) => t.kind === "feature_list" && t.layerId === layerId)
+          : undefined;
+      const layer: MapOverlayLayer = {
+        id: layerId,
+        layerName: args.layer_name ?? existingListTab?.title ?? "search-results",
+        points,
+        lines,
+        polygons,
+        ...(vaultPaths.length > 0 ? { vaultPaths } : {})
+      };
+      const hasContent =
+        points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0;
+      if (updateExisting) {
+        if (!existingListTab) {
+          return TEXT_RESULT(
+            JSON.stringify({
+              error: `No open feature list with layer_id "${layerId}". Call get_active_file or get_open_tabs for the current list, or omit layer_id to open a new one.`
+            })
+          );
+        }
+        sendToRenderer("map:overlay-update", layer);
+      } else if (hasContent) {
         sendToRenderer("map:overlay-add", layer);
       }
 
       return TEXT_RESULT(
         JSON.stringify({
           kind: "feature_list",
+          layer_id: layerId,
+          updated: updateExisting,
           count: refs.length,
           refs: refs.join(","),
           ...(unresolvedResultIds.length > 0
@@ -1238,11 +1271,28 @@ export function buildMaposCustomTools(
     return rel === "" || rel.startsWith("..") ? abs : rel.split(sep).join("/");
   };
 
+  const formatNavTabForAgent = (tab: NavTabInfo) => {
+    if (tab.kind === "feature_list") {
+      return {
+        kind: tab.kind,
+        layerId: tab.layerId,
+        title: tab.title,
+        featureCount: tab.features.length,
+        features: tab.features
+      };
+    }
+    return {
+      kind: tab.kind,
+      path: toVaultRelative(tab.path),
+      title: tab.title
+    };
+  };
+
   const getActiveFile = defineTool({
     name: "get_active_file",
     label: "Get active file",
     description:
-      'Returns the file the user is currently viewing in the app (the active tab): its vault-relative path, title, and kind (\'place\' or \'folder\'). Use this to ground requests about what the user is looking at — "summarize this", "add a note to this place", "what\'s near here". Returns { activeFile: null } when nothing is open.',
+      'Returns what the user is viewing in the active tab: a vault place/folder (`kind: "place"` or `"folder"`, with `path`) or an ephemeral feature list (`kind: "feature_list"`, with `layerId` and `features`). Use for "this place", "this list", "remove the third one", "add a note here". Returns { activeFile: null } when nothing is open.',
     parameters: Type.Object({}),
     execute: async () => {
       if (!lastNavState) {
@@ -1250,11 +1300,7 @@ export function buildMaposCustomTools(
       }
       const a = lastNavState.active;
       if (!a) return TEXT_RESULT(JSON.stringify({ activeFile: null }));
-      return TEXT_RESULT(
-        JSON.stringify({
-          activeFile: { path: toVaultRelative(a.path), kind: a.kind, title: a.title }
-        })
-      );
+      return TEXT_RESULT(JSON.stringify({ activeFile: formatNavTabForAgent(a) }));
     }
   });
 
@@ -1262,17 +1308,13 @@ export function buildMaposCustomTools(
     name: "get_open_tabs",
     label: "Get open tabs",
     description:
-      "Returns the user's currently open tabs (their workspace): each tab's vault-relative path, title, and kind, plus which tab is active (activeIndex). Use this to see the full set of things the user is working with, not just the active one.",
+      "Returns the user's open tabs (workspace): vault places/folders and ephemeral feature lists. Feature-list tabs include `layerId` and `features` for modifying an existing list via present_features with `layer_id`. Also returns activeIndex.",
     parameters: Type.Object({}),
     execute: async () => {
       if (!lastNavState) {
         return TEXT_RESULT(JSON.stringify({ error: "App navigation state not yet available" }));
       }
-      const tabs = lastNavState.tabs.map((t) => ({
-        path: toVaultRelative(t.path),
-        kind: t.kind,
-        title: t.title
-      }));
+      const tabs = lastNavState.tabs.map((t) => formatNavTabForAgent(t));
       return TEXT_RESULT(
         JSON.stringify({ tabs, activeIndex: lastNavState.activeIndex, count: tabs.length })
       );

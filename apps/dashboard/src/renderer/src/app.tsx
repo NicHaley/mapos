@@ -6,8 +6,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@mapos/ui/components/to
 import { cn } from "@mapos/ui/lib/utils";
 import { detailPropertiesFromGeocodeResult } from "@shared/geocode-detail";
 import { type RouteFrontmatter, type RouteStop, defaultRouteTitle } from "@shared/route";
-import type { MapOverlayLayer, OverlayPoint, PlaceAppearance } from "@shared/types";
-import { DIRECTIONS_OVERLAY_PREFIX, orderDetailProperties } from "@shared/types";
+import type { MapOverlayLayer, NavTabInfo, OverlayPoint, PlaceAppearance } from "@shared/types";
+import {
+  DIRECTIONS_OVERLAY_PREFIX,
+  featureListSummaryFromLayer,
+  orderDetailProperties
+} from "@shared/types";
 import { bbox } from "@turf/bbox";
 import type { Geometry } from "geojson";
 import { ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from "lucide-react";
@@ -478,7 +482,26 @@ function App(): React.JSX.Element {
     [dispatchNav, getMapPadding]
   );
 
-  useMapOverlaySync({ addLayer: handleOverlayLayer });
+  /** Agent `present_features` with `layer_id`: replace an open list tab in place. */
+  const handleOverlayLayerUpdate = useCallback(
+    (layer: MapOverlayLayer) => {
+      dispatchNav({ type: "update-list", layerId: layer.id, layer });
+      setSelectedPlace(null);
+      setSelectedFolder(null);
+      setPlaceMode("mini");
+      setFeatureScreenPos(null);
+      setMapPeekPlace(null);
+      setSelectionPulseAnchor(null);
+      setFocusedFeatureId(null);
+      const frame = overlayFeatureCollection(layer);
+      if (frame.features.length > 0) {
+        mapRef.current?.fitToGeoJson(frame, getMapPadding(true));
+      }
+    },
+    [dispatchNav, getMapPadding]
+  );
+
+  useMapOverlaySync({ addLayer: handleOverlayLayer, updateLayer: handleOverlayLayerUpdate });
 
   /** Current active tab entry — drives which pane (place / list / folder) is shown. */
   const activeNavEntry = useMemo(() => {
@@ -1133,24 +1156,36 @@ function App(): React.JSX.Element {
   /** Push the current tab/selection state to main so the agent's get_active_file /
    * get_open_tabs tools can see what the user is looking at. Mirrors the viewport push. */
   useEffect(() => {
-    const toInfo = (tab: (typeof nav.tabs)[number]) => {
+    const toRelative = (path: string) => {
+      if (!vaultRoot || !path.startsWith(vaultRoot)) return path;
+      const rel = path.slice(vaultRoot.length).replace(/^[/\\]/, "");
+      return rel.split(/[/\\]/).join("/");
+    };
+    const toInfo = (tab: (typeof nav.tabs)[number]): NavTabInfo | null => {
       const cur = tab.history[tab.cursor];
       if (cur.kind === "place")
-        return { path: cur.place.filePath, kind: "place" as const, title: cur.place.title };
-      if (cur.kind === "folder")
-        return { path: cur.folderPath, kind: "folder" as const, title: cur.label };
-      // List tabs are ephemeral working sets the agent itself produced — not reported.
+        return { path: cur.place.filePath, kind: "place", title: cur.place.title };
+      if (cur.kind === "folder") return { path: cur.folderPath, kind: "folder", title: cur.label };
+      if (cur.kind === "list") {
+        return {
+          kind: "feature_list",
+          layerId: cur.layerId,
+          title: cur.label,
+          features: featureListSummaryFromLayer(cur.layer, toRelative)
+        };
+      }
+      // Directions tabs are agent-driven working surfaces — not reported (like lists were).
       return null;
     };
     const infos = nav.tabs.map(toInfo);
-    const tabs = infos.filter((t): t is NonNullable<typeof t> => t !== null);
-    const active = nav.activeTab >= 0 ? (infos[nav.activeTab] ?? null) : null;
+    const tabs = infos.filter((t): t is NavTabInfo => t !== null);
+    const activeInfo = nav.activeTab >= 0 ? (infos[nav.activeTab] ?? null) : null;
     window.api.nav.sendNavState({
-      active,
-      activeIndex: active ? tabs.indexOf(active) : -1,
+      active: activeInfo,
+      activeIndex: activeInfo ? tabs.indexOf(activeInfo) : -1,
       tabs
     });
-  }, [nav]);
+  }, [nav, vaultRoot]);
 
   /** "My location" control: store the fix for the marker layer and center on it
    * through the same padding-aware handle so it isn't hidden behind open panes. */

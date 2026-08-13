@@ -2,9 +2,9 @@
 
 **The connected map for you and your agents.**
 
-Your places, notes, and AI on one map. Markdown, no accounts, offline.
+MapOS is a local-first map client built for agent workflows via MCP. All data is stored on disk; places are saved as Markdown files, and map data (tiles, directions, search index) are downloadable.
 
-![MapOS showing a search for campgrounds around Montreal, with results listed beside the map and pinned on it](.github/assets/screenshot.jpg)
+<img width="3800" height="2034" alt="SCR-20260812-navf" src="https://github.com/user-attachments/assets/27caa9c5-5acd-4588-b0bc-17f64d62f036" />
 
 ## Install
 

@@ -52,9 +52,18 @@ export function RegionCoverageIndicator(): React.JSX.Element | null {
   useEffect(() => {
     const map = mapRef?.getMap();
     if (!map) return;
-    sync(); // seed for the initial viewport
+
+    const seedView = (): void => {
+      const c = map.getCenter();
+      setView({ lng: c.lng, lat: c.lat, zoom: map.getZoom() });
+    };
+
+    if (map.loaded()) seedView();
+    else map.once("load", seedView);
+
     map.on("moveend", sync);
     return () => {
+      map.off("load", seedView);
       map.off("moveend", sync);
       sync.cancel();
     };

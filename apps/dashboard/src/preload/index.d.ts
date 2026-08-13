@@ -283,6 +283,7 @@ declare global {
         delete: (region: string) => Promise<void>;
         onProgress: (cb: (data: RegionDownloadProgress) => void) => () => void;
         onChanged: (cb: () => void) => () => void;
+        onManifestUpdated: (cb: (data: RegionManifest) => void) => () => void;
       };
     };
   }

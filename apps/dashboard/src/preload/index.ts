@@ -92,7 +92,7 @@ const api = {
      * stop → the renderer defaults to the user's current location. */
     onOpenDirections: (
       cb: (data: {
-        stops: ({ lat: number; lng: number; label: string } | null)[];
+        stops: ({ lat: number; lng: number; label: string; filePath?: string } | null)[];
         mode: "auto" | "pedestrian" | "bicycle";
       }) => void
     ) => ipcRenderer.on("nav:open-directions", (_e, data) => cb(data)),

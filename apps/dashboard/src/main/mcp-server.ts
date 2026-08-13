@@ -672,7 +672,7 @@ export function buildMaposCustomTools(
           path: Type.Optional(
             Type.String({
               description:
-                "Vault file path of a saved place (as returned by query_spatial_index). Set this for a place already in the vault — its marker already exists on the map. Leave lat/lng unset in this case."
+                "Vault file path of a saved place — absolute (query_spatial_index `file_path`) or vault-relative (get_active_file / get_open_tabs). Set this for a place already in the vault. Leave lat/lng unset in this case."
             })
           ),
           lat: Type.Optional(
@@ -755,8 +755,12 @@ export function buildMaposCustomTools(
       const unresolvedResultIds: string[] = [];
       features.forEach((f, i) => {
         if (f.path != null && f.path.length > 0) {
-          refs.push(`vault:${f.path}`);
-          vaultPaths.push(f.path);
+          // Renderer looks up vaultPaths against absolutely keyed placesByPath.
+          // get_open_tabs reports vault-relative paths, so resolve before storing.
+          const abs = resolveUnderVault(f.path);
+          if (!abs) return;
+          refs.push(`vault:${abs}`);
+          vaultPaths.push(abs);
           return;
         }
 
@@ -878,11 +882,27 @@ export function buildMaposCustomTools(
       };
       const hasContent =
         points.length > 0 || lines.length > 0 || polygons.length > 0 || vaultPaths.length > 0;
+      const unresolved =
+        unresolvedResultIds.length > 0
+          ? {
+              unresolved_result_ids: unresolvedResultIds,
+              warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
+            }
+          : {};
       if (updateExisting) {
         if (!existingListTab) {
           return TEXT_RESULT(
             JSON.stringify({
               error: `No open feature list with layer_id "${layerId}". Call get_active_file or get_open_tabs for the current list, or omit layer_id to open a new one.`
+            })
+          );
+        }
+        if (!hasContent) {
+          return TEXT_RESULT(
+            JSON.stringify({
+              error:
+                "None of the features could be resolved — the open list was left unchanged. Re-run geocode_search/reverse_geocode for stale result_ids (or pass path/lat+lng), then call present_features again with layer_id.",
+              ...unresolved
             })
           );
         }
@@ -898,12 +918,7 @@ export function buildMaposCustomTools(
           updated: updateExisting,
           count: refs.length,
           refs: refs.join(","),
-          ...(unresolvedResultIds.length > 0
-            ? {
-                unresolved_result_ids: unresolvedResultIds,
-                warning: `${unresolvedResultIds.length} feature(s) referenced a result_id that is no longer cached (the cache is cleared on app restart or provider/model change) and were NOT shown. Re-run geocode_search/reverse_geocode for those places, then call present_features again with the fresh ids — do not give the user a short list that silently omits them.`
-              }
-            : {}),
+          ...unresolved,
           assistant_instructions:
             "This list is now displayed to the user as an interactive, map-linked card showing each feature's title and preview note. Do NOT repeat or enumerate these places in your text reply — no list, no per-place lines, no addresses already in the card. The user can already see and click them. Reply with at most one or two sentences (a standout, a pattern, or a brief confirmation), or nothing."
         })
@@ -1677,7 +1692,19 @@ export function buildMaposCustomTools(
         stops = [origin, destination];
       }
 
-      sendToRenderer("nav:open-directions", { stops, mode });
+      sendToRenderer("nav:open-directions", {
+        stops: stops.map((s) =>
+          s
+            ? {
+                lat: s.lat,
+                lng: s.lng,
+                label: s.label,
+                ...(s.vaultPath ? { filePath: s.vaultPath } : {})
+              }
+            : null
+        ),
+        mode
+      });
       const originLabel = stops[0]?.label ?? "current location";
       const destinationLabel = stops[stops.length - 1]?.label ?? "destination";
       return TEXT_RESULT(

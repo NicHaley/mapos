@@ -6,7 +6,7 @@
  *
  * Two sources: glyphs + sprites come from the public Protomaps CDN; the world
  * basemap and its geocode index come from the R2 bucket the region-pack pipeline
- * publishes to (see WORLD_BASE).
+ * (https://github.com/NicHaley/mapos-pipeline) publishes to (see WORLD_BASE).
  *
  *   node scripts/fetch-basemap-assets.mjs           # default: Latin/European ranges
  *   node scripts/fetch-basemap-assets.mjs --all     # full Unicode (large: tens of MB)
@@ -151,7 +151,9 @@ async function fetchWorldAsset(name, required) {
   console.error(`  ✗ ${name} unavailable (${reason})`);
   console.error("    The map would ship with NO backdrop outside downloaded regions.");
   console.error("    Set MAPOS_WORLD_BASE_URL to another source, or publish one with");
-  console.error("    `make world world-geocode upload-world` from the region-pack pipeline.");
+  console.error(
+    "    `make world world-geocode upload-world` from https://github.com/NicHaley/mapos-pipeline."
+  );
   process.exit(1);
 }
 

@@ -28,6 +28,9 @@ pnpm check        # Biome lint + format
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and how to submit changes.
 
+Region packs (offline tiles, routing, geocode) are built by a separate
+[pipeline](https://github.com/NicHaley/mapos-pipeline).
+
 ## Built on
 
 [OpenStreetMap](https://www.openstreetmap.org/copyright) ·

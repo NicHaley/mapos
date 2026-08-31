@@ -23,7 +23,8 @@ pnpm build:linux
 
 `build:*` runs `fetch:assets` first, which populates `resources/basemap-assets/`
 (gitignored) from two sources: glyphs and sprites from the Protomaps CDN, and the world
-basemap plus its geocode index from the R2 bucket the region-pack pipeline publishes to.
+basemap plus its geocode index from the R2 bucket the
+[region-pack pipeline](https://github.com/NicHaley/mapos-pipeline) publishes to.
 Files already on disk are left alone, so a locally built world always wins.
 
 `world.pmtiles` is a hard requirement and fails the build if it can't be obtained,

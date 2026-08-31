@@ -35,10 +35,9 @@ pnpm + Turbo workspace (`apps/*`, `packages/*`).
 
 **Not in this repo:** the region-pack build pipeline (Geofabrik OSM extracts →
 `.pmtiles` + Valhalla tiles + geocode SQLite, published to R2 with a manifest) lives in
-a separate `mapos-pipeline` repo, which is **private** — this repo is public, so never
-link to it in a file that ships here. It shares no code with the app, only the artifact
-format and the manifest schema, so a change to either side of that contract has to land
-in both repos.
+[`mapos-pipeline`](https://github.com/NicHaley/mapos-pipeline). It shares no code with
+the app, only the artifact format and the manifest schema, so a change to either side of
+that contract has to land in both repos.
 
 The world basemap (`world.pmtiles` + `world.sqlite`) is the one artifact the app build
 needs from it, and **the public R2 bucket is the only channel between the two repos**.

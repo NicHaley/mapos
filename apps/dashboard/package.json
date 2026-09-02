@@ -74,7 +74,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/vite": "^4.2.1",
-    "@tiptap/core": "^3.21.0",
+    "@tiptap/core": "^3.30.4",
     "@tiptap/extension-bubble-menu": "^3.21.0",
     "@tiptap/extension-link": "^3.21.0",
     "@tiptap/markdown": "^3.21.0",

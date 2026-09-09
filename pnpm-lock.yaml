@@ -263,7 +263,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.13.7
-        version: 1.19.14(hono@4.12.34)
+        version: 1.19.14(hono@4.13.5)
       '@mapos/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -274,8 +274,8 @@ importers:
         specifier: ^5.7.2
         version: 5.7.2
       hono:
-        specifier: ^4.12.34
-        version: 4.12.34
+        specifier: ^4.13.5
+        version: 4.13.5
       zod:
         specifier: ^4.0.0
         version: 4.3.6
@@ -5060,6 +5060,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -5466,8 +5467,8 @@ packages:
     resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
     engines: {node: '>=16.9.0'}
 
-  hono@4.12.34:
-    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@4.1.0:
@@ -9460,9 +9461,9 @@ snapshots:
     dependencies:
       hono: 4.12.18
 
-  '@hono/node-server@1.19.14(hono@4.12.34)':
+  '@hono/node-server@1.19.14(hono@4.13.5)':
     dependencies:
-      hono: 4.12.34
+      hono: 4.13.5
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -13295,7 +13296,7 @@ snapshots:
 
   hono@4.12.18: {}
 
-  hono@4.12.34: {}
+  hono@4.13.5: {}
 
   hosted-git-info@4.1.0:
     dependencies:

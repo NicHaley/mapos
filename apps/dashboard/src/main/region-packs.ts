@@ -35,10 +35,14 @@ const R2_BASE = (
 // Completeness marker written last after a successful download, so an interrupted
 // download (whose .part files are cleaned up) never leaves a dir that looks installed.
 const PACK_META_FILENAME = ".pack.json";
+const MANIFEST_CACHE_FILENAME = "manifest-cache.json";
 const MANIFEST_TTL_MS = 60_000;
 const PROGRESS_THROTTLE_MS = 200;
 
 let manifestCache: { at: number; data: RegionManifest } | null = null;
+/** Set by {@link registerRegionPacksIpc} — disk cache lives in userData. */
+let manifestAppStateDir: string | null = null;
+let manifestRefresh: Promise<RegionManifest> | null = null;
 
 /** Active downloads keyed by region slug, so cancelDownload can abort them. */
 const activeDownloads = new Map<string, AbortController>();
@@ -68,14 +72,37 @@ function broadcastChanged(): void {
   sendToRenderer("regions:changed");
 }
 
-/**
- * Fetch the region catalog from R2. Cached briefly so opening the Offline tab and
- * re-rendering doesn't re-hit the network on every keystroke. `force` bypasses it.
- */
-export async function fetchManifest(force = false): Promise<RegionManifest> {
-  if (!force && manifestCache && Date.now() - manifestCache.at < MANIFEST_TTL_MS) {
-    return manifestCache.data;
+function broadcastManifestUpdated(data: RegionManifest): void {
+  sendToRenderer("regions:manifest-updated", data);
+}
+
+function manifestDiskPath(): string {
+  if (!manifestAppStateDir) throw new Error("Region manifest disk cache is not initialized.");
+  return join(manifestAppStateDir, MANIFEST_CACHE_FILENAME);
+}
+
+function readManifestFromDisk(): RegionManifest | null {
+  if (!manifestAppStateDir) return null;
+  try {
+    const data = JSON.parse(readFileSync(manifestDiskPath(), "utf-8")) as RegionManifest;
+    if (!data || typeof data !== "object" || typeof data.regions !== "object") return null;
+    return data;
+  } catch {
+    return null;
   }
+}
+
+function writeManifestToDisk(data: RegionManifest): void {
+  if (!manifestAppStateDir) return;
+  writeFileSync(manifestDiskPath(), JSON.stringify(data));
+}
+
+function seedManifestCacheFromDisk(): void {
+  const disk = readManifestFromDisk();
+  if (disk) manifestCache = { at: 0, data: disk };
+}
+
+async function fetchManifestFromNetwork(): Promise<RegionManifest> {
   const res = await fetch(`${R2_BASE}/manifest.json`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch region manifest: HTTP ${res.status}`);
   const data = (await res.json()) as RegionManifest;
@@ -83,7 +110,46 @@ export async function fetchManifest(force = false): Promise<RegionManifest> {
     throw new Error("Region manifest is malformed.");
   }
   manifestCache = { at: Date.now(), data };
+  writeManifestToDisk(data);
+  broadcastManifestUpdated(data);
   return data;
+}
+
+function refreshManifestInBackground(): void {
+  if (manifestRefresh) return;
+  manifestRefresh = fetchManifestFromNetwork().finally(() => {
+    manifestRefresh = null;
+  });
+  void manifestRefresh.catch(() => {});
+}
+
+/**
+ * Fetch the region catalog from R2. Cached briefly in memory and persistently on
+ * disk so cold starts (after the in-memory TTL expires) can still resolve region
+ * bboxes for the coverage pill without waiting on the network. `force` bypasses
+ * the stale-while-revalidate path and always hits the network.
+ */
+export async function fetchManifest(force = false): Promise<RegionManifest> {
+  if (!force && manifestCache && Date.now() - manifestCache.at < MANIFEST_TTL_MS) {
+    return manifestCache.data;
+  }
+
+  if (!force) {
+    const stale = manifestCache?.data ?? readManifestFromDisk();
+    if (stale) {
+      if (!manifestCache) manifestCache = { at: 0, data: stale };
+      refreshManifestInBackground();
+      return stale;
+    }
+  }
+
+  if (manifestRefresh && !force) return manifestRefresh;
+  const pending = fetchManifestFromNetwork();
+  if (!force)
+    manifestRefresh = pending.finally(() => {
+      manifestRefresh = null;
+    });
+  return pending;
 }
 
 /** Region packs present on disk, read from their `.pack.json` sidecars. */
@@ -287,6 +353,10 @@ export function deleteRegion(appStateDir: string, region: string): void {
  * for the lifetime of the window, alongside the other service IPCs.
  */
 export function registerRegionPacksIpc(appStateDir: string): void {
+  manifestAppStateDir = appStateDir;
+  seedManifestCacheFromDisk();
+  refreshManifestInBackground();
+
   ipcMain.handle("regions:get-manifest", (_e, force?: boolean) => fetchManifest(!!force));
   ipcMain.handle("regions:list-local", () => listLocal(regionsDirFor(appStateDir)));
   ipcMain.handle(

@@ -1,6 +1,6 @@
 {
   "name": "@mapos/dashboard",
-  "version": "1.0.0-beta.15",
+  "version": "1.0.0-beta.16",
   "description": "The connected map for you and your agents.",
   "type": "module",
   "main": "./out/main/index.js",
@@ -60,7 +60,7 @@
     "drizzle-orm": "^0.44.2",
     "electron-updater": "^6.6.2",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^4.3.1",
+    "js-yaml": "^4.3.2",
     "pmtiles": "^4.4.1",
     "terra-draw": "^1.32.2",
     "terra-draw-maplibre-gl-adapter": "^1.4.1",
@@ -74,7 +74,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/vite": "^4.2.1",
-    "@tiptap/core": "^3.21.0",
+    "@tiptap/core": "^3.30.5",
     "@tiptap/extension-bubble-menu": "^3.21.0",
     "@tiptap/extension-link": "^3.21.0",
     "@tiptap/markdown": "^3.21.0",
@@ -106,6 +106,6 @@
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

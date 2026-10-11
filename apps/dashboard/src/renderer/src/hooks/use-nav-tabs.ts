@@ -337,13 +337,22 @@ export function navReducer(state: NavState, action: NavAction): NavState {
       };
     }
     case "update-list": {
+      const tabIndex = state.tabs.findIndex((tab) => {
+        const entry = tab.history[tab.cursor];
+        return entry?.kind === "list" && entry.layerId === action.layerId;
+      });
       return {
         ...state,
+        ...(tabIndex >= 0 ? { activeTab: tabIndex } : {}),
         tabs: state.tabs.map((tab) => ({
           ...tab,
           history: tab.history.map((entry) =>
             entry.kind === "list" && entry.layerId === action.layerId
-              ? { ...entry, layer: action.layer }
+              ? {
+                  ...entry,
+                  layer: action.layer,
+                  label: action.layer.layerName || entry.label
+                }
               : entry
           )
         }))

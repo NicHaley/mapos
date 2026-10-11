@@ -107,6 +107,13 @@ type StyleLayer = {
 };
 
 function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: boolean): Response {
+  const cacheKey = styleCacheKey(regionsDir, theme, monochrome);
+  if (styleCache?.key === cacheKey) {
+    return new Response(styleCache.body, {
+      headers: { "content-type": "application/json", ...CORS }
+    });
+  }
+
   // Theme × "Map color" → Protomaps flavor. The monochrome flavors ("black" /
   // "white") define no POI colors or icons, so graft the tinted flavor's POI
   // palette onto them (and reuse the tinted sprite sheet, a superset of icons).
@@ -172,7 +179,9 @@ function styleResponse(regionsDir: string, theme: "light" | "dark", monochrome: 
     sources,
     layers: [...worldLayers, ...regionLayers]
   };
-  return new Response(JSON.stringify(style), {
+  const body = JSON.stringify(style);
+  styleCache = { key: cacheKey, body };
+  return new Response(body, {
     headers: { "content-type": "application/json", ...CORS }
   });
 }
@@ -215,6 +224,22 @@ function archive(path: string): PMTiles {
   return a.pmtiles;
 }
 
+/** Open the bundled world archive and read its header so the first map tile isn't cold. */
+export async function prewarmWorldArchive(worldPmtilesPath: string): Promise<void> {
+  await archive(worldPmtilesPath).getHeader();
+}
+
+let styleCache: { key: string; body: string } | null = null;
+
+function styleCacheKey(regionsDir: string, theme: "light" | "dark", monochrome: boolean): string {
+  const slugs = listInstalledRegions(regionsDir)
+    .filter((r) => r.pmtiles)
+    .map((r) => r.region)
+    .sort()
+    .join(",");
+  return `${theme}:${monochrome ? "1" : "0"}:${slugs}`;
+}
+
 /**
  * Close every cached pmtiles file descriptor and drop the archive cache. Call
  * after a pack is deleted or re-downloaded — otherwise the cached archive keeps
@@ -224,6 +249,7 @@ function archive(path: string): PMTiles {
 export function closeRegionArchives(): void {
   for (const { source } of archives.values()) source.close();
   archives.clear();
+  styleCache = null;
 }
 
 async function pmtilesTile(path: string, z: number, x: number, y: number): Promise<Response> {

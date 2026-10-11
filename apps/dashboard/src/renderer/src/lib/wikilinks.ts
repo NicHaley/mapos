@@ -1,4 +1,7 @@
 import type { FileNode } from "../../../shared/types";
+import { resolveWikilinkPath, wikilinkForFile } from "../../../shared/wikilinks";
+
+export { resolveWikilinkPath, wikilinkForFile };
 
 export type VaultMdFile = {
   title: string;
@@ -44,56 +47,4 @@ export function resolveWikilinkTarget<T extends VaultMdFile>(
   link: string
 ): T | undefined {
   return files.find((f) => f.relPath === link) ?? files.find((f) => f.title === link);
-}
-
-/** Vault-relative path without the `.md` extension, `/`-separated. */
-function relPathNoExt(filePath: string, vaultRoot: string): string {
-  const rel =
-    vaultRoot && filePath.startsWith(vaultRoot)
-      ? filePath.slice(vaultRoot.length).replace(/^[/\\]/, "")
-      : filePath;
-  return rel.replace(/\.md$/i, "").replace(/\\/g, "/");
-}
-
-function titleOfPath(filePath: string): string {
-  return (filePath.split(/[/\\]/).pop() ?? filePath).replace(/\.md$/i, "");
-}
-
-/**
- * The `[[link]]` text for a vault file — its bare filename when that is unique in the vault,
- * otherwise the vault-relative path, which {@link resolveWikilinkTarget} matches first.
- *
- * Works off the places index rather than a directory listing so callers stay synchronous.
- */
-export function wikilinkForFile(
-  filePath: string,
-  vaultRoot: string,
-  allFilePaths: Iterable<string>
-): string {
-  const title = titleOfPath(filePath);
-  let sameTitle = 0;
-  for (const p of allFilePaths) {
-    if (titleOfPath(p) === title && ++sameTitle > 1) break;
-  }
-  return `[[${sameTitle > 1 ? relPathNoExt(filePath, vaultRoot) : title}]]`;
-}
-
-/**
- * Reverse of {@link wikilinkForFile}: `[[link]]` text → an absolute vault path, or null when
- * nothing matches (the target was renamed or deleted — links are never rewritten on rename).
- * Mirrors {@link resolveWikilinkTarget}'s precedence: exact relative path, then filename.
- */
-export function resolveWikilinkPath(
-  link: string,
-  vaultRoot: string,
-  allFilePaths: Iterable<string>
-): string | null {
-  const needle = link.trim().replace(/^\[\[/, "").replace(/\]\]$/, "").trim();
-  if (!needle) return null;
-  let byTitle: string | null = null;
-  for (const p of allFilePaths) {
-    if (relPathNoExt(p, vaultRoot) === needle) return p;
-    if (byTitle === null && titleOfPath(p) === needle) byTitle = p;
-  }
-  return byTitle;
 }

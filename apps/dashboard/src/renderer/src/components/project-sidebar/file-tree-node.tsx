@@ -153,6 +153,15 @@ export function FileTreeNode({
     setRenameError(null);
   }
 
+  /** Dropdown close returns focus through the trigger; defer so rename isn't cancelled first. */
+  function handleRenameBlur() {
+    window.setTimeout(() => {
+      if (document.activeElement !== inputRef.current) {
+        cancelRename();
+      }
+    }, 0);
+  }
+
   function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -174,7 +183,7 @@ export function FileTreeNode({
             setRenameError(null);
           }}
           onKeyDown={handleRenameKeyDown}
-          onBlur={cancelRename}
+          onBlur={handleRenameBlur}
           onClick={(e) => e.stopPropagation()}
           className={cn(
             "w-full h-5 min-h-5 box-border rounded p-0 text-sm leading-5",
@@ -392,26 +401,25 @@ export function FileTreeNode({
             </ContextMenuTrigger>
             <ContextMenuContent>{folderMenuItems}</ContextMenuContent>
           </ContextMenu>
-          {!isRenaming && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuAction
-                    className={cn(
-                      itemActionClass,
-                      "group-focus-within/folder-row:opacity-100 group-hover/folder-row:opacity-100 aria-expanded:opacity-100 md:opacity-0"
-                    )}
-                  >
-                    <EllipsisIcon />
-                    <span className="sr-only">More actions</span>
-                  </SidebarMenuAction>
-                }
-              />
-              <DropdownMenuContent side="right" align="start" className="w-auto">
-                {dropdownFolderMenuItems}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuAction
+                  className={cn(
+                    itemActionClass,
+                    isRenaming && "hidden",
+                    "group-focus-within/folder-row:opacity-100 group-hover/folder-row:opacity-100 aria-expanded:opacity-100 md:opacity-0"
+                  )}
+                >
+                  <EllipsisIcon />
+                  <span className="sr-only">More actions</span>
+                </SidebarMenuAction>
+              }
+            />
+            <DropdownMenuContent side="right" align="start" className="w-auto">
+              {dropdownFolderMenuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {open && node.children && node.children.length > 0 && (
           <SidebarMenuSub className="mr-0 translate-x-0 pr-0">
@@ -491,21 +499,19 @@ export function FileTreeNode({
         </ContextMenuTrigger>
         <ContextMenuContent>{menuItems}</ContextMenuContent>
       </ContextMenu>
-      {!isRenaming && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <SidebarMenuAction showOnHover className={itemActionClass}>
-                <EllipsisIcon />
-                <span className="sr-only">More actions</span>
-              </SidebarMenuAction>
-            }
-          />
-          <DropdownMenuContent side="right" align="start" className="w-auto">
-            {dropdownMenuItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuAction showOnHover className={cn(itemActionClass, isRenaming && "hidden")}>
+              <EllipsisIcon />
+              <span className="sr-only">More actions</span>
+            </SidebarMenuAction>
+          }
+        />
+        <DropdownMenuContent side="right" align="start" className="w-auto">
+          {dropdownMenuItems}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   );
 }

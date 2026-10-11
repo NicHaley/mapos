@@ -34,6 +34,9 @@ function markerColor(r: RegionRow, dark: boolean): string {
   return dark ? "#ffffff" : "#71717a";
 }
 
+const REQUEST_REGION_URL =
+  "https://github.com/NicHaley/mapos/issues/new?template=region_request.yml";
+
 const isDownloaded = (r: RegionRow): boolean =>
   r.status === "installed" || r.status === "update-available";
 
@@ -540,12 +543,29 @@ export function RegionPicker() {
     </div>
   );
 
+  // Only a handful of regions are published; the rest are built on request.
+  const requestLink = (
+    <p className="shrink-0 px-1 text-xs text-muted-foreground">
+      Don’t see your region?{" "}
+      <a
+        href={REQUEST_REGION_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="underline-offset-2 hover:text-foreground hover:underline"
+      >
+        Request it on GitHub
+      </a>
+      .
+    </p>
+  );
+
   // Map + search stay pinned; only the list below them scrolls.
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="w-full shrink-0">{map}</div>
       {search}
       {list}
+      {requestLink}
     </div>
   );
 }

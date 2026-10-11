@@ -1,0 +1,25 @@
+name: Request a region pack
+description: Ask for an offline region pack that isn't published yet
+labels: ["region-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        MapOS is in maintenance mode, so only a few region packs are published. Packs are
+        built on request when there's interest. One region per issue, please — search
+        existing requests first and upvote with 👍 if yours is already there.
+
+  - type: input
+    id: region
+    attributes:
+      label: Region
+      description: Country, state, or province (any Geofabrik extract — https://download.geofabrik.de)
+      placeholder: Portugal, Ontario, Bavaria…
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Anything else?
+      description: Optional — what you'd use it for, or a smaller sub-region that would do.

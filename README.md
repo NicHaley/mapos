@@ -14,6 +14,10 @@ Free, no account, Apple Silicon only. No telemetry or analytics.
 
 Download a region pack and the basemap, search, and routing all run offline.
 
+> **Maintenance mode.** MapOS is no longer in active development. A small set of
+> region packs stays published (currently Quebec, Ontario, Portugal); others are
+> built on request — [open a region request](https://github.com/NicHaley/mapos/issues/new?template=region_request.yml).
+
 ## Development
 
 Node 22 and pnpm.

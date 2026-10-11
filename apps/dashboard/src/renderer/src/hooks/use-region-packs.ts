@@ -161,7 +161,7 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
 
   const regions = useMemo<RegionRow[]>(() => {
     if (!manifest) return [];
-    return Object.entries(manifest.regions).map(([slug, entry]) => {
+    const listed = Object.entries(manifest.regions).map(([slug, entry]) => {
       const installed = localByRegion.get(slug);
       const prog = progress[slug];
       const latestBytes = entry.versions[entry.latest]?.total_bytes ?? 0;
@@ -204,7 +204,23 @@ export function useRegionPacks(enabled: boolean): UseRegionPacks {
         error: prog?.phase === "error" ? prog.error : undefined
       };
     });
-  }, [manifest, localByRegion, progress]);
+
+    // A pack installed from a region the manifest no longer lists (the catalog was
+    // trimmed) stays usable and removable: surface it as installed, never updatable.
+    const unlisted = local
+      .filter((p) => !(p.region in manifest.regions))
+      .map<RegionRow>((p) => ({
+        slug: p.region,
+        name: p.name ?? p.region,
+        bbox: p.bbox,
+        center: p.bbox ? [(p.bbox[0] + p.bbox[2]) / 2, (p.bbox[1] + p.bbox[3]) / 2] : undefined,
+        latest: p.version,
+        latestBytes: p.totalBytes,
+        installed: p,
+        status: "installed"
+      }));
+    return [...listed, ...unlisted];
+  }, [manifest, local, localByRegion, progress]);
 
   // Continent → country tree, the grouping the picker renders.
   const continents = useMemo<RegionContinentRow[]>(() => {

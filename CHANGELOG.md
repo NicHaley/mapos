@@ -4,6 +4,17 @@ Notable changes to MapOS. Generated from commit history by [git-cliff](https://g
 History before `v1.0.0-beta.12` is not covered here — see `git log`.
 
 
+## 1.0.0-beta.17 — 2026-10-11
+
+### Documentation
+
+- Link the now-public region-pack pipeline ([`8ea696a`](https://github.com/NicHaley/mapos/commit/8ea696abbb9a3a1eebce8adac1706f3e84289564))
+
+### Features
+
+- Request-a-region link and keep unlisted installed packs visible ([`c838814`](https://github.com/NicHaley/mapos/commit/c8388148145d49e0809e6b2e31fe579af9c9e7a1))
+
+
 ## 1.0.0-beta.16 — 2026-08-13
 
 ### Bug fixes

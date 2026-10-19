@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@mapos/ui": "workspace:*",
-    "@opennextjs/cloudflare": "^1.19.9",
+    "@opennextjs/cloudflare": "^1.20.2",
     "next": "16.3.6",
     "next-video": "^2.8.1",
     "react": "19.2.4",

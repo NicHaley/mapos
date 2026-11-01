@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@mapos/contracts": "workspace:*",
-    "zod": "^4.0.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.16",
